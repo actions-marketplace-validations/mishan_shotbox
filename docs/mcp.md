@@ -34,15 +34,28 @@ layout, what's drawn.
 **Sessions are the server's.** `start_session` starts one and names it,
 and every other tool names the session it acts on. The sessions are held
 in the server's process, as `Session` objects, and all of them stop when
-it does: when the client closes its stdin, or sends SIGTERM, SIGINT or
-SIGHUP, one after another as clients do. A server killed outright
-(SIGKILL) can't stop anything, and leaves its sessions running.
+it does, however it ends. When the client closes its stdin, the server
+stops them in turn. A client stopping a server doesn't wait for that:
+Claude Code sends SIGINT, SIGTERM 100ms later and SIGKILL 400ms after
+that, and one session can take longer to stop than that.
+
+So every session lives in a directory of the server's, and a watchdog
+(`shotbox mcp --watch DIR`, in a process session of its own, out of the
+client's reach) holds a pipe from the server. However the server ends,
+SIGKILL included, the pipe closes. The watchdog then kills every process
+with that directory, or a path in it, in its environment, and removes
+the directory. Each process a session starts has one: its scratch dir,
+runtime dir or home, or the server's own `SHOTBOX_MCP`, for what inherits
+the server's environment. A command line naming the directory isn't
+enough, so someone's `tail -f` on a log in it is left alone. On a signal
+the server exits at once, leaving the sessions to the watchdog.
 
 **Programs come from a list.** An agent can't run a command. It spawns a
 program by its name in the allow file the person started the server
 with:
 
-    # NAME = COMMAND ARGS..., split as a shell would, run without one
+    # NAME = COMMAND ARGS..., split as a shell would, run without one;
+    # a # starting a word, outside quotes, starts a comment
     editor = gnome-text-editor
     gtkhx = ./build/src/gtkhx --server localhost
     demo = /usr/bin/python3 tests/demo.py

@@ -15,6 +15,15 @@ the SDK would be shotbox's first Python dependency, for four methods.
 The accessible tree is read in a `shotbox a11y` process for each call,
 as the Python API reads it: libatspi keeps the first bus it finds, and
 each session has its own.
+
+Every session lives in a directory of the server's, and a watchdog
+(`shotbox mcp --watch DIR`, in a process session of its own) holds a
+pipe from the server: however the server ends, the pipe closes, and the
+watchdog kills every process with the directory, or a path in it, in its
+environment, and removes it.
+Clients stop a server faster than a session stops (Claude Code: SIGINT,
+SIGTERM 100ms on, SIGKILL 400ms after that), so a signal ends the server
+at once and leaves the sessions to the watchdog.
 """
 
 import argparse
@@ -24,9 +33,12 @@ import math
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 from . import __version__
@@ -47,6 +59,22 @@ class Refused(Exception):
 # --- what it may run ------------------------------------------------------------
 
 
+def uncomment(line):
+    """`line` up to a `#` that starts a word outside quotes, as a shell
+    reads a comment: `--accent=#3584e4` and `'#'` are no comment."""
+    quote, prev = None, " "
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"" and prev != "\\":
+            quote = ch
+        elif ch == "#" and prev.isspace():
+            return line[:i]
+        prev = ch
+    return line
+
+
 def programs(path):
     """The allow file: a program a line, `NAME = COMMAND ARGS...`, split as
     a shell would but run without one, `#` for comments. A command with a
@@ -62,7 +90,7 @@ def programs(path):
             continue
         name, eq, command = line.partition("=")
         try:
-            name, words = name.strip(), shlex.split(command, comments=True)
+            name, words = name.strip(), shlex.split(uncomment(command))
         except ValueError as e:
             raise SessionError(f"{path}:{n}: {e}: {line}")
         if not eq or not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or not words:
@@ -164,12 +192,16 @@ class Server:
                 + f". Programs it can spawn: {progs}.")
 
     def stop_session(self, session):
+        session = str(session)
         s = self.session(session)
-        del self.sessions[session], self.spawned[session]
-        s.__exit__(None, None, None)
+        try:
+            s.__exit__(None, None, None)
+        finally:
+            del self.sessions[session], self.spawned[session]
         return f"Session {session!r} stopped, and everything in it."
 
     def spawn(self, session, program):
+        session = str(session)
         s = self.session(session)
         if program not in self.allowed:
             listed = ", ".join(self.allowed) or "none"
@@ -184,6 +216,7 @@ class Server:
         return f"Started {program} (pid {proc.pid}) in {session!r}."
 
     def program_output(self, session, program, lines=40):
+        session = str(session)
         self.session(session)
         runs = [r for r in self.spawned[session] if r[0] == program]
         if not runs:
@@ -490,6 +523,56 @@ def handle(server, msg):
     return {"jsonrpc": "2.0", "id": rid, "result": result}
 
 
+def ours(environ, root):
+    """Whether an environment (/proc's, NUL-separated) is a session's under
+    `root`: a variable that is `root` or a path in it. Every process a
+    session starts has one (its scratch, runtime dir or home, or the
+    server's SHOTBOX_MCP, for what inherits the server's environment), and
+    nothing else does: a command line naming `root` (someone's `tail -f`
+    on a log in it) isn't enough."""
+    for entry in environ.split(b"\0"):
+        value = entry.partition(b"=")[2]
+        if value == root or value.startswith(root + b"/"):
+            return True
+    return False
+
+
+def reap(root):
+    """Kill every process of ours that is a session's under `root`, until
+    none is left; then remove it."""
+    me, mark = os.getpid(), str(root).encode()
+    for _ in range(50):
+        found = []
+        for d in Path("/proc").glob("[0-9]*"):
+            if int(d.name) == me:
+                continue
+            try:
+                if d.stat().st_uid == os.getuid() and ours((d / "environ").read_bytes(), mark):
+                    found.append(int(d.name))
+            except OSError:   # gone, or not ours to read
+                continue
+        if not found:
+            break
+        for pid in found:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        time.sleep(0.05)
+    shutil.rmtree(root, ignore_errors=True)
+
+
+def watch(root):
+    """The watchdog: wait for the server's end of the pipe on stdin to
+    close, then reap what's left of its sessions. Signals meant for the
+    server aren't for it."""
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, signal.SIG_IGN)
+    sys.stdin.buffer.read()
+    reap(root)
+    return 0
+
+
 def main(argv):
     p = argparse.ArgumentParser(prog="shotbox mcp",
                                 description="Sealed sessions for an agent, over the Model "
@@ -497,8 +580,24 @@ def main(argv):
                                             "sessions stop when it does.")
     p.add_argument("--allow", metavar="FILE",
                    help="the programs it may spawn: NAME = COMMAND a line (none without it)")
+    p.add_argument("--watch", metavar="DIR", help=argparse.SUPPRESS)
     a = p.parse_args(argv)
+    if a.watch:
+        return watch(a.watch)
     allowed, home = programs(a.allow)
+    from .__main__ import self_command
+    root = Path(tempfile.mkdtemp(prefix="shotbox-mcp-"))
+    tempfile.tempdir = str(root)   # where Session makes each scratch dir
+    # What a session starts with the server's environment (Xvfb, its bus)
+    # has this, for the watchdog to know it by.
+    os.environ["SHOTBOX_MCP"] = str(root)
+    # The server's end stays open, unused, for as long as the server lives:
+    # its closing, however the server ends, is what the watchdog waits for.
+    r, _ = os.pipe()
+    subprocess.Popen([*self_command(), "mcp", "--watch", str(root)], stdin=r,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    os.close(r)
     # The protocol's alone on stdin and stdout: anything else printed to
     # stdout ends the connection, and a program reading stdin eats
     # requests. So the server keeps them, and fd 0 and 1 are /dev/null and
@@ -507,8 +606,10 @@ def main(argv):
     os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
     os.dup2(2, 1)
     sys.stdout = sys.stderr
-    for sig in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, signal.default_int_handler)
+    # A signal ends the server now: the watchdog stops the sessions, in the
+    # time a client gives, which a session stopping in turn doesn't fit.
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda *_: os._exit(0))
     server = Server(allowed, home)
     try:
         for line in inp:
@@ -529,12 +630,6 @@ def main(argv):
             if answer is not None:
                 out.write(json.dumps(answer) + "\n")
                 out.flush()
-    except KeyboardInterrupt:
-        pass
     finally:
-        # A client stopping a server sends one signal after another; the
-        # sessions are stopped whatever comes next.
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            signal.signal(sig, signal.SIG_IGN)
         server.close()
     return 0

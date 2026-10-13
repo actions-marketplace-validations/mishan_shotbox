@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -29,13 +30,16 @@ def check(cond, what):
 
 tmp = Path(tempfile.mkdtemp())
 allow = tmp / "programs"
+# `where` says where its session is, and takes a second to go when told to.
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
-                 f"rel = bin/thing --flag 'two words'\n"
-                 f"reader = /bin/sh -c 'cat > /dev/null'\n")
+                 f"rel = bin/thing --flag 'two words' --accent=#3584e4\n"
+                 f"reader = /bin/sh -c 'cat > /dev/null'\n"
+                 "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
+                 " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
-check(allowed["rel"] == [str(tmp / "bin/thing"), "--flag", "two words"] and home == tmp
-      and allowed["app"] == [str(here / "a11y_app.py")],
-      "the allow file: shell words, comments, a relative command from the file's dir")
+check(allowed["rel"] == [str(tmp / "bin/thing"), "--flag", "two words", "--accent=#3584e4"]
+      and home == tmp and allowed["app"] == [str(here / "a11y_app.py")],
+      "the allow file: shell words, comments, a # in a word, a relative command")
 bad_allow = tmp / "bad"
 bad_allow.write_text("x = 'unclosed\n")
 try:
@@ -139,6 +143,10 @@ def serve(*requests):
         proc.stdin.write(json.dumps(q) + "\n")
         proc.stdin.flush()
         if "id" in q:
+            # A server that never answers fails the test, not hangs it.
+            if not select.select([proc.stdout], [], [], 120)[0]:
+                proc.kill()
+                raise SystemExit(f"FAIL  over stdio: no answer to {q['id']}")
             answers.append(json.loads(proc.stdout.readline()))
     return proc, answers
 
@@ -169,6 +177,40 @@ pid = int(re.search(r"pid (\d+)", answers[3]["result"]["content"][0]["text"])[1]
 proc.stdin.close()
 proc.wait(60)
 check(proc.returncode == 0 and gone(pid), "over stdio: its sessions stop when stdin closes")
+def pid_of(answer):
+    return int(re.search(r"pid (\d+)", answer["result"]["content"][0]["text"])[1])
+
+
+def until_gone(*paths_or_pids, wait=5):
+    end = time.monotonic() + wait
+    while time.monotonic() < end:
+        if all(gone(p) if isinstance(p, int) else not Path(p).exists() for p in paths_or_pids):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+# As Claude Code stops a server: SIGINT, SIGTERM 100ms on, SIGKILL 400ms
+# after, with a program that takes a second to go on TERM. And a SIGKILL
+# alone. The watchdog stops what the server can't, either way.
+for how in ("claude", "kill"):
+    proc, answers = serve(call_q(1, "start_session", name=how, wayland=how == "kill"),
+                          call_q(2, "spawn", session=how, program="app"),
+                          call_q(3, "spawn", session=how, program="where"),
+                          call_q(4, "wait_for", session=how, what="stable"),
+                          call_q(5, "program_output", session=how, program="where"))
+    app, where = pid_of(answers[1]), pid_of(answers[2])
+    scratch = answers[4]["result"]["content"][0]["text"].splitlines()[1]
+    if how == "claude":
+        proc.send_signal(signal.SIGINT)
+        time.sleep(0.1)
+        proc.send_signal(signal.SIGTERM)
+        time.sleep(0.4)
+    proc.kill()
+    proc.wait(10)
+    check(scratch.startswith("/") and until_gone(app, where, scratch),
+          f"stopped {'as Claude Code stops it' if how == 'claude' else 'by SIGKILL'}: "
+          "its sessions go anyway, and their scratch dirs")
 proc, answers = serve(call_q(1, "start_session", name="hup"),
                       call_q(2, "spawn", session="hup", program="app"))
 pid = int(re.search(r"pid (\d+)", answers[1]["result"]["content"][0]["text"])[1])
