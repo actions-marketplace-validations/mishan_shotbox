@@ -180,6 +180,9 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   out=$("$sb" run --a11y -- sh -c "'$app' untitled & '$sb' a11y tree --window python3" | head -1)
   [ "$out" = 'frame ""' ] && ok "a11y: a window with no name goes by the display's" \
     || fail "a11y: no name: $out"
+  out=$("$sb" run --a11y -- sh -c "'$app' second & '$sb' a11y tree --window a11y-test" | grep -c '^frame')
+  [ "$out" = 1 ] && ok "a11y: a named window doesn't bring its program's unnamed ones" \
+    || fail "a11y: named and unnamed: $out frames"
   out=$("$sb" run --a11y -- sh -c 'case $AT_SPI_BUS_ADDRESS in
     *"path=$SHOTBOX_SCRATCH/"*) echo ours ;; *) echo "$AT_SPI_BUS_ADDRESS" ;; esac')
   [ "$out" = ours ] && ok "a11y: the bus is the session's own" || fail "a11y: the bus: $out"

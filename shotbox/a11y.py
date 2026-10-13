@@ -103,25 +103,26 @@ def find_toplevels(Atspi, window=None):
         if app is None:
             continue
         apps.append((app.get_name() or "", i, app))
+    def picks(got):
+        if window.startswith("app="):
+            return bool(got) and got == display()[0]
+        return re.fullmatch(window, got) is not None
+
     hits = []
     for name, _, app in sorted(apps, key=lambda a: a[:2]):
-        for j in range(app.get_child_count()):
-            top = app.get_child_at_index(j)
-            if top is None:
-                continue
-            got = top.get_name() or ""
-            if window is None:
-                hit = True
-            elif not got:
-                # No name of its own (a toolkit's window with no title, its
-                # header drawn by hand): the display's window says which.
-                hit = display()[1] is not None and app.get_process_id() == display()[1]
-            elif window.startswith("app="):
-                hit = got == display()[0]
-            else:
-                hit = re.fullmatch(window, got)
-            if hit:
-                hits.append((app, top))
+        tops = [t for t in (app.get_child_at_index(j) for j in range(app.get_child_count()))
+                if t is not None]
+        names = [t.get_name() or "" for t in tops]
+        if window is None:
+            hits += [(app, t) for t in tops]
+            continue
+        # A window with no name of its own (a toolkit's window with no title)
+        # goes by the display's: it's picked when its program owns the window
+        # picked there, unless one of the program's named windows is picked.
+        unnamed = "" in names and (picks("") or (
+            not any(picks(n) for n in names if n)
+            and display()[1] is not None and app.get_process_id() == display()[1]))
+        hits += [(app, t) for t, got in zip(tops, names) if (picks(got) if got else unnamed)]
     return hits
 
 

@@ -46,7 +46,9 @@ not be inside it, or may have read another session's tree before.
 
 `--window` picks a window by its title, or `app=RE` by its app id. A
 window with no accessible name of its own goes by the display's window:
-the one `--window` picks there, matched to its program by process.
+the one `--window` picks there, matched to its program by process, unless
+one of that program's named windows is picked. A pattern that matches an
+empty name, like `.*`, picks every unnamed window.
 
 The tree leaves out nodes that aren't visible (a hidden widget, a stack
 page not shown), and lists the states a screen reader says, not the ones
