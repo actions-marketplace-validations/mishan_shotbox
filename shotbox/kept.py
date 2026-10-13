@@ -15,7 +15,6 @@ in the runtime dir naming its environment, which `--session` puts a
 command inside, as `shotbox run` puts one.
 """
 
-import errno
 import json
 import os
 import re
@@ -147,23 +146,28 @@ def start(name, argv):
     raise SessionError("no free session name")
 
 
-def claim(record):
-    """Make the record for this process, or fail if another session has the
-    name: made only if it isn't there, so of two sessions started at once,
-    one has it; and never through a link left there."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-    for _ in range(2):
-        try:
-            return os.open(record, flags, 0o600)
-        except FileExistsError:
-            if read(record):
-                break
-            record.unlink(missing_ok=True)   # a session that's gone
-        except OSError as e:
-            if e.errno != errno.ELOOP:
-                raise
-            break
-    raise SessionError(f"there's a session called {record.stem!r} already")
+def claim(record, kept):
+    """Make the record, `kept`, or fail if another session has the name. It's
+    written whole to a file of this process's, then linked into place,
+    which fails if the name is there: so of two sessions started at once,
+    one has it, and neither ever reads the other's record half written
+    and takes it for one whose session has gone."""
+    mine = record.with_name(f".{record.stem}.{os.getpid()}")
+    fd = os.open(mine, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(kept, f)
+    try:
+        for _ in range(2):
+            try:
+                os.link(mine, record)
+                return
+            except FileExistsError:
+                if read(record):
+                    break
+                record.unlink(missing_ok=True)   # a session that's gone
+        raise SessionError(f"there's a session called {record.stem!r} already")
+    finally:
+        mine.unlink()
 
 
 def serve(name, session, keep=False):
@@ -174,14 +178,12 @@ def serve(name, session, keep=False):
     control = session.scratch / "control"
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, signal.default_int_handler)
-    fd = claim(record)
+    claim(record, {"pid": os.getpid(), "started": started(os.getpid()),
+                   "env": session.env, "control": str(control), "keep": keep})
     try:
         with socket.socket(socket.AF_UNIX) as server:
             server.bind(str(control))
             server.listen()
-            with os.fdopen(fd, "w") as f:
-                json.dump({"pid": os.getpid(), "started": started(os.getpid()),
-                           "env": session.env, "control": str(control), "keep": keep}, f)
             print("ready", flush=True)
             # Nothing more is written there, and the starter stops reading.
             devnull = os.open(os.devnull, os.O_WRONLY)

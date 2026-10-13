@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Two `shotbox start`s with one name at once both started**, and one
+  session was left running with nothing to stop it by. The first wrote
+  its record empty and filled it in later; in between, the second took
+  the empty record for one whose session had gone. A record is now
+  written whole and linked into place.
+
 ## 0.4.0 — 2026-10-13
 
 A session can have an accessibility bus of its own, to read, lint and
