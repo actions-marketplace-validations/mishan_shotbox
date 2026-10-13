@@ -2,6 +2,9 @@
 
     shotbox shoot OUT.png [options] -- COMMAND...   run it, wait, take the picture
     shotbox run [options] -- COMMAND...             run it in a sealed session
+    shotbox start [--name NAME] [options]           a session that lasts, until stopped
+    shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
+    shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
     shotbox wait window|port|file|ready|stable|announce ARG
                                                     (inside a session) wait for it
@@ -17,7 +20,8 @@
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
     shotbox compare REFDIR NEWDIR [NAME...]         the same, picture by picture
 
-`shotbox COMMAND --help` for each one's options.
+`shotbox --session NAME COMMAND ...` runs any of the commands for inside a
+session in a lasting one. `shotbox COMMAND --help` for each one's options.
 """
 
 import argparse
@@ -27,7 +31,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import a11y, term, x, xtest
+from . import a11y, kept, term, x, xtest
 from .screen import Screen, SessionError
 from .session import Session
 
@@ -201,8 +205,44 @@ def cmd_shoot(argv):
 def inside():
     """The display of the session this runs in."""
     if not os.environ.get("SHOTBOX_SCRATCH"):
-        raise SystemExit("shotbox: this only works inside `shotbox run`")
+        raise SystemExit("shotbox: this only works inside `shotbox run`, or with "
+                         "`shotbox --session NAME`")
     return Screen()
+
+
+def cmd_spawn(argv):
+    p = argparse.ArgumentParser(prog="shotbox spawn",
+                                description="Start a program in a lasting session "
+                                            "(`shotbox start`), which stops it when "
+                                            "the session stops.")
+    p.add_argument("--session", required=True, metavar="NAME")
+    p.add_argument("--log", metavar="FILE", help="its output goes here (else nowhere)")
+    opts, cmd = split(argv)
+    a = p.parse_args(opts)
+    got = kept.ask(kept.find(a.session), {
+        "op": "spawn", "cmd": command(cmd, p), "cwd": os.getcwd(),
+        "log": a.log and str(Path(a.log).resolve())})
+    print(got["pid"])
+    return 0
+
+
+def cmd_stop(argv):
+    p = argparse.ArgumentParser(prog="shotbox stop",
+                                description="Stop a lasting session, and everything in it.")
+    p.add_argument("name", nargs="+", metavar="NAME")
+    for name in p.parse_args(argv).name:
+        scratch = kept.stop(name)
+        if scratch:
+            print(f"shotbox: kept {scratch}")
+    return 0
+
+
+def cmd_sessions(argv):
+    argparse.ArgumentParser(prog="shotbox sessions",
+                            description="The lasting sessions there are.").parse_args(argv)
+    for name in kept.names():
+        print(name)
+    return 0
 
 
 def cmd_wait(argv):
@@ -416,15 +456,33 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "capture": cmd_capture, "compare": cmd_compare, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main}
+            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main,
+            "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
+            "sessions": cmd_sessions}
+
+# What --session puts inside a lasting session.
+INSIDE = ("wait", "capture", "key", "type", "click", "move", "drag", "park", "focus", "a11y")
 
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    session = None
+    if argv[:1] == ["--session"]:
+        if len(argv) < 2:
+            sys.stderr.write("shotbox: --session needs a session's name\n")
+            return 2
+        session, argv = argv[1], argv[2:]
+    elif argv and argv[0].startswith("--session="):
+        session, argv = argv[0].split("=", 1)[1], argv[1:]
     if not argv or argv[0] in ("-h", "--help") or argv[0] not in COMMANDS:
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
+        if session:
+            if argv[0] not in INSIDE:
+                raise SessionError(f"--session is for the commands used inside a "
+                                   f"session ({', '.join(INSIDE)}), not {argv[0]}")
+            kept.enter(session)
         return COMMANDS[argv[0]](argv[1:])
     except (SessionError, xtest.XError) as e:
         sys.stderr.write(f"shotbox: {e}\n")
