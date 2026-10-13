@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+A session can have an accessibility bus of its own, to read, lint and
+walk what a screen reader would hear, and can come up dark, in high
+contrast or with bigger text.
+
+### Added
+
+- **`--a11y`**, an AT-SPI bus of the session's own, on X11, Wayland
+  and Xwayland, that never reaches your desktop's. Inside, `shotbox
+  a11y tree` prints the accessible tree as text to commit and diff,
+  `shotbox a11y lint` fails for controls, images and focusable nodes
+  with no name, and `shotbox a11y tabwalk` presses Tab until the focus
+  comes round again, failing on a trap. The Python API has
+  `a11y_tree()`, `find()`, `focused()`, `wait_focus()` and
+  `tab_walk()`. See docs/accessibility.md.
+- **Announcements.** What programs announce to a screen reader (GTK
+  4.14's `gtk_accessible_announce()`) is logged, to
+  `$SHOTBOX_SCRATCH/announcements` or `--announce-log FILE`, and
+  `shotbox wait announce RE` (`wait_announce()`) waits for one, each
+  wait taking the next match.
+- **`--dark`, `--high-contrast` and `--text-scale N`**, for libadwaita,
+  GTK 4 and GTK 3. Without them, pictures don't change.
+
+### Fixed
+
+- **`shotbox run` and `shoot` stop their session when they're
+  terminated** (`kill`, `timeout`), as they do on ctrl-C, rather than
+  leave its display and programs running.
+
 ## 0.3.0 — 2026-09-27
 
 A session can be a Wayland one, under a headless sway, with Xwayland in

@@ -144,6 +144,128 @@ cat "$tmp/api.log"
 fails=$((fails + $(grep -c '^FAIL' "$tmp/api.log" || true)))
 [ $st = 0 ] || grep -q "^FAIL" "$tmp/api.log" || fail "api.py: status $st"
 
+# Accessibility: a session's own AT-SPI bus, the tree, lint, the Tab
+# order and announcements, against a libadwaita window. They need GTK 4,
+# libadwaita and at-spi2-core, or they skip, unless SHOTBOX_A11Y=required.
+app=$here/a11y_app.py
+if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
+    && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; then
+  # Its sessions' scratch dirs under one of ours, to tell what they leave
+  # running from the desktop's own accessibility bus: the launcher, its
+  # bus and the registry have the session's runtime dir, not in their
+  # command lines but in their environments.
+  a11y=$tmp/a11y
+  mkdir -p "$a11y"
+  export TMPDIR=$a11y
+  ours_a11y() {
+    for p in $(pgrep -u "$(id -u)" .); do
+      { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$a11y/" && echo "$p"
+    done
+    true
+  }
+  a11y_tree() {
+    "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tree --window a11y-test"
+  }
+  a11y_tree > "$tmp/tree1"; a11y_tree > "$tmp/tree2"
+  grep -q '^ *[a-z ]*button "Save" \[focusable, focused\]$' "$tmp/tree1" \
+    && grep -q '^ *check box "Wrap lines" \[focusable, checked\]$' "$tmp/tree1" \
+    && grep -q '^ *[a-z ]*text "File name" \[focusable, editable\]$' "$tmp/tree1" \
+    && ok "a11y: the tree, names and states" || { fail "a11y: the tree"; cat "$tmp/tree1"; }
+  cmp -s "$tmp/tree1" "$tmp/tree2" && ok "a11y: two runs, the same tree" \
+    || { fail "a11y: the tree differs"; diff "$tmp/tree1" "$tmp/tree2"; }
+  out=$("$sb" run --a11y -- sh -c "'$here/window.py' g3 & '$sb' a11y tree --window g3")
+  [ "$out" = "$(printf 'frame "g3"\n  label "a window"')" ] && ok "a11y: a GTK 3 window's tree" \
+    || fail "a11y: GTK 3: $out"
+  out=$("$sb" run --a11y -- sh -c 'case $AT_SPI_BUS_ADDRESS in
+    *"path=$SHOTBOX_SCRATCH/"*) echo ours ;; *) echo "$AT_SPI_BUS_ADDRESS" ;; esac')
+  [ "$out" = ours ] && ok "a11y: the bus is the session's own" || fail "a11y: the bus: $out"
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y lint --window a11y-test" > "$tmp/lint"
+  st=$?; set -e
+  [ $st = 1 ] && [ "$(wc -l < "$tmp/lint")" = 3 ] && grep -q '/[a-z ]*button\[1\]: [a-z ]*button with no name$' "$tmp/lint" \
+    && grep -q '/image\[5\]: image with no name' "$tmp/lint" \
+    && grep -q '/panel\[6\]: focusable panel with no name$' "$tmp/lint" \
+    && ok "a11y: lint finds the icon button, the image and the drawing area with no name" \
+    || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
+  "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
+    && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
+    && sed -n 1p "$tmp/walk" | grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]' \
+    && grep -q '"Save" \[focusable, focused\]$' "$tmp/walk" \
+    && [ "$(tail -1 "$tmp/walk")" = "round again after 6" ] \
+    && ok "a11y: tabwalk goes round and back" || { fail "a11y: tabwalk"; cat "$tmp/walk"; }
+  # Scrolled windows, lists and notebooks take the focus with no name of
+  # their own, and say what's in them; Tab passes into their rows.
+  "$sb" run --a11y -- sh -c "'$app' lists & '$sb' a11y lint --window a11y-test &&
+    '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
+    && grep -q '^round again after' "$tmp/walk" \
+    && ok "a11y: lists, scrolled, in a notebook: lint passes, tabwalk goes round" \
+    || { fail "a11y: lists"; cat "$tmp/walk"; }
+  "$sb" run --a11y -- sh -c "'$app' one & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
+    && [ "$(tail -1 "$tmp/walk")" = "round again after 1" ] \
+    && ok "a11y: tabwalk, with one thing to take the focus, is round in one" \
+    || { fail "a11y: one"; cat "$tmp/walk"; }
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' trap & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk"
+  st=$?; set -e
+  [ $st = 1 ] && grep -q '^stuck' "$tmp/walk" && ok "a11y: tabwalk finds a focus trap" \
+    || { fail "a11y: trap ($st)"; cat "$tmp/walk"; }
+  # Said twice, waited for twice; a third wait has nothing left to take.
+  "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
+    '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
+    '$sb' key space && '$sb' wait announce 'notes\.md' --timeout 10 &&
+    ! '$sb' wait announce 'notes\.md' --timeout 1 2>/dev/null" \
+    && [ "$(cat "$tmp/said")" = "$(printf 'polite: Saved to notes.md\npolite: Saved to notes.md')" ] \
+    && ok "a11y: announcements, logged, and each waited for once" \
+    || { fail "a11y: announcements"; cat "$tmp/said"; }
+  set +e; "$sb" run -- "$sb" a11y tree 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && grep -q -- "--a11y" "$tmp/err" && ok "a11y: without --a11y, no tree, and says why" \
+    || fail "a11y: no bus: $st"
+  [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
+    || fail "a11y: left running: $(ours_a11y)"
+  unset TMPDIR
+
+  # The presets: darker, more contrast, bigger text.
+  "$sb" shoot "$tmp/p.png" --window a11y-test -- "$app" >/dev/null
+  "$sb" shoot "$tmp/p-dark.png" --window a11y-test --dark -- "$app" >/dev/null
+  "$sb" shoot "$tmp/p-hc.png" --window a11y-test --high-contrast -- "$app" >/dev/null
+  "$sb" shoot "$tmp/p-big.png" --window a11y-test --text-scale 1.5 -- "$app" >/dev/null
+  mean() { identify -format '%[fx:int(mean*100)]' "$1"; }
+  [ "$(mean "$tmp/p-dark.png")" -lt $(($(mean "$tmp/p.png") / 2)) ] \
+    && ok "presets: --dark is dark" \
+    || fail "presets: --dark: mean $(mean "$tmp/p-dark.png")%, without $(mean "$tmp/p.png")%"
+  ! cmp -s "$tmp/p.png" "$tmp/p-hc.png" && [ "$(mean "$tmp/p-hc.png")" -gt "$(mean "$tmp/p-dark.png")" ] \
+    && ok "presets: --high-contrast changes it" \
+    || fail "presets: --high-contrast: mean $(mean "$tmp/p-hc.png")%, without $(mean "$tmp/p.png")%"
+  [ "$(identify -format %h "$tmp/p-big.png")" -gt "$(identify -format %h "$tmp/p.png")" ] \
+    && ok "presets: --text-scale makes the text, and the window, bigger" \
+    || fail "presets: --text-scale: $(identify -format %h "$tmp/p-big.png") high, without $(identify -format %h "$tmp/p.png")"
+  # A seeded settings.ini that ends in another group, with no last newline.
+  # Its theme is GTK 3's own: Ubuntu's GTK 3 defaults to Yaru, which has no
+  # dark variant where it isn't installed.
+  mkdir -p "$tmp/seed/.config/gtk-3.0"
+  printf '[Settings]\ngtk-theme-name = Adwaita\ngtk-cursor-blink = false\n[Other]\nx = 1' \
+    > "$tmp/seed/.config/gtk-3.0/settings.ini"
+  "$sb" shoot "$tmp/p-seed.png" --window g3 --dark --seed "$tmp/seed" -- "$here/window.py" g3 >/dev/null
+  [ "$(mean "$tmp/p-seed.png")" -lt 50 ] && ok "presets: --dark, over a seeded settings.ini" \
+    || { fail "presets: seeded: mean $(mean "$tmp/p-seed.png")%, settings.ini:"
+         "$sb" run --dark --seed "$tmp/seed" -- sh -c 'cat ~/.config/gtk-3.0/settings.ini' 2>&1; }
+  # Seeded dotfiles linked out of the seed, as stow makes them: a linked
+  # settings.ini and a linked directory. What they point at stays as it was.
+  mkdir -p "$tmp/linked/.config" "$tmp/out4"
+  printf '[Settings]\n# mine\n' > "$tmp/out3.ini"; cp "$tmp/out3.ini" "$tmp/out3.orig"
+  mkdir -p "$tmp/linked/.config/gtk-3.0"
+  ln -s "$tmp/out3.ini" "$tmp/linked/.config/gtk-3.0/settings.ini"
+  ln -s "$tmp/out4" "$tmp/linked/.config/gtk-4.0"
+  out=$("$sb" run --dark --seed "$tmp/linked" -- sh -c 'cat ~/.config/gtk-3.0/settings.ini')
+  cmp -s "$tmp/out3.ini" "$tmp/out3.orig" && [ -z "$(ls "$tmp/out4")" ] \
+    && case $out in *gtk-application-prefer-dark-theme*"# mine"*) true ;; *) false ;; esac \
+    && ok "presets: a seed's links out are read, not written" || fail "presets: links: $out"
+else
+  [ "${SHOTBOX_A11Y-}" = required ] && fail "a11y skipped: no GTK 4, libadwaita or at-spi2-core" \
+    || echo "skip  a11y: no GTK 4, libadwaita or at-spi2-core"
+fi
+
 # Wayland: a headless sway, and Xwayland in it. They need sway, grim and
 # Xwayland, or they skip, unless SHOTBOX_WAYLAND=required.
 win=$here/window.py
@@ -157,7 +279,7 @@ wl=$tmp/wl
 mkdir -p "$wl"
 ours_xwayland() {
   for p in $(pgrep -x Xwayland); do
-    tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$wl/" && echo "$p"
+    { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$wl/" && echo "$p"
   done
   true
 }
@@ -230,6 +352,16 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
       && ok "xwayland: typing reaches an X client" || fail "xwayland: input"
   else
     xwayland_skip "xwayland: input"
+  fi
+  if [ -n "${a11y-}" ]; then
+    set +e
+    "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y lint --window app=org.shotbox.A11yTest
+      st=\$?; '$sb' click 100 140 --window a11y-test &&
+      '$sb' wait announce 'notes\.md' --timeout 10 || exit 9; exit \$st" > "$tmp/wl-lint"
+    st=$?; set -e
+    [ $st = 1 ] && [ "$(wc -l < "$tmp/wl-lint")" = 3 ] \
+      && ok "wayland: a11y: lint, by app id, and an announcement" \
+      || { fail "wayland: a11y ($st)"; cat "$tmp/wl-lint"; }
   fi
   pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
     || ok "wayland: sway stops with the session"
