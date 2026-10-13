@@ -398,20 +398,40 @@ class Look:
         self.last, self.was = now, box
 
 
-# How far outside its node's bounds the focus can be seen to change: a ring
-# is drawn a pixel or two outside, and GTK 4 places a node short of its
-# parent's padding (docs/accessibility.md, "Where a node is"): a libadwaita
-# tab, 6px above where it's drawn.
-RING = 8
+# How far outside its node a focus ring can be drawn.
+RING = 4
+
+# How far right and down of its bounds a node can be drawn. GTK 4 places a
+# node short of the border and padding of the nodes it's in
+# (docs/accessibility.md, "Where a node is"), never past them: a header
+# bar's buttons 7px, a tab bar's close buttons 10px.
+REACH = 16
 
 
 def focus_change(before, after, box, was):
     """How many pixels in and round `box` changed from `before` to `after`
-    as the focus came to it from `was`, a box or None."""
-    # The ring the focus left can reach into this one's, but for
-    # what's inside this one, which may be inside that one too.
-    skip = was and before.clip(was, RING)
-    return before.changed(after, box, RING, skip, before.clip(box))
+    as the focus came to it from `was`, a box or None: in and round a box
+    its size wherever it fits best, up to REACH right and down of it, where
+    the node may really be. But for the ring the focus left: what changed
+    round the edges of where it was, wherever that really was, a frame
+    whose hole is what's inside it whatever its offset, where a node
+    inside that one (a list's row) is."""
+    x, y, w, h = box
+    area = before.clip((x, y, w + REACH, h + REACH), RING)
+    if not area:
+        return 0
+    skip = hole = None
+    if was:
+        px, py, pw, ph = was
+        skip = (px - RING, py - RING, px + pw + REACH + RING, py + ph + REACH + RING)
+        hole = (px + REACH + RING, py + REACH + RING, px + pw - RING, py + ph - RING)
+    changes = picture.Changes(before, after, area, skip, hole)
+    best = 0
+    for dy in range(REACH + 1):
+        for dx in range(REACH + 1):
+            at = (x + dx - RING, y + dy - RING, x + dx + w + RING, y + dy + h + RING)
+            best = max(best, changes.count(at) - changes.count(at, changes.skipped))
+    return best
 
 
 def shown_needs(box):

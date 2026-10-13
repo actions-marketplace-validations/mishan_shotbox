@@ -141,12 +141,17 @@ land somewhere new. It stops:
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each
 press, once the screen has held still (up to two seconds), another; and
-counts the pixels that changed in the node's bounds, grown by 8 pixels
-on each side, for a ring drawn outside it and for GTK 4 placing a node
-short of its parent's padding (a libadwaita tab, 6px above where it's
-drawn), but for those round where the focus was and not in the node
-itself. Fewer than half a one-pixel outline round the node (its width
-and its height) is a focus that doesn't show: a drawing area that draws
+counts the pixels that changed in and round a box the node's size,
+grown by 4 pixels on each side for a ring drawn outside it. GTK 4 places
+a node short of the border and padding of the nodes it's in (above),
+right of and below where it's drawn, by as much as their padding adds
+up to: a header bar's buttons 7px, a tab bar's tabs 6px and their close
+buttons 10px. So the box is tried at every offset up to 16 pixels right
+and down of the node's bounds, and the count is the best of them. What
+changed round the edges of where the focus was, wherever that really
+was, isn't counted: the ring it left. What's inside that, a list's row
+after the list, is. Fewer than half a one-pixel outline round the node
+(its width and its height) is a focus that doesn't show: a drawing area that draws
 no ring, a text view that shows only its caret. WCAG 2.2's focus
 appearance asks for a two-pixel outline; this asks for a quarter of
 that, since an old GTK 4 places a node past its padding, and part of its
