@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, and its live regions heard',
+test('Chromium on an --a11y session: its tree, a click by name, contrast, live regions',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -371,9 +371,12 @@ test('Chromium on an --a11y session: its tree, and its live regions heard',
         'run', '--a11y', '--env', `PLAYWRIGHT_BROWSERS_PATH=${browsers}`, '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, said } = JSON.parse(out);
+    const { tree, clicked, contrast, said } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
+    assert.equal(clicked, 'yes');
+    assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff/);
+    assert.equal(contrast.trim().split('\n').length, 1);
     assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
                        'polite: Done\n');
 });

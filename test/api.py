@@ -95,12 +95,26 @@ def a11y():
         walk = [n.name for n in s.tab_walk(window="a11y-test")]
         check(walk == ["", "Announce", "Wrap lines", "File name", "", "Save"],
               f"a11y: tab_walk() goes round ({walk})")
+        save = s.find(role=button[0], name="Save")[0]
+        check(save.bounds[2] > 0 and save.bounds[3] > 0, f"a11y: a node's bounds ({save.bounds})")
+        problems = s.a11y_lint(window="a11y-test", ignore=[r"image\[", "panel with"])
+        check([n.problem for n in problems] == [f"{button[0]} with no name"],
+              f"a11y: a11y_lint(), ignoring some ({[n.problem for n in problems]})")
+        check(s.contrast(window="a11y-test") == [], "a11y: contrast() passes libadwaita's own")
+        try:
+            s.tab_walk(window="a11y-test", visible=True)
+            check(False, "a11y: tab_walk(visible=True) raises where the focus doesn't show")
+        except shotbox.SessionError as e:
+            check('panel ""' in str(e),
+                  "a11y: tab_walk(visible=True) raises where the focus doesn't show")
+        s.focus_window("a11y-test")
         s.key("Tab", "Tab")
         check(s.wait_focus("Announce", timeout=5).role.endswith("button"),
               "a11y: wait_focus()")
         s.key("space")
         s.wait_announce("notes", timeout=5)
-        s.key("space")
+        check(s.click_node("Announce", window="a11y-test").name == "Announce",
+              "a11y: click_node()")
         s.wait_announce("notes", timeout=5)
         try:
             s.wait_announce("notes", timeout=1)

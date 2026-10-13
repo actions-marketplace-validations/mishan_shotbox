@@ -3,8 +3,9 @@
 ## Unreleased
 
 A session can have an accessibility bus of its own, to read, lint and
-walk what a screen reader would hear, and can come up dark, in high
-contrast or with bigger text.
+walk what a screen reader would hear, to click by name, and to check
+that the focus shows and text can be read; it can come up dark, in high
+contrast or with bigger text, and have a sound server of its own.
 
 ### Added
 
@@ -26,11 +27,34 @@ contrast or with bigger text.
   `ACCESSIBILITY_ENABLED=1`), headed and with
   `--force-renderer-accessibility`, so its pages' trees can be read,
   linted and walked.
+- **Where a node is.** The tree's JSON and the Python API give each
+  node's bounds on the screen, and `shotbox a11y click NAME`
+  (`click_node()`) clicks one by its name.
+- **`shotbox a11y tabwalk --visible`** (`tab_walk(visible=True)`) fails
+  where the focus doesn't show: too little in and round a node changed
+  as it took it.
+- **`shotbox a11y contrast`** (`contrast()`) measures, on the screen,
+  text, buttons and links against their background (4.5:1), images (3:1), and with
+  `--edges`, a button's or field's edge.
+- **`--ignore RE`** for `shotbox a11y lint` and `contrast` (`ignore=`), for what
+  can't be fixed yet.
+- **`shotbox focus RE`** (`focus_window()`) gives a window the keyboard,
+  which on X11 nothing else does for a window that comes up after
+  another.
+- **`--audio`**, a PipeWire of the session's own, pulse protocol too,
+  whose one sink plays to nowhere.
+- **`accessible`** in the Node package: Chromium's launch options for
+  an `--a11y` session.
 - **`--dark`, `--high-contrast` and `--text-scale N`**, for libadwaita,
   GTK 4 and GTK 3. Without them, pictures don't change.
 
 ### Fixed
 
+- **What a `--desktop` session's bus starts is inside the session.**
+  The bus ran what it activated (dconf, the portals) with the caller's
+  environment, your `HOME`, `DISPLAY` and runtime dir among it, and read
+  service files from your home: a setting changed in the session could
+  be written to your own dconf. It now has the session's.
 - **`shotbox run` and `shoot` stop their session when they're
   terminated** (`kill`, `timeout`), as they do on ctrl-C, rather than
   leave its display and programs running.

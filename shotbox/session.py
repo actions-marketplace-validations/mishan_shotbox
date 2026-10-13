@@ -31,10 +31,14 @@ The pieces, and why each one:
   started by at-spi-bus-launcher on the private session bus, so the
   program's accessible tree can be read (a11y.py) and nothing of it
   reaches your desktop's screen reader.
+- Optionally, with audio=True, a PipeWire of its own whose one sink is a
+  null sink, speaking the pulse protocol too: sound goes nowhere, and a
+  player has something to play to.
 - Every process in its own group, and the group killed on the way out:
   signalling a wrapper script alone leaves its children running.
 """
 
+import json
 import os
 import re
 import secrets
@@ -104,6 +108,95 @@ gtk-cursor-blink = false
 gtk-enable-animations = false
 """
 
+
+# The whole of PipeWire's config, not a fragment on the system's: that loads
+# the ALSA monitor. One sink, a null one, which nothing else could be
+# routed to, and drivers to run it with no device's clock.
+PIPEWIRE_CONFIG = """context.properties = {
+    core.daemon = true
+    core.name = pipewire-0
+    support.dbus = false
+}
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    support.* = support/libspa-support
+}
+context.modules = [
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-metadata }
+    { name = libpipewire-module-spa-node-factory }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-access }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-link-factory }
+    { name = libpipewire-module-protocol-pulse }
+]
+pulse.properties = {
+    server.address = [ "unix:native" ]
+}
+context.objects = [
+    { factory = metadata
+        args = {
+            metadata.name = default
+            metadata.values = [
+                { key = default.audio.sink value = { name = shotbox-sink } }
+                { key = default.audio.source value = { name = shotbox-sink } }
+            ]
+        }
+    }
+    { factory = spa-node-factory
+        args = {
+            factory.name = support.node.driver
+            node.name = Dummy-Driver
+            node.group = pipewire.dummy
+            priority.driver = 20000
+        }
+    }
+    { factory = spa-node-factory
+        args = {
+            factory.name = support.node.driver
+            node.name = Freewheel-Driver
+            priority.driver = 19000
+            node.group = pipewire.freewheel
+            node.freewheel = true
+        }
+    }
+    { factory = adapter
+        args = {
+            factory.name = support.null-audio-sink
+            node.name = shotbox-sink
+            node.description = "shotbox's null sink"
+            media.class = Audio/Sink
+            audio.position = [ FL FR ]
+            object.linger = true
+        }
+    }
+]
+"""
+
+# WirePlumber links streams to the sink: a stream nothing links is never
+# driven, and a player waits on it forever. It's to look at no devices.
+# From 0.5, a profile: "policy" has no device monitors; stateless, so it
+# saves no defaults.
+WIREPLUMBER_CONFIG = """wireplumber.profiles = {
+    shotbox = {
+        inherits = [ policy, mixin.systemwide-session, mixin.stateless ]
+        support.dbus = disabled
+        support.mpris = disabled
+    }
+}
+"""
+
+# Before 0.5 (Ubuntu 24.04's 0.4.17), Lua: after the system's 50-*-config
+# fragments and before its 90-enable-all, which starts each monitor not
+# set off by then.
+WIREPLUMBER_LUA = {
+    "main.lua.d": """alsa_monitor.enabled = false
+v4l2_monitor.enabled = false
+libcamera_monitor.enabled = false
+""",
+    "bluetooth.lua.d": "bluez_monitor.enabled = false\n",
+}
 
 # Where distributions put at-spi2-core's bus launcher.
 A11Y_LAUNCHERS = ("/usr/libexec/at-spi-bus-launcher", "/usr/lib/at-spi2-core/at-spi-bus-launcher",
@@ -245,9 +338,10 @@ class Session(Screen):
     def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
-                 dark=False, high_contrast=False, text_scale=None):
+                 dark=False, high_contrast=False, text_scale=None, audio=False):
         self.size = size
         self.a11y = a11y or bool(announce_log)
+        self.audio = audio
         self.announce_log = announce_log
         if text_scale is not None and not text_scale > 0:
             raise SessionError(f"text_scale must be more than 0, not {text_scale}")
@@ -273,9 +367,16 @@ class Session(Screen):
             need("sway", "grim", "dbus-daemon", *(["Xwayland"] if self.xwayland else []))
         else:
             need("Xvfb", "xauth", "dbus-daemon")
+        if self.desktop:
+            need("gdbus")
+        if self.audio:
+            need("pipewire", "wireplumber", "pw-dump")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
             self._make_home()
+            # What the buses run what they activate with, until there's a
+            # display and a bus to add: never the caller's.
+            self.env = self._make_env({}, None, None)
             bus = self._start_bus("session")
             sysbus = self._start_bus("system") if self.system_bus else None
             if self.use_wayland:
@@ -284,6 +385,8 @@ class Session(Screen):
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
+            if self.desktop:
+                self._activation_env()
             if self.text_scale and "DISPLAY" in self.env:
                 # X clients take the font DPI from the X server's
                 # resources over settings.ini; only GTK 4 on Wayland reads
@@ -295,6 +398,8 @@ class Session(Screen):
                                env=self.env, check=True)
             if self.a11y:
                 self._start_a11y()
+            if self.audio:
+                self._start_audio()
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -424,7 +529,7 @@ class Session(Screen):
         conf.write_text(BUS_CONFIG.format(type=kind, listen=listen, services=dirs))
         proc = subprocess.Popen(
             ["dbus-daemon", "--config-file", str(conf), "--nofork", "--print-address"],
-            stdout=subprocess.PIPE, stderr=open(self.scratch / f"{kind}-bus.log", "wb"),
+            env=self.env, stdout=subprocess.PIPE, stderr=open(self.scratch / f"{kind}-bus.log", "wb"),
             text=True, start_new_session=True)
         self._procs.append(proc)
         address = proc.stdout.readline().strip()
@@ -456,15 +561,76 @@ class Session(Screen):
             XDG_STATE_HOME=str(home / ".local/state"),
             XDG_CACHE_HOME=str(home / ".cache"),
             XDG_RUNTIME_DIR=str(self.scratch / "run"),
-            DBUS_SESSION_BUS_ADDRESS=bus,
             SHOTBOX="1",
             SHOTBOX_SCRATCH=str(self.scratch),
         )
         env.update(graphics)
+        if bus:
+            env["DBUS_SESSION_BUS_ADDRESS"] = bus
         if sysbus:
             env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
         env.update(self.extra_env)
         return env
+
+    def _activation_env(self):
+        """Give what the session bus activates the session's environment,
+        display and all, as the programs run in it have."""
+        # JSON's strings are GVariant's too, escapes and all; repr's \x aren't.
+        pairs = ", ".join(f"{json.dumps(k, ensure_ascii=False)}: {json.dumps(v, ensure_ascii=False)}"
+                          for k, v in self.env.items() if k != "DBUS_SESSION_BUS_ADDRESS")
+        r = subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
+                            "--object-path", "/org/freedesktop/DBus", "--method",
+                            "org.freedesktop.DBus.UpdateActivationEnvironment",
+                            "{" + pairs + "}"], env=self.env, capture_output=True, text=True)
+        if r.returncode:
+            raise SessionError("the session bus refused its activation environment: "
+                               + r.stderr.strip())
+
+    def _start_audio(self):
+        """PipeWire, with a null sink and the pulse protocol, its sockets in
+        the session's runtime dir, where clients look; and WirePlumber, on
+        a config and state of the session's own."""
+        conf = self.scratch / "pipewire.conf"
+        conf.write_text(PIPEWIRE_CONFIG)
+        log = self.scratch / "pipewire.log"
+        proc = subprocess.Popen(["pipewire", "-c", str(conf)], env=self.env,
+                                stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
+                                start_new_session=True)
+        self._procs.append(proc)
+        pulse = self.scratch / "run" / "pulse" / "native"
+        try:
+            wait_for("PipeWire", pulse.exists, 15, alive=proc)
+        except SessionError as e:
+            raise SessionError(f"{e}; see {log}")
+        version = subprocess.run(["wireplumber", "--version"], capture_output=True,
+                                 text=True).stdout
+        m = re.search(r"libwireplumber (\d+)\.(\d+)", version)
+        new = bool(m) and (int(m[1]), int(m[2])) >= (0, 5)
+        wp = self.scratch / "wireplumber"
+        conf = wp / "config" / "wireplumber"
+        files = ({"wireplumber.conf.d/shotbox.conf": WIREPLUMBER_CONFIG} if new else
+                 {f"{d}/51-shotbox.lua": text for d, text in WIREPLUMBER_LUA.items()})
+        for name, text in files.items():
+            (conf / name).parent.mkdir(parents=True)
+            (conf / name).write_text(text)
+        env = dict(self.env, XDG_CONFIG_HOME=str(wp / "config"),
+                   XDG_STATE_HOME=str(wp / "state"))
+        profile = ["--profile", "shotbox"] if new else []
+        log = self.scratch / "wireplumber.log"
+        proc = subprocess.Popen(["wireplumber", *profile], env=env, stdout=subprocess.DEVNULL,
+                                stderr=open(log, "wb"), start_new_session=True)
+        self._procs.append(proc)
+
+        # It's linking streams once it's a client of PipeWire's.
+        def linking():
+            r = subprocess.run(["pw-dump"], env=self.env, capture_output=True, text=True)
+            return '"application.process.binary": "wireplumber"' in r.stdout
+
+        try:
+            wait_for("WirePlumber", linking, 15, interval=0.2, alive=proc)
+        except SessionError as e:
+            raise SessionError(f"{e}; see {log}")
+        self.env["PULSE_SERVER"] = f"unix:{pulse}"
 
     def _start_a11y(self):
         """An accessibility bus of the session's own: at-spi-bus-launcher on

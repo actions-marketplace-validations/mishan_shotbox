@@ -4,6 +4,8 @@ reader sees it, for a session started with --a11y.
     shotbox a11y tree [--window RE]     the tree, a node a line
     shotbox a11y lint [--window RE]     controls and images with no name
     shotbox a11y tabwalk [--key Tab]    where the keyboard focus goes
+    shotbox a11y click NAME             click a node, by its name
+    shotbox a11y contrast               text and controls against their backgrounds
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
 refuses to run without it: otherwise libatspi would go looking for the
@@ -12,6 +14,7 @@ desktop's. `record` is the session's announcement recorder.
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -19,7 +22,7 @@ import threading
 import time
 from functools import cache
 
-from . import x
+from . import picture, x
 from .screen import Screen, SessionError, wait_for
 
 # The states worth a line in the tree: what a screen reader says about a
@@ -41,6 +44,20 @@ CONTROLS = ("PUSH_BUTTON", "BUTTON", "PUSH_BUTTON_MENU", "TOGGLE_BUTTON", "CHECK
 CONTAINERS = ("SCROLL_PANE", "LIST", "LIST_BOX", "TREE", "TREE_TABLE", "TABLE",
               "GROUPING", "FILLER", "SECTION", "PAGE_TAB_LIST", "VIEWPORT",
               "SPLIT_PANE", "TOOL_BAR", "MENU_BAR", "FRAME", "WINDOW")
+
+# What's read as text, for contrast: AT-SPI's roles for text a program
+# draws as it is.
+TEXTS = ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION", "TEXT", "PARAGRAPH")
+
+# Controls that draw no text of their own, whatever their name. What WCAG
+# asks of them is their parts against what's round them, not anything in
+# their own box, so contrast leaves them out.
+TEXTLESS = ("SWITCH", "SLIDER", "CHECK_BOX", "RADIO_BUTTON", "SPIN_BUTTON")
+
+# Controls a box is drawn round, or should be, for --edges: not check boxes
+# and the like, whose node holds their label too.
+EDGED = ("PUSH_BUTTON", "BUTTON", "TOGGLE_BUTTON", "PUSH_BUTTON_MENU", "ENTRY",
+         "PASSWORD_TEXT", "SPIN_BUTTON", "COMBO_BOX")
 
 POLITENESS = {1: "polite", 2: "assertive"}
 
@@ -130,6 +147,58 @@ def find_toplevels(Atspi, window=None):
     return hits
 
 
+def origin(Atspi, top, shown):
+    """Where `top` is on the screen, and where its children's window
+    coordinates start: ((x, y, width, height), (x, y)), or None if that
+    can't be told. A node's extents are in its window's coordinates (GTK 4
+    has no others), so they're put on the screen by the display's window
+    of the same size, and name if it has one: `shown`, as the backend's
+    windows() lists them. Chromium on Wayland counts its shadow into its
+    accessible frame and not its window, and can't be placed. GTK 4 before
+    its fix loses the window's border (on X11 with no compositor, it has
+    one) from its children: the frame's first child, which fills it but
+    for that, is at the frame's corner rather than inside the border. The
+    border and padding of every other node on the way down are lost too,
+    and can't be told: docs/accessibility.md says how far off that is."""
+    e = top.get_extents(Atspi.CoordType.WINDOW)
+    name = top.get_name() or ""
+    hits = [w for w in shown if (w[2], w[3]) == (e.width, e.height) and (not name or w[1] == name)]
+    if len(hits) > 1 and isinstance(hits[0][0], str):   # X11's unmapped windows
+        env = Screen().env
+        hits = [w for w in hits if x.viewable(env, w[0])]
+    if len(hits) != 1:
+        return None
+    w = hits[0]
+    # GTK 4 alone: anywhere else a first child at the corner and smaller
+    # (a GTK 3 button aligned to the start) is where it says.
+    app = top.get_application()
+    gtk4 = bool(app) and app.get_toolkit_name() == "GTK" and (
+        app.get_toolkit_version() or "").startswith("4.")
+    first = top.get_child_at_index(0) if gtk4 and top.get_child_count() else None
+    c = first and first.get_extents(Atspi.CoordType.WINDOW)
+    lost = (0, 0)
+    if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
+        lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
+    return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1])
+
+
+def place(Atspi, n, shown, origins):
+    """`n`'s bounds on the screen, [x, y, width, height], or None. `origins`
+    caches origin() for each toplevel."""
+    if n._top not in origins:
+        origins[n._top] = origin(Atspi, n._top, shown)
+    o = origins[n._top]
+    if o is None:
+        return None
+    if n._acc == n._top:
+        return o[0]
+    try:
+        e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+    except Exception:   # gone since the walk: a closing popover, a toast
+        return None
+    return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height]
+
+
 def node(Atspi, acc, states, path):
     shown = [s for s in STATES
              if states.contains(getattr(Atspi.StateType, s.upper().replace("-", "_")))]
@@ -143,12 +212,14 @@ def node(Atspi, acc, states, path):
                 _role=int(acc.get_role()),
                 _showing=states.contains(Atspi.StateType.SHOWING),
                 # Paths alone collide: GTK 3 numbers its objects per program.
-                _id=f"{acc.app.bus_name if acc.app else ''}{acc.path}")
+                _id=f"{acc.app.bus_name if acc.app else ''}{acc.path}",
+                _acc=acc)
 
 
-def walk(Atspi, window=None, timeout=10):
+def walk(Atspi, window=None, timeout=10, bounds=False):
     """Every visible node under the toplevels `window` picks, depth first,
-    as (depth, Node)."""
+    as (depth, Node). With `bounds`, each has its bounds on the screen, or
+    None where they can't be told."""
     out = []
 
     def visit(acc, depth, path):
@@ -161,6 +232,7 @@ def walk(Atspi, window=None, timeout=10):
             return
         if not states.contains(Atspi.StateType.VISIBLE):
             return
+        n["_top"] = top
         out.append((depth, n))
         for i in range(acc.get_child_count()):
             child = acc.get_child_at_index(i)
@@ -172,12 +244,18 @@ def walk(Atspi, window=None, timeout=10):
         # events, which nothing here dispatches.
         top.clear_cache()
         visit(top, 0, f"{top.get_role_name()} {json.dumps(top.get_name() or '')}")
+    if bounds:
+        screen, origins = Screen(), {}
+        shown = screen.backend.windows(screen.env)
+        for _, n in out:
+            n["bounds"] = place(Atspi, n, shown, origins)
+            n["_window"] = origins[n._top] and origins[n._top][0]
     return out
 
 
-def tree(window=None, timeout=10):
+def tree(window=None, timeout=10, bounds=False):
     Atspi = atspi()
-    return [Node(n, depth=d) for d, n in walk(Atspi, window, timeout=timeout)]
+    return [Node(n, depth=d) for d, n in walk(Atspi, window, timeout=timeout, bounds=bounds)]
 
 
 def focused(Atspi, window=None):
@@ -192,7 +270,7 @@ def roles(Atspi, names):
     return {int(getattr(Atspi.Role, r)) for r in names if hasattr(Atspi.Role, r)}
 
 
-def lint(Atspi, nodes):
+def lint(Atspi, nodes, ignore=()):
     """(node, what's wrong) for each control, image or focusable node a
     screen reader would have no name to say for. An image inside a named
     control is part of it: the control's name is what gets said. Anything
@@ -230,20 +308,26 @@ def lint(Atspi, nodes):
         elif ("focusable" in n.states and n.path not in said_inside
               and not (n._role in containers and n.path in focus_inside)):
             problems.append((n, f"focusable {n.role} with no name"))
-    return problems
+    return [(n, what) for n, what in problems
+            if not any(re.search(i, f"{n.path}: {what}") for i in ignore)]
 
 
-def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10):
+def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=False):
     """Press `key` up to `most` times and note where the focus lands each
     time. (nodes, how it ended): "cycle" once it lands somewhere it has
     been (where it began, or a stop since), "trap" if a press leaves it
     where it was, "max" if neither. A press that leaves it on the one
-    thing in the window that could take it is a cycle of one."""
+    thing in the window that could take it is a cycle of one. With
+    `visible`, each node says how much of the screen round it changed as
+    it took the focus (see shown())."""
     Atspi = atspi()
     screen = Screen()
     toplevels(Atspi, window, timeout)
     start = focused(Atspi, window)
     seen = []
+    if visible:
+        screen.park()
+        look = Look(Atspi, screen, start)
     try:
         for _ in range(most):
             before = seen[-1] if seen else start
@@ -260,12 +344,217 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10):
                     return seen or [now], "cycle"
                 return seen + ([now] if now else []), "trap"
             been = [n._id for n in ([start] if start else []) + seen]
+            if visible:
+                look.took(now)
             seen.append(now)
             if now._id in been:
                 return seen, "cycle"
         return seen, "max"
     finally:
         screen.close()
+
+
+class Look:
+    """Pictures of the screen as the focus moves, to tell whether it shows
+    where it went."""
+
+    def __init__(self, Atspi, screen, start):
+        self.Atspi, self.screen = Atspi, screen
+        self.shown, self.origins = screen.backend.windows(screen.env), {}
+        self.last = self.grab()
+        self.was = self.where(start) if start else None
+
+    def grab(self):
+        return picture.Picture(*self.screen.backend.pixels(self.screen.env))
+
+    def where(self, n):
+        return place(self.Atspi, n, self.shown, self.origins)
+
+    def took(self, n):
+        """Note on `n`, which has just taken the focus, how many pixels
+        changed in and round it ("changed") and how many it takes to show
+        it ("needed")."""
+        try:
+            wait_for("", x.Still(self.screen.env, quiet=0.3, backend=self.screen.backend), 2)
+        except SessionError:
+            pass
+        now = self.grab()
+        box = self.where(n)
+        # A document takes the focus as a whole, and nobody draws round it;
+        # a container shows it on what it passes it to (a notebook's tab).
+        if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
+                                                      *CONTAINERS)):
+            # The ring the focus left can reach into this one's, but for
+            # what's inside this one, which may be inside that one too.
+            skip = self.was and self.last.clip(self.was, RING)
+            n["changed"] = self.last.changed(now, box, RING, skip, self.last.clip(box))
+            n["needed"] = shown_needs(box)
+        n["bounds"] = box
+        self.last, self.was = now, box
+
+
+# How far outside its node a focus ring can be drawn.
+RING = 4
+
+
+def shown_needs(box):
+    """How many pixels must change for the focus to show: half a one-pixel
+    outline round the node, where WCAG 2.2's focus appearance asks for two
+    pixels all round. Half, since GTK 4 before 4.14.6 places a node past
+    its padding, and part of its ring outside what's counted."""
+    return box[2] + box[3]
+
+
+def unseen(n):
+    """Whether a walk with `visible` found the focus not shown on `n`."""
+    return n.get("changed") is not None and n.changed < n.needed
+
+
+def raise_window(screen, window):
+    """Raise the display's window `window` picks, if it can be found, so
+    nothing covers what's clicked or measured in it."""
+    if window and screen.backend.find_window(screen.env, window):
+        screen.focus_window(window)
+
+
+def ratio_text(r):
+    """`r` to two places, rounded down, so a ratio that fails never prints
+    as one that passes."""
+    return f"{math.floor(r * 100) / 100:.2f}"
+
+
+def click(name, role=None, window=None, button=1, double=False, timeout=10):
+    """Click the middle of the node whose name matches `name` (a regex,
+    matched in full), and role `role` (a regex too) if given, waiting up to
+    `timeout` for it to show, in its window, raised. A match inside
+    another (a button's label) is the outer one. The node clicked."""
+    Atspi = atspi()
+
+    def matches():
+        nodes = [n for _, n in walk(Atspi, window, timeout)
+                 if n._showing and re.fullmatch(name, n.name)
+                 and (role is None or re.fullmatch(role, n.role))]
+        return [n for n in nodes if not any(n.path.startswith(o.path + "/") for o in nodes)]
+
+    what = f"a node named {name!r}" + (f" with role {role!r}" if role else "")
+    hits = wait_for(what, matches, timeout)
+    if len(hits) > 1:
+        raise SessionError(f"{len(hits)} nodes match: " + "; ".join(n.path for n in hits))
+    n = hits[0]
+    screen = Screen()
+    origins = {}
+    box = place(Atspi, n, screen.backend.windows(screen.env), origins)
+    if not box or box[2] <= 0 or box[3] <= 0:
+        raise SessionError(f"can't tell where {n.line()} is on the screen")
+    # Inside its window: a node scrolled out of view is still showing.
+    x, y, w, h = overlap(box, origins[n._top][0])
+    if not w or not h:
+        raise SessionError(f"{n.line()} is outside its window")
+    try:
+        raise_window(screen, window)
+        screen.click(x + w // 2, y + h // 2, button=button, double=double)
+    finally:
+        screen.close()
+    n["bounds"] = box
+    return n
+
+
+def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=()):
+    """What's drawn with too little contrast, as (node, what), measured on a
+    picture of the screen, `window` raised, in each node's bounds: text, and
+    a button, link, tab or menu item, which may draw text or an icon and
+    can't be told apart, against its background (at least `text`); an
+    image against its own (`graphics`); and with `edges`, a control's
+    edge against what's round it. Disabled nodes are left out, as WCAG
+    leaves them, and so are a switch, slider, check box or the like, and
+    what's outside its window (scrolled out of view); text is taken as
+    normal size. A node that can't be placed, and
+    text with nothing drawn on its background, are problems too: nothing
+    says they can be read. But for those whose "PATH: PROBLEM" line one of
+    the regexes in `ignore` is found in."""
+    Atspi = atspi()
+    toplevels(Atspi, window, timeout)
+    screen = Screen()
+    try:
+        raise_window(screen, window)
+        screen.park()
+    finally:
+        screen.close()
+    nodes = [n for _, n in walk(Atspi, window, timeout, bounds=True)]
+    pic = picture.Picture(*screen.backend.pixels(screen.env))
+    texts, controls = roles(Atspi, TEXTS), roles(Atspi, CONTROLS)
+    images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
+                               roles(Atspi, EDGED))
+    parents = {n.path: n for n in nodes}
+
+    def kind(n):
+        if (not n._showing or not n.name or "editable" in n.states
+                or "disabled" in n.states or n._role in textless):
+            return None
+        if n._role in images:
+            return "graphics"
+        return "text" if n._role in texts or n._role in controls else None
+
+    def shown(n):
+        """`n`'s bounds cut to its window's and every node's it's inside, or
+        None if nothing of them is left to measure: a row scrolled out of
+        view, which GTK still calls showing, is cut to nothing by its
+        scrolled window. GTK 4 places a child as if its parent had no
+        padding, which can put its box past the parent's edge, and that
+        is cut off too."""
+        if not n.bounds:
+            return None
+        box, path = n.bounds, n.path
+        outers = [n._window]
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            up = parents.get(path)
+            outers.append(up and up.bounds)
+        for outer in outers:
+            if outer:
+                box = overlap(box, outer)
+        return box if box[2] > 0 and box[3] > 0 else None
+
+    measured = [n for n in nodes if kind(n)]
+    problems = []
+    for n in measured:
+        # A button with a label in it: the label's text is what's measured.
+        if any(o.path.startswith(n.path + "/") for o in measured):
+            continue
+        k = kind(n)
+        if not n.bounds:
+            problems.append((n, f"{k} not measured: can't tell where it is"))
+            continue
+        box = shown(n)
+        if not box:
+            continue
+        least = text if k == "text" else graphics
+        got = picture.text_contrast(pic, box)
+        if got is None and k == "text":
+            back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
+            problems.append((n, f"text not seen: nothing drawn on {back}"))
+        elif got and got[0] < least:
+            problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
+                                f"{picture.hex_of(got[2])} (at least {least:g})"))
+    if edges:
+        for n in nodes:
+            if not (n._showing and "disabled" not in n.states and (
+                    n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))):
+                continue
+            box = shown(n)
+            got = box and picture.edge_contrast(pic, box)
+            if got and got[0] < edges:
+                problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
+                                    f"{picture.hex_of(got[2])} (at least {edges:g})"))
+    return [(n, what) for n, what in problems
+            if not any(re.search(i, f"{n.path}: {what}") for i in ignore)]
+
+
+def overlap(a, b):
+    """The part of box `a` inside box `b`, both [x, y, width, height]."""
+    x0, y0 = max(a[0], b[0]), max(a[1], b[1])
+    x1, y1 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
+    return [x0, y0, max(0, x1 - x0), max(0, y1 - y0)]
 
 
 def alone(Atspi, window, node):
@@ -350,21 +639,43 @@ def main(argv):
     p = argparse.ArgumentParser(prog="shotbox a11y",
                                 description="Inside `shotbox run --a11y`: read the "
                                             "accessible tree, as a screen reader does.")
-    sub = p.add_subparsers(dest="what", required=True, metavar="{tree,lint,tabwalk}")
+    sub = p.add_subparsers(dest="what", required=True,
+                           metavar="{tree,lint,tabwalk,click,contrast}")
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
+    ignore = dict(action="append", default=[], metavar="RE",
+                  help="not a problem whose line (PATH: WHAT) this regex is found in "
+                       "(repeatable)")
+    lt.add_argument("--ignore", **ignore)
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
-    for s in (t, lt, w):
+    w.add_argument("--visible", action="store_true",
+                   help="fail where the focus doesn't show: too little of the screen "
+                        "round a node changed as it took it")
+    c = sub.add_parser("click", help="click a node, found by its name")
+    c.add_argument("name", metavar="NAME", help="its name, a regex matched in full")
+    c.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
+    c.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
+    c.add_argument("--double", action="store_true", help="click twice")
+    ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
+    ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
+                    help="text, buttons, links and tabs against their background, at least (4.5)")
+    ct.add_argument("--graphics", type=float, default=3.0, metavar="RATIO",
+                    help="images against their background, at least (3)")
+    ct.add_argument("--edges", type=float, metavar="RATIO",
+                    help="also a button's or field's edge against what's round it, "
+                         "at least this (3 is WCAG's)")
+    ct.add_argument("--ignore", **ignore)
+    for s in (t, lt, w, c, ct):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
                             "goes by the display's, unless its program has a named "
                             "one picked), waiting for it")
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
-                       help="how long to wait for the --window (10)")
-    for s in (t, w):
+                       help="how long to wait for the --window (10), or the node")
+    for s in (t, lt, w, c, ct):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     rec = sub.add_parser("record")
     rec.add_argument("out")
@@ -377,32 +688,45 @@ def main(argv):
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
              "the accessible tree")
     if a.what == "tree":
-        nodes = tree(a.window, a.timeout)
+        nodes = tree(a.window, a.timeout, bounds=a.json)
         if a.json:
             print(json.dumps([dict(public(n), depth=n.depth) for n in nodes]))
         else:
             for n in nodes:
                 print("  " * n.depth + n.line())
         return 0
-    if a.what == "lint":
-        problems = lint(atspi(), tree(a.window, a.timeout))
+    if a.what in ("lint", "contrast"):
+        if a.what == "lint":
+            problems = lint(atspi(), tree(a.window, a.timeout), a.ignore)
+        else:
+            problems = contrast(a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore)
+        if a.json:
+            print(json.dumps([dict(public(n), problem=what) for n, what in problems]))
+            return 0
         for n, what in problems:
             print(f"{n.path}: {what}")
         return 1 if problems else 0
-    seen, how = tab_walk(a.key, a.max, a.window, timeout=a.timeout)
+    if a.what == "click":
+        n = click(a.name, a.role, a.window, a.button, a.double, a.timeout)
+        print(json.dumps(public(n)) if a.json else n.line())
+        return 0
+    seen, how = tab_walk(a.key, a.max, a.window, timeout=a.timeout, visible=a.visible)
     if a.json:
         print(json.dumps({"focus": [public(n) for n in seen], "end": how}))
         return 0
+    hidden = [n for n in seen if unseen(n)]
     for n in seen:
-        print(n.line())
+        print(n.line() + (f"  <- focus not shown: {n.changed} pixels changed, "
+                          f"{n.needed} needed" if unseen(n) else ""))
     if how == "cycle":
         print(f"round again after {len(seen)}")
-        return 0
-    if how == "trap":
+    elif how == "trap":
         print(f"stuck: {a.key} leaves the focus where it was")
     else:
         print(f"not round again after {a.max}")
-    return 1
+    if hidden:
+        print(f"focus not shown on {len(hidden)}")
+    return 0 if how == "cycle" and not hidden else 1
 
 
 if __name__ == "__main__":
