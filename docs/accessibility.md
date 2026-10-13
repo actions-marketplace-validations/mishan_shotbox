@@ -25,12 +25,13 @@ With `--a11y`, the session:
 The registry, `at-spi2-registryd`, is started by the accessibility bus
 when the first program asks for it.
 
-This is for GTK. GTK 4 and GTK 3 talk to a bus whenever there is one;
-Qt and Chromium also ask `org.a11y.Status`'s `IsEnabled` whether a screen
-reader is running, which here says no (the launcher aborts when told
-otherwise in a sealed session), so they need their own switches:
-`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`, `--force-renderer-accessibility`.
-Neither is tested. Everything runs in the launcher's
+GTK 4 and GTK 3 talk to a bus whenever there is one. Qt and Chromium
+also ask `org.a11y.Status`'s `IsEnabled` whether a screen reader is
+running, which here says no (the launcher aborts when told otherwise in
+a sealed session). Chromium takes `ACCESSIBILITY_ENABLED=1` for a yes,
+which the session sets; it still needs `--force-renderer-accessibility`
+for a page's part of the tree, and is tested headed. Qt needs `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`,
+untested. Everything runs in the launcher's
 process group, which goes with the session's other groups at the end.
 
 Turning it on doesn't change the pictures: a libadwaita window comes out
@@ -130,8 +131,13 @@ lock), so an announcement that came before the wait began is still
 found, the same thing said twice is waited for twice, and waits can be
 in any order.
 
-GTK has no live regions, so there is nothing else of GTK's to record;
-another toolkit's live-region text changes aren't recorded.
+A browser's live regions are recorded too: Chromium sends
+`object:text-changed:insert` for text put in one, with `container-live`
+(`polite` or `assertive`) among the node's attributes. Unlike an
+announcement, it sends the event only once a listener has registered
+for it, which the recorder does. Text outside a live region, and a busy
+region's, isn't recorded; the inserted text is, not an atomic region's
+whole text as a reader would say it. GTK has no live regions.
 
 ## Display presets
 

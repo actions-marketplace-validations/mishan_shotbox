@@ -20,7 +20,12 @@ contrast or with bigger text.
   4.14's `gtk_accessible_announce()`) is logged, to
   `$SHOTBOX_SCRATCH/announcements` or `--announce-log FILE`, and
   `shotbox wait announce RE` (`wait_announce()`) waits for one, each
-  wait taking the next match.
+  wait taking the next match. Text put in a browser's live region is
+  logged the same way.
+- **Chromium** is on the bus in an `--a11y` session (it is given
+  `ACCESSIBILITY_ENABLED=1`), headed and with
+  `--force-renderer-accessibility`, so its pages' trees can be read,
+  linted and walked.
 - **`--dark`, `--high-contrast` and `--text-scale N`**, for libadwaita,
   GTK 4 and GTK 3. Without them, pictures don't change.
 

@@ -294,23 +294,40 @@ def record(out):
     `out`, a line each, "polite: Saved", as they say it. GTK 4.14's
     gtk_accessible_announce() is AT-SPI's Announcement event, which goes to
     the bus whether or not anyone has asked to hear it, so a match rule is
-    all it takes."""
+    all it takes. A browser's live region is text inserted into a node
+    whose container-live attribute is polite or assertive, sent only once
+    a listener has registered for it."""
     from gi.repository import Gio, GLib
     bus = Gio.DBusConnection.new_for_address_sync(
         os.environ["AT_SPI_BUS_ADDRESS"],
         Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
         | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
 
+    def write(politeness, text):
+        # A line each, so a line break in what's said is written \n.
+        with open(out, "a") as f:
+            one = "\\n".join(text.splitlines())
+            f.write(f"{politeness}: {one}\n")
+
     def said(conn, sender, path, iface, member, params):
         _, politeness, _, text, _ = params.unpack()
         if isinstance(text, str):
-            # A line each, so a line break in what's said is written \n.
-            with open(out, "a") as f:
-                one = "\\n".join(text.splitlines())
-                f.write(f"{POLITENESS.get(politeness, 'polite')}: {one}\n")
+            write(POLITENESS.get(politeness, "polite"), text)
+
+    def inserted(event):
+        try:
+            attrs = event.source.get_attributes() or {}
+        except Exception:   # gone while we looked
+            return
+        politeness = attrs.get("container-live")
+        if (politeness in ("polite", "assertive") and attrs.get("container-busy") != "true"
+                and isinstance(event.any_data, str) and event.any_data.strip()):
+            write(politeness, event.any_data)
 
     bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "Announcement", None, None,
                          Gio.DBusSignalFlags.NONE, said)
+    live = atspi().EventListener.new(inserted)
+    live.register("object:text-changed:insert")
     # Round-trip, so the match rule is in place before we say we're ready.
     bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
                   "GetId", None, None, Gio.DBusCallFlags.NONE, -1, None)

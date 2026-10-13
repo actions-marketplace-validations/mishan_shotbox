@@ -190,7 +190,8 @@ Inside `shotbox run --a11y`:
   after `--max`.
 - **`shotbox wait announce RE`** waits for a program to announce
   something matching RE (found anywhere in it) to a screen reader:
-  GTK 4.14's `gtk_accessible_announce()`. Each wait takes the first
+  GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
+  live region (`aria-live`, `role="status"`). Each wait takes the first
   match no wait has taken yet, so the same thing said twice is waited
   for twice. Everything announced goes to
   `$SHOTBOX_SCRATCH/announcements`, or `--announce-log FILE` (which
@@ -207,8 +208,9 @@ finds that the editor's text area has no name.
 `--window` picks a window by title, or `app=RE`, as everywhere, and
 waits up to `--timeout` (10s) for it to appear in the tree. Without it,
 every program's windows are there. It works on X11, Wayland and
-Xwayland, for GTK 4 and GTK 3; Qt and Chromium wait to be told a screen
-reader is running, and need their own switches. How it's put together: [docs/accessibility.md](docs/accessibility.md).
+Xwayland, for GTK 4 and GTK 3, and for Chromium, headed, given
+`--force-renderer-accessibility`. Qt waits to be told a screen reader is
+running, and needs its own switch. How it's put together: [docs/accessibility.md](docs/accessibility.md).
 
 ## Wayland
 
