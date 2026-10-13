@@ -3,7 +3,8 @@
     shotbox shoot OUT.png [options] -- COMMAND...   run it, wait, take the picture
     shotbox run [options] -- COMMAND...             run it in a sealed session
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
-    shotbox wait window|port|file|ready|stable ARG  (inside a session) wait for it
+    shotbox wait window|port|file|ready|stable|announce ARG
+                                                    (inside a session) wait for it
     shotbox capture OUT.png [--window RE]           (inside a session) take a picture
     shotbox key CHORD...                            (inside a session) press keys
     shotbox type TEXT                               (inside a session) type text
@@ -11,6 +12,7 @@
     shotbox move X Y [--window RE]                  (inside a session) point there
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
     shotbox park                                    (inside a session) pointer out of the way
+    shotbox a11y tree|lint|tabwalk [--window RE]    (inside a session) the accessible tree
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
     shotbox compare REFDIR NEWDIR [NAME...]         the same, picture by picture
 
@@ -19,13 +21,21 @@
 
 import argparse
 import os
+import signal
 import sys
 import time
 from pathlib import Path
 
-from . import term, x, xtest
+from . import a11y, term, x, xtest
 from .screen import Screen, SessionError
 from .session import Session
+
+
+def scale(s):
+    n = float(s)
+    if not n > 0:
+        raise argparse.ArgumentTypeError(f"more than 0, not {s}")
+    return n
 
 
 def size(s):
@@ -53,13 +63,28 @@ def session_options(p):
                         "Xvfb (docs/wayland.md)")
     g.add_argument("--xwayland", action="store_true",
                    help="a Wayland session with Xwayland in it too, for X clients")
+    g.add_argument("--a11y", action="store_true",
+                   help="an accessibility (AT-SPI) bus of the session's own, for "
+                        "`shotbox a11y` and announcements")
+    g.add_argument("--announce-log", metavar="FILE",
+                   help="record what programs announce here (implies --a11y; "
+                        "$SHOTBOX_SCRATCH/announcements by default)")
+    g.add_argument("--dark", action="store_true", help="the dark style")
+    g.add_argument("--high-contrast", action="store_true", help="the high-contrast style")
+    g.add_argument("--text-scale", type=scale, metavar="N",
+                   help="scale text by N (1.25), as the desktop's text scaling does")
 
 
 def make_session(a):
+    # Stopped by kill or timeout(1), stop the session too, as for ctrl-C,
+    # rather than leave its display and programs running.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     env = dict(e.split("=", 1) for e in a.env)
     return Session(size=a.screen, desktop=a.desktop, system_bus=a.system_bus,
                    seed=a.seed, keep=a.keep, env=env, passthrough=a.passthrough,
-                   wayland=a.wayland, xwayland=a.xwayland)
+                   wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
+                   announce_log=a.announce_log, dark=a.dark,
+                   high_contrast=a.high_contrast, text_scale=a.text_scale)
 
 
 def self_command():
@@ -178,13 +203,15 @@ def inside():
 def cmd_wait(argv):
     p = argparse.ArgumentParser(prog="shotbox wait",
                                 description="Inside `shotbox run`: wait for a window, "
-                                            "a port, a file, the ready file, or the "
-                                            "screen to stop changing.")
-    p.add_argument("kind", choices=("window", "port", "file", "ready", "stable"))
+                                            "a port, a file, the ready file, the "
+                                            "screen to stop changing, or an "
+                                            "announcement.")
+    p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
-                        "stable, how long it must hold still (0.5)")
+                        "stable, how long it must hold still (0.5); for announce, "
+                        "a regex found in what was said (needs --a11y)")
     p.add_argument("--window", metavar="RE",
                    help="for stable: watch this window rather than the display")
     p.add_argument("--timeout", type=float, default=30)
@@ -371,7 +398,7 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "capture": cmd_capture, "compare": cmd_compare, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park}
+            "drag": cmd_drag, "park": cmd_park, "a11y": a11y.main}
 
 
 def main(argv=None):
@@ -384,6 +411,8 @@ def main(argv=None):
     except (SessionError, xtest.XError) as e:
         sys.stderr.write(f"shotbox: {e}\n")
         return 1
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

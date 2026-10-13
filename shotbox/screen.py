@@ -17,7 +17,11 @@ Anything that fails raises SessionError, saying what. With `failed` set (or
 $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 """
 
+import fcntl
+import json
 import os
+import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -85,13 +89,36 @@ class Screen:
         if kind == "ready":
             ready = Path(self.env["SHOTBOX_SCRATCH"]) / "ready"
             return "the program to say it's ready", ready.exists
+        if kind == "announce":
+            # Each wait takes the first match no wait has taken, so the same
+            # thing said twice can be waited for twice. The lines taken, a
+            # number a line, under a lock: waits may run side by side.
+            taken = Path(self.env["SHOTBOX_SCRATCH"]) / "announcements-taken"
+
+            def said():
+                log = self.env.get("SHOTBOX_ANNOUNCEMENTS")
+                if not log:
+                    self.fail("no announcements: start the session with --a11y")
+                if not Path(log).exists():
+                    return False
+                lines = Path(log).read_text().splitlines()
+                with open(taken, "a+") as f:
+                    fcntl.flock(f, fcntl.LOCK_EX)
+                    f.seek(0)
+                    gone = {int(n) for n in f.read().split()}
+                    for i, line in enumerate(lines):
+                        if i not in gone and re.search(arg, line.partition(": ")[2]):
+                            f.write(f"{i}\n")
+                            return True
+                return False
+            return f"an announcement matching {arg!r}", said
         if kind == "stable":
             quiet = float(arg) if arg else 0.5
             where = f"the window {window!r}" if window else "the display"
             return (f"{where} to hold still for {quiet:g}s",
                     x.Still(self.env, window, quiet, self.backend))
         raise SessionError(f"don't know how to wait for {kind!r} "
-                           "(window, port, file, ready or stable)")
+                           "(window, port, file, ready, stable or announce)")
 
     def wait_window(self, name, timeout=30):
         """Wait for a viewable window whose title matches `name` (a regex,
@@ -114,6 +141,71 @@ class Screen:
         the same for `seconds`: for the paint after a click, a panel sliding
         in, a toast going away."""
         self.until(*self.test("stable", seconds, window), timeout)
+
+    def wait_announce(self, pattern, timeout=30):
+        """Wait for a program to have announced something matching
+        `pattern` (a regex, found anywhere in it) to a screen reader."""
+        self.until(*self.test("announce", pattern), timeout)
+
+    # --- the accessible tree ----------------------------------------------------
+
+    def _a11y(self, *args, timeout=90):
+        """`shotbox a11y ARGS --json` in the session, for its answer: libatspi
+        keeps the first bus it finds for the life of a process, which may
+        not be this session's. It has a watchdog of its own; `timeout` is
+        for one that never even gets that far."""
+        from .__main__ import self_command
+        try:
+            r = subprocess.run([*self_command(), "a11y", *args, "--json"], env=self.env,
+                               capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.fail(f"shotbox a11y {args[0]} got no answer in {timeout}s")
+        if r.returncode:
+            self.fail(r.stderr.strip().removeprefix("shotbox: ")
+                      or f"shotbox a11y {args[0]} failed")
+        return json.loads(r.stdout)
+
+    def a11y_tree(self, window=None):
+        """Every node a screen reader sees, depth first: dicts (and
+        attributes) of role, name, description, states, path and depth."""
+        from .a11y import Node
+        return [Node(n) for n in self._a11y("tree", *(["--window", window] if window else []))]
+
+    def find(self, role=None, name=None, window=None):
+        """The nodes with this role ("button") and a name matching `name`
+        (a regex, matched in full)."""
+        return [n for n in self.a11y_tree(window)
+                if (role is None or n.role == role)
+                and (name is None or re.fullmatch(name, n.name))]
+
+    def focused(self, window=None):
+        """The node with the keyboard focus, or None."""
+        return next((n for n in self.a11y_tree(window) if "focused" in n.states), None)
+
+    def wait_focus(self, name, timeout=30, window=None):
+        """Wait for the keyboard focus to be on a node whose name matches
+        `name` (a regex, matched in full); that node."""
+        def there():
+            n = self.focused(window)
+            return n if n and re.fullmatch(name, n.name) else None
+        return self.until(f"the focus on {name!r}", there, timeout)
+
+    def tab_walk(self, key="Tab", most=50, window=None):
+        """Press `key` until the focus lands somewhere it has been: the node
+        it lands on after each press, the last being that one. Fails if a
+        press leaves it where it was (unless it's the one thing that could
+        take it), or after `most` presses."""
+        from .a11y import Node
+        args = ["tabwalk", "--key", key, "--max", str(most)]
+        got = self._a11y(*args, *(["--window", window] if window else []),
+                         timeout=90 + most * 5)
+        seen = [Node(n) for n in got["focus"]]
+        if got["end"] == "trap":
+            where = seen[-1].line() if seen else "nothing"
+            self.fail(f"{key} leaves the focus where it was, on {where}")
+        if got["end"] == "max":
+            self.fail(f"the focus isn't round again after {most} presses of {key}")
+        return seen
 
     # --- windows and pictures -------------------------------------------------
 

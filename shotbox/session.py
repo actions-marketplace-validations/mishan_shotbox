@@ -27,15 +27,21 @@ The pieces, and why each one:
   portals); desktop=True uses the system's service directories instead, for
   things like GNOME Shell that need dconf and friends.
 - Optionally a stand-in system bus, for programs that insist on one.
+- Optionally, with a11y=True, an accessibility (AT-SPI) bus of its own,
+  started by at-spi-bus-launcher on the private session bus, so the
+  program's accessible tree can be read (a11y.py) and nothing of it
+  reaches your desktop's screen reader.
 - Every process in its own group, and the group killed on the way out:
   signalling a wrapper script alone leaves its children running.
 """
 
 import os
+import re
 import secrets
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -99,6 +105,84 @@ gtk-enable-animations = false
 """
 
 
+# Where distributions put at-spi2-core's bus launcher.
+A11Y_LAUNCHERS = ("/usr/libexec/at-spi-bus-launcher", "/usr/lib/at-spi2-core/at-spi-bus-launcher",
+                  "/usr/lib/at-spi2/at-spi-bus-launcher")
+
+
+def gtk4_minor():
+    """The system's GTK 4 minor version, or None: asked of the library in a
+    process of its own, so GTK isn't loaded into this one."""
+    r = subprocess.run([sys.executable, "-c", "import ctypes; print(ctypes.CDLL("
+                        "'libgtk-4.so.1').gtk_get_minor_version())"],
+                       capture_output=True, text=True)
+    return int(r.stdout) if r.returncode == 0 else None
+
+
+def presets(toolkit, dark, high_contrast, text_scale, minor=None):
+    """settings.ini keys for the display presets, for GTK 3 or 4 (GTK 4.minor).
+    GTK 4.20 took over the interface's color scheme and contrast, and older
+    GTK 4 warns of keys it doesn't know, so it gets its dark variant and no
+    high contrast; GTK 3 takes a dark variant and its HighContrast theme.
+    Text scaling is the font DPI, in 1024ths, which GTK 4 on Wayland takes
+    from here."""
+    keys = {}
+    new = toolkit == "gtk-4.0" and (minor or 0) >= 20
+    if dark and new:
+        keys["gtk-interface-color-scheme"] = "dark"
+    elif dark:
+        keys["gtk-application-prefer-dark-theme"] = "true"
+    if high_contrast and new:
+        keys["gtk-interface-contrast"] = "more"
+    elif high_contrast and toolkit == "gtk-3.0":
+        keys["gtk-theme-name"] = "HighContrast"
+    if text_scale:
+        keys["gtk-xft-dpi"] = str(round(96 * 1024 * text_scale))
+    return keys
+
+
+def merge(text, keys):
+    """`text`, a settings.ini, with `keys` set in its [Settings] group, and
+    its comments and everything else as they were."""
+    kept, group, at = [], None, None
+    for line in text.splitlines():
+        bare = line.strip()
+        if bare.startswith("["):
+            group = bare
+            if bare == "[Settings]" and at is None:
+                kept.append(line)
+                at = len(kept)
+                continue
+        elif group == "[Settings]" and bare.split("=", 1)[0].strip() in keys:
+            continue
+        kept.append(line)
+    if at is None:
+        kept.append("[Settings]")
+        at = len(kept)
+    kept[at:at] = [f"{k} = {v}" for k, v in keys.items()]
+    return "\n".join(kept) + "\n"
+
+
+def unfold(home, path):
+    """Make each step from `home` down to `path` the session's own rather
+    than a link out of it, so writing `path` can't reach what a seed's
+    links (stow's dotfiles, say) point at: a linked directory becomes a
+    real one of links to what's in it, a linked file a copy."""
+    p = home
+    for part in path.relative_to(home).parts:
+        p = p / part
+        if not p.is_symlink():
+            continue
+        target = p.resolve()
+        p.unlink()
+        if target.is_dir():
+            p.mkdir()
+            for child in target.iterdir():
+                (p / child.name).symlink_to(child)
+        elif target.exists():
+            shutil.copyfile(target, p)
+
+
 def need(*tools):
     missing = [t for t in tools if not shutil.which(t)]
     if missing:
@@ -160,8 +244,14 @@ class Session(Screen):
 
     def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
-                 wayland=False, xwayland=False):
+                 wayland=False, xwayland=False, a11y=False, announce_log=None,
+                 dark=False, high_contrast=False, text_scale=None):
         self.size = size
+        self.a11y = a11y or bool(announce_log)
+        self.announce_log = announce_log
+        if text_scale is not None and not text_scale > 0:
+            raise SessionError(f"text_scale must be more than 0, not {text_scale}")
+        self.dark, self.high_contrast, self.text_scale = dark, high_contrast, text_scale
         self.xwayland = xwayland
         self.use_wayland = wayland or xwayland
         self.desktop = desktop
@@ -194,6 +284,17 @@ class Session(Screen):
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
+            if self.text_scale and "DISPLAY" in self.env:
+                # X clients take the font DPI from the X server's
+                # resources over settings.ini; only GTK 4 on Wayland reads
+                # it there.
+                need("xprop")
+                dpi = round(96 * self.text_scale)
+                subprocess.run(["xprop", "-root", "-f", "RESOURCE_MANAGER", "8s", "-set",
+                                "RESOURCE_MANAGER", f"Xft.dpi:\t{dpi}\n"],
+                               env=self.env, check=True)
+            if self.a11y:
+                self._start_a11y()
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -208,12 +309,17 @@ class Session(Screen):
             (home / d).mkdir(parents=True, exist_ok=True)
         # GTK apps: no blinking text caret, which a picture would catch on
         # or off at random, and no animations, which it would catch mid-way.
-        # A seeded home's own settings win.
+        # A seeded home's own settings win, but for the presets asked for.
+        minor = gtk4_minor() if self.dark or self.high_contrast else None
         for gtk in ("gtk-3.0", "gtk-4.0"):
             ini = home / ".config" / gtk / "settings.ini"
+            unfold(home, ini)
             if not ini.exists():
                 ini.parent.mkdir(parents=True, exist_ok=True)
                 ini.write_text(GTK_SETTINGS)
+            more = presets(gtk, self.dark, self.high_contrast, self.text_scale, minor)
+            if more:
+                ini.write_text(merge(ini.read_text(), more))
         run = self.scratch / "run"
         run.mkdir(mode=0o700)
 
@@ -332,6 +438,14 @@ class Session(Screen):
         env.update(SEALED_ENV)
         if self.desktop:
             del env["GSETTINGS_BACKEND"]
+        if self.a11y:
+            del env["GTK_A11Y"], env["NO_AT_BRIDGE"]
+        # libadwaita takes its style from the portal or GSettings, not from
+        # GTK's settings.ini, and a sealed session has neither to tell it.
+        if self.dark:
+            env["ADW_DEBUG_COLOR_SCHEME"] = "prefer-dark"
+        if self.high_contrast:
+            env["ADW_DEBUG_HIGH_CONTRAST"] = "1"
         env.update(
             HOME=str(home),
             XDG_CONFIG_HOME=str(home / ".config"),
@@ -348,6 +462,52 @@ class Session(Screen):
             env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
         env.update(self.extra_env)
         return env
+
+    def _start_a11y(self):
+        """An accessibility bus of the session's own: at-spi-bus-launcher on
+        the private session bus starts it, and AT_SPI_BUS_ADDRESS points
+        every toolkit and reader in the session at it, on X11 and Wayland
+        alike. Then a recorder of what programs announce on it."""
+        launcher = next((p for p in A11Y_LAUNCHERS if os.access(p, os.X_OK)), None)
+        if not launcher:
+            raise SessionError("not found: at-spi-bus-launcher (at-spi2-core)")
+        need("gdbus")
+        log = self.scratch / "a11y-bus.log"
+        proc = subprocess.Popen([launcher, "--launch-immediately"], env=self.env,
+                                stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
+                                start_new_session=True)
+        self._procs.append(proc)
+
+        def address():
+            r = subprocess.run(["gdbus", "call", "--session", "--dest", "org.a11y.Bus",
+                                "--object-path", "/org/a11y/bus",
+                                "--method", "org.a11y.Bus.GetAddress"],
+                               env=self.env, capture_output=True, text=True)
+            m = re.fullmatch(r"\('(.+)',\)", r.stdout.strip())
+            return m and m.group(1)
+
+        try:
+            self.env["AT_SPI_BUS_ADDRESS"] = wait_for("the accessibility bus", address, 15,
+                                                      interval=0.2, alive=proc)
+        except SessionError as e:
+            raise SessionError(f"{e}; see {log}")
+        out = Path(self.announce_log or self.scratch / "announcements").resolve()
+        self.env["SHOTBOX_ANNOUNCEMENTS"] = str(out)
+        out.unlink(missing_ok=True)
+        # Its own copy of the package's path: the session's PYTHONPATH is
+        # whatever the caller let through, if anything.
+        env = dict(self.env, PYTHONPATH=str(Path(__file__).resolve().parent.parent))
+        rec = subprocess.Popen([sys.executable, "-m", "shotbox.a11y", "record", str(out)],
+                               env=env, stdout=subprocess.DEVNULL,
+                               stderr=open(self.scratch / "announce.log", "wb"),
+                               start_new_session=True)
+        self._procs.append(rec)
+        # It makes the file once it's listening, so nothing said is missed.
+        try:
+            wait_for("the announcement recorder", out.exists, 15, alive=rec)
+        except SessionError as e:
+            said = (self.scratch / "announce.log").read_text(errors="replace").strip()
+            raise SessionError(f"{e}; it said: {said or '(nothing)'}")
 
     # --- running things -----------------------------------------------------------
 

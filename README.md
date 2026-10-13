@@ -40,10 +40,13 @@ right all want the same things, and every project was growing its own copy:
 ## Install
 
 Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
-`shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`). On Debian:
+`shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
+at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`. On
+Debian:
 
 ```
-sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91
+sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
+  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin
 pipx install --system-site-packages shotbox
 ```
 
@@ -101,7 +104,17 @@ home as a copy of a directory (a config, a profile, sample files);
 `--desktop` for real GSettings and the system's D-Bus services, which a
 desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
 keep the scratch dir and say where it is; `--wayland` and `--xwayland`
-for a [Wayland](#wayland) session.
+for a [Wayland](#wayland) session; `--a11y` for an
+[accessibility bus](#accessibility); and the display presets:
+
+- `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
+- `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
+  and later, and GTK 3.
+- `--text-scale N`: text N times the size (`1.25`), as the desktop's
+  text scaling does: GTK 3 and 4 on X11 and Xwayland, GTK 4 on Wayland.
+
+Each is off unless asked for, so pictures without them don't change.
+Reduced motion needs no preset: GTK's animations are always off.
 
 **`shotbox term [options] -- COMMAND...`** is a terminal to take pictures of:
 VTE, the engine behind GNOME Terminal, Ptyxis and Tilix, in a plain window
@@ -146,6 +159,56 @@ take `NAME=VALUE` for one picture, beside a plain VALUE for the rest:
 ```
 shotbox compare data/screenshots fresh --fuzz 0.5% --fuzz video=5% --diff fresh
 ```
+
+## Accessibility
+
+`--a11y` starts an accessibility (AT-SPI) bus of the session's own, so
+what a screen reader would hear can be read and checked. Without it, a
+session has none: GTK is told not to look. Your desktop's bus is never
+touched either way.
+
+Inside `shotbox run --a11y`:
+
+- **`shotbox a11y tree [--window RE]`** prints the tree, a node a line,
+  indented: role, name, description if any, and the states a screen
+  reader would say (focusable, focused, selected, checked, pressed,
+  expanded or collapsed, editable, disabled, ...). Hidden nodes are left
+  out. It comes out the same each run, to commit and diff.
+- **`shotbox a11y lint [--window RE]`** fails, a line each, for what has
+  no name to say: a button, toggle, check box, radio button, menu item,
+  link, entry, slider, combo box or tab; an image not inside a named
+  control (a decorative one should be role presentation, which leaves it
+  out of the tree); and anything else that takes the focus, but for
+  what has a named node inside it, which is said by that, and a
+  container (a scrolled window, a list, a notebook) that passes the
+  focus on to something inside it. Each line is
+  the node's path, its roles and their places from the window down.
+- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--window RE]`** presses
+  the key until the focus lands somewhere it has been, printing where it
+  lands each time. It fails if a press leaves the focus where it was (a
+  trap: a text view keeps Tab), unless nothing else could take it, or
+  after `--max`.
+- **`shotbox wait announce RE`** waits for a program to announce
+  something matching RE (found anywhere in it) to a screen reader:
+  GTK 4.14's `gtk_accessible_announce()`. Each wait takes the first
+  match no wait has taken yet, so the same thing said twice is waited
+  for twice. Everything announced goes to
+  `$SHOTBOX_SCRATCH/announcements`, or `--announce-log FILE` (which
+  implies `--a11y`), a line each (a line break as `\n`): `polite: Saved
+  to notes.md`.
+
+```
+shotbox run --a11y -- sh -c 'gnome-text-editor &
+  shotbox a11y lint --window ".*Text Editor"'
+```
+
+finds that the editor's text area has no name.
+
+`--window` picks a window by title, or `app=RE`, as everywhere, and
+waits up to `--timeout` (10s) for it to appear in the tree. Without it,
+every program's windows are there. It works on X11, Wayland and
+Xwayland, for GTK 4 and GTK 3; Qt and Chromium wait to be told a screen
+reader is running, and need their own switches. How it's put together: [docs/accessibility.md](docs/accessibility.md).
 
 ## Wayland
 
@@ -205,8 +268,16 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
   screen there first, and says where.
+- Accessibility, in a session with `a11y=True`: `a11y_tree(window=None)`,
+  the nodes (dicts, and attributes: `role`, `name`, `description`,
+  `states`, `path`, `depth`); `find(role=None, name=None, window=None)`,
+  `name` a regex; `focused()`; `wait_focus(re)`; `tab_walk(key="Tab",
+  most=50, window=None)`, the nodes the focus lands on, failing on a
+  trap; and `wait_announce(re)`.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and
-  `scratch`.
+  `scratch`. It takes the session options as arguments: `a11y`,
+  `announce_log`, `dark`, `high_contrast`, `text_scale`, `wayland` and
+  the rest.
 
 Installed, `import shotbox` just works. With a checkout, put its root on
 `PYTHONPATH` (`--pass PYTHONPATH` to let it
@@ -297,8 +368,9 @@ works too, or `"file:../shotbox"` for a checkout beside yours.
 API (`test/api.py`, which needs GTK 3's PyGObject) and the Node helpers, and
 takes a few seconds. The helpers that need a browser use Playwright's
 Chromium (`npm install && npx playwright install chromium`) and skip
-without it, and the Wayland sessions need sway, grim and Xwayland and skip
-without them.
+without it, the Wayland sessions need sway, grim and Xwayland and skip
+without them, and the accessibility checks need GTK 4, libadwaita and
+at-spi2-core and skip without them.
 
 ## License
 

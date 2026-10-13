@@ -1,6 +1,7 @@
 """The Python API, the pointer, and parking it: a GTK button, hovered,
 clicked, then not hovered, on X11 and, with sway and grim, on Wayland.
-Run by test/run.sh; prints ok/FAIL lines like it."""
+Then the accessible tree of a libadwaita window, with GTK 4, libadwaita
+and at-spi2-core. Run by test/run.sh; prints ok/FAIL lines like it."""
 
 import os
 import shutil
@@ -77,6 +78,74 @@ elif os.environ.get("SHOTBOX_WAYLAND") == "required":
     check(False, "wayland: the pointer, skipped: no sway or grim")
 else:
     print("skip  wayland: the pointer: no sway or grim")
+
+APP = Path(__file__).resolve().parent / "a11y_app.py"
+
+
+def a11y():
+    with shotbox.Session(size=(640, 480), a11y=True) as s:
+        s.spawn([str(APP)])
+        # "push button" until at-spi2-core 2.62, "button" since.
+        roles = sorted(n.role for n in s.find(name="Save", window="a11y-test"))
+        button = [r for r in roles if r != "label"]
+        check(len(roles) == 2 and "label" in roles and button[0] in ("button", "push button"),
+              f"a11y: find() by name ({roles})")
+        check(len(s.find(role=button[0], name="Sa.e")) == 1, "a11y: find() by role and name")
+        check(s.focused().name == "Save", "a11y: focused()")
+        walk = [n.name for n in s.tab_walk(window="a11y-test")]
+        check(walk == ["", "Announce", "Wrap lines", "File name", "", "Save"],
+              f"a11y: tab_walk() goes round ({walk})")
+        s.key("Tab", "Tab")
+        check(s.wait_focus("Announce", timeout=5).role.endswith("button"),
+              "a11y: wait_focus()")
+        s.key("space")
+        s.wait_announce("notes", timeout=5)
+        s.key("space")
+        s.wait_announce("notes", timeout=5)
+        try:
+            s.wait_announce("notes", timeout=1)
+            check(False, "a11y: wait_announce() takes each announcement once")
+        except shotbox.SessionError:
+            check(True, "a11y: wait_announce() takes each announcement once")
+    with shotbox.Session(size=(640, 480), a11y=True) as s:
+        s.spawn([str(APP), "trap"])
+        try:
+            s.tab_walk(window="a11y-test")
+            check(False, "a11y: tab_walk() on a focus trap raises")
+        except shotbox.SessionError as e:
+            check('"Notes"' in str(e), "a11y: tab_walk() on a focus trap raises, saying where")
+    with shotbox.Session() as s:
+        try:
+            s.a11y_tree()
+            check(False, "a11y: without a11y=True, the tree raises")
+        except shotbox.SessionError as e:
+            check("--a11y" in str(e), "a11y: without a11y=True, the tree raises, saying why")
+
+
+def a11y_missing():
+    """What a11y() needs and this machine lacks, or None."""
+    import gi
+    try:
+        gi.require_version("Adw", "1")
+        gi.require_version("Atspi", "2.0")
+    except ValueError as e:
+        return str(e)
+    from shotbox.session import A11Y_LAUNCHERS
+    if not any(os.access(p, os.X_OK) for p in A11Y_LAUNCHERS):
+        return "no at-spi-bus-launcher"
+    return None
+
+
+missing = a11y_missing()
+if not missing:
+    try:
+        a11y()
+    except shotbox.SessionError as e:
+        check(False, f"a11y: {e}")
+elif os.environ.get("SHOTBOX_A11Y") == "required":
+    check(False, f"a11y skipped: {missing}")
+else:
+    print(f"skip  a11y: {missing}")
 
 here = subprocess.run(
     [sys.argv[1], "run", "--env", f"PYTHONPATH={Path(__file__).resolve().parent.parent}", "--",
