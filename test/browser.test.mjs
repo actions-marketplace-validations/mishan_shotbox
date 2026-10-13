@@ -347,8 +347,19 @@ test('frames: the same frames each run, a frame per step of page time',
     }
 });
 
+/* What an --a11y session needs, as test/api.py asks it. */
+const atspi = () =>
+{
+    const launcher = ['/usr/libexec', '/usr/lib/at-spi2-core', '/usr/lib/at-spi2']
+        .some((d) => spawnSync('test', ['-x', `${d}/at-spi-bus-launcher`]).status === 0);
+    const gir = spawnSync('python3', ['-c',
+        'import gi; gi.require_version("Atspi", "2.0")']).status === 0;
+
+    return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
+};
+
 test('Chromium on an --a11y session: its tree, and its live regions heard',
-     { skip: why }, () =>
+     { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const shotbox = path.join(here, '..', 'bin', 'shotbox');
@@ -363,5 +374,6 @@ test('Chromium on an --a11y session: its tree, and its live regions heard',
     const { tree, said } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
-    assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n');
+    assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
+                       'polite: Done\n');
 });

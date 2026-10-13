@@ -420,7 +420,7 @@ node --test --test-reporter=spec "$here"/browser.test.mjs >"$tmp/browser.log" 2>
   fail "browser helpers"; cat "$tmp/browser.log"; }
 if grep -q '^ℹ skipped [1-9]' "$tmp/browser.log"; then
   # CI says it has to run, so there a skip is a failure.
-  why=$(grep -m1 -o 'no Playwright[^)]*)\|no ffmpeg' "$tmp/browser.log")
+  why=$(grep -m1 -o 'no Playwright[^)]*)\|no ffmpeg\|no at-spi[^)]*)' "$tmp/browser.log")
   [ "${SHOTBOX_BROWSER-}" = required ] && fail "browser helpers skipped: $why" \
     || echo "skip  browser helpers: $why"
 elif ! grep -q '^ℹ fail [1-9]' "$tmp/browser.log"; then

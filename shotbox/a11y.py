@@ -320,14 +320,21 @@ def record(out):
         except Exception:   # gone while we looked
             return
         politeness = attrs.get("container-live")
+        # U+FFFC stands in for a child element, whose own text comes as its
+        # own event.
+        text = event.any_data.replace("\ufffc", "") if isinstance(event.any_data, str) else ""
         if (politeness in ("polite", "assertive") and attrs.get("container-busy") != "true"
-                and isinstance(event.any_data, str) and event.any_data.strip()):
-            write(politeness, event.any_data)
+                and text.strip()):
+            write(politeness, text)
 
     bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "Announcement", None, None,
                          Gio.DBusSignalFlags.NONE, said)
-    live = atspi().EventListener.new(inserted)
+    Atspi = atspi()
+    live = Atspi.EventListener.new(inserted)
     live.register("object:text-changed:insert")
+    # A round-trip on libatspi's own connection, after the registration it
+    # sent without waiting, so programs started next are told of it.
+    Atspi.get_desktop(0).get_child_count()
     # Round-trip, so the match rule is in place before we say we're ready.
     bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
                   "GetId", None, None, Gio.DBusCallFlags.NONE, -1, None)

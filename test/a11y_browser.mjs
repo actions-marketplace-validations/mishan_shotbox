@@ -6,8 +6,9 @@
 
 /*
  * Inside `shotbox run --a11y` (browser.test.mjs): Chromium, headed, on the
- * session's accessibility bus with nothing but its own switch, its page's
- * tree read and its live regions heard. Prints what it found as JSON.
+ * session's accessibility bus with only its own switch added to what the
+ * session sets, its page's tree read and its live regions heard. Prints
+ * what it found as JSON.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -52,6 +53,14 @@ try
     run('wait', 'announce', 'Saved to notes', '--timeout', '10');
     await set('rude', 'Connection lost');
     run('wait', 'announce', 'Connection lost', '--timeout', '10');
+
+    /* An element put in a region: its text, and not the character that
+       stands in for it in the region's. */
+    await page.evaluate(() =>
+    {
+        document.getElementById('polite').innerHTML = '<p>Done</p>';
+    });
+    run('wait', 'announce', 'Done', '--timeout', '10');
 
     process.stdout.write(JSON.stringify({
         tree,
