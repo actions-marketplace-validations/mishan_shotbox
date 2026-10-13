@@ -26,7 +26,13 @@ The registry, `at-spi2-registryd`, is started by the accessibility bus
 when the first program asks for it.
 
 GTK 4, GTK 3 and Qt 5 (tested with VLC) talk to a bus whenever there is
-one. Chromium also asks `org.a11y.Status`'s `IsEnabled` whether a screen
+one, and so do programs whose toolkit uses AccessKit (egui, Slint, Bevy,
+GTK built with `-Daccesskit=enabled` and run with `GTK_A11Y=accesskit`):
+its Unix adapter is an AT-SPI program like any other. It has no cache
+object, which libatspi asks every program for and warns of, every read;
+`shotbox a11y` leaves that warning out. Its window coordinates on
+Wayland count the surface's shadow in, consistently, and are placed
+right. Chromium also asks `org.a11y.Status`'s `IsEnabled` whether a screen
 reader is running, which here says no (the launcher aborts when told
 otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
 yes, which the session sets; it still needs `--force-renderer-accessibility`

@@ -251,10 +251,31 @@ finds that the editor's text area has no name.
 `--window` picks a window by title, or `app=RE`, as everywhere, and
 waits up to `--timeout` (10s) for it to appear in the tree. Without it,
 every program's windows are there. It works on X11, Wayland and
-Xwayland, for GTK 4, GTK 3 and Qt 5, and for Chromium, headed, given
+Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
+Bevy, GTK built with it), and for Chromium, headed, given
 `--force-renderer-accessibility` (the Node package's `accessible`), on
 X11. How it's put together, and what each check can and can't tell:
 [docs/accessibility.md](docs/accessibility.md).
+
+## MCP
+
+`shotbox mcp --allow PROGRAMS` gives an agent sealed sessions over the
+Model Context Protocol (stdio). It can start a session, spawn programs
+from the list in PROGRAMS (`NAME = COMMAND` a line, and nothing else),
+and then:
+- read the accessible tree, and take screenshots, which come back as
+  images;
+- click by a node's name, press keys and type;
+- wait for windows, stillness and announcements;
+- lint, measure contrast and walk the Tab order.
+
+Its sessions stop when it does.
+
+```
+claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
+```
+
+What it's for, the tools, and how it's built: [docs/mcp.md](docs/mcp.md).
 
 ## Wayland
 

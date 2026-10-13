@@ -689,6 +689,9 @@ class Session(Screen):
                                     start_new_session=True, **kw)
         except OSError as e:
             raise SessionError(f"can't run {cmd[0]}: {e.strerror}")
+        finally:
+            if out:
+                out.close()
         self._procs.append(proc)
         return proc
 

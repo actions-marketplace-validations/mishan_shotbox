@@ -68,7 +68,14 @@ def atspi():
         raise SessionError("no accessibility bus: start the session with --a11y")
     import gi
     gi.require_version("Atspi", "2.0")
-    from gi.repository import Atspi
+    from gi.repository import Atspi, GLib
+
+    # AccessKit's adapter has no cache object, which libatspi asks every
+    # program for, and says so on each read of a tree with one in it.
+    def quiet(domain, level, message, *_):
+        if "/org/a11y/atspi/cache" not in message:
+            GLib.log_default_handler(domain, level, message)
+    GLib.log_set_handler("atspi", GLib.LogLevelFlags.LEVEL_WARNING, quiet)
     Atspi.init()
     return Atspi
 
@@ -148,9 +155,9 @@ def find_toplevels(Atspi, window=None):
 
 
 def origin(Atspi, top, shown):
-    """Where `top` is on the screen, and where its children's window
-    coordinates start: ((x, y, width, height), (x, y)), or None if that
-    can't be told. A node's extents are in its window's coordinates (GTK 4
+    """Where `top` is on the screen, where its children's window
+    coordinates start, and the display's window it is: ((x, y, width,
+    height), (x, y), window), or None if that can't be told. A node's extents are in its window's coordinates (GTK 4
     has no others), so they're put on the screen by the display's window
     of the same size, and name if it has one: `shown`, as the backend's
     windows() lists them. Chromium on Wayland counts its shadow into its
@@ -179,7 +186,7 @@ def origin(Atspi, top, shown):
     lost = (0, 0)
     if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
         lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
-    return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1])
+    return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1]), w
 
 
 def place(Atspi, n, shown, origins):
@@ -426,7 +433,7 @@ def ratio_text(r):
 def click(name, role=None, window=None, button=1, double=False, timeout=10):
     """Click the middle of the node whose name matches `name` (a regex,
     matched in full), and role `role` (a regex too) if given, waiting up to
-    `timeout` for it to show, in its window, raised. A match inside
+    `timeout` for it to show, its window raised. A match inside
     another (a button's label) is the outer one. The node clicked."""
     Atspi = atspi()
 
@@ -451,7 +458,7 @@ def click(name, role=None, window=None, button=1, double=False, timeout=10):
     if not w or not h:
         raise SessionError(f"{n.line()} is outside its window")
     try:
-        raise_window(screen, window)
+        screen.backend.focus(screen.env, origins[n._top][2])
         screen.click(x + w // 2, y + h // 2, button=button, double=double)
     finally:
         screen.close()

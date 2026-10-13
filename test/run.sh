@@ -345,6 +345,11 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   set +e; "$sb" run -- "$sb" a11y tree 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q -- "--a11y" "$tmp/err" && ok "a11y: without --a11y, no tree, and says why" \
     || fail "a11y: no bus: $st"
+  # shotbox mcp: the protocol, and its tools on a session like these.
+  set +e; python3 "$here/mcp_test.py" "$sb" > "$tmp/mcp.log" 2>&1; st=$?; set -e
+  grep -E '^(ok|FAIL) ' "$tmp/mcp.log" | sed 's/^\(....  \)/\1mcp: /'
+  fails=$((fails + $(grep -c '^FAIL' "$tmp/mcp.log" || true)))
+  [ $st = 0 ] || grep -q "^FAIL" "$tmp/mcp.log" || { fail "mcp_test.py: status $st"; tail -20 "$tmp/mcp.log"; }
   [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
     || fail "a11y: left running: $(ours_a11y)"
   unset TMPDIR
@@ -444,10 +449,13 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
       '$sb' capture '$tmp/w5.png' --window wl-x11" \
       && [ "$(identify -format %wx%h "$tmp/w5.png")" = 200x120 ] \
       && ok "xwayland: an X client found and taken" || fail "xwayland"
+    # Taken by title and by app id in one session: the same window, the
+    # same pixels, whenever it painted.
     "$sb" run --xwayland -- sh -c "GDK_BACKEND=x11 '$win' wl-x11 &
       '$sb' wait window app=Window.py && '$sb' wait stable --window app=Window.py &&
-      '$sb' capture '$tmp/w8.png' --window app=Window.py" \
-      && cmp -s "$tmp/w5.png" "$tmp/w8.png" && ok "xwayland: an X window by its WM_CLASS" \
+      '$sb' capture '$tmp/w8.png' --window app=Window.py &&
+      '$sb' capture '$tmp/w9.png' --window wl-x11" \
+      && cmp -s "$tmp/w8.png" "$tmp/w9.png" && ok "xwayland: an X window by its WM_CLASS" \
       || fail "xwayland: app="
   else
     xwayland_skip "xwayland"
