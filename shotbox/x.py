@@ -45,6 +45,14 @@ def windows(env):
     return found
 
 
+def window_pid(env, wid):
+    """The process that owns window `wid`, by its _NET_WM_PID, or None."""
+    out = subprocess.run(["xprop", "-id", wid, "_NET_WM_PID"], env=env,
+                         capture_output=True, text=True).stdout
+    m = re.search(r"= (\d+)", out)
+    return int(m.group(1)) if m else None
+
+
 def viewable(env, wid):
     out = subprocess.run(["xwininfo", "-id", wid], env=env,
                          capture_output=True, text=True).stdout

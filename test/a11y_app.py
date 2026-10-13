@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
-[fixed] [trap] [lists] [one]. Its icon-only button, its status icon and
-its drawing area have no accessible name unless `fixed`; `trap` puts a text view first,
+[fixed] [trap] [lists] [one] [untitled] [second]. Its icon-only button, its status icon and
+its drawing area have no accessible name unless `fixed`, nor has the
+window with `untitled`, and `second` opens an untitled second window;
+`trap` puts a text view first,
 which keeps Tab; `lists` is lists and a notebook instead, and `one` a
 single button. The Announce button says something to a screen reader (GTK
 4.14+)."""
@@ -40,7 +42,7 @@ def lists():
 
 
 def activate(app):
-    w = Adw.ApplicationWindow(application=app, title="a11y-test")
+    w = Adw.ApplicationWindow(application=app, title=None if "untitled" in sys.argv else "a11y-test")
     w.set_default_size(320, 240)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     save = Gtk.Button(label="Save")
@@ -79,6 +81,10 @@ def activate(app):
     # One thing to take the focus: no header bar and its buttons either.
     w.set_content(Gtk.Button(label="Save") if "one" in sys.argv else view)
     w.present()
+    if "second" in sys.argv:
+        other = Adw.ApplicationWindow(application=app)
+        other.set_content(Gtk.Label(label="second"))
+        other.present()
 
 
 app = Adw.Application(application_id="org.shotbox.A11yTest")

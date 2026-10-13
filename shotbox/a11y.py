@@ -85,13 +85,17 @@ def toplevels(Atspi, window=None, timeout=10):
 
 
 def find_toplevels(Atspi, window=None):
-    title = None
-    if window and window.startswith("app="):
-        screen = Screen()
-        found = screen.backend.find_window(screen.env, window)
-        if not found:
-            return []
-        title = found[1]
+    shown = None
+
+    def display():
+        """The title and process of the display's window `window` picks."""
+        nonlocal shown
+        if shown is None:
+            screen = Screen()
+            found = screen.backend.find_window(screen.env, window)
+            shown = (found[1], screen.backend.window_pid(screen.env, found[0])) if found else ("", None)
+        return shown
+
     desktop = Atspi.get_desktop(0)
     apps = []
     for i in range(desktop.get_child_count()):
@@ -99,16 +103,26 @@ def find_toplevels(Atspi, window=None):
         if app is None:
             continue
         apps.append((app.get_name() or "", i, app))
+    def picks(got):
+        if window.startswith("app="):
+            return bool(got) and got == display()[0]
+        return re.fullmatch(window, got) is not None
+
     hits = []
     for name, _, app in sorted(apps, key=lambda a: a[:2]):
-        for j in range(app.get_child_count()):
-            top = app.get_child_at_index(j)
-            if top is None:
-                continue
-            got = top.get_name() or ""
-            if window is None or (got == title if title is not None
-                                  else re.fullmatch(window, got)):
-                hits.append((app, top))
+        tops = [t for t in (app.get_child_at_index(j) for j in range(app.get_child_count()))
+                if t is not None]
+        names = [t.get_name() or "" for t in tops]
+        if window is None:
+            hits += [(app, t) for t in tops]
+            continue
+        # A window with no name of its own (a toolkit's window with no title)
+        # goes by the display's: it's picked when its program owns the window
+        # picked there, unless one of the program's named windows is picked.
+        unnamed = "" in names and (picks("") or (
+            not any(picks(n) for n in names if n)
+            and display()[1] is not None and app.get_process_id() == display()[1]))
+        hits += [(app, t) for t, got in zip(tops, names) if (picks(got) if got else unnamed)]
     return hits
 
 
@@ -317,7 +331,8 @@ def main(argv):
     for s in (t, lt, w):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
-                            "or app=RE for its app id), waiting for it")
+                            "or app=RE for its app id; one with no accessible name "
+                            "goes by the display's), waiting for it")
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
                        help="how long to wait for the --window (10)")
     for s in (t, w):
