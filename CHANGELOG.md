@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-13
 
 A session can have an accessibility bus of its own, to read, lint and
 walk what a screen reader would hear, to click by name, and to check
 that the focus shows and text can be read; it can come up dark, in high
-contrast or with bigger text, and have a sound server of its own.
+contrast or with bigger text, and have a sound server of its own. A
+session can last, used by one command after another, and an agent can
+have sessions of its own over MCP.
 
 ### Added
 

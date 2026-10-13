@@ -91,8 +91,9 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
   area, past its border and padding: a button by about 17 pixels across.
   From 4.14.6, it places each node relative to its parent's corner,
   short of the parent's border and padding: a button's label at the
-  button's corner. Neither can be told from the tree. A fix has gone to
-  GTK, and is placed right.
+  button's corner. Neither can be told from the tree. A GTK with this
+  fixed, each node relative to its parent's bounds and a window at
+  zero, is placed right.
 
 ## Lint
 

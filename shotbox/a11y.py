@@ -157,13 +157,14 @@ def find_toplevels(Atspi, window=None):
 def origin(Atspi, top, shown):
     """Where `top` is on the screen, where its children's window
     coordinates start, and the display's window it is: ((x, y, width,
-    height), (x, y), window), or None if that can't be told. A node's extents are in its window's coordinates (GTK 4
-    has no others), so they're put on the screen by the display's window
-    of the same size, and name if it has one: `shown`, as the backend's
-    windows() lists them. Chromium on Wayland counts its shadow into its
-    accessible frame and not its window, and can't be placed. GTK 4 before
-    its fix loses the window's border (on X11 with no compositor, it has
-    one) from its children: the frame's first child, which fills it but
+    height), (x, y), window), or None if that can't be told. A node's
+    extents are in its window's coordinates (GTK 4 has no others), so
+    they're put on the screen by the display's window of the same size,
+    and name if it has one: `shown`, as the backend's windows() lists
+    them. Chromium on Wayland counts its shadow into its accessible frame
+    and not its window, and can't be placed. GTK 4, to 4.24 at least,
+    loses the window's border (on X11 with no compositor, it has one)
+    from its children: the frame's first child, which fills it but
     for that, is at the frame's corner rather than inside the border. The
     border and padding of every other node on the way down are lost too,
     and can't be told: docs/accessibility.md says how far off that is."""
