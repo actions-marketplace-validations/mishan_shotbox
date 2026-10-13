@@ -381,11 +381,13 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     || fail "wayland: no -failed.png ($st)"
   if xwayland; then
     "$sb" run --xwayland -- sh -c "[ -n \"\$DISPLAY\" ] && GDK_BACKEND=x11 '$win' wl-x11 &
-      '$sb' wait window wl-x11 && '$sb' capture '$tmp/w5.png' --window wl-x11" \
+      '$sb' wait window wl-x11 && '$sb' wait stable --window wl-x11 &&
+      '$sb' capture '$tmp/w5.png' --window wl-x11" \
       && [ "$(identify -format %wx%h "$tmp/w5.png")" = 200x120 ] \
       && ok "xwayland: an X client found and taken" || fail "xwayland"
     "$sb" run --xwayland -- sh -c "GDK_BACKEND=x11 '$win' wl-x11 &
-      '$sb' wait window app=Window.py && '$sb' capture '$tmp/w8.png' --window app=Window.py" \
+      '$sb' wait window app=Window.py && '$sb' wait stable --window app=Window.py &&
+      '$sb' capture '$tmp/w8.png' --window app=Window.py" \
       && cmp -s "$tmp/w5.png" "$tmp/w8.png" && ok "xwayland: an X window by its WM_CLASS" \
       || fail "xwayland: app="
   else
