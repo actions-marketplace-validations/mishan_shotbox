@@ -202,7 +202,11 @@ the pointer parked, and measures each node in its bounds:
 A node with something measured inside it (a button's label) is measured
 by that. Disabled nodes are left out, as WCAG leaves out inactive
 controls. The colors are what's on the screen, after opacity and
-antialiasing: a check of what someone sees, not of the stylesheet. Where
+antialiasing: a check of what someone sees, not of the stylesheet. Text
+drawn with subpixel (LCD) antialiasing has every pixel of a thin glyph
+tinted, none of its own color, and measures low: Chromium needs
+`--disable-lcd-text` (in the Node package's `accessible`), and GTK on
+shotbox's displays draws grayscale. Where
 a node's bounds are off (GTK 4's padding, above), what's measured is
 what's there instead; a child's bounds are cut to its parent's, which
 keeps that inside what it's in.

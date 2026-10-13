@@ -14,10 +14,12 @@
  *
  * The session says a screen reader is running (ACCESSIBILITY_ENABLED);
  * Chromium also needs its own switch, or the page's part of the tree is
- * empty, and a window: headless, it isn't on the bus at all.
+ * empty, and a window: headless, it isn't on the bus at all. And no LCD
+ * text: subpixel antialiasing tints every pixel of a thin glyph, so
+ * `shotbox a11y contrast` would find none of the text's own color.
  */
 
 export const accessible = {
     headless: false,
-    args: ['--force-renderer-accessibility'],
+    args: ['--force-renderer-accessibility', '--disable-lcd-text'],
 };

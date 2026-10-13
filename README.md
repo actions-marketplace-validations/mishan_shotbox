@@ -370,8 +370,9 @@ import { serve, checks, pageErrors, launch, until, gif, sealed,
   frame that navigates is let load and paint before time moves on.
 
 - `accessible`: Chromium's launch options for `shotbox run --a11y`,
-  `chromium.launch({ ...accessible })`: headed, and with the switch that
-  puts a page's part of the tree on the bus.
+  `chromium.launch({ ...accessible })`: headed, with the switch that
+  puts a page's part of the tree on the bus, and without LCD text, whose
+  tinted glyphs `shotbox a11y contrast` would measure low.
 
 ```js
 const context = await browser.newContext({ recordVideo: { dir } });
