@@ -221,6 +221,12 @@ cat "$tmp/api.log"
 fails=$((fails + $(grep -c '^FAIL' "$tmp/api.log" || true)))
 [ $st = 0 ] || grep -q "^FAIL" "$tmp/api.log" || fail "api.py: status $st"
 
+# What tabwalk --visible counts as the focus shown, on made-up pictures.
+set +e; python3 "$here/focus_test.py" > "$tmp/focus.log" 2>&1; st=$?; set -e
+cat "$tmp/focus.log"
+fails=$((fails + $(grep -c '^FAIL' "$tmp/focus.log" || true)))
+[ $st = 0 ] || grep -q "^FAIL" "$tmp/focus.log" || fail "focus_test.py: status $st"
+
 # Accessibility: a session's own AT-SPI bus, the tree, lint, the Tab
 # order and announcements, against a libadwaita window. They need GTK 4,
 # libadwaita and at-spi2-core, or they skip, unless SHOTBOX_A11Y=required.

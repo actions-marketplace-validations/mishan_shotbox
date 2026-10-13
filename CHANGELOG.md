@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`tabwalk --visible` sees a ring drawn a few pixels off its node.**
+  It counted only 4 pixels round a node's bounds, and libadwaita can draw
+  a tab 6 pixels below where it says it is: a tab whose top edge already
+  had the ring's color, as a current tab's rail can, was reported as
+  showing no focus. It counts 8 now.
+
 ## 0.4.1 — 2026-10-13
 
 A fix for sessions that last.

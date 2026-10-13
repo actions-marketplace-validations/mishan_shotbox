@@ -141,9 +141,10 @@ land somewhere new. It stops:
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each
 press, once the screen has held still (up to two seconds), another; and
-counts the pixels that changed in the node's bounds, grown by 4 pixels
-on each side for a ring drawn outside it, but for those round where the
-focus was and not in the node itself. Fewer than half a one-pixel
+counts the pixels that changed in the node's bounds, grown by 8 pixels
+on each side, for a ring drawn outside it and for a node drawn a few
+pixels from where it says it is (libadwaita's tabs can be), but for
+those round where the focus was and not in the node itself. Fewer than half a one-pixel
 outline round the node (its width and its height) is a focus that
 doesn't show: a drawing area that draws no ring, a text view that shows
 only its caret. WCAG 2.2's focus appearance asks for a two-pixel outline;
