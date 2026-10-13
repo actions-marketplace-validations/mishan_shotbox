@@ -31,6 +31,9 @@ The pieces, and why each one:
   started by at-spi-bus-launcher on the private session bus, so the
   program's accessible tree can be read (a11y.py) and nothing of it
   reaches your desktop's screen reader.
+- Optionally, with audio=True, a PipeWire of its own whose one sink is a
+  null sink, speaking the pulse protocol too: sound goes nowhere, and a
+  player has something to play to.
 - Every process in its own group, and the group killed on the way out:
   signalling a wrapper script alone leaves its children running.
 """
@@ -104,6 +107,83 @@ gtk-cursor-blink = false
 gtk-enable-animations = false
 """
 
+
+# The whole of PipeWire's config, not a fragment on the system's: that loads
+# the ALSA monitor. One sink, a null one, which nothing else could be
+# routed to, and drivers to run it with no device's clock.
+PIPEWIRE_CONFIG = """context.properties = {
+    core.daemon = true
+    core.name = pipewire-0
+    support.dbus = false
+}
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    support.* = support/libspa-support
+}
+context.modules = [
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-metadata }
+    { name = libpipewire-module-spa-node-factory }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-access }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-link-factory }
+    { name = libpipewire-module-protocol-pulse }
+]
+pulse.properties = {
+    server.address = [ "unix:native" ]
+}
+context.objects = [
+    { factory = metadata
+        args = {
+            metadata.name = default
+            metadata.values = [
+                { key = default.audio.sink value = { name = shotbox-sink } }
+                { key = default.audio.source value = { name = shotbox-sink } }
+            ]
+        }
+    }
+    { factory = spa-node-factory
+        args = {
+            factory.name = support.node.driver
+            node.name = Dummy-Driver
+            node.group = pipewire.dummy
+            priority.driver = 20000
+        }
+    }
+    { factory = spa-node-factory
+        args = {
+            factory.name = support.node.driver
+            node.name = Freewheel-Driver
+            priority.driver = 19000
+            node.group = pipewire.freewheel
+            node.freewheel = true
+        }
+    }
+    { factory = adapter
+        args = {
+            factory.name = support.null-audio-sink
+            node.name = shotbox-sink
+            node.description = "shotbox's null sink"
+            media.class = Audio/Sink
+            audio.position = [ FL FR ]
+            object.linger = true
+        }
+    }
+]
+"""
+
+# WirePlumber links streams to the sink: a stream nothing links is never
+# driven, and a player waits on it forever. "policy" is the profile with no
+# device monitors in it; stateless, so it saves no defaults.
+WIREPLUMBER_CONFIG = """wireplumber.profiles = {
+    shotbox = {
+        inherits = [ policy, mixin.systemwide-session, mixin.stateless ]
+        support.dbus = disabled
+        support.mpris = disabled
+    }
+}
+"""
 
 # Where distributions put at-spi2-core's bus launcher.
 A11Y_LAUNCHERS = ("/usr/libexec/at-spi-bus-launcher", "/usr/lib/at-spi2-core/at-spi-bus-launcher",
@@ -245,9 +325,10 @@ class Session(Screen):
     def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
-                 dark=False, high_contrast=False, text_scale=None):
+                 dark=False, high_contrast=False, text_scale=None, audio=False):
         self.size = size
         self.a11y = a11y or bool(announce_log)
+        self.audio = audio
         self.announce_log = announce_log
         if text_scale is not None and not text_scale > 0:
             raise SessionError(f"text_scale must be more than 0, not {text_scale}")
@@ -275,6 +356,8 @@ class Session(Screen):
             need("Xvfb", "xauth", "dbus-daemon")
         if self.desktop:
             need("gdbus")
+        if self.audio:
+            need("pipewire", "wireplumber")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
             self._make_home()
@@ -302,6 +385,8 @@ class Session(Screen):
                                env=self.env, check=True)
             if self.a11y:
                 self._start_a11y()
+            if self.audio:
+                self._start_audio()
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -431,8 +516,7 @@ class Session(Screen):
         conf.write_text(BUS_CONFIG.format(type=kind, listen=listen, services=dirs))
         proc = subprocess.Popen(
             ["dbus-daemon", "--config-file", str(conf), "--nofork", "--print-address"],
-            env=self.env, stdout=subprocess.PIPE,
-            stderr=open(self.scratch / f"{kind}-bus.log", "wb"),
+            env=self.env, stdout=subprocess.PIPE, stderr=open(self.scratch / f"{kind}-bus.log", "wb"),
             text=True, start_new_session=True)
         self._procs.append(proc)
         address = proc.stdout.readline().strip()
@@ -484,6 +568,33 @@ class Session(Screen):
                         "--object-path", "/org/freedesktop/DBus", "--method",
                         "org.freedesktop.DBus.UpdateActivationEnvironment", "{" + pairs + "}"],
                        env=self.env, check=True, capture_output=True)
+
+    def _start_audio(self):
+        """PipeWire, with a null sink and the pulse protocol, its sockets in
+        the session's runtime dir, where clients look; and WirePlumber, on
+        a config and state of the session's own."""
+        conf = self.scratch / "pipewire.conf"
+        conf.write_text(PIPEWIRE_CONFIG)
+        log = self.scratch / "pipewire.log"
+        proc = subprocess.Popen(["pipewire", "-c", str(conf)], env=self.env,
+                                stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
+                                start_new_session=True)
+        self._procs.append(proc)
+        pulse = self.scratch / "run" / "pulse" / "native"
+        try:
+            wait_for("PipeWire", pulse.exists, 15, alive=proc)
+        except SessionError as e:
+            raise SessionError(f"{e}; see {log}")
+        wp = self.scratch / "wireplumber"
+        (wp / "config" / "wireplumber" / "wireplumber.conf.d").mkdir(parents=True)
+        (wp / "config" / "wireplumber" / "wireplumber.conf.d" / "shotbox.conf").write_text(
+            WIREPLUMBER_CONFIG)
+        env = dict(self.env, XDG_CONFIG_HOME=str(wp / "config"),
+                   XDG_STATE_HOME=str(wp / "state"))
+        self._procs.append(subprocess.Popen(
+            ["wireplumber", "--profile", "shotbox"], env=env, stdout=subprocess.DEVNULL,
+            stderr=open(self.scratch / "wireplumber.log", "wb"), start_new_session=True))
+        self.env["PULSE_SERVER"] = f"unix:{pulse}"
 
     def _start_a11y(self):
         """An accessibility bus of the session's own: at-spi-bus-launcher on

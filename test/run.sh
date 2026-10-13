@@ -55,6 +55,22 @@ printf '[D-BUS Service]\nName=org.shotbox.Probe\nExec=/bin/sh -c '"'"'echo "$HOM
   [ "$(cat '"$tmp/activated"')" = "$HOME $DISPLAY" ]' \
   && ok "--desktop: what the bus activates is inside the session" \
   || fail "--desktop: activated with: $(cat "$tmp/activated" 2>/dev/null)"
+# Audio: PipeWire with a null sink, or skip, unless SHOTBOX_AUDIO=required.
+if command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; then
+  python3 -c "import wave; w = wave.open('$tmp/beep.wav', 'wb'); w.setnchannels(1)
+w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
+  mkdir -p "$tmp/audio"
+  TMPDIR=$tmp/audio "$sb" run --audio -- sh -c "pactl info | grep -qx 'Default Sink: shotbox-sink' &&
+    timeout 10 paplay '$tmp/beep.wav'" \
+    && ok "--audio: a sink of its own, which plays" || fail "--audio"
+  pgrep -f "$tmp/audio/" >/dev/null && fail "--audio: PipeWire left running" \
+    || ok "--audio: PipeWire stops with the session"
+  "$sb" run -- sh -c '! pactl info >/dev/null 2>&1' && ok "no --audio, no sound server" \
+    || fail "a sound server without --audio"
+else
+  [ "${SHOTBOX_AUDIO-}" = required ] && fail "audio skipped: no PipeWire, WirePlumber or pactl" \
+    || echo "skip  audio: no PipeWire, WirePlumber or pactl"
+fi
 
 # The terminal: steps, the ready file, the log, and the same picture twice.
 cat > "$tmp/scheme.json" <<'JSON'
@@ -206,6 +222,35 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
   "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
     && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y lint --window a11y-test --ignore 'image\[' --ignore 'panel with'" > "$tmp/lint"
+  st=$?; set -e
+  [ $st = 1 ] && [ "$(wc -l < "$tmp/lint")" = 1 ] && grep -q 'button with no name$' "$tmp/lint" \
+    && ok "a11y: lint --ignore leaves out what it's told to" || { fail "a11y: lint --ignore ($st)"; cat "$tmp/lint"; }
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
+    '$sb' wait announce 'notes\.md' --timeout 10" \
+    && ok "a11y: click finds a button by its name, and clicks it" || fail "a11y: click"
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --visible --window a11y-test" > "$tmp/walk"
+  st=$?; set -e
+  [ $st = 1 ] && [ "$(grep -c 'focus not shown' "$tmp/walk")" = 2 ] \
+    && grep -q '^panel "" \[focusable, focused\]  <- focus not shown' "$tmp/walk" \
+    && ok "a11y: tabwalk --visible finds the drawing area that shows no focus" \
+    || { fail "a11y: tabwalk --visible ($st)"; cat "$tmp/walk"; }
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" \
+    && ok "a11y: contrast passes libadwaita's own" || { fail "a11y: contrast"; cat "$tmp/contrast"; }
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
+  st=$?; set -e
+  [ $st = 1 ] && [ "$(wc -l < "$tmp/contrast")" = 1 ] \
+    && grep -q '/label\[1\]: text 2\.51:1, #a0a0a0 on #fafafb (at least 4\.5)$' "$tmp/contrast" \
+    && ok "a11y: contrast finds faint text, and its colors" || { fail "a11y: contrast, faint ($st)"; cat "$tmp/contrast"; }
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y contrast --edges 3 --window a11y-test" > "$tmp/contrast"
+  st=$?; set -e
+  [ $st = 1 ] && grep -q '/button\[0\]: edge 1\.[0-9]*:1' "$tmp/contrast" \
+    && ok "a11y: contrast --edges finds buttons with no edge to speak of" \
+    || { fail "a11y: contrast --edges ($st)"; cat "$tmp/contrast"; }
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && sed -n 1p "$tmp/walk" | grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]' \
     && grep -q '"Save" \[focusable, focused\]$' "$tmp/walk" \
@@ -286,6 +331,16 @@ fi
 # Wayland: a headless sway, and Xwayland in it. They need sway, grim and
 # Xwayland, or they skip, unless SHOTBOX_WAYLAND=required.
 win=$here/window.py
+# Giving a window the keyboard: the second one up has it on X11 only once
+# it's told to, and typing reaches the one told.
+focus() {
+  rm -f "$tmp/f1" "$tmp/f2"
+  "$sb" run "$@" -- sh -c "'$win' f1 '$tmp/f1' & '$sb' wait window f1 >/dev/null &&
+    '$win' f2 '$tmp/f2' & '$sb' wait window f2 >/dev/null && sleep 0.5 &&
+    '$sb' focus f1 && '$sb' type one && '$sb' focus f2 && '$sb' type two && sleep 0.5"
+  [ "$(cat "$tmp/f1" 2>/dev/null)" = one ] && [ "$(cat "$tmp/f2" 2>/dev/null)" = two ]
+}
+focus && ok "focus gives a window the keyboard" || fail "focus: f1=$(cat "$tmp/f1" 2>/dev/null) f2=$(cat "$tmp/f2" 2>/dev/null)"
 xwayland() { command -v Xwayland >/dev/null; }
 xwayland_skip() {
   [ "${SHOTBOX_WAYLAND-}" = required ] && fail "$1 skipped: no Xwayland" || echo "skip  $1: no Xwayland"
@@ -301,6 +356,7 @@ ours_xwayland() {
   true
 }
 if command -v sway >/dev/null && command -v grim >/dev/null; then
+  focus --wayland && ok "wayland: focus gives a window the keyboard" || fail "wayland: focus"
   export TMPDIR=$wl
   out=$(WAYLAND_DISPLAY=outside DISPLAY=:0 "$sb" run --wayland -- \
     sh -c 'echo "W=$WAYLAND_DISPLAY D=${DISPLAY-} S=$SWAYSOCK R=$XDG_RUNTIME_DIR"')
@@ -379,6 +435,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     [ $st = 1 ] && [ "$(wc -l < "$tmp/wl-lint")" = 3 ] \
       && ok "wayland: a11y: lint, by app id, and an announcement" \
       || { fail "wayland: a11y ($st)"; cat "$tmp/wl-lint"; }
+    "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
+      '$sb' wait announce 'notes\.md' --timeout 10" \
+      && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
   fi
   pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
     || ok "wayland: sway stops with the session"

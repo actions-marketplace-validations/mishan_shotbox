@@ -31,7 +31,8 @@ jobs:
       # The README's list, and what the tests use besides: GTK 3 for the
       # Python API's button, gdbus to ask the bus what it would activate,
       # ffmpeg for the gif, a monospace font for the terminal, and GTK 4
-      # and libadwaita for the accessibility checks' window.
+      # and libadwaita for the accessibility checks' window, and PipeWire,
+      # WirePlumber and pactl for --audio.
       - name: Install what shotbox runs
         run: |
           sudo apt-get update
@@ -40,7 +41,8 @@ jobs:
             python3-gi gir1.2-gtk-3.0 gir1.2-vte-2.91 \
             libglib2.0-bin ffmpeg fonts-dejavu-core \
             sway grim xwayland \
-            at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1
+            at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1 \
+            pipewire wireplumber pulseaudio-utils
 
       # Playwright, for the helpers that need a browser. The tests skip
       # rather than fail without it, so CI is where they have to run.
@@ -52,6 +54,7 @@ jobs:
           SHOTBOX_BROWSER: required
           SHOTBOX_WAYLAND: required
           SHOTBOX_A11Y: required
+          SHOTBOX_AUDIO: required
 
   # What gets published, built and used the way someone who installs it
   # would: the wheel in a fresh venv (with the system's PyGObject, as the

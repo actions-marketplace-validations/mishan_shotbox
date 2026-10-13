@@ -41,12 +41,12 @@ right all want the same things, and every project was growing its own copy:
 
 Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
-at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`. On
-Debian:
+at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
+`--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber. On Debian:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin
+  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber
 pipx install --system-site-packages shotbox
 ```
 
@@ -95,8 +95,10 @@ at a point on the screen or, with `--window RE`, inside a window (`click
 --button 3`, `--double`). `shotbox park` moves the pointer to the screen's
 bottom-right corner, off whatever it was hovering, and waits (up to
 `--settle`, 2s) for the repaint; a screen that keeps changing is taken as it
-is. They speak XTEST to the display directly, so there's still nothing to
-install.
+is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
+there's no window manager to do that for a window that comes up after
+another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
+display directly, so there's still nothing to install.
 
 Both take the session options: `--screen WxH` (1280x800); `--env NAME=VALUE`
 and `--pass NAME` to set or let through variables; `--seed DIR` to start the
@@ -105,7 +107,10 @@ home as a copy of a directory (a config, a profile, sample files);
 desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
 keep the scratch dir and say where it is; `--wayland` and `--xwayland`
 for a [Wayland](#wayland) session; `--a11y` for an
-[accessibility bus](#accessibility); and the display presets:
+[accessibility bus](#accessibility); `--audio` for a PipeWire of the
+session's own, speaking the pulse protocol too, whose one sink plays to
+nowhere, so a program that makes sound has somewhere to play it (without
+it there's no sound server at all); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
 - `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
@@ -174,7 +179,7 @@ Inside `shotbox run --a11y`:
   reader would say (focusable, focused, selected, checked, pressed,
   expanded or collapsed, editable, disabled, ...). Hidden nodes are left
   out. It comes out the same each run, to commit and diff.
-- **`shotbox a11y lint [--window RE]`** fails, a line each, for what has
+- **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each, for what has
   no name to say: a button, toggle, check box, radio button, menu item,
   link, entry, slider, combo box or tab; an image not inside a named
   control (a decorative one should be role presentation, which leaves it
@@ -182,12 +187,28 @@ Inside `shotbox run --a11y`:
   what has a named node inside it, which is said by that, and a
   container (a scrolled window, a list, a notebook) that passes the
   focus on to something inside it. Each line is
-  the node's path, its roles and their places from the window down.
+  the node's path, its roles and their places from the window down, then
+  what's wrong; `--ignore RE` (repeatable) leaves out a line it's found in,
+  for what can't be fixed yet.
 - **`shotbox a11y tabwalk [--key Tab] [--max 50] [--window RE]`** presses
   the key until the focus lands somewhere it has been, printing where it
   lands each time. It fails if a press leaves the focus where it was (a
   trap: a text view keeps Tab), unless nothing else could take it, or
-  after `--max`.
+  after `--max`. With `--visible`, it also fails where the focus doesn't
+  show: fewer pixels in and round a node changed as it took the focus
+  than a one-pixel outline round it has (a caret alone, or nothing).
+- **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
+  middle of the node whose name matches NAME (a regex, matched in full),
+  waiting for it to show: a button by its label rather than where it is.
+  A match inside another (a button's label) is the outer one; two that
+  aren't fail, saying which.
+- **`shotbox a11y contrast [--window RE]`** measures, on a picture of the
+  screen, the contrast of what each node draws in its bounds: text
+  against its background, at least 4.5:1 (`--text`), and an icon (a
+  control or image with no text of its own) at least 3:1 (`--graphics`).
+  `--edges 3` also measures a button's or field's edge against what's
+  round it. It fails, a line each: `PATH: text 2.51:1, #a0a0a0 on
+  #fafafb (at least 4.5)`. Disabled nodes are left out, as WCAG does.
 - **`shotbox wait announce RE`** waits for a program to announce
   something matching RE (found anywhere in it) to a screen reader:
   GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
@@ -208,9 +229,10 @@ finds that the editor's text area has no name.
 `--window` picks a window by title, or `app=RE`, as everywhere, and
 waits up to `--timeout` (10s) for it to appear in the tree. Without it,
 every program's windows are there. It works on X11, Wayland and
-Xwayland, for GTK 4 and GTK 3, and for Chromium, headed, given
-`--force-renderer-accessibility`. Qt waits to be told a screen reader is
-running, and needs its own switch. How it's put together: [docs/accessibility.md](docs/accessibility.md).
+Xwayland, for GTK 4, GTK 3 and Qt 5, and for Chromium, headed, given
+`--force-renderer-accessibility` (the Node package's `accessible`), on
+X11. How it's put together, and what each check can and can't tell:
+[docs/accessibility.md](docs/accessibility.md).
 
 ## Wayland
 
@@ -272,14 +294,18 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   screen there first, and says where.
 - Accessibility, in a session with `a11y=True`: `a11y_tree(window=None)`,
   the nodes (dicts, and attributes: `role`, `name`, `description`,
-  `states`, `path`, `depth`); `find(role=None, name=None, window=None)`,
-  `name` a regex; `focused()`; `wait_focus(re)`; `tab_walk(key="Tab",
-  most=50, window=None)`, the nodes the focus lands on, failing on a
-  trap; and `wait_announce(re)`.
+  `states`, `path`, `depth`, and `bounds` on the screen); `find(role=None,
+  name=None, window=None)`, `name` a regex; `focused()`; `wait_focus(re)`;
+  `tab_walk(key="Tab", most=50, window=None, visible=False)`, the nodes
+  the focus lands on, failing on a trap (and with `visible`, where the
+  focus doesn't show); `a11y_lint(window=None, ignore=())` and
+  `contrast(window=None, text=4.5, graphics=3, edges=None)`, the nodes
+  with a `problem`; `click_node(name, role=None, window=None)`; and
+  `wait_announce(re)`. `focus_window(re)` gives a window the keyboard.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and
   `scratch`. It takes the session options as arguments: `a11y`,
-  `announce_log`, `dark`, `high_contrast`, `text_scale`, `wayland` and
-  the rest.
+  `announce_log`, `audio`, `dark`, `high_contrast`, `text_scale`,
+  `wayland` and the rest.
 
 Installed, `import shotbox` just works. With a checkout, put its root on
 `PYTHONPATH` (`--pass PYTHONPATH` to let it
@@ -292,7 +318,7 @@ pieces several projects had copied between them:
 
 ```js
 import { serve, checks, pageErrors, launch, until, gif, sealed,
-         dress, film, frames, steady } from 'shotbox';
+         dress, film, frames, steady, accessible } from 'shotbox';
 ```
 
 - `serve(dir, port = 0)`: a static server on localhost that serves ES
@@ -342,6 +368,10 @@ import { serve, checks, pageErrors, launch, until, gif, sealed,
   fetch, a worker, an iframe loading) is not stood still, though a
   frame that navigates is let load and paint before time moves on.
 
+- `accessible`: Chromium's launch options for `shotbox run --a11y`,
+  `chromium.launch({ ...accessible })`: headed, and with the switch that
+  puts a page's part of the tree on the bus.
+
 ```js
 const context = await browser.newContext({ recordVideo: { dir } });
 const page = await context.newPage();
@@ -371,8 +401,9 @@ API (`test/api.py`, which needs GTK 3's PyGObject) and the Node helpers, and
 takes a few seconds. The helpers that need a browser use Playwright's
 Chromium (`npm install && npx playwright install chromium`) and skip
 without it, the Wayland sessions need sway, grim and Xwayland and skip
-without them, and the accessibility checks need GTK 4, libadwaita and
-at-spi2-core and skip without them.
+without them, the accessibility checks need GTK 4, libadwaita and
+at-spi2-core and skip without them, and `--audio` needs PipeWire,
+WirePlumber and `pactl` and skips without them.
 
 ## License
 

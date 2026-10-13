@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
-[fixed] [trap] [lists] [one] [untitled] [second]. Its icon-only button,
+[fixed] [trap] [lists] [one] [untitled] [second] [faint]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `trap` puts a text view first, which keeps Tab;
-`lists` is lists and a notebook instead, and `one` a single button.
+`lists` is lists and a notebook instead, and `one` a single button;
+`faint` draws the check box's label too light to read.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -60,6 +61,11 @@ def activate(app):
     announce.connect("clicked", lambda b: b.announce(
         "Saved to notes.md", Gtk.AccessibleAnnouncementPriority.MEDIUM))
     wrap = Gtk.CheckButton(label="Wrap lines", active=True)
+    if "faint" in sys.argv:
+        css = Gtk.CssProvider()
+        css.load_from_string("checkbutton label { color: #a0a0a0; }")
+        Gtk.StyleContext.add_provider_for_display(w.get_display(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     entry = Gtk.Entry()
     entry.update_property([Gtk.AccessibleProperty.LABEL], ["File name"])
     # Decorative: no name, and left out of the tree.

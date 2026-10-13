@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./node/index.mjs",
+    "./a11y": "./node/a11y.mjs",
     "./serve": "./node/serve.mjs",
     "./check": "./node/check.mjs",
     "./dress": "./node/dress.mjs",

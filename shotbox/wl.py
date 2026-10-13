@@ -13,7 +13,7 @@ import struct
 import subprocess
 from pathlib import Path
 
-from .x import CONVERT, QUIET_PNG, matcher
+from .x import CONVERT, QUIET_PNG, matcher, ppm
 
 MAGIC = b"i3-ipc"
 RUN_COMMAND, GET_OUTPUTS, GET_TREE, GET_VERSION = 0, 3, 4, 7
@@ -96,6 +96,17 @@ def capture(env, out, window=None, crop=None):
         cmd += ["-crop", crop, "+repage"]
     subprocess.run(cmd + QUIET_PNG + [str(out)], input=shot, check=True)
     return Path(out)
+
+
+def pixels(env):
+    """The whole output as (width, height, RGB bytes)."""
+    return ppm(subprocess.run(["grim", "-t", "ppm", "-"], env=env, capture_output=True,
+                              check=True).stdout)
+
+
+def focus(env, window):
+    """Give `window` (as find_window has it) the keyboard, and raise it."""
+    ipc(env, RUN_COMMAND, f"[con_id={window[0]}] focus")
 
 
 def fingerprint(env, window=None):

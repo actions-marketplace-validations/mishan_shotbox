@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+export { accessible } from './a11y.mjs';
 export { checks, type Checks } from './check.mjs';
 export { dress, type Dressing } from './dress.mjs';
 export { pageErrors } from './errors.mjs';

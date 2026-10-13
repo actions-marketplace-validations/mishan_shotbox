@@ -104,6 +104,28 @@ def try_capture(env, out, backend=None):
         return None
 
 
+def ppm(data):
+    """A binary PPM's (width, height, RGB bytes), as grim and import write it."""
+    m = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", data)
+    if not m or m.group(3) != b"255":
+        raise ValueError("not an 8-bit PPM")
+    return int(m.group(1)), int(m.group(2)), data[m.end():]
+
+
+def pixels(env):
+    """The whole display as (width, height, RGB bytes)."""
+    return ppm(subprocess.run(["import", "-window", "root", "-depth", "8", "ppm:-"],
+                              env=env, capture_output=True, check=True).stdout)
+
+
+def focus(env, window):
+    """Give `window` (as find_window has it) the keyboard, and raise it:
+    with no window manager, nothing else would."""
+    from .xtest import Display
+    with Display(env) as d:
+        d.focus(int(window[0], 16))
+
+
 def fingerprint(env, window=None):
     """A digest of what's on the display, or in one window, or None if it
     couldn't be taken (a window gone between finding it and taking it)."""

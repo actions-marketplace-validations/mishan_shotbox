@@ -205,6 +205,13 @@ class Display:
         self._fake(BUTTON_RELEASE, button)
         self.sync()
 
+    def focus(self, wid):
+        """Raise window `wid` and give it the keyboard (until the pointer's
+        root takes it back, should the window go)."""
+        self._request(struct.pack("<BxHIHxxI", 12, 4, wid, 0x40, 0))   # ConfigureWindow: Above
+        self._request(struct.pack("<BBHII", 42, 1, 3, wid, 0))         # SetInputFocus
+        self.sync()
+
     def close(self):
         self.sock.close()
 

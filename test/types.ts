@@ -16,11 +16,12 @@
 
 import { chromium } from 'playwright';
 
-import { checks, dress, film, frames, gif, launch, pageErrors, sealed, serve,
-         steady, until } from 'shotbox';
+import { accessible, checks, dress, film, frames, gif, launch, pageErrors, sealed,
+         serve, steady, until } from 'shotbox';
 import type { Checks, Dressing, GifOptions, Launched, Recorder, Reel,
               Seal } from 'shotbox';
 import { serve as serveToo } from 'shotbox/serve';
+import { accessible as accessibleToo } from 'shotbox/a11y';
 import { checks as checksToo } from 'shotbox/check';
 import { dress as dressToo } from 'shotbox/dress';
 import { pageErrors as pageErrorsToo } from 'shotbox/errors';
@@ -30,7 +31,7 @@ import { gif as gifToo } from 'shotbox/gif';
 import { launch as launchToo } from 'shotbox/launch';
 import { sealed as sealedToo } from 'shotbox/sealed';
 
-void [serveToo, checksToo, dressToo, pageErrorsToo, filmToo, framesToo, gifToo,
+void [serveToo, accessibleToo, checksToo, dressToo, pageErrorsToo, filmToo, framesToo, gifToo,
       launchToo, sealedToo];
 
 const t: Checks = checks(process.stderr);
@@ -60,6 +61,7 @@ const options: GifOptions = { width: 840, fps: 8, from: reel.from, colors: 64,
 const out: string = await gif(await reel.end(), 'demo.gif', options);
 
 const steadyPage = await (await chromium.launch({ args: [...steady] })).newPage();
+void chromium.launch({ ...accessible, args: [...accessible.args, ...steady] });
 const rec: Recorder = await frames(steadyPage, { dir: 'frames', fps: 8, seed: 1 });
 await rec.run(1000);
 rec.start();

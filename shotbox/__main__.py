@@ -12,7 +12,8 @@
     shotbox move X Y [--window RE]                  (inside a session) point there
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
     shotbox park                                    (inside a session) pointer out of the way
-    shotbox a11y tree|lint|tabwalk [--window RE]    (inside a session) the accessible tree
+    shotbox focus RE                                (inside a session) give a window the keyboard
+    shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
     shotbox compare REFDIR NEWDIR [NAME...]         the same, picture by picture
 
@@ -69,6 +70,9 @@ def session_options(p):
     g.add_argument("--announce-log", metavar="FILE",
                    help="record what programs announce here (implies --a11y; "
                         "$SHOTBOX_SCRATCH/announcements by default)")
+    g.add_argument("--audio", action="store_true",
+                   help="a PipeWire of the session's own, pulse protocol too, whose "
+                        "one sink plays to nowhere")
     g.add_argument("--dark", action="store_true", help="the dark style")
     g.add_argument("--high-contrast", action="store_true", help="the high-contrast style")
     g.add_argument("--text-scale", type=scale, metavar="N",
@@ -84,7 +88,8 @@ def make_session(a):
                    seed=a.seed, keep=a.keep, env=env, passthrough=a.passthrough,
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,
-                   high_contrast=a.high_contrast, text_scale=a.text_scale)
+                   high_contrast=a.high_contrast, text_scale=a.text_scale,
+                   audio=a.audio)
 
 
 def self_command():
@@ -307,6 +312,19 @@ def cmd_park(argv):
     return 0
 
 
+def cmd_focus(argv):
+    p = argparse.ArgumentParser(prog="shotbox focus",
+                                description="Inside `shotbox run`: give a window the "
+                                            "keyboard, and raise it. On X11 there's no "
+                                            "window manager to do it for a window that "
+                                            "comes up after another, a dialog say.")
+    p.add_argument("window", metavar="RE",
+                   help="its title, a regex matched in full, or app=RE for its app id")
+    a = p.parse_args(argv)
+    inside().focus_window(a.window)
+    return 0
+
+
 def per_name(values, name, default):
     """--fuzz and --max: the last NAME=VALUE for this picture, else the last
     plain VALUE, else the default."""
@@ -398,7 +416,7 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "capture": cmd_capture, "compare": cmd_compare, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park, "a11y": a11y.main}
+            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main}
 
 
 def main(argv=None):

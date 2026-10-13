@@ -167,7 +167,9 @@ class Screen:
 
     def a11y_tree(self, window=None):
         """Every node a screen reader sees, depth first: dicts (and
-        attributes) of role, name, description, states, path and depth."""
+        attributes) of role, name, description, states, path, depth, and
+        bounds on the screen, [x, y, width, height], or None where they
+        can't be told."""
         from .a11y import Node
         return [Node(n) for n in self._a11y("tree", *(["--window", window] if window else []))]
 
@@ -190,13 +192,43 @@ class Screen:
             return n if n and re.fullmatch(name, n.name) else None
         return self.until(f"the focus on {name!r}", there, timeout)
 
-    def tab_walk(self, key="Tab", most=50, window=None):
+    def a11y_lint(self, window=None, ignore=()):
+        """The nodes a screen reader would have no name to say for, each
+        with what's wrong as `problem`; but those whose "PATH: PROBLEM"
+        line one of the regexes in `ignore` is found in."""
+        from .a11y import Node
+        args = [a for i in ignore for a in ("--ignore", i)]
+        return [Node(n) for n in self._a11y("lint", *args, *(["--window", window] if window else []))]
+
+    def contrast(self, window=None, text=4.5, graphics=3.0, edges=None):
+        """The nodes drawn with too little contrast, each with what's wrong
+        as `problem`: text against its background (at least `text`), an
+        icon (`graphics`), and with `edges`, a button's or field's edge
+        against what's round it. Measured on a picture of the screen."""
+        from .a11y import Node
+        args = ["--text", str(text), "--graphics", str(graphics),
+                *(["--edges", str(edges)] if edges else []),
+                *(["--window", window] if window else [])]
+        return [Node(n) for n in self._a11y("contrast", *args)]
+
+    def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
+        """Click the middle of the node whose name matches `name` (a regex,
+        matched in full), and role `role` if given (a regex too), waiting
+        up to `timeout` for it to show; that node."""
+        from .a11y import Node
+        args = [name, "--button", str(button), "--timeout", str(timeout),
+                *(["--role", role] if role else []), *(["--double"] if double else []),
+                *(["--window", window] if window else [])]
+        return Node(self._a11y("click", *args, timeout=90 + timeout))
+
+    def tab_walk(self, key="Tab", most=50, window=None, visible=False):
         """Press `key` until the focus lands somewhere it has been: the node
         it lands on after each press, the last being that one. Fails if a
         press leaves it where it was (unless it's the one thing that could
-        take it), or after `most` presses."""
-        from .a11y import Node
-        args = ["tabwalk", "--key", key, "--max", str(most)]
+        take it), or after `most` presses; with `visible`, if the focus
+        doesn't show on a node it lands on."""
+        from .a11y import Node, unseen
+        args = ["tabwalk", "--key", key, "--max", str(most), *(["--visible"] if visible else [])]
         got = self._a11y(*args, *(["--window", window] if window else []),
                          timeout=90 + most * 5)
         seen = [Node(n) for n in got["focus"]]
@@ -205,6 +237,9 @@ class Screen:
             self.fail(f"{key} leaves the focus where it was, on {where}")
         if got["end"] == "max":
             self.fail(f"the focus isn't round again after {most} presses of {key}")
+        hidden = [n for n in seen if unseen(n)]
+        if hidden:
+            self.fail("the focus doesn't show on " + "; ".join(n.line() for n in hidden))
         return seen
 
     # --- windows and pictures -------------------------------------------------
@@ -215,6 +250,12 @@ class Screen:
         if not w:
             self.fail(f"no {x.matcher(name)[1]}")
         return w
+
+    def focus_window(self, name):
+        """Give the window `name` asks for the keyboard, and raise it. With
+        no window manager on X11, a window that comes up after another
+        (a dialog) gets neither by itself."""
+        self.backend.focus(self.env, self.window(name))
 
     def capture(self, out, window=None, crop=None, park=False):
         """A picture of the display, or of the window named `window`, to
