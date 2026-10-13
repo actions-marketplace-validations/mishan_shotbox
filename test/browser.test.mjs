@@ -346,3 +346,34 @@ test('frames: the same frames each run, a frame per step of page time',
         await fs.rm(dir, { recursive: true, force: true });
     }
 });
+
+/* What an --a11y session needs, as test/api.py asks it. */
+const atspi = () =>
+{
+    const launcher = ['/usr/libexec', '/usr/lib/at-spi2-core', '/usr/lib/at-spi2']
+        .some((d) => spawnSync('test', ['-x', `${d}/at-spi-bus-launcher`]).status === 0);
+    const gir = spawnSync('python3', ['-c',
+        'import gi; gi.require_version("Atspi", "2.0")']).status === 0;
+
+    return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
+};
+
+test('Chromium on an --a11y session: its tree, and its live regions heard',
+     { skip: why || atspi() }, () =>
+{
+    const here = path.dirname(new URL(import.meta.url).pathname);
+    const shotbox = path.join(here, '..', 'bin', 'shotbox');
+
+    /* The session has a HOME of its own, and Playwright looks under it. */
+    const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH ||
+                     path.join(os.homedir(), '.cache', 'ms-playwright');
+    const out = execFileSync(shotbox, [
+        'run', '--a11y', '--env', `PLAYWRIGHT_BROWSERS_PATH=${browsers}`, '--',
+        'node', path.join(here, 'a11y_browser.mjs'), shotbox,
+    ], { encoding: 'utf8' });
+    const { tree, said } = JSON.parse(out);
+
+    assert.match(tree, /button "Save"/);
+    assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
+                       'polite: Done\n');
+});

@@ -440,6 +440,9 @@ class Session(Screen):
             del env["GSETTINGS_BACKEND"]
         if self.a11y:
             del env["GTK_A11Y"], env["NO_AT_BRIDGE"]
+            # Chromium joins a bus only when told a reader is running, and
+            # the bus's IsEnabled says none is.
+            env["ACCESSIBILITY_ENABLED"] = "1"
         # libadwaita takes its style from the portal or GSettings, not from
         # GTK's settings.ini, and a sealed session has neither to tell it.
         if self.dark:
