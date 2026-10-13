@@ -141,17 +141,19 @@ land somewhere new. It stops:
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each
 press, once the screen has held still (up to two seconds), another; and
-counts the pixels that changed in the node's bounds, grown by 4 pixels
-on each side for a ring drawn outside it, but for those round where the
-focus was and not in the node itself. Fewer than half a one-pixel
-outline round the node (its width and its height) is a focus that
-doesn't show: a drawing area that draws no ring, a text view that shows
-only its caret. WCAG 2.2's focus appearance asks for a two-pixel outline;
-this asks for a quarter of that, since an old GTK 4 places a node past
-its padding, and part of its ring outside what's counted. A web document, which takes the focus as a whole and has
-nothing drawn round it, and a container, which shows it on what it
-passes it to (a notebook, on its tab), aren't checked. It needs the
-node's bounds, so what can't be placed isn't checked either.
+counts the pixels that changed in the node's bounds, grown by 8 pixels
+on each side, for a ring drawn outside it and for GTK 4 placing a node
+short of its parent's padding (a libadwaita tab, 6px above where it's
+drawn), but for those round where the focus was and not in the node
+itself. Fewer than half a one-pixel outline round the node (its width
+and its height) is a focus that doesn't show: a drawing area that draws
+no ring, a text view that shows only its caret. WCAG 2.2's focus
+appearance asks for a two-pixel outline; this asks for a quarter of
+that, since an old GTK 4 places a node past its padding, and part of its
+ring outside what's counted. A web document, which takes the focus as a
+whole and has nothing drawn round it, and a container, which shows it on
+what it passes it to (a notebook, on its tab), aren't checked. It needs
+the node's bounds, so what can't be placed isn't checked either.
 
 Nodes are told apart by their program's name on the bus and their
 object path, not by their names, so two buttons with the same name are

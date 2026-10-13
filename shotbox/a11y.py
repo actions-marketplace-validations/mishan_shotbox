@@ -392,17 +392,26 @@ class Look:
         # a container shows it on what it passes it to (a notebook's tab).
         if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
                                                       *CONTAINERS)):
-            # The ring the focus left can reach into this one's, but for
-            # what's inside this one, which may be inside that one too.
-            skip = self.was and self.last.clip(self.was, RING)
-            n["changed"] = self.last.changed(now, box, RING, skip, self.last.clip(box))
+            n["changed"] = focus_change(self.last, now, box, self.was)
             n["needed"] = shown_needs(box)
         n["bounds"] = box
         self.last, self.was = now, box
 
 
-# How far outside its node a focus ring can be drawn.
-RING = 4
+# How far outside its node's bounds the focus can be seen to change: a ring
+# is drawn a pixel or two outside, and GTK 4 places a node short of its
+# parent's padding (docs/accessibility.md, "Where a node is"): a libadwaita
+# tab, 6px above where it's drawn.
+RING = 8
+
+
+def focus_change(before, after, box, was):
+    """How many pixels in and round `box` changed from `before` to `after`
+    as the focus came to it from `was`, a box or None."""
+    # The ring the focus left can reach into this one's, but for
+    # what's inside this one, which may be inside that one too.
+    skip = was and before.clip(was, RING)
+    return before.changed(after, box, RING, skip, before.clip(box))
 
 
 def shown_needs(box):
