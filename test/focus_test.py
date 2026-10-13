@@ -38,6 +38,10 @@ def off(box, dx, dy):
     return (box[0] + dx, box[1] + dy, box[2], box[3])
 
 
+def grow(box, by):
+    return (box[0] - by, box[1] - by, box[2] + 2 * by, box[3] + 2 * by)
+
+
 fails = 0
 
 
@@ -91,8 +95,12 @@ CASES = [
     ("a tab's close button, both drawn off their bounds",
      *moved(off(TAB, 0, 6), off(CLOSE, 10, 10), t=2), CLOSE, TAB, True),
     # GTK 4 up to 4.14.5 draws a node left of and above its bounds.
-    ("a ring drawn 12px left and up", picture(), picture(*ring(*off(LINKED, -12, -12))),
+    ("a 1px ring drawn 12px left and up", picture(), picture(*ring(*off(LINKED, -12, -12), t=1)),
      LINKED, None, True),
+    ("a list's row after the list, both 1px rings drawn 8px left and up",
+     *moved(off(LIST, -8, -8), off(ROW, -8, -8)), ROW, LIST, True),
+    ("after a node that showed nothing, a ring drawn just outside, 12px left and up",
+     picture(), picture(*ring(*grow(off(LINKED, -12, -12), 2))), LINKED, ICON2, True),
     # A neighbor's change isn't this node's focus.
     ("a row 6px below selected, beside a check box with no ring",
      picture(), picture((90, 72, 300, 92)), CHECK, None, False),

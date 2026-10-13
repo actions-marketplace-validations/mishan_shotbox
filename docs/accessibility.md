@@ -151,10 +151,15 @@ too little changed there, the box is tried at every offset up to 16
 pixels each way, and counts at one where what changed looks like a focus
 shown: change along three or four of its sides (a ring, a rail and a
 ring, a background) and little just outside them, which a neighbor's
-selection or a spinner has. The ring the focus left isn't counted: what
-changed round the outline of where it was, at the offset where the most
-did, but for what's in the node's own box (a list's row, after the
-list). Fewer than half a one-pixel outline round the node (its width and
+selection has. The ring the focus left isn't counted: what changed round
+the outline of where it was, at the offset where the most did away from
+this node's change, if as much as half a one-pixel outline round it did,
+but for what's in the node's own box (a list's row, after the list).
+Two things it can't tell apart from a focus shown, when the node is
+drawn off its bounds: something the node's size changing within 4
+pixels of it (a spinner beside a small button with no ring of its own
+can pass for its ring), and a tooltip within 2 pixels of a 1-pixel ring
+(which can hide it). Fewer than half a one-pixel outline round the node (its width and
 its height) is a focus that doesn't show: a drawing area that draws
 no ring, a text view that shows only its caret. WCAG 2.2's focus
 appearance asks for a two-pixel outline; this asks for a quarter of
