@@ -399,8 +399,9 @@ class Look:
 
 
 # How far outside its node's bounds the focus can be seen to change: a ring
-# is drawn a pixel or two outside, and a toolkit can draw a node a few pixels
-# from where it says it is (libadwaita's tabs, 6px down in a theme's tab bar).
+# is drawn a pixel or two outside, and GTK 4 places a node short of its
+# parent's padding (docs/accessibility.md, "Where a node is"): a libadwaita
+# tab, 6px above where it's drawn.
 RING = 8
 
 
