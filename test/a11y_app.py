@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
-[fixed] [trap] [lists] [one] [untitled] [second] [faint]. Its icon-only button,
+[fixed] [trap] [lists] [one] [untitled] [second] [faint] [long]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `trap` puts a text view first, which keeps Tab;
 `lists` is lists and a notebook instead, and `one` a single button;
-`faint` adds a label too light to read.
+`faint` adds a label too light to read, and `long` is a scrolled list
+running far past the window.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -83,6 +84,11 @@ def activate(app):
         notes.grab_focus()
     if "lists" in sys.argv:
         box = lists()
+    if "long" in sys.argv:
+        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        for i in range(200):
+            rows.append(Gtk.Label(label=f"Row {i}"))
+        box = Gtk.ScrolledWindow(child=rows, vexpand=True)
     view = Adw.ToolbarView(content=box)
     view.add_top_bar(Adw.HeaderBar())
     # One thing to take the focus: no header bar and its buttons either.

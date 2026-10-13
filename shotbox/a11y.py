@@ -49,6 +49,11 @@ CONTAINERS = ("SCROLL_PANE", "LIST", "LIST_BOX", "TREE", "TREE_TABLE", "TABLE",
 # draws as it is.
 TEXTS = ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION", "TEXT", "PARAGRAPH")
 
+# Controls that draw no text of their own, whatever their name. What WCAG
+# asks of them is their parts against what's round them, not anything in
+# their own box, so contrast leaves them out.
+TEXTLESS = ("SWITCH", "SLIDER", "CHECK_BOX", "RADIO_BUTTON", "SPIN_BUTTON")
+
 # Controls a box is drawn round, or should be, for --edges: not check boxes
 # and the like, whose node holds their label too.
 EDGED = ("PUSH_BUTTON", "BUTTON", "TOGGLE_BUTTON", "PUSH_BUTTON_MENU", "ENTRY",
@@ -164,7 +169,12 @@ def origin(Atspi, top, shown):
     if len(hits) != 1:
         return None
     w = hits[0]
-    first = top.get_child_at_index(0) if top.get_child_count() else None
+    # GTK 4 alone: anywhere else a first child at the corner and smaller
+    # (a GTK 3 button aligned to the start) is where it says.
+    app = top.get_application()
+    gtk4 = bool(app) and app.get_toolkit_name() == "GTK" and (
+        app.get_toolkit_version() or "").startswith("4.")
+    first = top.get_child_at_index(0) if gtk4 and top.get_child_count() else None
     c = first and first.get_extents(Atspi.CoordType.WINDOW)
     lost = (0, 0)
     if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
@@ -182,7 +192,10 @@ def place(Atspi, n, shown, origins):
         return None
     if n._acc == n._top:
         return o[0]
-    e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+    try:
+        e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+    except Exception:   # gone since the walk: a closing popover, a toast
+        return None
     return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height]
 
 
@@ -236,6 +249,7 @@ def walk(Atspi, window=None, timeout=10, bounds=False):
         shown = screen.backend.windows(screen.env)
         for _, n in out:
             n["bounds"] = place(Atspi, n, shown, origins)
+            n["_window"] = origins[n._top] and origins[n._top][0]
     return out
 
 
@@ -433,30 +447,33 @@ def click(name, role=None, window=None, button=1, double=False, timeout=10):
     if not box or box[2] <= 0 or box[3] <= 0:
         raise SessionError(f"can't tell where {n.line()} is on the screen")
     # Inside its window: a node scrolled out of view is still showing.
-    w = origins[n._top][0]
-    x0, y0 = max(box[0], w[0]), max(box[1], w[1])
-    x1, y1 = min(box[0] + box[2], w[0] + w[2]), min(box[1] + box[3], w[1] + w[3])
-    if x0 >= x1 or y0 >= y1:
+    x, y, w, h = overlap(box, origins[n._top][0])
+    if not w or not h:
         raise SessionError(f"{n.line()} is outside its window")
     try:
         raise_window(screen, window)
-        screen.click((x0 + x1) // 2, (y0 + y1) // 2, button=button, double=double)
+        screen.click(x + w // 2, y + h // 2, button=button, double=double)
     finally:
         screen.close()
     n["bounds"] = box
     return n
 
 
-def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
+def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=()):
     """What's drawn with too little contrast, as (node, what), measured on a
     picture of the screen, `window` raised, in each node's bounds: text, and
-    a control, which may draw text or an icon and can't be told apart,
-    against its background (at least `text`), an image against its own
-    (`graphics`), and with `edges`, a control's edge against what's round
-    it. Disabled nodes are left out, as WCAG leaves them; text is taken as
-    normal size. A node that can't be placed, and text with nothing drawn
-    on its background, are problems too: nothing says they can be read."""
+    a button, link, tab or menu item, which may draw text or an icon and
+    can't be told apart, against its background (at least `text`); an
+    image against its own (`graphics`); and with `edges`, a control's
+    edge against what's round it. Disabled nodes are left out, as WCAG
+    leaves them, and so are a switch, slider, check box or the like, and
+    what's outside its window (scrolled out of view); text is taken as
+    normal size. A node that can't be placed, and
+    text with nothing drawn on its background, are problems too: nothing
+    says they can be read. But for those whose "PATH: PROBLEM" line one of
+    the regexes in `ignore` is found in."""
     Atspi = atspi()
+    toplevels(Atspi, window, timeout)
     screen = Screen()
     try:
         raise_window(screen, window)
@@ -466,18 +483,37 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
     nodes = [n for _, n in walk(Atspi, window, timeout, bounds=True)]
     pic = picture.Picture(*screen.backend.pixels(screen.env))
     texts, controls = roles(Atspi, TEXTS), roles(Atspi, CONTROLS)
-    images, edged = roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, EDGED)
-
-    def drawn(n):
-        return (n._showing and n.bounds and n.bounds[2] > 0 and n.bounds[3] > 0
-                and "disabled" not in n.states)
+    images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
+                               roles(Atspi, EDGED))
+    parents = {n.path: n for n in nodes}
 
     def kind(n):
-        if not n._showing or not n.name or "editable" in n.states or "disabled" in n.states:
+        if (not n._showing or not n.name or "editable" in n.states
+                or "disabled" in n.states or n._role in textless):
             return None
-        if n._role in texts or n._role in controls:
-            return "text"
-        return "graphics" if n._role in images else None
+        if n._role in images:
+            return "graphics"
+        return "text" if n._role in texts or n._role in controls else None
+
+    def shown(n):
+        """`n`'s bounds cut to its window's and every node's it's inside, or
+        None if nothing of them is left to measure: a row scrolled out of
+        view, which GTK still calls showing, is cut to nothing by its
+        scrolled window. GTK 4 places a child as if its parent had no
+        padding, which can put its box past the parent's edge, and that
+        is cut off too."""
+        if not n.bounds:
+            return None
+        box, path = n.bounds, n.path
+        outers = [n._window]
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            up = parents.get(path)
+            outers.append(up and up.bounds)
+        for outer in outers:
+            if outer:
+                box = overlap(box, outer)
+        return box if box[2] > 0 and box[3] > 0 else None
 
     measured = [n for n in nodes if kind(n)]
     problems = []
@@ -486,14 +522,15 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
         if any(o.path.startswith(n.path + "/") for o in measured):
             continue
         k = kind(n)
-        if not drawn(n):
-            if not n.bounds:
-                problems.append((n, f"{k} not measured: can't tell where it is"))
+        if not n.bounds:
+            problems.append((n, f"{k} not measured: can't tell where it is"))
+            continue
+        box = shown(n)
+        if not box:
             continue
         least = text if k == "text" else graphics
-        box = clip_to_parent(n, nodes)
         got = picture.text_contrast(pic, box)
-        if got is None and k == "text" and box[2] and box[3]:
+        if got is None and k == "text":
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
             problems.append((n, f"text not seen: nothing drawn on {back}"))
         elif got and got[0] < least:
@@ -501,24 +538,22 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
                                 f"{picture.hex_of(got[2])} (at least {least:g})"))
     if edges:
         for n in nodes:
-            if drawn(n) and (n._role in edged
-                             or (n._role == Atspi.Role.TEXT and "editable" in n.states)):
-                got = picture.edge_contrast(pic, n.bounds)
-                if got and got[0] < edges:
-                    problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
-                                        f"{picture.hex_of(got[2])} (at least {edges:g})"))
-    return problems
+            if not (n._showing and "disabled" not in n.states and (
+                    n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))):
+                continue
+            box = shown(n)
+            got = box and picture.edge_contrast(pic, box)
+            if got and got[0] < edges:
+                problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
+                                    f"{picture.hex_of(got[2])} (at least {edges:g})"))
+    return [(n, what) for n, what in problems
+            if not any(re.search(i, f"{n.path}: {what}") for i in ignore)]
 
 
-def clip_to_parent(n, nodes):
-    """`n`'s bounds, inside its parent's: GTK 4 places a child as if its
-    parent had no padding, which can put its box past the parent's edge."""
-    up = next((o for o in nodes if o.path == n.path.rsplit("/", 1)[0]), None)
-    if not up or not up.bounds:
-        return n.bounds
-    x0, y0 = max(n.bounds[0], up.bounds[0]), max(n.bounds[1], up.bounds[1])
-    x1 = min(n.bounds[0] + n.bounds[2], up.bounds[0] + up.bounds[2])
-    y1 = min(n.bounds[1] + n.bounds[3], up.bounds[1] + up.bounds[3])
+def overlap(a, b):
+    """The part of box `a` inside box `b`, both [x, y, width, height]."""
+    x0, y0 = max(a[0], b[0]), max(a[1], b[1])
+    x1, y1 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
     return [x0, y0, max(0, x1 - x0), max(0, y1 - y0)]
 
 
@@ -608,9 +643,10 @@ def main(argv):
                            metavar="{tree,lint,tabwalk,click,contrast}")
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
-    lt.add_argument("--ignore", action="append", default=[], metavar="RE",
-                    help="not a problem whose line (PATH: WHAT) this regex is found "
-                         "in (repeatable)")
+    ignore = dict(action="append", default=[], metavar="RE",
+                  help="not a problem whose line (PATH: WHAT) this regex is found in "
+                       "(repeatable)")
+    lt.add_argument("--ignore", **ignore)
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
@@ -624,12 +660,13 @@ def main(argv):
     c.add_argument("--double", action="store_true", help="click twice")
     ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
-                    help="text, and controls, against their background, at least (4.5)")
+                    help="text, buttons, links and tabs against their background, at least (4.5)")
     ct.add_argument("--graphics", type=float, default=3.0, metavar="RATIO",
-                    help="an image against its background, at least (3)")
+                    help="images against their background, at least (3)")
     ct.add_argument("--edges", type=float, metavar="RATIO",
                     help="also a button's or field's edge against what's round it, "
                          "at least this (3 is WCAG's)")
+    ct.add_argument("--ignore", **ignore)
     for s in (t, lt, w, c, ct):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
@@ -662,7 +699,7 @@ def main(argv):
         if a.what == "lint":
             problems = lint(atspi(), tree(a.window, a.timeout), a.ignore)
         else:
-            problems = contrast(a.window, a.text, a.graphics, a.edges, a.timeout)
+            problems = contrast(a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore)
         if a.json:
             print(json.dumps([dict(public(n), problem=what) for n, what in problems]))
             return 0

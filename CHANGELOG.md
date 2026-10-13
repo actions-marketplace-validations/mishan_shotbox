@@ -34,9 +34,9 @@ contrast or with bigger text, and have a sound server of its own.
   where the focus doesn't show: too little in and round a node changed
   as it took it.
 - **`shotbox a11y contrast`** (`contrast()`) measures, on the screen,
-  text and controls against their background (4.5:1), images (3:1), and with
+  text, buttons and links against their background (4.5:1), images (3:1), and with
   `--edges`, a button's or field's edge.
-- **`shotbox a11y lint --ignore RE`** (`a11y_lint(ignore=)`), for what
+- **`--ignore RE`** for `shotbox a11y lint` and `contrast` (`ignore=`), for what
   can't be fixed yet.
 - **`shotbox focus RE`** (`focus_window()`) gives a window the keyboard,
   which on X11 nothing else does for a window that comes up after

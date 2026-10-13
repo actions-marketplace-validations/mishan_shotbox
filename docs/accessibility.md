@@ -178,8 +178,8 @@ Wayland by sway's `focus`.
 the pointer parked, and measures each node in its bounds:
 
 - **Text**: a node with a name whose role is text (a label, heading,
-  link, static text, paragraph), or a control with no such node inside
-  it: the color most of its bounds are is the background, and the color
+  link, static text, paragraph), or a button, link, tab, menu item or
+  combo box with no such node inside it: the color most of its bounds are is the background, and the color
   with the most contrast against it, of at least three pixels, is the
   text, which an antialiased glyph's core is. At least 4.5:1 (`--text`).
   A control may draw its name or an icon (GTK 3's and Qt's buttons keep
@@ -189,9 +189,13 @@ the pointer parked, and measures each node in its bounds:
   to 3:1, has to be given its own run.
 - **Graphics**: a named image: measured the same way, at least 3:1
   (`--graphics`).
+- A switch, slider, check box, radio button or spin button draws no
+  text, and what WCAG asks of it, its parts against what's round them,
+  isn't anything in its own box: it's left out. Its label, if it has
+  one, is measured as text.
 - A node that can't be placed fails ("not measured"), and so does text
-  whose bounds are one color ("not seen"): text the color of its
-  background, or covered by another window.
+  whose bounds on the screen are one color ("not seen"): text the color
+  of its background. An image of one color passes.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
@@ -200,8 +204,12 @@ the pointer parked, and measures each node in its bounds:
   this is for themes that mean to draw an edge.
 
 A node with something measured inside it (a button's label) is measured
-by that. Disabled nodes are left out, as WCAG leaves out inactive
-controls. The colors are what's on the screen, after opacity and
+by that. Each node's bounds are cut to its window's and to those of
+every node it's inside, so a row scrolled out of view, which GTK still
+calls showing, is cut to nothing by its scrolled window, and isn't
+measured. Disabled nodes are left out, as WCAG leaves out inactive
+controls. `--ignore RE`, as lint has, leaves out each line the regex is
+found in. The colors are what's on the screen, after opacity and
 antialiasing: a check of what someone sees, not of the stylesheet. Text
 drawn with subpixel (LCD) antialiasing has every pixel of a thin glyph
 tinted, none of its own color, and measures low: Chromium needs

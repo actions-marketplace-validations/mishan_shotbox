@@ -187,7 +187,9 @@ WIREPLUMBER_CONFIG = """wireplumber.profiles = {
 }
 """
 
-# Before 0.5 (Ubuntu 24.04's 0.4.17), Lua, after the system's own.
+# Before 0.5 (Ubuntu 24.04's 0.4.17), Lua: after the system's 50-*-config
+# fragments and before its 90-enable-all, which starts each monitor not
+# set off by then.
 WIREPLUMBER_LUA = {
     "main.lua.d": """alsa_monitor.enabled = false
 v4l2_monitor.enabled = false
@@ -576,10 +578,13 @@ class Session(Screen):
         # JSON's strings are GVariant's too, escapes and all; repr's \x aren't.
         pairs = ", ".join(f"{json.dumps(k, ensure_ascii=False)}: {json.dumps(v, ensure_ascii=False)}"
                           for k, v in self.env.items() if k != "DBUS_SESSION_BUS_ADDRESS")
-        subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
-                        "--object-path", "/org/freedesktop/DBus", "--method",
-                        "org.freedesktop.DBus.UpdateActivationEnvironment", "{" + pairs + "}"],
-                       env=self.env, check=True, capture_output=True)
+        r = subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
+                            "--object-path", "/org/freedesktop/DBus", "--method",
+                            "org.freedesktop.DBus.UpdateActivationEnvironment",
+                            "{" + pairs + "}"], env=self.env, capture_output=True, text=True)
+        if r.returncode:
+            raise SessionError("the session bus refused its activation environment: "
+                               + r.stderr.strip())
 
     def _start_audio(self):
         """PipeWire, with a null sink and the pulse protocol, its sockets in
@@ -604,7 +609,7 @@ class Session(Screen):
         wp = self.scratch / "wireplumber"
         conf = wp / "config" / "wireplumber"
         files = ({"wireplumber.conf.d/shotbox.conf": WIREPLUMBER_CONFIG} if new else
-                 {f"{d}/99-shotbox.lua": text for d, text in WIREPLUMBER_LUA.items()})
+                 {f"{d}/51-shotbox.lua": text for d, text in WIREPLUMBER_LUA.items()})
         for name, text in files.items():
             (conf / name).parent.mkdir(parents=True)
             (conf / name).write_text(text)

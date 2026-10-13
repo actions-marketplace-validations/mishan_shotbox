@@ -242,6 +242,17 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     || { fail "a11y: tabwalk --visible ($st)"; cat "$tmp/walk"; }
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" \
     && ok "a11y: contrast passes libadwaita's own" || { fail "a11y: contrast"; cat "$tmp/contrast"; }
+  # Rows scrolled out of view are showing, to GTK, and not measured.
+  "$sb" run --a11y -- sh -c "'$app' long & '$sb' a11y contrast --window a11y-test" \
+    > "$tmp/contrast" 2>&1 \
+    && ok "a11y: contrast leaves out what's scrolled out of view" \
+    || { fail "a11y: contrast, scrolled"; cat "$tmp/contrast"; }
+  # GTK 3 places a window's first child where it is, even at the corner.
+  rm -f "$tmp/corner"
+  "$sb" run --a11y -- sh -c "'$here/window.py' corner '$tmp/corner' corner &
+    '$sb' a11y click Corner --window corner >/dev/null && sleep 0.5" \
+    && [ "$(cat "$tmp/corner" 2>/dev/null)" = clicked ] \
+    && ok "a11y: click finds a GTK 3 button in its window's corner" || fail "a11y: click, GTK 3 corner"
   set +e
   "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
   st=$?; set -e

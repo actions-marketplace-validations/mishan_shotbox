@@ -200,15 +200,17 @@ class Screen:
         args = [a for i in ignore for a in ("--ignore", i)]
         return [Node(n) for n in self._a11y("lint", *args, *(["--window", window] if window else []))]
 
-    def contrast(self, window=None, text=4.5, graphics=3.0, edges=None):
+    def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=()):
         """The nodes drawn with too little contrast, each with what's wrong
-        as `problem`: text and controls against their background (at
-        least `text`), images (`graphics`), and with `edges`, a button's or
-        field's edge against what's round it. Measured on a picture of the
+        as `problem`: text, buttons and links against their background (at
+        least `text`), images (`graphics`), and with `edges`, a button's or field's edge against
+        what's round it; but those whose "PATH: PROBLEM" line one of the
+        regexes in `ignore` is found in. Measured on a picture of the
         screen, `window` raised."""
         from .a11y import Node
         args = ["--text", str(text), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),
+                *[a for i in ignore for a in ("--ignore", i)],
                 *(["--window", window] if window else [])]
         return [Node(n) for n in self._a11y("contrast", *args)]
 

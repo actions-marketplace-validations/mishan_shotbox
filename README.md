@@ -204,12 +204,13 @@ Inside `shotbox run --a11y`:
   aren't fail, saying which.
 - **`shotbox a11y contrast [--window RE]`** measures, on a picture of the
   screen, with the `--window` raised, the contrast of what each node
-  draws in its bounds: text, and controls, which may draw text or an
-  icon, against their background, at least 4.5:1 (`--text`), and images
-  at least 3:1 (`--graphics`).
-  `--edges 3` also measures a button's or field's edge against what's
-  round it. It fails, a line each: `PATH: text 2.51:1, #a0a0a0 on
-  #fafafb (at least 4.5)`. Disabled nodes are left out, as WCAG does.
+  draws in its bounds: text, and buttons, links and tabs, which may draw
+  text or an icon, against their background, at least 4.5:1 (`--text`),
+  and images at least 3:1 (`--graphics`). `--edges 3` also measures a
+  button's or field's edge against what's round it. It fails, a line
+  each: `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
+  Disabled nodes, switches, sliders and check boxes, and what's scrolled
+  out of view are left out; `--ignore RE` leaves out a line, as for lint.
 - **`shotbox wait announce RE`** waits for a program to announce
   something matching RE (found anywhere in it) to a screen reader:
   GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
