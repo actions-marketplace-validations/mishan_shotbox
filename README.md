@@ -100,9 +100,29 @@ there's no window manager to do that for a window that comes up after
 another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
 display directly, so there's still nothing to install.
 
-Both take the session options: `--screen WxH` (1280x800); `--env NAME=VALUE`
-and `--pass NAME` to set or let through variables; `--seed DIR` to start the
-home as a copy of a directory (a config, a profile, sample files);
+**`shotbox start [--name NAME] [options]`** starts a session that lasts
+until `shotbox stop NAME`, and prints its name (`s1`, `s2`... without
+`--name`). It takes the session options, as `run` does. Programs go in it
+with `shotbox spawn --session NAME [--log FILE] -- COMMAND...`, and stop
+with it; and `shotbox --session NAME COMMAND ...` runs any of the commands
+above that work inside a session (`wait`, `capture`, `key`, `click`,
+`a11y`...) in it, from outside. `shotbox sessions` lists them. For a
+script, or someone at a terminal, that looks, clicks and looks again
+without starting the program over each time:
+
+```
+shotbox start --name ed --a11y
+shotbox spawn --session ed -- gnome-text-editor
+shotbox --session ed wait window ".*Text Editor"
+shotbox --session ed a11y click "Open"
+shotbox --session ed capture open.png
+shotbox stop ed
+```
+
+`shoot`, `run` and `start` take the session options: `--screen WxH`
+(1280x800); `--env NAME=VALUE` and `--pass NAME` to set or let through
+variables; `--seed DIR` to start the home as a copy of a directory (a
+config, a profile, sample files);
 `--desktop` for real GSettings and the system's D-Bus services, which a
 desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
 keep the scratch dir and say where it is; `--wayland` and `--xwayland`

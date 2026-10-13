@@ -9,6 +9,11 @@ contrast or with bigger text, and have a sound server of its own.
 
 ### Added
 
+- **Sessions that last.** `shotbox start --name NAME` starts a session
+  that lasts until `shotbox stop NAME`; `shotbox spawn --session NAME --
+  COMMAND` runs a program in it, which stops with it; and `shotbox
+  --session NAME COMMAND` runs `wait`, `capture`, `key`, `click`, `a11y`
+  and the rest in it from outside. `shotbox sessions` lists them.
 - **`--a11y`**, an AT-SPI bus of the session's own, on X11, Wayland
   and Xwayland, that never reaches your desktop's. Inside, `shotbox
   a11y tree` prints the accessible tree as text to commit and diff,

@@ -45,6 +45,54 @@ names=$("$sb" run -- gdbus call --session --dest org.freedesktop.DBus \
 SHOTBOX_TEST=yes "$sb" run --pass SHOTBOX_TEST --env A=b -- \
   sh -c '[ "$A" = b ] && [ "$SHOTBOX_TEST" = yes ]' \
   && ok "--env sets one, --pass lets one through" || fail "--env and --pass"
+# A session that lasts: started, used by later commands, stopped; what was
+# spawned in it stops with it, and its scratch dir goes.
+kept=keep$$
+"$sb" start --name "$kept" >/dev/null && "$sb" sessions | grep -qx "$kept" \
+  && ok "start: a session that lasts, listed" || fail "start"
+"$sb" spawn --session "$kept" -- "$here/window.py" kept >/dev/null \
+  && "$sb" --session "$kept" wait window kept --timeout 10 >/dev/null \
+  && "$sb" --session "$kept" capture "$tmp/kept.png" --window kept \
+  && [ "$(identify -format %wx%h "$tmp/kept.png")" = 200x120 ] \
+  && ok "spawn, and --session: a program in it, waited for and taken" || fail "spawn, --session"
+# A program with no display to lose: only the session stopping it stops it.
+"$sb" spawn --session "$kept" --log "$tmp/kept.log" -- \
+  sh -c 'echo "$SHOTBOX_SCRATCH"; exec sleep 600' "marker$$" >/dev/null
+"$sb" --session "$kept" wait file "$tmp/kept.log" --timeout 10 || true
+scratch=$(head -1 "$tmp/kept.log")
+[ -n "$scratch" ] && ok "spawn --log: its output, there" || fail "spawn --log"
+set +e
+"$sb" spawn --session "$kept" --log /nonexistent/kept.log -- true 2> "$tmp/err"; st=$?
+set -e
+[ $st != 0 ] && "$sb" sessions | grep -qx "$kept" \
+  && ok "spawn that can't: says why, and the session carries on" \
+  || { fail "spawn that can't ($st)"; cat "$tmp/err"; }
+"$sb" stop "$kept" && ! "$sb" sessions | grep -qx "$kept" && [ ! -e "$scratch" ] \
+  && ok "stop: the session goes, and its scratch dir" || fail "stop: left $scratch"
+pgrep -f "[m]arker$$" >/dev/null && fail "stop: what was spawned in it was left running" \
+  || ok "stop: what was spawned in it goes too"
+set +e
+"$sb" --session "$kept" park 2> "$tmp/err"; st=$?
+set -e
+[ $st != 0 ] && grep -q "no session called '$kept'" "$tmp/err" \
+  && ok "--session: a session that isn't there, said" || fail "--session, gone ($st)"
+# Two started at once with one name: one starts, the other says so.
+"$sb" start --name "$kept" > "$tmp/k1" 2>&1 & k1=$!
+"$sb" start --name "$kept" > "$tmp/k2" 2>&1 & k2=$!
+set +e; wait $k1; s1=$?; wait $k2; s2=$?; set -e
+"$sb" stop "$kept" 2>/dev/null || true
+[ $((s1 + s2)) = 1 ] && grep -q "already" "$tmp/k1" "$tmp/k2" \
+  && ! pgrep -f "[s]tart --serve $kept" >/dev/null \
+  && ok "start: two with one name, one starts" || fail "start, raced: $s1 $s2"
+# A record left by a session that died, its pid since someone else's.
+sleep 600 & other=$!
+d=${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/shotbox}; d=${d:-/tmp/shotbox-$(id -u)}
+printf '{"pid": %s, "started": 1, "env": {}, "control": "/nonexistent"}' $other > "$d/$kept.json"
+"$sb" stop "$kept" 2>/dev/null || true
+kill -0 $other 2>/dev/null && [ ! -e "$d/$kept.json" ] \
+  && ok "stop: a session that's gone, forgotten, and its pid left alone" \
+  || fail "stop: killed $other, someone else's"
+kill $other 2>/dev/null || true
 # What a --desktop session's bus activates gets the session's environment,
 # and its own service files, not the caller's.
 mkdir -p "$tmp/seed/.local/share/dbus-1/services"
