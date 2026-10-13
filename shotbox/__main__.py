@@ -17,6 +17,7 @@
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
+    shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
     shotbox compare REFDIR NEWDIR [NAME...]         the same, picture by picture
 
@@ -31,7 +32,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import a11y, kept, term, x, xtest
+from . import a11y, kept, mcp, term, x, xtest
 from .screen import Screen, SessionError
 from .session import Session
 
@@ -457,6 +458,7 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main,
+            "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
             "sessions": cmd_sessions}
 

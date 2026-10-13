@@ -150,14 +150,16 @@ class Screen:
     # --- the accessible tree ----------------------------------------------------
 
     def _a11y(self, *args, timeout=90):
-        """`shotbox a11y ARGS --json` in the session, for its answer: libatspi
+        """`shotbox a11y WHAT --json ARGS` in the session, for its answer: libatspi
         keeps the first bus it finds for the life of a process, which may
         not be this session's. It has a watchdog of its own; `timeout` is
         for one that never even gets that far."""
         from .__main__ import self_command
         try:
-            r = subprocess.run([*self_command(), "a11y", *args, "--json"], env=self.env,
-                               capture_output=True, text=True, timeout=timeout)
+            # Options as --name=VALUE, and a name after --: an agent's regex can
+            # start with a dash.
+            r = subprocess.run([*self_command(), "a11y", args[0], "--json", *args[1:]],
+                               env=self.env, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             self.fail(f"shotbox a11y {args[0]} got no answer in {timeout}s")
         if r.returncode:
@@ -171,7 +173,7 @@ class Screen:
         bounds on the screen, [x, y, width, height], or None where they
         can't be told."""
         from .a11y import Node
-        return [Node(n) for n in self._a11y("tree", *(["--window", window] if window else []))]
+        return [Node(n) for n in self._a11y("tree", *([f"--window={window}"] if window else []))]
 
     def find(self, role=None, name=None, window=None):
         """The nodes with this role ("button") and a name matching `name`
@@ -197,8 +199,8 @@ class Screen:
         with what's wrong as `problem`; but those whose "PATH: PROBLEM"
         line one of the regexes in `ignore` is found in."""
         from .a11y import Node
-        args = [a for i in ignore for a in ("--ignore", i)]
-        return [Node(n) for n in self._a11y("lint", *args, *(["--window", window] if window else []))]
+        args = [f"--ignore={i}" for i in ignore]
+        return [Node(n) for n in self._a11y("lint", *args, *([f"--window={window}"] if window else []))]
 
     def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=()):
         """The nodes drawn with too little contrast, each with what's wrong
@@ -210,8 +212,8 @@ class Screen:
         from .a11y import Node
         args = ["--text", str(text), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),
-                *[a for i in ignore for a in ("--ignore", i)],
-                *(["--window", window] if window else [])]
+                *[f"--ignore={i}" for i in ignore],
+                *([f"--window={window}"] if window else [])]
         return [Node(n) for n in self._a11y("contrast", *args)]
 
     def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
@@ -219,9 +221,9 @@ class Screen:
         matched in full), and role `role` if given (a regex too), waiting
         up to `timeout` for it to show; that node."""
         from .a11y import Node
-        args = [name, "--button", str(button), "--timeout", str(timeout),
-                *(["--role", role] if role else []), *(["--double"] if double else []),
-                *(["--window", window] if window else [])]
+        args = ["--button", str(button), "--timeout", str(timeout),
+                *([f"--role={role}"] if role else []), *(["--double"] if double else []),
+                *([f"--window={window}"] if window else []), "--", name]
         return Node(self._a11y("click", *args, timeout=90 + timeout))
 
     def tab_walk(self, key="Tab", most=50, window=None, visible=False):
@@ -231,8 +233,8 @@ class Screen:
         take it), or after `most` presses; with `visible`, if the focus
         doesn't show on a node it lands on."""
         from .a11y import Node, unseen
-        args = ["tabwalk", "--key", key, "--max", str(most), *(["--visible"] if visible else [])]
-        got = self._a11y(*args, *(["--window", window] if window else []),
+        args = ["tabwalk", f"--key={key}", "--max", str(most), *(["--visible"] if visible else [])]
+        got = self._a11y(*args, *([f"--window={window}"] if window else []),
                          timeout=90 + most * 5)
         seen = [Node(n) for n in got["focus"]]
         if got["end"] == "trap":

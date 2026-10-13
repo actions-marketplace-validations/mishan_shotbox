@@ -9,6 +9,11 @@ contrast or with bigger text, and have a sound server of its own.
 
 ### Added
 
+- **`shotbox mcp --allow PROGRAMS`**: sealed sessions for an agent, over
+  the Model Context Protocol. It can start a session, spawn programs from
+  the list, read the accessible tree, take screenshots (as images), click
+  by name, press keys, wait, and lint, measure contrast and walk the Tab
+  order. Its sessions stop when it does. See docs/mcp.md.
 - **Sessions that last.** `shotbox start --name NAME` starts a session
   that lasts until `shotbox stop NAME`; `shotbox spawn --session NAME --
   COMMAND` runs a program in it, which stops with it; and `shotbox
