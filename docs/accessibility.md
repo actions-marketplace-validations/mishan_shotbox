@@ -44,6 +44,10 @@ process, so `Screen.a11y_tree()` and the rest run `shotbox a11y ... --json`
 in the session rather than reading from the caller's process, which may
 not be inside it, or may have read another session's tree before.
 
+`--window` picks a window by its title, or `app=RE` by its app id. A
+window with no accessible name of its own goes by the display's window:
+the one `--window` picks there, matched to its program by process.
+
 The tree leaves out nodes that aren't visible (a hidden widget, a stack
 page not shown), and lists the states a screen reader says, not the ones
 about layout: focusable, focused, selected, checked, indeterminate,

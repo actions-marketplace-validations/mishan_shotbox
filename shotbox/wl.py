@@ -43,7 +43,7 @@ def _read(s, n):
 
 def windows(env):
     """Every window, Wayland and X alike: (id, name, width, height, x, y,
-    app ids, visible), x and y absolute. A Wayland window's app id is its
+    app ids, visible, pid), x and y absolute. A Wayland window's app id is its
     app_id; an X one's, under Xwayland, its WM_CLASS instance and class."""
     found = []
 
@@ -54,7 +54,7 @@ def windows(env):
             apps = tuple(a for a in (node.get("app_id"), props.get("instance"),
                                      props.get("class")) if a)
             found.append((node["id"], node.get("name") or "", r["width"], r["height"],
-                          r["x"], r["y"], apps, node.get("visible", False)))
+                          r["x"], r["y"], apps, node.get("visible", False), node["pid"]))
         for child in node.get("nodes", []) + node.get("floating_nodes", []):
             walk(child)
 
@@ -65,6 +65,11 @@ def windows(env):
         raise SessionError(f"sway has gone away ({e.strerror or e})")
     walk(tree)
     return found
+
+
+def window_pid(env, wid):
+    """The process that owns window `wid`, as sway has it, or None."""
+    return next((w[8] for w in windows(env) if w[0] == wid), None)
 
 
 def find_window(env, spec):

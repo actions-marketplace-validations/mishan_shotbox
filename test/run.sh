@@ -176,6 +176,10 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   out=$("$sb" run --a11y -- sh -c "'$here/window.py' g3 & '$sb' a11y tree --window g3")
   [ "$out" = "$(printf 'frame "g3"\n  label "a window"')" ] && ok "a11y: a GTK 3 window's tree" \
     || fail "a11y: GTK 3: $out"
+  # With no title, GTK's X window is named after the program, python3.
+  out=$("$sb" run --a11y -- sh -c "'$app' untitled & '$sb' a11y tree --window python3" | head -1)
+  [ "$out" = 'frame ""' ] && ok "a11y: a window with no name goes by the display's" \
+    || fail "a11y: no name: $out"
   out=$("$sb" run --a11y -- sh -c 'case $AT_SPI_BUS_ADDRESS in
     *"path=$SHOTBOX_SCRATCH/"*) echo ours ;; *) echo "$AT_SPI_BUS_ADDRESS" ;; esac')
   [ "$out" = ours ] && ok "a11y: the bus is the session's own" || fail "a11y: the bus: $out"
