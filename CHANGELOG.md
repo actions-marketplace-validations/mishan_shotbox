@@ -4,12 +4,13 @@
 
 ### Fixed
 
-- **`tabwalk --visible` sees a ring drawn a few pixels off its node.**
-  It counted only 4 pixels round a node's bounds, and GTK 4 reports a
-  libadwaita tab 6 pixels above where it's drawn, short of its tab bar's
-  padding: a tab whose top edge already had the ring's color, as a
-  current tab's rail can, was reported as showing no focus. It counts 8
-  now.
+- **`tabwalk --visible` finds a ring drawn off its node.** GTK 4 places a
+  node short of the padding of what it's in, right of and below where
+  it's drawn: a libadwaita tab 6 pixels, a header bar's buttons 7, a tab's
+  close button 10. Only 4 pixels round a node's bounds were counted, and a
+  tab whose top edge already had the ring's color, as a current tab's rail
+  can, was reported as showing no focus. The count is now taken in a box
+  the node's size wherever it fits best, up to 16 pixels right and down.
 
 ## 0.4.1 — 2026-10-13
 

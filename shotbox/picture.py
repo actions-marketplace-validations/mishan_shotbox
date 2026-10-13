@@ -41,26 +41,45 @@ class Picture:
                     c[d[i:i + 3]] += 1
         return c
 
-    def changed(self, other, box, pad=0, skip=None, keep=None):
-        """How many pixels in `box` (grown by `pad`) differ in `other`, the
-        same screen taken again; but for those in `skip`, a clipped area,
-        that aren't in `keep`, another."""
-        area = self.clip(box, pad)
-        if not area:
+
+class Changes:
+    """Which pixels in `area`, a clipped area, differ between two pictures of
+    the same screen, and which of those are also in `skip`, another, but
+    for its `hole`: as summed-area tables, so the count in any box in
+    `area` is four lookups."""
+
+    def __init__(self, before, after, area, skip=None, hole=None):
+        self.x0, self.y0, x1, y1 = area
+        w = x1 - self.x0
+        self.all, self.skipped = [[0] * (w + 1)], [[0] * (w + 1)]
+        for y in range(self.y0, y1):
+            a = (y * before.width + self.x0) * 3
+            same = before.data[a:a + w * 3] == after.data[a:a + w * 3]
+            rows = self.all[-1], self.skipped[-1]
+            row_all, row_skip, run_all, run_skip = [0], [0], 0, 0
+            for i in range(w):
+                if not same and before.data[a + i * 3:a + i * 3 + 3] != after.data[
+                        a + i * 3:a + i * 3 + 3]:
+                    run_all += 1
+                    x = self.x0 + i
+                    run_skip += bool(
+                        skip and skip[0] <= x < skip[2] and skip[1] <= y < skip[3]
+                        and not (hole and hole[0] <= x < hole[2] and hole[1] <= y < hole[3]))
+                row_all.append(rows[0][i + 1] + run_all)
+                row_skip.append(rows[1][i + 1] + run_skip)
+            self.all.append(row_all)
+            self.skipped.append(row_skip)
+
+    def count(self, area, table=None):
+        """How many pixels in `area` (x0, y0, x1, y1), cut to this one's,
+        changed: of all, or of `table`."""
+        t = table or self.all
+        x0, y0 = max(area[0] - self.x0, 0), max(area[1] - self.y0, 0)
+        x1 = min(area[2] - self.x0, len(t[0]) - 1)
+        y1 = min(area[3] - self.y0, len(t) - 1)
+        if x0 >= x1 or y0 >= y1:
             return 0
-        x0, y0, x1, y1 = area
-        n = 0
-        for y in range(y0, y1):
-            a, b = (y * self.width + x0) * 3, (y * self.width + x1) * 3
-            if self.data[a:b] == other.data[a:b]:
-                continue
-            for x in range(x0, x1):
-                if (skip and skip[0] <= x < skip[2] and skip[1] <= y < skip[3]
-                        and not (keep and keep[0] <= x < keep[2] and keep[1] <= y < keep[3])):
-                    continue
-                i = (y * self.width + x) * 3
-                n += self.data[i:i + 3] != other.data[i:i + 3]
-        return n
+        return t[y1][x1] - t[y0][x1] - t[y1][x0] + t[y0][x0]
 
 
 def luminance(rgb):
