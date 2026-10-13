@@ -19,8 +19,8 @@ each session has its own.
 Every session lives in a directory of the server's, and a watchdog
 (`shotbox mcp --watch DIR`, in a process session of its own) holds a
 pipe from the server: however the server ends, the pipe closes, and the
-watchdog kills every process with the directory, or a path in it, in its
-environment, and removes it.
+watchdog kills every process it knows for a session's by its environment
+(see MARKS), and removes it.
 Clients stop a server faster than a session stops (Claude Code: SIGINT,
 SIGTERM 100ms on, SIGKILL 400ms after that), so a signal ends the server
 at once and leaves the sessions to the watchdog.
@@ -61,17 +61,23 @@ class Refused(Exception):
 
 def uncomment(line):
     """`line` up to a `#` that starts a word outside quotes, as a shell
-    reads a comment: `--accent=#3584e4` and `'#'` are no comment."""
-    quote, prev = None, " "
-    for i, ch in enumerate(line):
+    reads a comment: `--accent=#3584e4`, `'#'` and `\\#` are no comment. A
+    backslash escapes the next character but inside single quotes."""
+    quote, starts, i = None, True, 0
+    while i < len(line):
+        ch = line[i]
+        if ch == "\\" and quote != "'":
+            i, starts = i + 2, False
+            continue
         if quote:
             if ch == quote:
                 quote = None
-        elif ch in "'\"" and prev != "\\":
+        elif ch in "'\"":
             quote = ch
-        elif ch == "#" and prev.isspace():
+        elif ch == "#" and starts:
             return line[:i]
-        prev = ch
+        starts = not quote and ch.isspace()
+        i += 1
     return line
 
 
@@ -523,16 +529,19 @@ def handle(server, msg):
     return {"jsonrpc": "2.0", "id": rid, "result": result}
 
 
+# The variables a session's processes are known by: the server's own, for
+# what inherits its environment (Xvfb), and a session's scratch, runtime
+# dir and home, for the rest. Not any variable: a shell someone cd'd into
+# a session's dir to tail its log has PWD there, and isn't the session's.
+MARKS = (b"SHOTBOX_MCP", b"SHOTBOX_SCRATCH", b"XDG_RUNTIME_DIR", b"HOME")
+
+
 def ours(environ, root):
     """Whether an environment (/proc's, NUL-separated) is a session's under
-    `root`: a variable that is `root` or a path in it. Every process a
-    session starts has one (its scratch, runtime dir or home, or the
-    server's SHOTBOX_MCP, for what inherits the server's environment), and
-    nothing else does: a command line naming `root` (someone's `tail -f`
-    on a log in it) isn't enough."""
+    `root`: one of MARKS is `root` or a path in it."""
     for entry in environ.split(b"\0"):
-        value = entry.partition(b"=")[2]
-        if value == root or value.startswith(root + b"/"):
+        key, _, value = entry.partition(b"=")
+        if key in MARKS and (value == root or value.startswith(root + b"/")):
             return True
     return False
 
@@ -586,7 +595,9 @@ def main(argv):
         return watch(a.watch)
     allowed, home = programs(a.allow)
     from .__main__ import self_command
-    root = Path(tempfile.mkdtemp(prefix="shotbox-mcp-"))
+    # Short: a session's sockets are under it, and a Unix socket's path has
+    # 108 bytes.
+    root = Path(tempfile.mkdtemp(prefix="sbm-"))
     tempfile.tempdir = str(root)   # where Session makes each scratch dir
     # What a session starts with the server's environment (Xvfb, its bus)
     # has this, for the watchdog to know it by.

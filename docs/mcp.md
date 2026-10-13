@@ -43,12 +43,16 @@ So every session lives in a directory of the server's, and a watchdog
 (`shotbox mcp --watch DIR`, in a process session of its own, out of the
 client's reach) holds a pipe from the server. However the server ends,
 SIGKILL included, the pipe closes. The watchdog then kills every process
-with that directory, or a path in it, in its environment, and removes
-the directory. Each process a session starts has one: its scratch dir,
-runtime dir or home, or the server's own `SHOTBOX_MCP`, for what inherits
-the server's environment. A command line naming the directory isn't
-enough, so someone's `tail -f` on a log in it is left alone. On a signal
-the server exits at once, leaving the sessions to the watchdog.
+it knows for a session's by its environment, and removes the directory.
+A session's process has its scratch dir, runtime dir or home in the
+directory, or the server's own `SHOTBOX_MCP` naming it, for what inherits
+the server's environment (Xvfb). Nothing else is killed: not a shell
+someone `cd`'d into a session's directory to `tail -f` a log, whose
+`PWD` is there, nor anything naming it on its command line. A program
+that clears or rewrites its environment (`env -i`, a rewritten process
+title) or makes itself undumpable isn't found that way; it usually goes
+when what's round it does, and otherwise it's left. On a signal the
+server exits at once, leaving the sessions to the watchdog.
 
 **Programs come from a list.** An agent can't run a command. It spawns a
 program by its name in the allow file the person started the server

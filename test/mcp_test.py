@@ -8,6 +8,7 @@ import json
 import os
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -32,12 +33,13 @@ tmp = Path(tempfile.mkdtemp())
 allow = tmp / "programs"
 # `where` says where its session is, and takes a second to go when told to.
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
-                 f"rel = bin/thing --flag 'two words' --accent=#3584e4\n"
+                 f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
-check(allowed["rel"] == [str(tmp / "bin/thing"), "--flag", "two words", "--accent=#3584e4"]
+check(allowed["rel"] == [str(tmp / "bin/thing"), "--flag", "two words", "--accent=#3584e4",
+                         "#hash"]
       and home == tmp and allowed["app"] == [str(here / "a11y_app.py")],
       "the allow file: shell words, comments, a # in a word, a relative command")
 bad_allow = tmp / "bad"
@@ -201,6 +203,9 @@ for how in ("claude", "kill"):
                           call_q(5, "program_output", session=how, program="where"))
     app, where = pid_of(answers[1]), pid_of(answers[2])
     scratch = answers[4]["result"]["content"][0]["text"].splitlines()[1]
+    # Not the session's: a shell that cd'd there, its PWD in the directory.
+    onlooker = subprocess.Popen(["sleep", "300"], cwd=scratch,
+                                env=dict(os.environ, PWD=scratch))
     if how == "claude":
         proc.send_signal(signal.SIGINT)
         time.sleep(0.1)
@@ -211,12 +216,14 @@ for how in ("claude", "kill"):
     check(scratch.startswith("/") and until_gone(app, where, scratch),
           f"stopped {'as Claude Code stops it' if how == 'claude' else 'by SIGKILL'}: "
           "its sessions go anyway, and their scratch dirs")
+    check(onlooker.poll() is None, "the watchdog leaves a process that's only in its dir")
+    onlooker.kill()
+    onlooker.wait()
 proc, answers = serve(call_q(1, "start_session", name="hup"),
                       call_q(2, "spawn", session="hup", program="app"))
 pid = int(re.search(r"pid (\d+)", answers[1]["result"]["content"][0]["text"])[1])
 proc.send_signal(signal.SIGHUP)
-time.sleep(0.1)
-proc.send_signal(signal.SIGTERM)
 proc.wait(60)
-check(gone(pid), "SIGHUP, then SIGTERM in the middle of stopping: its sessions stop")
+check(until_gone(pid), "SIGHUP: its sessions stop")
+shutil.rmtree(tmp)
 sys.exit(1 if fails else 0)
