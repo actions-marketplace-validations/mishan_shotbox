@@ -45,6 +45,16 @@ names=$("$sb" run -- gdbus call --session --dest org.freedesktop.DBus \
 SHOTBOX_TEST=yes "$sb" run --pass SHOTBOX_TEST --env A=b -- \
   sh -c '[ "$A" = b ] && [ "$SHOTBOX_TEST" = yes ]' \
   && ok "--env sets one, --pass lets one through" || fail "--env and --pass"
+# What a --desktop session's bus activates gets the session's environment,
+# and its own service files, not the caller's.
+mkdir -p "$tmp/seed/.local/share/dbus-1/services"
+printf '[D-BUS Service]\nName=org.shotbox.Probe\nExec=/bin/sh -c '"'"'echo "$HOME $DISPLAY" > %s'"'"'\n' \
+  "$tmp/activated" > "$tmp/seed/.local/share/dbus-1/services/org.shotbox.Probe.service"
+"$sb" run --desktop --seed "$tmp/seed" -- sh -c 'gdbus call --session --dest org.shotbox.Probe \
+  --object-path / --method org.shotbox.Probe.Nothing >/dev/null 2>&1
+  [ "$(cat '"$tmp/activated"')" = "$HOME $DISPLAY" ]' \
+  && ok "--desktop: what the bus activates is inside the session" \
+  || fail "--desktop: activated with: $(cat "$tmp/activated" 2>/dev/null)"
 
 # The terminal: steps, the ready file, the log, and the same picture twice.
 cat > "$tmp/scheme.json" <<'JSON'

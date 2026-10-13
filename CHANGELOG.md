@@ -31,6 +31,11 @@ contrast or with bigger text.
 
 ### Fixed
 
+- **What a `--desktop` session's bus starts is inside the session.**
+  The bus ran what it activated (dconf, the portals) with the caller's
+  environment, your `HOME`, `DISPLAY` and runtime dir among it, and read
+  service files from your home: a setting changed in the session could
+  be written to your own dconf. It now has the session's.
 - **`shotbox run` and `shoot` stop their session when they're
   terminated** (`kill`, `timeout`), as they do on ctrl-C, rather than
   leave its display and programs running.

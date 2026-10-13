@@ -273,9 +273,14 @@ class Session(Screen):
             need("sway", "grim", "dbus-daemon", *(["Xwayland"] if self.xwayland else []))
         else:
             need("Xvfb", "xauth", "dbus-daemon")
+        if self.desktop:
+            need("gdbus")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
             self._make_home()
+            # What the buses run what they activate with, until there's a
+            # display and a bus to add: never the caller's.
+            self.env = self._make_env({}, None, None)
             bus = self._start_bus("session")
             sysbus = self._start_bus("system") if self.system_bus else None
             if self.use_wayland:
@@ -284,6 +289,8 @@ class Session(Screen):
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
+            if self.desktop:
+                self._activation_env()
             if self.text_scale and "DISPLAY" in self.env:
                 # X clients take the font DPI from the X server's
                 # resources over settings.ini; only GTK 4 on Wayland reads
@@ -424,7 +431,8 @@ class Session(Screen):
         conf.write_text(BUS_CONFIG.format(type=kind, listen=listen, services=dirs))
         proc = subprocess.Popen(
             ["dbus-daemon", "--config-file", str(conf), "--nofork", "--print-address"],
-            stdout=subprocess.PIPE, stderr=open(self.scratch / f"{kind}-bus.log", "wb"),
+            env=self.env, stdout=subprocess.PIPE,
+            stderr=open(self.scratch / f"{kind}-bus.log", "wb"),
             text=True, start_new_session=True)
         self._procs.append(proc)
         address = proc.stdout.readline().strip()
@@ -456,15 +464,26 @@ class Session(Screen):
             XDG_STATE_HOME=str(home / ".local/state"),
             XDG_CACHE_HOME=str(home / ".cache"),
             XDG_RUNTIME_DIR=str(self.scratch / "run"),
-            DBUS_SESSION_BUS_ADDRESS=bus,
             SHOTBOX="1",
             SHOTBOX_SCRATCH=str(self.scratch),
         )
         env.update(graphics)
+        if bus:
+            env["DBUS_SESSION_BUS_ADDRESS"] = bus
         if sysbus:
             env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
         env.update(self.extra_env)
         return env
+
+    def _activation_env(self):
+        """Give what the session bus activates the session's environment,
+        display and all, as the programs run in it have."""
+        pairs = ", ".join(f"{k!r}: {v!r}" for k, v in self.env.items()
+                          if k != "DBUS_SESSION_BUS_ADDRESS")
+        subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.DBus",
+                        "--object-path", "/org/freedesktop/DBus", "--method",
+                        "org.freedesktop.DBus.UpdateActivationEnvironment", "{" + pairs + "}"],
+                       env=self.env, check=True, capture_output=True)
 
     def _start_a11y(self):
         """An accessibility bus of the session's own: at-spi-bus-launcher on
