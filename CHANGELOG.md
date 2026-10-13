@@ -9,8 +9,12 @@
   it's drawn: a libadwaita tab 6 pixels, a header bar's buttons 7, a tab's
   close button 10. Only 4 pixels round a node's bounds were counted, and a
   tab whose top edge already had the ring's color, as a current tab's rail
-  can, was reported as showing no focus. The count is now taken in a box
-  the node's size wherever it fits best, up to 16 pixels right and down.
+  can, was reported as showing no focus. When too little changed at its
+  bounds, the count is now taken at any offset up to 16 pixels each way
+  where what changed looks like a focus shown: along three or four of the
+  node's sides, and little just outside them. The ring the focus left is
+  the outline where it really was, so a sibling right beside it, a radio
+  button or a toolbar icon with a thin ring, is still counted.
 
 ## 0.4.1 — 2026-10-13
 

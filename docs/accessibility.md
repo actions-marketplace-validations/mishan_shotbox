@@ -141,17 +141,21 @@ land somewhere new. It stops:
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each
 press, once the screen has held still (up to two seconds), another; and
-counts the pixels that changed in and round a box the node's size,
-grown by 4 pixels on each side for a ring drawn outside it. GTK 4 places
-a node short of the border and padding of the nodes it's in (above),
-right of and below where it's drawn, by as much as their padding adds
-up to: a header bar's buttons 7px, a tab bar's tabs 6px and their close
-buttons 10px. So the box is tried at every offset up to 16 pixels right
-and down of the node's bounds, and the count is the best of them. What
-changed round the edges of where the focus was, wherever that really
-was, isn't counted: the ring it left. What's inside that, a list's row
-after the list, is. Fewer than half a one-pixel outline round the node
-(its width and its height) is a focus that doesn't show: a drawing area that draws
+counts the pixels that changed in and round the node's bounds, grown by
+4 pixels on each side for a ring drawn outside it. GTK 4 places a node
+short of the border and padding of the nodes it's in (above): from
+4.14.6 it's drawn right of and below its bounds by as much as their
+padding adds up to (a header bar's buttons 7px, a tab bar's tabs 6px and
+their close buttons 10px), and before that, left of and above. So when
+too little changed there, the box is tried at every offset up to 16
+pixels each way, and counts at one where what changed looks like a focus
+shown: change along three or four of its sides (a ring, a rail and a
+ring, a background) and little just outside them, which a neighbor's
+selection or a spinner has. The ring the focus left isn't counted: what
+changed round the outline of where it was, at the offset where the most
+did, but for what's in the node's own box (a list's row, after the
+list). Fewer than half a one-pixel outline round the node (its width and
+its height) is a focus that doesn't show: a drawing area that draws
 no ring, a text view that shows only its caret. WCAG 2.2's focus
 appearance asks for a two-pixel outline; this asks for a quarter of
 that, since an old GTK 4 places a node past its padding, and part of its

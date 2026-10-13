@@ -23,10 +23,15 @@ def picture(*rects):
     return Picture(W, H, bytes(data))
 
 
-def ring(x, y, w, h):
-    """A 2px ring just inside (x, y, w, h)."""
-    return [(x, y, x + w, y + 2), (x, y + h - 2, x + w, y + h),
-            (x, y, x + 2, y + h), (x + w - 2, y, x + w, y + h)]
+def ring(x, y, w, h, t=2):
+    """A ring `t` pixels wide just inside (x, y, w, h)."""
+    return [(x, y, x + w, y + t), (x, y + h - t, x + w, y + h),
+            (x, y, x + t, y + h), (x + w - t, y, x + w, y + h)]
+
+
+def moved(was, now, t=1):
+    """The focus from one node to the next: one ring goes, the other comes."""
+    return picture(*ring(*was, t=t)), picture(*ring(*now, t=t))
 
 
 def off(box, dx, dy):
@@ -44,6 +49,12 @@ def check(ok, what):
 
 x, y, w, h = BOX
 container = (x - 20, y - 20, w + 40, h + 80)
+CHECK = (100, 50, 16, 16)
+RADIO, RADIO2 = (100, 50, 80, 16), (100, 70, 80, 16)
+ICON, ICON2 = (100, 50, 16, 16), (118, 50, 16, 16)
+LINKED, LINKED2 = (100, 50, 24, 24), (124, 50, 24, 24)
+TAB, CLOSE = (100, 50, 200, 34), (260, 55, 24, 24)
+LIST, ROW = (100, 50, 200, 120), (100, 50, 200, 24)
 # (what, before, after, the node's bounds, where the focus was, shown?)
 CASES = [
     # GTK 4 places a node short of its ancestors' padding: drawn right of
@@ -69,6 +80,24 @@ CASES = [
      picture(*ring(*off(BOX, 7, h + 11))), picture(), BOX, off(BOX, 0, h + 4), False),
     ("a node inside the one the focus left, its ring",
      picture(*ring(*container)), picture(*ring(*container), *ring(*BOX)), BOX, container, True),
+    # The next sibling, a few pixels on, with a thin ring: the one the
+    # focus left is right beside it.
+    ("radio buttons 4px apart, 1px rings", *moved(RADIO, RADIO2), RADIO2, RADIO, True),
+    ("toolbar icons 2px apart, 1px rings", *moved(ICON, ICON2), ICON2, ICON, True),
+    ("linked buttons, 1px rings", *moved(LINKED, LINKED2), LINKED2, LINKED, True),
+    ("a list's row flush with its edge, its background, after the list's ring",
+     picture(*ring(*LIST)), picture((ROW[0], ROW[1], ROW[0] + ROW[2], ROW[1] + ROW[3])),
+     ROW, LIST, True),
+    ("a tab's close button, both drawn off their bounds",
+     *moved(off(TAB, 0, 6), off(CLOSE, 10, 10), t=2), CLOSE, TAB, True),
+    # GTK 4 up to 4.14.5 draws a node left of and above its bounds.
+    ("a ring drawn 12px left and up", picture(), picture(*ring(*off(LINKED, -12, -12))),
+     LINKED, None, True),
+    # A neighbor's change isn't this node's focus.
+    ("a row 6px below selected, beside a check box with no ring",
+     picture(), picture((90, 72, 300, 92)), CHECK, None, False),
+    ("a label 4px right recoloring, beside a check box with no ring",
+     picture(), picture((120, 50, 200, 66)), CHECK, None, False),
 ]
 for what, before, after, box, was, shown in CASES:
     n = focus_change(before, after, box, was)
