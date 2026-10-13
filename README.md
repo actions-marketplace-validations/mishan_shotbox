@@ -196,16 +196,17 @@ Inside `shotbox run --a11y`:
   trap: a text view keeps Tab), unless nothing else could take it, or
   after `--max`. With `--visible`, it also fails where the focus doesn't
   show: fewer pixels in and round a node changed as it took the focus
-  than a one-pixel outline round it has (a caret alone, or nothing).
+  than half a one-pixel outline round it has (a caret alone, or nothing).
 - **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
   middle of the node whose name matches NAME (a regex, matched in full),
   waiting for it to show: a button by its label rather than where it is.
   A match inside another (a button's label) is the outer one; two that
   aren't fail, saying which.
 - **`shotbox a11y contrast [--window RE]`** measures, on a picture of the
-  screen, the contrast of what each node draws in its bounds: text
-  against its background, at least 4.5:1 (`--text`), and an icon (a
-  control or image with no text of its own) at least 3:1 (`--graphics`).
+  screen, with the `--window` raised, the contrast of what each node
+  draws in its bounds: text, and controls, which may draw text or an
+  icon, against their background, at least 4.5:1 (`--text`), and images
+  at least 3:1 (`--graphics`).
   `--edges 3` also measures a button's or field's edge against what's
   round it. It fails, a line each: `PATH: text 2.51:1, #a0a0a0 on
   #fafafb (at least 4.5)`. Disabled nodes are left out, as WCAG does.

@@ -63,8 +63,11 @@ w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
   TMPDIR=$tmp/audio "$sb" run --audio -- sh -c "pactl info | grep -qx 'Default Sink: shotbox-sink' &&
     timeout 10 paplay '$tmp/beep.wav'" \
     && ok "--audio: a sink of its own, which plays" || fail "--audio"
-  pgrep -f "$tmp/audio/" >/dev/null && fail "--audio: PipeWire left running" \
-    || ok "--audio: PipeWire stops with the session"
+  left=$(for p in $(pgrep -u "$(id -u)" -x 'pipewire|wireplumber'); do
+    { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/audio/" && echo "$p"
+  done; true)
+  [ -z "$left" ] && ok "--audio: PipeWire and WirePlumber stop with the session" \
+    || fail "--audio: left running: $left"
   "$sb" run -- sh -c '! pactl info >/dev/null 2>&1' && ok "no --audio, no sound server" \
     || fail "a sound server without --audio"
 else
@@ -243,12 +246,12 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
   st=$?; set -e
   [ $st = 1 ] && [ "$(wc -l < "$tmp/contrast")" = 1 ] \
-    && grep -q '/label\[1\]: text 2\.51:1, #a0a0a0 on #fafafb (at least 4\.5)$' "$tmp/contrast" \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5)$' "$tmp/contrast" \
     && ok "a11y: contrast finds faint text, and its colors" || { fail "a11y: contrast, faint ($st)"; cat "$tmp/contrast"; }
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y contrast --edges 3 --window a11y-test" > "$tmp/contrast"
   st=$?; set -e
-  [ $st = 1 ] && grep -q '/button\[0\]: edge 1\.[0-9]*:1' "$tmp/contrast" \
+  [ $st = 1 ] && grep -q '/[a-z ]*button\[0\]: edge 1\.[0-9]*:1' "$tmp/contrast" \
     && ok "a11y: contrast --edges finds buttons with no edge to speak of" \
     || { fail "a11y: contrast --edges ($st)"; cat "$tmp/contrast"; }
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \

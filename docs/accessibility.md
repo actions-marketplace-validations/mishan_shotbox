@@ -76,14 +76,17 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
 - Chromium on Wayland counts its shadow into its accessible frame and
   not its window, by amounts it doesn't say. On X11, its bounds are
   right.
-- GTK 4 on X11 counts its window's shadow into its frame, which it
-  places at minus the shadow. Up to GTK 4.24 at least, it places each
-  child relative to its parent's corner where it should be relative to
-  its parent's content: short of the parent's border and padding, and
-  every node in the window short of the shadow again. shotbox makes up
-  the shadow, which it can tell from the frame and its first child, but
-  not the rest: a label in a button comes out at the button's corner,
-  by up to the button's padding. A fix has gone to GTK.
+- GTK 4 loses border and padding on the way down, and how depends on
+  its version. On X11 with no compositor a window has a border and
+  padding of its own (5 pixels, its `solid-csd` style), and every
+  version loses that from the window's children; shotbox makes it up,
+  telling it from the frame and its first child, which fills the frame
+  but for it. Up to 4.14.5, GTK places each node at its own content
+  area, past its border and padding: a button by about 17 pixels across.
+  From 4.14.6, it places each node relative to its parent's corner,
+  short of the parent's border and padding: a button's label at the
+  button's corner. Neither can be told from the tree. A fix has gone to
+  GTK, and is placed right.
 
 ## Lint
 
@@ -133,13 +136,15 @@ pointer, takes a picture of the screen before the walk, and after each
 press, once the screen has held still (up to two seconds), another; and
 counts the pixels that changed in the node's bounds, grown by 4 pixels
 on each side for a ring drawn outside it, but for those round where the
-focus was. Fewer than a one-pixel outline round the node has (twice its
-width and height) is a focus that doesn't show: a drawing area that
-draws no ring, a text view that shows only its caret. WCAG 2.2's focus
-appearance asks for a two-pixel outline; this asks for half. A web
-document, which takes the focus as a whole and has nothing drawn round
-it, isn't checked. It needs the node's bounds, so what can't be placed
-isn't checked either.
+focus was and not in the node itself. Fewer than half a one-pixel
+outline round the node (its width and its height) is a focus that
+doesn't show: a drawing area that draws no ring, a text view that shows
+only its caret. WCAG 2.2's focus appearance asks for a two-pixel outline;
+this asks for a quarter of that, since an old GTK 4 places a node past
+its padding, and part of its ring outside what's counted. A web document, which takes the focus as a whole and has
+nothing drawn round it, and a container, which shows it on what it
+passes it to (a notebook, on its tab), aren't checked. It needs the
+node's bounds, so what can't be placed isn't checked either.
 
 Nodes are told apart by their program's name on the bus and their
 object path, not by their names, so two buttons with the same name are
@@ -155,8 +160,10 @@ nothing else would get to stop it.
 `click NAME` reads the tree, picks the showing nodes whose name matches
 NAME, and `--role` too, waiting up to `--timeout` for one; drops a match
 inside another (a GTK button's label, inside the button), fails if more
-than one is left, saying which; and clicks the middle of its bounds,
-over XTEST or sway's virtual pointer, as `shotbox click` does. A real
+than one is left, saying which; raises the `--window`; and clicks the
+middle of its bounds, cut to its window's (a node scrolled out of view
+is still "showing"; one wholly outside its window is refused), over
+XTEST or sway's virtual pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would.
@@ -167,20 +174,24 @@ Wayland by sway's `focus`.
 
 ## Contrast
 
-`contrast` takes a picture of the screen, with the pointer parked, and
-measures each node in its bounds:
+`contrast` raises the `--window`, takes a picture of the screen, with
+the pointer parked, and measures each node in its bounds:
 
 - **Text**: a node with a name whose role is text (a label, heading,
-  link, static text, paragraph), or a control with text of its own (a
-  Chromium button): the color most of its bounds are is the background,
-  and the color with the most contrast against it, of at least three
-  pixels, is the text, which an antialiased glyph's core is. At least
-  4.5:1 (`--text`); text is taken as normal size, so large text, which
-  WCAG holds to 3:1, has to be given its own run.
-- **Graphics**: a named control or image with no text node inside it
-  and no text of its own, which is an icon (a GTK icon button, a Qt menu
-  item, which keeps its text to itself): measured the same way, at least
-  3:1 (`--graphics`).
+  link, static text, paragraph), or a control with no such node inside
+  it: the color most of its bounds are is the background, and the color
+  with the most contrast against it, of at least three pixels, is the
+  text, which an antialiased glyph's core is. At least 4.5:1 (`--text`).
+  A control may draw its name or an icon (GTK 3's and Qt's buttons keep
+  their text to themselves, GTK 4's icon buttons are named by their
+  tooltips), and the tree can't tell which, so it's held to text's
+  ratio. Text is taken as normal size, so large text, which WCAG holds
+  to 3:1, has to be given its own run.
+- **Graphics**: a named image: measured the same way, at least 3:1
+  (`--graphics`).
+- A node that can't be placed fails ("not measured"), and so does text
+  whose bounds are one color ("not seen"): text the color of its
+  background, or covered by another window.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a

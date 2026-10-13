@@ -14,6 +14,7 @@ desktop's. `record` is the session's announcement recorder.
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -148,11 +149,12 @@ def origin(Atspi, top, shown):
     has no others), so they're put on the screen by the display's window
     of the same size, and name if it has one: `shown`, as the backend's
     windows() lists them. Chromium on Wayland counts its shadow into its
-    accessible frame and not its window, and can't be placed. GTK 4 on X11
-    counts its shadow into its window and places its frame at minus the
-    shadow; until GTK's fix, its children at minus it again, and each
-    child at its parent's corner, short of the parent's border and
-    padding."""
+    accessible frame and not its window, and can't be placed. GTK 4 before
+    its fix loses the window's border (on X11 with no compositor, it has
+    one) from its children: the frame's first child, which fills it but
+    for that, is at the frame's corner rather than inside the border. The
+    border and padding of every other node on the way down are lost too,
+    and can't be told: docs/accessibility.md says how far off that is."""
     e = top.get_extents(Atspi.CoordType.WINDOW)
     name = top.get_name() or ""
     hits = [w for w in shown if (w[2], w[3]) == (e.width, e.height) and (not name or w[1] == name)]
@@ -162,13 +164,12 @@ def origin(Atspi, top, shown):
     if len(hits) != 1:
         return None
     w = hits[0]
-    # The frame's first child fills it but for the shadow: at the frame's
-    # corner, it's been put at minus the shadow again.
     first = top.get_child_at_index(0) if top.get_child_count() else None
     c = first and first.get_extents(Atspi.CoordType.WINDOW)
-    again = bool(c and (e.x or e.y) and (c.x, c.y) == (e.x, e.y)
-                 and (c.width, c.height) != (e.width, e.height))
-    return [w[4], w[5], w[2], w[3]], (w[4] - e.x * (1 + again), w[5] - e.y * (1 + again))
+    lost = (0, 0)
+    if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
+        lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
+    return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1])
 
 
 def place(Atspi, n, shown, origins):
@@ -365,11 +366,14 @@ class Look:
             pass
         now = self.grab()
         box = self.where(n)
-        # A document takes the focus as a whole, and nobody draws round it.
-        if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME")):
-            # The ring the focus left can reach into this one's.
+        # A document takes the focus as a whole, and nobody draws round it;
+        # a container shows it on what it passes it to (a notebook's tab).
+        if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
+                                                      *CONTAINERS)):
+            # The ring the focus left can reach into this one's, but for
+            # what's inside this one, which may be inside that one too.
             skip = self.was and self.last.clip(self.was, RING)
-            n["changed"] = self.last.changed(now, box, RING, skip)
+            n["changed"] = self.last.changed(now, box, RING, skip, self.last.clip(box))
             n["needed"] = shown_needs(box)
         n["bounds"] = box
         self.last, self.was = now, box
@@ -380,9 +384,11 @@ RING = 4
 
 
 def shown_needs(box):
-    """How many pixels must change for the focus to show: a one-pixel
-    outline round the node. WCAG 2.2's focus appearance asks for two."""
-    return 2 * (box[2] + box[3])
+    """How many pixels must change for the focus to show: half a one-pixel
+    outline round the node, where WCAG 2.2's focus appearance asks for two
+    pixels all round. Half, since GTK 4 before 4.14.6 places a node past
+    its padding, and part of its ring outside what's counted."""
+    return box[2] + box[3]
 
 
 def unseen(n):
@@ -390,11 +396,24 @@ def unseen(n):
     return n.get("changed") is not None and n.changed < n.needed
 
 
+def raise_window(screen, window):
+    """Raise the display's window `window` picks, if it can be found, so
+    nothing covers what's clicked or measured in it."""
+    if window and screen.backend.find_window(screen.env, window):
+        screen.focus_window(window)
+
+
+def ratio_text(r):
+    """`r` to two places, rounded down, so a ratio that fails never prints
+    as one that passes."""
+    return f"{math.floor(r * 100) / 100:.2f}"
+
+
 def click(name, role=None, window=None, button=1, double=False, timeout=10):
     """Click the middle of the node whose name matches `name` (a regex,
     matched in full), and role `role` (a regex too) if given, waiting up to
-    `timeout` for it to show. A match inside another (a button's label)
-    is the outer one. The node clicked."""
+    `timeout` for it to show, in its window, raised. A match inside
+    another (a button's label) is the outer one. The node clicked."""
     Atspi = atspi()
 
     def matches():
@@ -409,12 +428,19 @@ def click(name, role=None, window=None, button=1, double=False, timeout=10):
         raise SessionError(f"{len(hits)} nodes match: " + "; ".join(n.path for n in hits))
     n = hits[0]
     screen = Screen()
-    box = place(Atspi, n, screen.backend.windows(screen.env), {})
+    origins = {}
+    box = place(Atspi, n, screen.backend.windows(screen.env), origins)
     if not box or box[2] <= 0 or box[3] <= 0:
         raise SessionError(f"can't tell where {n.line()} is on the screen")
+    # Inside its window: a node scrolled out of view is still showing.
+    w = origins[n._top][0]
+    x0, y0 = max(box[0], w[0]), max(box[1], w[1])
+    x1, y1 = min(box[0] + box[2], w[0] + w[2]), min(box[1] + box[3], w[1] + w[3])
+    if x0 >= x1 or y0 >= y1:
+        raise SessionError(f"{n.line()} is outside its window")
     try:
-        screen.click(box[0] + box[2] // 2, box[1] + box[3] // 2, button=button,
-                     double=double)
+        raise_window(screen, window)
+        screen.click((x0 + x1) // 2, (y0 + y1) // 2, button=button, double=double)
     finally:
         screen.close()
     n["bounds"] = box
@@ -423,14 +449,17 @@ def click(name, role=None, window=None, button=1, double=False, timeout=10):
 
 def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
     """What's drawn with too little contrast, as (node, what), measured on a
-    picture of the screen in each node's bounds: text against its
-    background (at least `text`), a control or image with no text in it
-    (an icon) against its own (`graphics`), and with `edges`, a control's
-    edge against what's round it. Disabled nodes are left out, as WCAG
-    leaves them; text is taken as normal size."""
+    picture of the screen, `window` raised, in each node's bounds: text, and
+    a control, which may draw text or an icon and can't be told apart,
+    against its background (at least `text`), an image against its own
+    (`graphics`), and with `edges`, a control's edge against what's round
+    it. Disabled nodes are left out, as WCAG leaves them; text is taken as
+    normal size. A node that can't be placed, and text with nothing drawn
+    on its background, are problems too: nothing says they can be read."""
     Atspi = atspi()
     screen = Screen()
     try:
+        raise_window(screen, window)
         screen.park()
     finally:
         screen.close()
@@ -444,15 +473,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
                 and "disabled" not in n.states)
 
     def kind(n):
-        if not drawn(n) or not n.name or "editable" in n.states:
+        if not n._showing or not n.name or "editable" in n.states or "disabled" in n.states:
             return None
-        if n._role in texts:
+        if n._role in texts or n._role in controls:
             return "text"
-        if n._role in controls or n._role in images:
-            # Chromium's buttons hold their text themselves; GTK's, in a label.
-            text = n._acc.get_text_iface()
-            return "text" if text and text.get_character_count() else "graphics"
-        return None
+        return "graphics" if n._role in images else None
 
     measured = [n for n in nodes if kind(n)]
     problems = []
@@ -461,10 +486,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
         if any(o.path.startswith(n.path + "/") for o in measured):
             continue
         k = kind(n)
+        if not drawn(n):
+            if not n.bounds:
+                problems.append((n, f"{k} not measured: can't tell where it is"))
+            continue
         least = text if k == "text" else graphics
-        got = picture.text_contrast(pic, clip_to_parent(n, nodes))
-        if got and got[0] < least:
-            problems.append((n, f"{k} {got[0]:.2f}:1, {picture.hex_of(got[1])} on "
+        box = clip_to_parent(n, nodes)
+        got = picture.text_contrast(pic, box)
+        if got is None and k == "text" and box[2] and box[3]:
+            back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
+            problems.append((n, f"text not seen: nothing drawn on {back}"))
+        elif got and got[0] < least:
+            problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
                                 f"{picture.hex_of(got[2])} (at least {least:g})"))
     if edges:
         for n in nodes:
@@ -472,7 +505,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10):
                              or (n._role == Atspi.Role.TEXT and "editable" in n.states)):
                 got = picture.edge_contrast(pic, n.bounds)
                 if got and got[0] < edges:
-                    problems.append((n, f"edge {got[0]:.2f}:1, {picture.hex_of(got[1])} by "
+                    problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
                                         f"{picture.hex_of(got[2])} (at least {edges:g})"))
     return problems
 
@@ -589,11 +622,11 @@ def main(argv):
     c.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
     c.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
     c.add_argument("--double", action="store_true", help="click twice")
-    ct = sub.add_parser("contrast", help="text, icons and controls against their backgrounds")
+    ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
-                    help="text against its background, at least (4.5)")
+                    help="text, and controls, against their background, at least (4.5)")
     ct.add_argument("--graphics", type=float, default=3.0, metavar="RATIO",
-                    help="an icon, a control or image with no text, at least (3)")
+                    help="an image against its background, at least (3)")
     ct.add_argument("--edges", type=float, metavar="RATIO",
                     help="also a button's or field's edge against what's round it, "
                          "at least this (3 is WCAG's)")

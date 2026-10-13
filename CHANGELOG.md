@@ -34,7 +34,7 @@ contrast or with bigger text, and have a sound server of its own.
   where the focus doesn't show: too little in and round a node changed
   as it took it.
 - **`shotbox a11y contrast`** (`contrast()`) measures, on the screen,
-  text against its background (4.5:1), icons (3:1), and with
+  text and controls against their background (4.5:1), images (3:1), and with
   `--edges`, a button's or field's edge.
 - **`shotbox a11y lint --ignore RE`** (`a11y_lint(ignore=)`), for what
   can't be fixed yet.

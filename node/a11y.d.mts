@@ -5,4 +5,4 @@
  */
 
 /** Chromium's launch options for `shotbox run --a11y`: `launch({ ...accessible })`. */
-export const accessible: { readonly headless: false; readonly args: readonly string[] };
+export const accessible: { readonly headless: false; readonly args: string[] };

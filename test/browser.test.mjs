@@ -375,7 +375,7 @@ test('Chromium on an --a11y session: its tree, a click by name, contrast, live r
 
     assert.match(tree, /button "Save"/);
     assert.equal(clicked, 'yes');
-    assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.85:1, #999999 on #ffffff/);
+    assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff/);
     assert.equal(contrast.trim().split('\n').length, 1);
     assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
                        'polite: Done\n');

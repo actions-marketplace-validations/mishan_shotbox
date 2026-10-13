@@ -106,7 +106,11 @@ def pixels(env):
 
 def focus(env, window):
     """Give `window` (as find_window has it) the keyboard, and raise it."""
-    ipc(env, RUN_COMMAND, f"[con_id={window[0]}] focus")
+    r = ipc(env, RUN_COMMAND, f"[con_id={window[0]}] focus")
+    if not r or not r[0].get("success"):
+        from .screen import SessionError
+        raise SessionError(f"sway didn't focus {window[1]!r}: "
+                           f"{(r and r[0].get('error')) or 'no answer'}")
 
 
 def fingerprint(env, window=None):

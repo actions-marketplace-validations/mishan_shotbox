@@ -202,9 +202,10 @@ class Screen:
 
     def contrast(self, window=None, text=4.5, graphics=3.0, edges=None):
         """The nodes drawn with too little contrast, each with what's wrong
-        as `problem`: text against its background (at least `text`), an
-        icon (`graphics`), and with `edges`, a button's or field's edge
-        against what's round it. Measured on a picture of the screen."""
+        as `problem`: text and controls against their background (at
+        least `text`), images (`graphics`), and with `edges`, a button's or
+        field's edge against what's round it. Measured on a picture of the
+        screen, `window` raised."""
         from .a11y import Node
         args = ["--text", str(text), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),

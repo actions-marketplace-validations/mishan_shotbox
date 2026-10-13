@@ -41,9 +41,10 @@ class Picture:
                     c[d[i:i + 3]] += 1
         return c
 
-    def changed(self, other, box, pad=0, skip=None):
+    def changed(self, other, box, pad=0, skip=None, keep=None):
         """How many pixels in `box` (grown by `pad`) differ in `other`, the
-        same screen taken again; but for those in `skip`, a clipped area."""
+        same screen taken again; but for those in `skip`, a clipped area,
+        that aren't in `keep`, another."""
         area = self.clip(box, pad)
         if not area:
             return 0
@@ -54,7 +55,8 @@ class Picture:
             if self.data[a:b] == other.data[a:b]:
                 continue
             for x in range(x0, x1):
-                if skip and skip[0] <= x < skip[2] and skip[1] <= y < skip[3]:
+                if (skip and skip[0] <= x < skip[2] and skip[1] <= y < skip[3]
+                        and not (keep and keep[0] <= x < keep[2] and keep[1] <= y < keep[3])):
                     continue
                 i = (y * self.width + x) * 3
                 n += self.data[i:i + 3] != other.data[i:i + 3]
