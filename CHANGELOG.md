@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 — 2026-10-13
+
+A fix for sessions that last.
 
 ### Fixed
 
