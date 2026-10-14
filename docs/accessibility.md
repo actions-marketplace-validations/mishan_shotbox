@@ -229,9 +229,9 @@ the pointer parked, and measures each node in its bounds:
   measured as text.
 - A node that can't be placed fails ("not measured"), and so does text
   whose bounds on the screen are one color ("not seen"): text the color
-  of its background. A control of one color is measured again with the
-  pointer over it, as a tab's close button is drawn only then. An image
-  of one color passes.
+  of its background. For a control, that says how it measures with the
+  pointer over it too, since some are drawn only then (a tab's close
+  button). An image of one color passes.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
@@ -239,11 +239,11 @@ the pointer parked, and measures each node in its bounds:
   or a filled button's fill. libadwaita's buttons are about 1.2:1, so
   this is for themes that mean to draw an edge. A field (an entry, text
   view or combo box) with no edge of its own passes if what it's in
-  draws one, at its bounds or just outside them, and it fills that from
-  side to side or top to bottom, as each node between fills the next:
-  an entry row in a boxed list, a text view in a frame. Not the window's
-  edge, and not a button's: a flat button in a row has no edge of its
-  own.
+  draws one, at its bounds or just outside them, and it fills that all
+  round, within 16 pixels: a text view in a frame. Not the window's
+  edge, and not a box it fills only from side to side: a form's fields
+  in a bordered box, or an entry row in a boxed list, look like its
+  inside.
 
 A node with something measured inside it (a button's label) is measured
 by that. Each node's bounds are cut to its window's and to those of

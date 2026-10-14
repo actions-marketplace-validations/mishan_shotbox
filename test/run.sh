@@ -328,7 +328,7 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   st=$?; set -e
   [ $st = 1 ] && grep -q '/label\[1\]: text ' "$tmp/contrast" \
     && ! grep -q 'toggle button\|/text\[0\]' "$tmp/contrast" \
-    && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'its color is #5f5670, 6\.5[0-9]:1' \
+    && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'drawn lighter than its color, #5f5670, which is 6\.5[0-9]:1' \
     && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text's color said" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \

@@ -705,22 +705,21 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             s.close()
 
     def framed(n, box):
-        """Whether what `n` is in draws its edge for it: a field in a row of
-        a boxed list, a text view in a frame. The nearest node
-        round it with an edge, of those it fills from side to side or top
-        to bottom, as each fills the next, but not one at its window's
-        edge, whose edge is the window's."""
+        """Whether what `n` is in draws its edge for it, as a frame does a
+        text view's: the nearest node round it with an edge, of those it
+        fills all round, but not one at its window's edge, whose edge is
+        the window's. Filling it only side to side isn't enough: a form's
+        fields do that in a bordered box, each looking like its inside."""
         win, path = n._window, n.path
         while "/" in path:
             path = path.rsplit("/", 1)[0]
             outer = parents.get(path) and shown(parents[path])
             if not outer:
                 continue
-            if not any(abs(box[i] - outer[i]) <= REACH
+            if not all(abs(box[i] - outer[i]) <= REACH
                        and abs(box[i] + box[i + 2] - outer[i] - outer[i + 2]) <= REACH
                        for i in (0, 1)):
                 return False
-            box = outer
             if win and overlap(grow_box(outer, 3), list(win)) != grow_box(outer, 3):
                 return False
             # Or drawn just outside it, as a box shadow is.
@@ -744,18 +743,20 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             continue
         least = text if k == "text" else graphics
         got = picture.text_contrast(pic, box)
-        # A control can draw nothing until it's hovered: a tab's close button.
-        if got is None and n._role in controls:
-            got = picture.text_contrast(hovered(box), box)
         if got is None and k == "text":
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
-            problems.append((n, f"text not seen: nothing drawn on {back}"))
+            # A control can be drawn only when the pointer's over it: a tab's
+            # close button. Say how it is then, to tell.
+            over = n._role in controls and picture.text_contrast(hovered(box), box)
+            then = (f"; with the pointer over it, {ratio_text(over[0])}:1, "
+                    f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])}" if over else "")
+            problems.append((n, f"text not seen: nothing drawn on {back}{then}"))
         elif got and got[0] < least:
             said = said_color(Atspi, n)
             # Light or small text covers no pixel whole, so measures short of
             # its color, as text drawn see-through does: say both.
-            meant = (f"; its color is {picture.hex_of(said)}, "
-                     f"{ratio_text(picture.ratio(said, got[2]))}:1, drawn lighter (light text, or opacity)"
+            meant = (f"; drawn lighter than its color, {picture.hex_of(said)}, which is "
+                     f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
             problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
@@ -768,7 +769,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 continue
             box = shown(n)
             got = box and picture.edge_contrast(pic, box)
-            # A field's edge can be what it's in: an entry row's, a frame's.
+            # A field's edge can be what it's in: a frame's.
             field = n._role in (Atspi.Role.TEXT, Atspi.Role.COMBO_BOX)
             if got and got[0] < edges and not (field and framed(n, box)):
                 problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
