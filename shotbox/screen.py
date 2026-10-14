@@ -306,14 +306,60 @@ class Screen:
         """Press and release each chord in turn: ctrl+comma, Return,
         alt+shift+Tab. With `hold`, press them all, keep them down that many
         seconds, then let go, last first: walking while running, say. With
-        `state` "down" or "up", only press them or only let them go."""
-        if hold is not None:
+        `state` "down" or "up", only press them or only let them go. A chord
+        it can't press is said before any key goes down."""
+        for c in chords:
+            self.xt.needs(c)
+        if hold is None and state is None:
+            for c in chords:
+                self.xt.chord(c)
+            return
+        if state == "up":
+            self._let_go(chords)
+            return
+        held, pressed = self._held(), []
+        try:
             for c in chords:
                 self.xt.chord(c, "down")
-            time.sleep(hold)
-            chords, state = chords[::-1], "up"
+                pressed.append(c)
+                held.append(c)
+                self._keep_held(held)
+            if hold is not None:
+                time.sleep(hold)
+        except BaseException:
+            # Interrupted or failed: nothing it pressed may stay down.
+            self._let_go(pressed[::-1])
+            raise
+        if hold is not None:
+            self._let_go(chords[::-1])
+
+    def _held_file(self):
+        scratch = self.env.get("SHOTBOX_SCRATCH")
+        return Path(scratch) / "held-keys" if scratch else None
+
+    def _held(self):
+        """The chords held down with `state` "down" and not yet let go: kept
+        in the session's scratch dir, since each command is its own process."""
+        f = self._held_file()
+        if f is None:
+            return self.__dict__.setdefault("_held_keys", [])
+        return f.read_text().split() if f.exists() else []
+
+    def _keep_held(self, held):
+        f = self._held_file()
+        if f is not None:
+            f.write_text("".join(f"{c}\n" for c in held))
+
+    def _let_go(self, chords):
+        """Let go of each chord, leaving down the modifiers still held keys
+        need."""
+        held = self._held()
         for c in chords:
-            self.xt.chord(c, state)
+            if c in held:
+                held.remove(c)
+            keep = set().union(*(self.xt.needs(h) for h in held))
+            self.xt.chord(c, "up", keep=keep)
+        self._keep_held(held)
 
     def type(self, text):
         """Type ASCII text into whatever has the keyboard focus."""
@@ -330,8 +376,11 @@ class Screen:
         at = self._at(px, py, window)
         if hold is not None:
             self.xt.button(*at, button=button, state="down")
-            time.sleep(hold)
-            state = "up"
+            try:
+                time.sleep(hold)
+            finally:
+                self.xt.button(*at, button=button, state="up")
+            return
         if state:
             self.xt.button(*at, button=button, state=state)
         else:

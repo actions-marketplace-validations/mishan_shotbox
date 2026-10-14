@@ -27,6 +27,7 @@ session in a lasting one. `shotbox COMMAND --help` for each one's options.
 """
 
 import argparse
+import math
 import os
 import signal
 import sys
@@ -42,6 +43,13 @@ def scale(s):
     n = float(s)
     if not n > 0:
         raise argparse.ArgumentTypeError(f"more than 0, not {s}")
+    return n
+
+
+def seconds(s):
+    n = float(s)
+    if not (math.isfinite(n) and n >= 0):
+        raise argparse.ArgumentTypeError(f"seconds, 0 or more, not {s}")
     return n
 
 
@@ -338,7 +346,7 @@ def held_here(screen, a):
 def held_options(p, what, them):
     """--hold SECS, --down and --up, for keys and buttons."""
     g = p.add_mutually_exclusive_group()
-    g.add_argument("--hold", type=float, metavar="SECS",
+    g.add_argument("--hold", type=seconds, metavar="SECS",
                    help=f"press {what}, keep {them} down this long, then let go")
     g.add_argument("--down", dest="state", action="store_const", const="down",
                    help=f"press {what} and leave {them} down, until --up (X11; on "
@@ -534,6 +542,9 @@ def main(argv=None):
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
+        if argv[0] in INSIDE:
+            # Stopped mid-hold (by kill or timeout(1)), let go on the way out.
+            signal.signal(signal.SIGTERM, signal.default_int_handler)
         if session:
             if argv[0] not in INSIDE:
                 raise SessionError(f"--session is for the commands used inside a "

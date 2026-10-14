@@ -185,19 +185,35 @@ class Display:
         if sync:
             self.sync()
 
-    def up(self, keysym, modifiers=()):
-        """Let go of a key pressed with `down`, then its modifiers."""
+    def up(self, keysym, modifiers=(), keep=()):
+        """Let go of a key pressed with `down`, then its modifiers, but for
+        those in `keep`: the server counts no presses, so a modifier another
+        held key still needs has to stay down."""
         code, held = self._codes(keysym, modifiers)
+        kept = {self.keycode(k)[0] for k in keep}
         self._fake(KEY_RELEASE, code)
         for c in reversed(held):
-            self._fake(KEY_RELEASE, c)
+            if c not in kept:
+                self._fake(KEY_RELEASE, c)
         self.sync()
 
-    def chord(self, spec, state=None):
-        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
-        or with `state` "down" or "up", only press it or only let it go."""
+    def needs(self, spec):
+        """The modifier keysyms a chord holds down, Shift for a shifted
+        symbol too; an XError if this keymap can't press it."""
         sym, mods = parse_chord(spec)
-        {None: self.press, "down": self.down, "up": self.up}[state](sym, mods)
+        if self.keycode(sym)[1] and SHIFT not in mods:
+            mods.append(SHIFT)
+        return set(mods)
+
+    def chord(self, spec, state=None, keep=()):
+        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
+        or with `state` "down" or "up", only press it or only let it go
+        (leaving the modifiers in `keep` down)."""
+        sym, mods = parse_chord(spec)
+        if state == "up":
+            self.up(sym, mods, keep)
+        else:
+            (self.down if state == "down" else self.press)(sym, mods)
 
     def type(self, text):
         """Type text, one key at a time. ASCII only: a character is typed by

@@ -134,8 +134,11 @@ def number(v, what, least=None, most=None):
 
 
 def held(hold, state):
-    """press_keys' and click's hold (seconds) and state (down or up)."""
-    hold = number(hold, "hold", 0, 60)
+    """press_keys' and click's hold (seconds) and state (down or up). A hold
+    holds up the server, so it's kept short."""
+    hold = number(hold, "hold")
+    if hold is not None and not 0 <= hold <= 60:
+        raise Refused(f"hold is 0 to 60 seconds, not {hold:g}")
     state = text(state) or None
     if state not in (None, "down", "up"):
         raise Refused(f"state is down or up, not {state!r}")
@@ -279,6 +282,8 @@ class Server:
         s = self.session(session)
         button, double = int(number(button, "button") or 1), flag(double)
         hold, state = held(hold, state)
+        if double and (hold is not None or state):
+            raise Refused("double, or hold and state: not together")
         if name is not None:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
@@ -376,6 +381,9 @@ def schema(props, required=()):
 
 
 SESSION = {"type": "string", "description": "The session's name, as start_session gave it"}
+HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
+STATE = {"type": "string", "enum": ["down", "up"],
+         "description": "Only press, leaving it down until a call with up; or only let go"}
 WINDOW = {"type": "string", "description":
           "A window by its title (a regex, matched in full), or app=RE for its app id"}
 
@@ -446,9 +454,7 @@ TOOLS = [
              "x": {"type": "integer"}, "y": {"type": "integer"}, "window": WINDOW,
              "button": {"type": "integer", "description": "1 left, 2 middle, 3 right"},
              "double": {"type": "boolean"},
-             "hold": {"type": "number", "description": "Seconds to keep it down before letting go"},
-             "state": {"type": "string", "enum": ["down", "up"],
-                       "description": "Only press (and leave down, until a call with up) or only let go"}}, ["session"])),
+             "hold": HOLD, "state": STATE}, ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. "
      "They go to whatever has the keyboard; click a window first if nothing does. hold "
@@ -456,10 +462,7 @@ TOOLS = [
      "state down leaves them down, across calls, until a call with state up (move or "
      "click while a key is held).",
      schema({"session": SESSION, "keys": {"type": "array", "items": {"type": "string"}},
-             "hold": {"type": "number", "description": "Seconds to keep it down before letting go"},
-             "state": {"type": "string", "enum": ["down", "up"],
-                       "description": "Only press (and leave down, until a call with up) or only let go"}},
-            ["session", "keys"])),
+             "hold": HOLD, "state": STATE}, ["session", "keys"])),
     ("type_text",
      "Type text into whatever has the keyboard focus. ASCII only.",
      schema({"session": SESSION, "text": {"type": "string"}}, ["session", "text"])),

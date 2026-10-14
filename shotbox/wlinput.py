@@ -257,9 +257,15 @@ class Display:
         self._mods(self._held_mods())
         self.sync()
 
-    def chord(self, spec, state=None):
+    def needs(self, spec):
+        """The modifier bits a chord holds; an XError if shotbox's keymap
+        can't press it."""
+        return {self._code(*parse_chord(spec))[1]}
+
+    def chord(self, spec, state=None, keep=()):
         """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
-        or with `state` "down" or "up", only press it or only let it go."""
+        or with `state` "down" or "up", only press it or only let it go. The
+        modifiers follow what's still held, so `keep` isn't needed here."""
         sym, mods = parse_chord(spec)
         {None: self.press, "down": self.down, "up": self.up}[state](sym, mods)
 

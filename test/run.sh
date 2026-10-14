@@ -240,6 +240,21 @@ got=$(held "$tmp/held.log")
   '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
   sleep 0.3" && awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' \
   "$tmp/down.log" && ok "key --down, then --up: held between commands" || fail "--down, --up"
+# Two held chords sharing Ctrl: letting go of one leaves Ctrl down for the
+# other. A chord it can't press is said before anything goes down, a hold
+# that isn't one is refused, and a hold stopped midway lets go.
+: > "$tmp/mods.log"
+"$sb" run -- sh -c "'$here/held.py' held '$tmp/mods.log' &
+  '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
+  '$sb' key --down ctrl+c && '$sb' key --down ctrl+d && '$sb' key --up ctrl+d && echo mark >> '$tmp/mods.log' &&
+  '$sb' key --up ctrl+c && ! '$sb' key --hold 0.2 b bogus 2>/dev/null &&
+  ! '$sb' key --hold -1 b 2>/dev/null && { '$sb' key --hold 30 e & k=\$!; sleep 0.5; kill \$k; wait \$k;
+  sleep 0.3; }"
+got=$(awk '$1 == "mark" { printf "| "; next }
+  { s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$tmp/mods.log")
+[ "$got" = "+button1 -button1 +Control_L +c +d -d | -c -Control_L +e -e " ] \
+  && ok "held chords share a modifier; a bad chord or hold presses nothing; stopped, it lets go" \
+  || fail "held modifiers: $got"
 set +e; "$sb" key ctrl+comma 2>/dev/null; st=$?; set -e
 [ $st != 0 ] && ok "input needs a session" || fail "key ran outside a session"
 

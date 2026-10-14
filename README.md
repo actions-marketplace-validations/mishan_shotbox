@@ -85,10 +85,10 @@ sealed session, waits, takes the picture and stops everything.
 and exits with its status. For scripts that take several pictures: inside,
 `shotbox wait window|port|file|ready|stable ARG` and `shotbox capture OUT.png
 [--window RE] [--crop G] [--park] [--vision KIND]` work on the session's
-display. `shotbox wait
-stable [SECS] [--window RE]` is the one to use after a click, in place of a
-sleep. A wait that gives up takes a picture of the screen with `--failed
-FILE`, or wherever `$SHOTBOX_FAILED` says (`--env SHOTBOX_FAILED=...`).
+display. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
+click, in place of a sleep. A wait that gives up takes a picture of the
+screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED` says (`--env
+SHOTBOX_FAILED=...`).
 
 Inside, `shotbox key CHORD...` presses keys (`ctrl+comma`, `Return`,
 `alt+shift+Tab`), `shotbox type TEXT` types ASCII text, and `shotbox click
@@ -110,7 +110,9 @@ doing something else, run it in the background: `shotbox key --hold 2 w &
 shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
 down, across commands, until the same command with `--up`; on Wayland a
 virtual keyboard's keys go up when the command ends, so `--down` is refused
-there, saying to use `--hold`.
+there, saying to use `--hold`. As on a real keyboard, a shifted symbol held
+with other keys shifts them too, and a key held past the repeat delay
+(about half a second) repeats.
 
 **`shotbox start [--name NAME] [options]`** starts a session that lasts
 until `shotbox stop NAME`, and prints its name (`s1`, `s2`... without
