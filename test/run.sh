@@ -698,13 +698,16 @@ while there() and time.monotonic() < end:
 shutil.rmtree(d)
 sys.exit(0 if made and not there() else 1)
 PY
-  # A program that hangs up, or says nothing, doesn't take the pads down;
-  # values out of range and pads that aren't there are refused, not moved.
+  # A program that hangs up, says nothing, or sends nonsense doesn't take
+  # the pads down; values out of range and pads that aren't there are
+  # refused, not moved.
   : > "$tmp/pad2.log"
   "$sb" run --gamepads 1 -- sh -c "'$here/pad_read.py' '$tmp/pad2.log' &
     n=0; while ! grep -q ready '$tmp/pad2.log' 2>/dev/null && [ \$n -lt 100 ]; do sleep 0.1; n=\$((n + 1)); done
     python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\")' &&
-    python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); s.sendall(b\"[]\\n\"); s.recv(99)' &&
+    python3 -c 'import json, os, socket
+for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\", x=10**400, y=0)).encode()):
+    s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); s.sendall(m + b\"\\n\"); s.recv(99)' &&
     python3 -c 'import os, socket, time; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); time.sleep(8)' &
     sleep 0.2; '$sb' pad press x && '$sb' pad press down --down && '$sb' pad press up &&
     '$sb' pad neutral && ! '$sb' pad stick left 5 0 2> '$tmp/range' &&

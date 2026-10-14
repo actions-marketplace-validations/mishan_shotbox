@@ -179,7 +179,9 @@ of the machine's reaches a program by another way (SDL's HIDAPI drivers,
 hidapi, libusb); the lists in `/sys` and `/run/udev` still name the
 machine's devices, but none can be opened. That's settled as each program
 starts: one plugged in while a program runs can reach it. What the session starts for
-itself, the display server and what D-Bus activates, isn't sandboxed, and
+itself, the display server and what D-Bus activates, isn't sandboxed (on
+Wayland, a program can have sway start one outside it), so this keeps a
+game from finding your controllers, not one that sets out to; and
 your desktop can see the virtual pads while the session runs (named
 "shotbox virtual pad N"); they go when it stops, however it stops. It needs
 write access to `/dev/uinput` (which many desktops give the logged-in user,

@@ -340,7 +340,7 @@ def sandboxed_pid(fd, proc, timeout=5):
     bwrap's own if it says nothing in time."""
     with os.fdopen(fd, "rb") as f:
         end, data = time.monotonic() + timeout, b""
-        while time.monotonic() < end and proc.poll() is None:
+        while time.monotonic() < end:
             if not select.select([f], [], [], 0.05)[0]:
                 continue
             chunk = os.read(f.fileno(), 4096)

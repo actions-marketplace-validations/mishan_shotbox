@@ -6,7 +6,7 @@ it reads a controller plugged in: SDL, evdev, anything), but it's made for
 the whole machine. So a server in the session holds the devices, which
 also keeps their buttons and sticks where they were left between commands;
 and every program the session starts runs under bubblewrap with a
-/dev/input of its own, holding only these devices: none of yours gets in.
+/dev/input of its own, holding only these devices: none of yours turns up.
 Your desktop can still see them while the session runs, named as made by
 shotbox; they go when it stops.
 
@@ -161,7 +161,7 @@ def check_range(what, v, lo, hi):
     """`v` as a float, or a PadError if it isn't one between lo and hi."""
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         f = float("nan")
     if not lo <= f <= hi:
         raise PadError(f"{what} goes from {lo:g} to {hi:g}, not {v}")
@@ -262,7 +262,7 @@ def serve(sock_path, count, ready, parent):
                         continue
                     try:
                         reply = handle(pads, json.loads(line))
-                    except (PadError, KeyError, ValueError, TypeError) as e:
+                    except Exception as e:      # whatever a request is, the pads stay
                         reply = {"error": str(e) if isinstance(e, PadError)
                                  else f"bad request: {e}"}
                     conn.sendall(json.dumps(reply).encode() + b"\n")

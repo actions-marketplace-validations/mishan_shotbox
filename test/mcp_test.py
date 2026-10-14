@@ -175,11 +175,13 @@ try:
         check(not bad and "1 gamepad" in said, f"start_session with a gamepad ({said})")
         said, _, _ = tool("spawn", session="g", program="padread")
         pid = re.search(r"pid (\d+)", said)[1]
-        check("pad_read" in Path(f"/proc/{pid}/cmdline").read_text(),
-              "spawn in a gamepad session: the program's own pid, not the sandbox's")
         log, end = tmp / "pad.log", time.monotonic() + 10
         while not (log.exists() and "ready" in log.read_text()) and time.monotonic() < end:
             time.sleep(0.1)
+        # Once it's ready: before then, bwrap's child may not be the program yet.
+        check(Path(f"/proc/{pid}/comm").read_text().strip() != "bwrap"
+              and "pad_read" in Path(f"/proc/{pid}/cmdline").read_text(),
+              "spawn in a gamepad session: the program's own pid, not the sandbox's")
         said = [tool("gamepad", session="g", action="press", buttons="a"),
                 tool("gamepad", session="g", action="stick", which="left", x=1, y=0, hold=0.1),
                 tool("gamepad", session="g", action="press", buttons="y", state="down"),
