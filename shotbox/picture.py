@@ -115,16 +115,25 @@ def strongest(colors, against, least=1):
     return best
 
 
-def text_contrast(pic, box):
+def text_contrast(pic, box, said=None):
     """Text (or an icon) on its background, in `box`: the background is the
     color most of it is, the text the color with the most contrast against
     that, of at least 3 pixels, which an antialiased glyph's core is.
-    (ratio, text, background), or None for a box of one color."""
+    Light or small text covers no pixel whole, so its core is lighter than
+    its color: what the toolkit `said` the color is, then, if the darkest
+    shade drawn is most of the way to it from the background (text drawn
+    see-through, as GTK 3's dim labels are, isn't). (ratio, text,
+    background), or None for a box of one color."""
     colors = pic.colors(box)
     if not colors:
         return None
     back = colors.most_common(1)[0][0]
     got = strongest(colors, back, least=3)
+    if said and said != back and got:
+        far = strongest(colors, back)[1]
+        way = [s - b for s, b in zip(said, back)]
+        if sum((f - b) * w for f, b, w in zip(far, back, way)) >= 0.7 * sum(w * w for w in way):
+            got = (ratio(said, back), said)
     return got and (got[0], got[1], back)
 
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`contrast` measures light text by its color where GTK 3 says it.**
+  Light or small text covers no pixel whole, so the darkest shade drawn
+  is lighter than its color, by more on one font and renderer than
+  another: a light heading at 6.3:1 measured 4.3:1 on Fedora and passed
+  on Debian. GTK 4 doesn't say, and is still measured as drawn.
+- **GTK 3's switch isn't measured as text.** It calls a switch a toggle
+  button, so its off mark was held to text's 4.5:1.
+- **`contrast --edges` takes an edge from what a control fills:** a row
+  in a boxed list, a field in that row, a text view in a frame, which
+  have no edge of their own.
+- **A control drawn only on hover isn't "text not seen":** a tab's close
+  button.
+- **A missing GObject typelib is said in a line,** naming the packages,
+  rather than with a traceback from the announcement recorder.
+
 ## 0.4.2 — 2026-10-13
 
 `tabwalk --visible` on GTK 4's offset nodes.
