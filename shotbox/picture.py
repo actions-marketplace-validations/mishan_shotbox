@@ -115,25 +115,24 @@ def strongest(colors, against, least=1):
     return best
 
 
-def text_contrast(pic, box, said=None):
+def between(color, a, b):
+    """Whether `color` is a mix of `a` and `b`, within a few levels a
+    channel: what antialiasing or opacity makes of `b` drawn over `a`."""
+    way = [y - x for x, y in zip(a, b)]
+    t = sum((c - x) * w for c, x, w in zip(color, a, way)) / (sum(w * w for w in way) or 1)
+    return 0 <= t <= 1 and all(abs(c - (x + t * w)) <= 12 for c, x, w in zip(color, a, way))
+
+
+def text_contrast(pic, box):
     """Text (or an icon) on its background, in `box`: the background is the
     color most of it is, the text the color with the most contrast against
     that, of at least 3 pixels, which an antialiased glyph's core is.
-    Light or small text covers no pixel whole, so its core is lighter than
-    its color: what the toolkit `said` the color is, then, if the darkest
-    shade drawn is most of the way to it from the background (text drawn
-    see-through, as GTK 3's dim labels are, isn't). (ratio, text,
-    background), or None for a box of one color."""
+    (ratio, text, background), or None for a box of one color."""
     colors = pic.colors(box)
     if not colors:
         return None
     back = colors.most_common(1)[0][0]
     got = strongest(colors, back, least=3)
-    if said and said != back and got:
-        far = strongest(colors, back)[1]
-        way = [s - b for s, b in zip(said, back)]
-        if sum((f - b) * w for f, b, w in zip(far, back, way)) >= 0.7 * sum(w * w for w in way):
-            got = (ratio(said, back), said)
     return got and (got[0], got[1], back)
 
 

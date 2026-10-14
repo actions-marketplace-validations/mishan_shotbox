@@ -3,9 +3,9 @@
 [corner], or TITLE contrast. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
-what `a11y contrast --edges 3` should pass, and one label it shouldn't:
-light text whose color is dark enough, a switch, a text view in a frame
-with an edge, and a label drawn see-through."""
+a switch and a text view in a frame with an edge, which `a11y contrast
+--edges 3` should pass; light text whose color is dark enough, which it
+may measure short; and a label drawn see-through, which it shouldn't."""
 
 import sys
 

@@ -210,11 +210,11 @@ the pointer parked, and measures each node in its bounds:
   with the most contrast against it, of at least three pixels, is the
   text, which an antialiased glyph's core is. At least 4.5:1 (`--text`).
   Light or small text covers no pixel whole, so its core is lighter than
-  its color, by more on one font and renderer than another. Where the
-  toolkit says what color text is (GTK 3 does, GTK 4 doesn't), that's
-  the color measured, if the darkest shade drawn is most of the way to it
-  from the background; text drawn see-through (GTK 3's dim labels) isn't,
-  and is measured as drawn.
+  its color, by more on one font and renderer than another, and can fail
+  though its color passes. It's still measured as drawn, since text
+  drawn see-through looks the same; where GTK 3 says the text's color
+  and what's drawn is a lighter shade of it, a failure says that color
+  too, to tell which (GTK 4 doesn't say).
   A control may draw its name or an icon (GTK 3's and Qt's buttons keep
   their text to themselves, GTK 4's icon buttons are named by their
   tooltips), and the tree can't tell which, so it's held to text's
@@ -229,18 +229,21 @@ the pointer parked, and measures each node in its bounds:
   measured as text.
 - A node that can't be placed fails ("not measured"), and so does text
   whose bounds on the screen are one color ("not seen"): text the color
-  of its background. A control or image of one color passes: a tab's
-  close button is drawn only when the pointer's over it.
+  of its background. A control of one color is measured again with the
+  pointer over it, as a tab's close button is drawn only then. An image
+  of one color passes.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
   band three pixels inside, with the most contrast against it: a border,
   or a filled button's fill. libadwaita's buttons are about 1.2:1, so
-  this is for themes that mean to draw an edge. One with no edge of its
-  own passes if what it's in draws one, at its bounds or just outside
-  them, and it fills that from side to side or top to bottom, as each
-  node between fills the next: a row in a boxed list, a field in the
-  row, a text view in a frame. Not the window's edge.
+  this is for themes that mean to draw an edge. A field (an entry, text
+  view or combo box) with no edge of its own passes if what it's in
+  draws one, at its bounds or just outside them, and it fills that from
+  side to side or top to bottom, as each node between fills the next:
+  an entry row in a boxed list, a text view in a frame. Not the window's
+  edge, and not a button's: a flat button in a row has no edge of its
+  own.
 
 A node with something measured inside it (a button's label) is measured
 by that. Each node's bounds are cut to its window's and to those of

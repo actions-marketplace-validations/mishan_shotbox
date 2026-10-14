@@ -690,9 +690,23 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 box = overlap(box, outer)
         return box if box[2] > 0 and box[3] > 0 else None
 
+    def hovered(box):
+        """The screen with the pointer over the middle of `box`."""
+        s = Screen()
+        try:
+            s.move(box[0] + box[2] // 2, box[1] + box[3] // 2)
+            try:
+                wait_for("", x.Still(s.env, quiet=0.3, backend=s.backend), 2)
+            except SessionError:
+                pass
+            return picture.Picture(*s.backend.pixels(s.env))
+        finally:
+            s.park()
+            s.close()
+
     def framed(n, box):
-        """Whether what `n` is in draws its edge for it: a row in a boxed
-        list, a field in that row, a text view in a frame. The nearest node
+        """Whether what `n` is in draws its edge for it: a field in a row of
+        a boxed list, a text view in a frame. The nearest node
         round it with an edge, of those it fills from side to side or top
         to bottom, as each fills the next, but not one at its window's
         edge, whose edge is the window's."""
@@ -729,14 +743,23 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if not box:
             continue
         least = text if k == "text" else graphics
-        got = picture.text_contrast(pic, box, said_color(Atspi, n))
+        got = picture.text_contrast(pic, box)
         # A control can draw nothing until it's hovered: a tab's close button.
-        if got is None and n._role in texts:
+        if got is None and n._role in controls:
+            got = picture.text_contrast(hovered(box), box)
+        if got is None and k == "text":
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
             problems.append((n, f"text not seen: nothing drawn on {back}"))
         elif got and got[0] < least:
+            said = said_color(Atspi, n)
+            # Light or small text covers no pixel whole, so measures short of
+            # its color, as text drawn see-through does: say both.
+            meant = (f"; its color is {picture.hex_of(said)}, "
+                     f"{ratio_text(picture.ratio(said, got[2]))}:1, drawn lighter (light text, or opacity)"
+                     if said and picture.ratio(said, got[2]) > got[0]
+                     and picture.between(got[1], got[2], said) else "")
             problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
-                                f"{picture.hex_of(got[2])} (at least {least:g})"))
+                                f"{picture.hex_of(got[2])} (at least {least:g}){meant}"))
     if edges:
         for n in nodes:
             if not (n._showing and "disabled" not in n.states and (
@@ -745,7 +768,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 continue
             box = shown(n)
             got = box and picture.edge_contrast(pic, box)
-            if got and got[0] < edges and not framed(n, box):
+            # A field's edge can be what it's in: an entry row's, a frame's.
+            field = n._role in (Atspi.Role.TEXT, Atspi.Role.COMBO_BOX)
+            if got and got[0] < edges and not (field and framed(n, box)):
                 problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
                                     f"{picture.hex_of(got[2])} (at least {edges:g})"))
     return [(n, what) for n, what in problems
@@ -765,17 +790,15 @@ def gtk3_switch(Atspi, n):
 
 
 def said_color(Atspi, n):
-    """The color the toolkit says `n`'s text is, as (r, g, b), or None: GTK
-    3 says, 16 bits a channel, GTK 4 doesn't."""
+    """The color GTK 3 says `n`'s text is, as (r, g, b), or None. Before
+    opacity and a link's own color, so it's only said, not measured. GTK 4
+    doesn't say; Chromium does, but not for its own window's controls."""
     acc = n._acc
-    if "Text" not in acc.get_interfaces():
+    if not (acc.get_toolkit_version() or "").startswith("3.") or "Text" not in acc.get_interfaces():
         return None
     said = (Atspi.Text.get_default_attributes(acc) or {}).get("fg-color", "")
     channels = [int(c) for c in re.findall(r"\d+", said)]
-    if len(channels) != 3:
-        return None
-    wide = (acc.get_toolkit_version() or "").startswith("3.")
-    return tuple(c // 257 if wide else c for c in channels)
+    return tuple(c // 257 for c in channels) if len(channels) == 3 else None
 
 
 def overlap(a, b):

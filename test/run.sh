@@ -319,15 +319,17 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   [ $st = 1 ] && grep -q '/[a-z ]*button\[0\]: edge 1\.[0-9]*:1' "$tmp/contrast" \
     && ok "a11y: contrast --edges finds buttons with no edge to speak of" \
     || { fail "a11y: contrast --edges ($st)"; cat "$tmp/contrast"; }
-  # GTK 3 says what color its text is, and light text covers no pixel
-  # whole; it calls a switch a toggle button; a frame draws a text view's
-  # edge.
+  # GTK 3 calls a switch a toggle button; a frame draws a text view's
+  # edge; light text, which can measure short of its color (by how much
+  # depends on the font), is said to be that color.
   set +e
   "$sb" run --a11y -- sh -c "'$here/window.py' g3 contrast &
     '$sb' a11y contrast --edges 3 --window g3" > "$tmp/contrast"
   st=$?; set -e
-  [ $st = 1 ] && [ "$(wc -l < "$tmp/contrast")" = 1 ] && grep -q '/label\[1\]: text ' "$tmp/contrast" \
-    && ok "a11y: contrast, GTK 3: light text by its color, not a switch, a framed text view" \
+  [ $st = 1 ] && grep -q '/label\[1\]: text ' "$tmp/contrast" \
+    && ! grep -q 'toggle button\|/text\[0\]' "$tmp/contrast" \
+    && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'its color is #5f5670, 6\.5[0-9]:1' \
+    && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text's color said" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && sed -n 1p "$tmp/walk" | grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]' \
