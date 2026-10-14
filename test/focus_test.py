@@ -34,6 +34,10 @@ def moved(was, now, t=1):
     return picture(*ring(*was, t=t)), picture(*ring(*now, t=t))
 
 
+def walked(box):
+    return ("walked", box)
+
+
 def off(box, dx, dy):
     return (box[0] + dx, box[1] + dy, box[2], box[3])
 
@@ -59,7 +63,9 @@ ICON, ICON2 = (100, 50, 16, 16), (118, 50, 16, 16)
 LINKED, LINKED2 = (100, 50, 24, 24), (124, 50, 24, 24)
 TAB, CLOSE = (100, 50, 200, 34), (260, 55, 24, 24)
 LIST, ROW = (100, 50, 200, 120), (100, 50, 200, 24)
-# (what, before, after, the node's bounds, where the focus was, shown?)
+# (what, before, after, the node's bounds, where the focus was, shown?):
+# where it was as its bounds, where the walk began and its ring isn't
+# known, or walked(its bounds), where the walk found its ring as it came.
 CASES = [
     # GTK 4 places a node short of its ancestors' padding: drawn right of
     # and below its bounds. A current tab's rail is already the ring's color
@@ -86,12 +92,16 @@ CASES = [
      picture(*ring(*container)), picture(*ring(*container), *ring(*BOX)), BOX, container, True),
     # The next sibling, a few pixels on, with a thin ring: the one the
     # focus left is right beside it.
+    ("a node well inside the one the focus left, its ring drawn outside it",
+     picture(*ring(*container)), picture(*ring(*grow(BOX, 2))), BOX, walked(container), True),
     ("radio buttons 4px apart, 1px rings", *moved(RADIO, RADIO2), RADIO2, RADIO, True),
     ("toolbar icons 2px apart, 1px rings", *moved(ICON, ICON2), ICON2, ICON, True),
     ("linked buttons, 1px rings", *moved(LINKED, LINKED2), LINKED2, LINKED, True),
     ("a list's row flush with its edge, its background, after the list's ring",
      picture(*ring(*LIST)), picture((ROW[0], ROW[1], ROW[0] + ROW[2], ROW[1] + ROW[3])),
      ROW, LIST, True),
+    ("linked buttons, 1px rings, from where the walk began, which showed none",
+     picture(), picture(*ring(*LINKED2, t=1)), LINKED2, LINKED, True),
     ("a tab's close button, both drawn off their bounds",
      *moved(off(TAB, 0, 6), off(CLOSE, 10, 10), t=2), CLOSE, TAB, True),
     # GTK 4 up to 4.14.5 draws a node left of and above its bounds.
@@ -102,13 +112,30 @@ CASES = [
     ("after a node that showed nothing, a ring drawn just outside, 12px left and up",
      picture(), picture(*ring(*grow(off(LINKED, -12, -12), 2))), LINKED, ICON2, True),
     # A neighbor's change isn't this node's focus.
+    # The ring the focus left, beside a node that shows none.
+    ("a ring leaving the button to the left, nothing drawn",
+     picture(*ring(100, 100, 30, 30)), picture(), (134, 100, 30, 30), walked((100, 100, 30, 30)),
+     False),
+    ("toolbar icons 2px apart, the ring leaving the left one",
+     picture(*ring(*ICON, t=1)), picture(), ICON2, walked(ICON), False),
+    ("stacked rows, the ring leaving the one above", picture(*ring(100, 50, 300, 24)), picture(),
+     (100, 74, 300, 24), walked((100, 50, 300, 24)), False),
+    ("linked buttons, 1px rings, the ring leaving where the walk began",
+     picture(*ring(100, 100, 30, 30, t=1)), picture(), (130, 100, 30, 30), (100, 100, 30, 30),
+     False),
+    ("linked buttons, a ring drawn 6px off, leaving where the walk began",
+     picture(*ring(*off(LINKED, 6, 6))), picture(), off(LINKED2, 0, 0), LINKED, False),
     ("a row 6px below selected, beside a check box with no ring",
      picture(), picture((90, 72, 300, 92)), CHECK, None, False),
     ("a label 4px right recoloring, beside a check box with no ring",
      picture(), picture((120, 50, 200, 66)), CHECK, None, False),
 ]
 for what, before, after, box, was, shown in CASES:
-    n = focus_change(before, after, box, was)
+    drawn = None
+    if was and was[0] == "walked":
+        was = was[1]
+        drawn = focus_change(picture(), before, was)[1]
+    n, _ = focus_change(before, after, box, was, drawn)
     check((n >= shown_needs(box)) == shown,
           f"{what}: {'shown' if shown else 'not shown'} ({n} changed, {shown_needs(box)} needed)")
 sys.exit(1 if fails else 0)

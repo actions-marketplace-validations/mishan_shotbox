@@ -12,9 +12,10 @@
   can, was reported as showing no focus. When too little changed at its
   bounds, the count is now taken at any offset up to 16 pixels each way
   where what changed looks like a focus shown: along three or four of the
-  node's sides, and little just outside them. The ring the focus left is
-  the outline where it really was, so a sibling right beside it, a radio
-  button or a toolbar icon with a thin ring, is still counted.
+  node's sides, and little just outside them. The ring the focus left
+  isn't counted where the walk found it, so a sibling right beside it, a
+  radio button or a toolbar icon with a thin ring, still is, and a
+  sibling with no ring isn't credited with the one leaving its neighbor.
 
 ## 0.4.1 — 2026-10-13
 
