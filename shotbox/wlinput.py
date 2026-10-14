@@ -237,24 +237,27 @@ class Display:
 
     def press(self, keysym, modifiers=(), keep=()):
         """Press and release one key, holding the modifier keysyms down, and
-        leaving down what the chords in `keep`, held, hold."""
+        leaving down what the chords in `keep`, held, hold. A key they hold
+        isn't pressed, as on X11: this keyboard would let go of it when its
+        connection closes, though the other's still holds it."""
         code, mask = self._code(keysym, modifiers)
         held, codes = self._held(keep)
+        if code in codes:
+            return
         self._mods(held | mask)
-        self._key(code, PRESSED)
-        if code not in codes:
-            self._key(code, RELEASED)
+        self._key(code)
         if mask:
             self._mods(held)
         self.sync()
 
-    def down(self, keysym, modifiers=()):
-        """Press a key with its modifiers and leave it down. A virtual
-        keyboard's keys go up when its connection closes, so on Wayland a
-        key stays down only as long as this Display does."""
+    def down(self, keysym, modifiers=(), keep=()):
+        """Press a key with its modifiers and leave it down, with the
+        modifiers the chords in `keep` hold too. A virtual keyboard's keys go
+        up when its connection closes, so on Wayland a key stays down only
+        as long as this Display does."""
         code, mask = self._code(keysym, modifiers)
         self.held[keysym] = mask
-        self._mods(self._held(())[0])
+        self._mods(self._held(keep)[0])
         self._key(code, PRESSED)
         self.sync()
 
@@ -269,10 +272,10 @@ class Display:
         self._mods(held)
         self.sync()
 
-    def needs(self, spec):
-        """The modifier bits a chord holds; an XError if shotbox's keymap
-        can't press it."""
-        return {self._code(*parse_chord(spec))[1]}
+    def chord_keys(self, spec):
+        """What a chord presses, however it's spelled: its keycode and
+        modifier bits; an XError if shotbox's keymap can't press it."""
+        return self._code(*parse_chord(spec))
 
     def chord(self, spec, state=None, keep=()):
         """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
@@ -280,7 +283,7 @@ class Display:
         (leaving down what the chords in `keep` hold)."""
         sym, mods = parse_chord(spec)
         if state == "down":
-            self.down(sym, mods)
+            self.down(sym, mods, keep)
         else:
             (self.up if state == "up" else self.press)(sym, mods, keep)
 

@@ -200,13 +200,12 @@ class Display:
                 self._fake(KEY_RELEASE, c)
         self.sync()
 
-    def needs(self, spec):
-        """The modifier keysyms a chord holds down, Shift for a shifted
-        symbol too; an XError if this keymap can't press it."""
-        sym, mods = parse_chord(spec)
-        if self.keycode(sym)[1] and SHIFT not in mods:
-            mods.append(SHIFT)
-        return set(mods)
+    def chord_keys(self, spec):
+        """What a chord presses, however it's spelled: its key's keycode and
+        its modifiers', Shift's for a shifted symbol too; an XError if this
+        keymap can't press it."""
+        code, held = self._codes(*parse_chord(spec))
+        return code, frozenset(held)
 
     def chord(self, spec, state=None, keep=()):
         """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;

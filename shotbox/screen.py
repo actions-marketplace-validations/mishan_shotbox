@@ -48,13 +48,6 @@ def wait_for(what, test, timeout, interval=0.1, alive=None):
         time.sleep(interval)
 
 
-def _same(a, b):
-    """Whether two chords are the same keys, however spelled: Ctrl+w and
-    control+w, Esc and Escape."""
-    (sa, ma), (sb, mb) = xtest.parse_chord(a), xtest.parse_chord(b)
-    return sa == sb and set(ma) == set(mb)
-
-
 class Screen:
     """The display in `env` (DISPLAY, XAUTHORITY and SHOTBOX_SCRATCH; the
     process's own environment by default)."""
@@ -318,7 +311,7 @@ class Screen:
         it can't press is said before any key goes down, and a chord already
         held down isn't pressed again, or let go by a press."""
         for c in chords:
-            self.xt.needs(c)
+            self.xt.chord_keys(c)
         if state == "up":
             self._let_go(chords)
             return
@@ -331,10 +324,10 @@ class Screen:
         try:
             for c in chords:
                 with self._held_keys() as held:
-                    if any(_same(h, c) for h in held):
+                    if any(self._same(h, c) for h in held):
                         continue
                     pressed.append(c)
-                    self.xt.chord(c, "down")
+                    self.xt.chord(c, "down", keep=held)
                     held.append(c)
             if hold is not None:
                 time.sleep(hold)
@@ -367,11 +360,16 @@ class Screen:
         with self._held_keys() as held:
             return list(held)
 
+    def _same(self, a, b):
+        """Whether two chords press the same keys, however spelled: Ctrl+w
+        and control+w, Esc and Escape, W and shift+w."""
+        return self.xt.chord_keys(a) == self.xt.chord_keys(b)
+
     def _let_go(self, chords):
         """Let go of each chord, leaving down what chords still held need."""
         with self._held_keys() as held:
             for c in chords:
-                held[:] = [h for h in held if not _same(h, c)]
+                held[:] = [h for h in held if not self._same(h, c)]
                 self.xt.chord(c, "up", keep=held)
 
     def type(self, text):
