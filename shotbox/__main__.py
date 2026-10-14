@@ -8,7 +8,7 @@
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
     shotbox wait window|port|file|ready|stable|announce ARG
                                                     (inside a session) wait for it
-    shotbox capture OUT.png [--window RE]           (inside a session) take a picture
+    shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox key CHORD...                            (inside a session) press keys
     shotbox type TEXT                               (inside a session) type text
     shotbox click X Y [--window RE]                 (inside a session) click there
@@ -291,8 +291,22 @@ def cmd_capture(argv):
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
     vision_option(p)
+    p.add_argument("--burst", type=int, metavar="N",
+                   help="take N pictures, to OUT-1.png, OUT-2.png...: for motion")
+    p.add_argument("--every", type=seconds, default=0, metavar="SECS",
+                   help="with --burst: start one every SECS (default: as fast as they come)")
+    p.add_argument("--sheet", metavar="FILE",
+                   help="with --burst: all the pictures in rows of four here too")
     a = p.parse_args(argv)
-    inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision)
+    if a.burst is None:
+        if a.every or a.sheet:
+            p.error("--every and --sheet go with --burst")
+        inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision)
+        return 0
+    taken = inside().burst(a.out, a.burst, every=a.every, window=a.window, crop=a.crop,
+                           park=a.park, vision=a.vision, sheet=a.sheet)
+    for path, at in taken:
+        print(f"{path}  {at:.3f}s")
     return 0
 
 

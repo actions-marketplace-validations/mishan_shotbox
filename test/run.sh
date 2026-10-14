@@ -637,6 +637,15 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 [ $st = 2 ] && grep -q "no .*nope.png" "$tmp/err" && ok "compare: a missing picture, said plainly" \
   || fail "compare missing: $st $(cat "$tmp/err")"
 
+# A burst: five pictures a tenth of a second apart, numbered, and a sheet
+# of them in rows of four.
+"$sb" run -- sh -c "'$here/window.py' bw & '$sb' wait window bw &&
+  '$sb' capture '$tmp/burst.png' --window bw --burst 5 --every 0.1 --sheet '$tmp/sheet.png'" > "$tmp/burst.txt" \
+  && [ "$(identify -format %wx%h "$tmp/burst-5.png")" = 200x120 ] \
+  && [ "$(identify -format %wx%h "$tmp/sheet.png")" = 800x240 ] \
+  && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
+  && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
+
 # Vision: red, green, blue and gray, as each kind of color vision sees
 # them, against the model worked out here (within 2 levels: ImageMagick
 # rounds a little differently); and a capture taken with --vision is the

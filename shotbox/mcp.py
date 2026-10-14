@@ -252,18 +252,34 @@ class Server:
 
     # --- looking -------------------------------------------------------------
 
-    def screenshot(self, session, window=None, crop=None, park=False, vision=None):
+    def screenshot(self, session, window=None, crop=None, park=False, vision=None,
+                   burst=None, every=None):
         s = self.session(session)
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
         if vision and vision not in VISION:
             raise Refused(f"vision is one of {', '.join(sorted(VISION))}, not {vision!r}")
-        s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
+        burst = number(burst, "burst")
+        if burst is not None and not (burst == int(burst) and 2 <= burst <= 12):
+            raise Refused(f"burst is 2 to 12 pictures, not {burst:g}")
+        every = number(every, "every")
+        if every is not None and not 0 <= every <= 5:
+            raise Refused(f"every is 0 to 5 seconds, not {every:g}")
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
+        if burst:
+            taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
+                            window=text(window), crop=text(crop), park=flag(park),
+                            vision=vision, sheet=out)
+            times = ", ".join(f"{at:.2f}" for _, at in taken)
+            said = (f"{len(taken)} pictures of {what} in rows of four, left to right, "
+                    f"taken at {times} seconds.")
+        else:
+            s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
+            said = f"A picture of {what}."
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
-                {"type": "text", "text": f"A picture of {what}."}]
+                {"type": "text", "text": said}]
 
     def accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
@@ -436,10 +452,13 @@ TOOLS = [
      "accessible tree; take the window rather than the screen, and crop when you need a "
      "part. park moves the pointer out of the way first, so nothing shows its hover. "
      "vision shows it as someone with that color vision sees it, to check nothing is "
-     "told apart by color alone.",
+     "told apart by color alone. burst takes several, every seconds apart, as one image "
+     "in rows of four: for motion, an animation or a transition.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
              "park": {"type": "boolean"},
+             "burst": {"type": "integer", "description": "Pictures to take, 2 to 12"},
+             "every": {"type": "number", "description": "With burst, seconds between them"},
              "vision": {"type": "string", "enum": sorted(VISION),
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"}},

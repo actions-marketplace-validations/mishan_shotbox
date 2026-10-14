@@ -114,6 +114,12 @@ try:
     said, bad, content = tool("screenshot", session="t", window="a11y-test", vision="tritanopia")
     check(not bad and "as seen with tritanopia" in said
           and any(c["type"] == "image" for c in content), "screenshot: with a kind of color vision")
+    said, bad, content = tool("screenshot", session="t", window="a11y-test", burst=3, every=0.1)
+    png = [c for c in content if c["type"] == "image"]
+    check(not bad and len(png) == 1 and said.startswith("3 pictures") and "0.10" in said,
+          f"screenshot: a burst, as one sheet ({said})")
+    said, bad, _ = tool("screenshot", session="t", burst=40)
+    check(bad and "2 to 12" in said, "screenshot: a burst too big, refused")
     said, bad, _ = tool("screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")

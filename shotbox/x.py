@@ -194,6 +194,17 @@ def montage(images, out, across=True):
     return Path(out)
 
 
+def sheet(images, out, across=4):
+    """Put images in rows of `across`, left to right, top to bottom: a
+    contact sheet."""
+    rows = [images[i:i + across] for i in range(0, len(images), across)]
+    cmd = list(CONVERT)
+    for row in rows:
+        cmd += ["(", *map(str, row), "+append", ")"]
+    subprocess.run(cmd + ["-background", "black", "-append", *QUIET_PNG, str(out)], check=True)
+    return Path(out)
+
+
 def size_of(path):
     out = subprocess.run(["identify", "-format", "%wx%h", str(path)],
                          capture_output=True, text=True, check=True).stdout

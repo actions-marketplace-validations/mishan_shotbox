@@ -86,9 +86,13 @@ and exits with its status. For scripts that take several pictures: inside,
 `shotbox wait window|port|file|ready|stable ARG` and `shotbox capture OUT.png
 [--window RE] [--crop G] [--park] [--vision KIND]` work on the session's
 display. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
-click, in place of a sleep. A wait that gives up takes a picture of the
-screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED` says (`--env
-SHOTBOX_FAILED=...`).
+click, in place of a sleep. `capture --burst N [--every SECS] [--sheet
+FILE]` takes N pictures, to OUT-1.png, OUT-2.png..., one starting every SECS
+(or as fast as they come), and prints when each was taken; `--sheet` puts
+them in rows of four in one picture too. For what one picture can't show:
+an animation, a transition, something moving. A wait that gives up takes a
+picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
+says (`--env SHOTBOX_FAILED=...`).
 
 Inside, `shotbox key CHORD...` presses keys (`ctrl+comma`, `Return`,
 `alt+shift+Tab`), `shotbox type TEXT` types ASCII text, and `shotbox click

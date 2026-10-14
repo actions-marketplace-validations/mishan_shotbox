@@ -277,6 +277,37 @@ class Screen:
             x.vision(out, out, vision)
         return Path(out)
 
+    def burst(self, out, count, every=0.0, window=None, crop=None, park=False, vision=None,
+              sheet=None):
+        """`count` pictures, as `capture` takes them, one starting every
+        `every` seconds or as fast as they come, to OUT-1.png, OUT-2.png...
+        (numbered to the width of `count`); with `sheet`, all of them in rows
+        of four there too. Motion a single picture can't show: an
+        animation, a transition, something moving. [(path, seconds after
+        the first)]."""
+        if count < 1:
+            raise SessionError(f"a burst is 1 picture or more, not {count}")
+        if park:
+            self.park()
+        found = self.window(window) if window else None
+        out = Path(out)
+        width = len(str(count))
+        taken, start = [], time.monotonic()
+        for i in range(count):
+            wait = start + i * every - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            at = time.monotonic() - start
+            path = out.with_name(f"{out.stem}-{i + 1:0{width}d}{out.suffix or '.png'}")
+            self.backend.capture(self.env, path, window=found, crop=crop)
+            taken.append((path, at))
+        for path, _ in taken:
+            if vision:
+                x.vision(path, path, vision)
+        if sheet:
+            x.sheet([p for p, _ in taken], sheet)
+        return taken
+
     # --- input ----------------------------------------------------------------
 
     @property
