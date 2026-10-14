@@ -169,13 +169,25 @@ Reduced motion needs no preset: GTK's animations are always off.
 
 `--gamepads N` gives the session N virtual Xbox 360 controllers (1 to 4),
 made with Linux's uinput, so a game reads them as it reads a pad plugged
-in: SDL names them "Xbox 360 Controller". Every program the session starts
-runs under bubblewrap with a `/dev/input` of its own, holding only these:
-none of the machine's controllers, keyboards or mice get in. Your desktop
-can still see the virtual pads while the session runs (named "shotbox
-virtual pad N"); they go when it stops. It needs `bwrap` and write access
-to `/dev/uinput`, which many desktops give the logged-in user and the
-`input` group otherwise has.
+in: SDL names them "Xbox 360 Controller", and older games find them as
+`/dev/input/jsN` too. Every program the session spawns (with `run`,
+`shoot`, `term`, `spawn` and MCP's `spawn`) runs under bubblewrap with a
+`/dev/input` of its own, holding only these. The machine's raw HID devices
+and `/dev/uinput` are `/dev/null` inside, and `/dev/bus/usb` is empty, so
+no controller of the machine's reaches a program by another way (SDL's
+HIDAPI drivers, libusb); the lists in `/sys` and `/run/udev` still name the
+machine's devices, but none can be opened. What the session starts for
+itself, the display server and what D-Bus activates, isn't sandboxed, and
+your desktop can see the virtual pads while the session runs (named
+"shotbox virtual pad N"); they go when it stops, however it stops. It needs
+write access to `/dev/uinput` (which many desktops give the logged-in user,
+and the `input` group has) and `bwrap` with user namespaces, which the
+session checks for at the start.
+
+Under bubblewrap a program can't gain privileges (no setuid helpers: sudo,
+`fusermount`, so no AppImages), its supplementary groups show as
+`nogroup`, and one killed by a signal exits with 128 plus the signal's
+number. The pid `spawn` reports is the program's own.
 
 Inside, `shotbox pad` works them. What's left down stays down between
 commands, on X11 and Wayland alike, since a server in the session holds

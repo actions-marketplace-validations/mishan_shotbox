@@ -42,6 +42,7 @@ import json
 import os
 import re
 import secrets
+import select
 import shutil
 import signal
 import subprocess
@@ -334,6 +335,24 @@ def kill_group(proc, grace=2.0):
     proc.wait()
 
 
+def sandboxed_pid(fd, proc, timeout=5):
+    """The pid bwrap reports on its --info-fd, `fd` (closed after), or
+    bwrap's own if it says nothing in time."""
+    with os.fdopen(fd, "rb") as f:
+        end, data = time.monotonic() + timeout, b""
+        while time.monotonic() < end and proc.poll() is None:
+            if not select.select([f], [], [], 0.05)[0]:
+                continue
+            chunk = os.read(f.fileno(), 4096)
+            if not chunk:
+                break
+            data += chunk
+    try:
+        return json.loads(data)["child-pid"]
+    except (ValueError, KeyError):
+        return proc.pid
+
+
 class Session(Screen):
     """A sealed session, and its display: everything a Screen does works on
     it once it's entered. `failed`, as for a Screen."""
@@ -346,7 +365,7 @@ class Session(Screen):
         if not 0 <= gamepads <= 4:
             raise SessionError(f"gamepads is 0 to 4, not {gamepads}")
         self.gamepads = gamepads
-        self._pad_nodes = []
+        self._sandbox = None    # bwrap and its options, with gamepads
         self.a11y = a11y or bool(announce_log)
         self.audio = audio
         self.announce_log = announce_log
@@ -578,8 +597,10 @@ class Session(Screen):
         env.update(graphics)
         if self.gamepads:
             # SDL finds the pads in /dev/input itself; asked, udev would name
-            # the machine's, which aren't there.
+            # the machine's, which aren't there. Nor are the raw HID devices
+            # its HIDAPI drivers would read the machine's controllers from.
             env["SDL_JOYSTICK_DISABLE_UDEV"] = "1"
+            env["SDL_JOYSTICK_HIDAPI"] = "0"
         if bus:
             env["DBUS_SESSION_BUS_ADDRESS"] = bus
         if sysbus:
@@ -698,17 +719,35 @@ class Session(Screen):
         their /dev/input nodes for spawn to give programs."""
         ready = self.scratch / "pads.json"
         here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
+        path = os.pathsep.join(filter(None, (here, os.environ.get("PYTHONPATH"))))
         serve = "import sys; from shotbox.pad import serve; sys.exit(serve(*sys.argv[1:]))"
-        proc = subprocess.Popen([sys.executable, "-c", serve,
-                                 str(self.scratch / "pads.sock"), str(self.gamepads), str(ready)],
-                                env={**os.environ, "PYTHONPATH": here},
+        proc = subprocess.Popen([sys.executable, "-c", serve, str(self.scratch / "pads.sock"),
+                                 str(self.gamepads), str(ready), str(os.getpid())],
+                                env={**os.environ, "PYTHONPATH": path},
                                 stdout=subprocess.DEVNULL, start_new_session=True)
         self._procs.append(proc)
-        wait_for("the gamepads", lambda: ready.exists() and ready.stat().st_size, 10, alive=proc)
+        wait_for("the gamepads", ready.exists, 10, alive=proc)
         got = json.loads(ready.read_text())
         if isinstance(got, dict):
             raise SessionError(got["error"])
-        self._pad_nodes = got
+        # Programs get the session's pads in a /dev/input of their own, and
+        # none of the machine's: the raw HID and USB devices SDL and libusb
+        # read controllers through are masked, and so is uinput, so nothing
+        # inside can plug a device into the machine.
+        args = ["--dev-bind", "/", "/", "--tmpfs", "/dev/input"]
+        for node in got:
+            args += ["--dev-bind", node, node]
+        for hid in sorted(Path("/dev").glob("hidraw*")) + [Path("/dev/uinput")]:
+            if hid.exists():
+                args += ["--dev-bind", "/dev/null", str(hid)]
+        if Path("/dev/bus/usb").is_dir():
+            args += ["--tmpfs", "/dev/bus/usb"]
+        self._sandbox = ["bwrap", *args, "--die-with-parent"]
+        probe = subprocess.run([*self._sandbox, "--", "true"], capture_output=True, text=True)
+        if probe.returncode:
+            raise SessionError("gamepads need bubblewrap to make a sandbox, and it can't "
+                               "here (are unprivileged user namespaces allowed?): "
+                               + (probe.stderr.strip() or f"status {probe.returncode}"))
 
     # --- running things -----------------------------------------------------------
 
@@ -716,10 +755,14 @@ class Session(Screen):
         """Start `cmd` inside the session, in its own process group. Output
         goes to `log` (a path) if given, else through. With gamepads, it runs
         under bubblewrap, with a /dev/input that has only the session's."""
-        if self._pad_nodes:
-            binds = [arg for node in self._pad_nodes for arg in ("--dev-bind", node, node)]
-            cmd = ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/dev/input", *binds,
-                   "--die-with-parent", "--", *cmd]
+        info = None
+        if self._sandbox:
+            if not shutil.which(cmd[0], path=self.env.get("PATH")):
+                raise SessionError(f"can't run {cmd[0]}: No such file or directory")
+            # bwrap says the program's own pid down this pipe.
+            info, w = os.pipe()
+            kw["pass_fds"] = (*kw.get("pass_fds", ()), w)
+            cmd = [*self._sandbox, "--info-fd", str(w), "--", *cmd]
         out = open(log, "ab") if log else None
         try:
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,
@@ -729,6 +772,10 @@ class Session(Screen):
         finally:
             if out:
                 out.close()
+            if info is not None:
+                os.close(w)
+        if info is not None:
+            proc.program_pid = sandboxed_pid(info, proc)
         self._procs.append(proc)
         return proc
 

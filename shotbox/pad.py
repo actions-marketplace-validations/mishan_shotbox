@@ -17,6 +17,7 @@ The standard library only: the ioctls and structs are Linux's, from
 import fcntl
 import json
 import os
+import platform
 import socket
 import struct
 import time
@@ -37,17 +38,24 @@ STICK_MAX, TRIGGER_MAX = 32767, 255
 BUS_USB, VENDOR, PRODUCT, VERSION = 0x03, 0x045E, 0x028E, 0x0110
 
 
+# An ioctl's direction bits: asm-generic's, but for the few architectures
+# that lay them out their own way.
+_OWN = platform.machine().startswith(("ppc", "powerpc", "mips", "sparc", "alpha"))
+_NONE, _WRITE, _READ = (1, 4, 2) if _OWN else (0, 1, 2)
+_DIRSHIFT = 29 if _OWN else 30
+
+
 def _ioc(direction, nr, size):
-    return (direction << 30) | (size << 16) | (ord("U") << 8) | nr
+    return (direction << _DIRSHIFT) | (size << 16) | (ord("U") << 8) | nr
 
 
-UI_DEV_CREATE = _ioc(0, 1, 0)
-UI_DEV_SETUP = _ioc(1, 3, 92)           # struct uinput_setup
-UI_ABS_SETUP = _ioc(1, 4, 28)           # struct uinput_abs_setup
-UI_SET_EVBIT = _ioc(1, 100, 4)
-UI_SET_KEYBIT = _ioc(1, 101, 4)
-UI_SET_ABSBIT = _ioc(1, 103, 4)
-UI_GET_SYSNAME = _ioc(2, 44, 64)
+UI_DEV_CREATE = _ioc(_NONE, 1, 0)
+UI_DEV_SETUP = _ioc(_WRITE, 3, 92)      # struct uinput_setup
+UI_ABS_SETUP = _ioc(_WRITE, 4, 28)      # struct uinput_abs_setup
+UI_SET_EVBIT = _ioc(_WRITE, 100, 4)
+UI_SET_KEYBIT = _ioc(_WRITE, 101, 4)
+UI_SET_ABSBIT = _ioc(_WRITE, 103, 4)
+UI_GET_SYSNAME = _ioc(_READ, 44, 64)
 EVENT = struct.Struct("@llHHi")         # struct input_event: a timeval, type, code, value
 
 
@@ -68,7 +76,9 @@ class Pad:
         for code in BUTTONS.values():
             fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_ABS)
-        axes = [(c, -STICK_MAX - 1, STICK_MAX, 16, 128) for pair in STICKS.values() for c in pair]
+        # No fuzz: the kernel would smooth small moves, and there's no noise
+        # here to smooth. The dead zone is xpad's.
+        axes = [(c, -STICK_MAX - 1, STICK_MAX, 0, 128) for pair in STICKS.values() for c in pair]
         axes += [(c, 0, TRIGGER_MAX, 0, 0) for c in TRIGGERS.values()]
         axes += [(c, -1, 1, 0, 0) for c in (0x10, 0x11)]
         for code, lo, hi, fuzz, flat in axes:
@@ -78,21 +88,22 @@ class Pad:
                                                        VERSION, name.encode()[:79], 0))
         fcntl.ioctl(self.fd, UI_DEV_CREATE)
         sysname = fcntl.ioctl(self.fd, UI_GET_SYSNAME, bytes(64)).split(b"\0")[0].decode()
-        self.node = self._node(sysname)
+        self.nodes = self._nodes(sysname)
         self.state = {}         # (type, code): value, what isn't at rest
+        self.dpad = set()       # d-pad directions down
 
     @staticmethod
-    def _node(sysname):
-        """The /dev/input/eventN the kernel made for it, once udev lets us
-        open it."""
+    def _nodes(sysname):
+        """The /dev/input nodes the kernel made for it, once udev lets us
+        open them: its eventN, and the jsN that older games read, if joydev
+        made one."""
         sysdir = Path("/sys/devices/virtual/input") / sysname
         end = time.monotonic() + 5
         while time.monotonic() < end:
-            events = sorted(sysdir.glob("event*"))
-            if events:
-                node = Path("/dev/input") / events[0].name
-                if os.access(node, os.R_OK):
-                    return str(node)
+            names = [p.name for p in sorted(sysdir.glob("event*")) + sorted(sysdir.glob("js*"))]
+            nodes = [str(Path("/dev/input") / n) for n in names]
+            if any(n.startswith("event") for n in names) and all(os.access(n, os.R_OK) for n in nodes):
+                return nodes
             time.sleep(0.02)
         raise PadError(f"the pad {sysname} got no /dev/input node this user can read")
 
@@ -109,23 +120,28 @@ class Pad:
     def buttons(self, names, down):
         for name in names:
             if name in DPAD:
-                code, way = DPAD[name]
-                self._emit(EV_ABS, code, way if down else 0)
+                # Each direction goes up on its own: letting go of up while
+                # down is held leaves the pad pointing down.
+                (self.dpad.add if down else self.dpad.discard)(name)
+                code, _ = DPAD[name]
+                ways = [w for n, (c, w) in DPAD.items() if c == code and n in self.dpad]
+                self._emit(EV_ABS, code, ways[-1] if len(ways) == 1 else 0)
             else:
                 self._emit(EV_KEY, BUTTONS[name], int(down))
         self._sync()
 
     def stick(self, which, x, y):
         cx, cy = STICKS[which]
-        self._emit(EV_ABS, cx, round(max(-1.0, min(1.0, x)) * STICK_MAX))
-        self._emit(EV_ABS, cy, round(max(-1.0, min(1.0, y)) * STICK_MAX))
+        self._emit(EV_ABS, cx, round(x * STICK_MAX))
+        self._emit(EV_ABS, cy, round(y * STICK_MAX))
         self._sync()
 
     def trigger(self, which, value):
-        self._emit(EV_ABS, TRIGGERS[which], round(max(0.0, min(1.0, value)) * TRIGGER_MAX))
+        self._emit(EV_ABS, TRIGGERS[which], round(value * TRIGGER_MAX))
         self._sync()
 
     def neutral(self):
+        self.dpad.clear()
         for kind, code in list(self.state):
             self._emit(kind, code, 0)
         self._sync()
@@ -141,12 +157,23 @@ def check_names(names):
                        + ", ".join([*BUTTONS, *DPAD]))
 
 
+def check_range(what, v, lo, hi):
+    """`v` as a float, or a PadError if it isn't one between lo and hi."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        f = float("nan")
+    if not lo <= f <= hi:
+        raise PadError(f"{what} goes from {lo:g} to {hi:g}, not {v}")
+    return f
+
+
 def handle(pads, req):
     """One request to the server: a dict in, a dict out."""
     if req.get("op") == "info":
-        return {"pads": [p.node for p in pads]}
-    n = int(req.get("pad", 1))
-    if not 1 <= n <= len(pads):
+        return {"pads": [p.nodes for p in pads]}
+    n = req.get("pad", 1)
+    if not isinstance(n, int) or not 1 <= n <= len(pads):
         raise PadError(f"no pad {n}: the session has {len(pads)}")
     pad = pads[n - 1]
     op = req.get("op")
@@ -154,9 +181,10 @@ def handle(pads, req):
         check_names(req["names"])
         pad.buttons(req["names"], req["state"] == "down")
     elif op == "stick":
-        pad.stick(req["which"], float(req["x"]), float(req["y"]))
+        pad.stick(req["which"], check_range("a stick", req["x"], -1, 1),
+                  check_range("a stick", req["y"], -1, 1))
     elif op == "trigger":
-        pad.trigger(req["which"], float(req["value"]))
+        pad.trigger(req["which"], check_range("a trigger", req["value"], 0, 1))
     elif op == "neutral":
         pad.neutral()
     else:
@@ -164,31 +192,60 @@ def handle(pads, req):
     return {}
 
 
-def serve(sock_path, count, ready):
+def die_with_parent(parent):
+    """Stop when the session's process (`parent`) does, however it goes:
+    killed, the pads would stay plugged into the machine. Closing their
+    files at exit unplugs them."""
+    import ctypes
+    import signal
+    PR_SET_PDEATHSIG = 1
+    ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0)
+    if os.getppid() != int(parent):     # it went before the line above took
+        os._exit(1)
+
+
+def write_ready(path, what):
+    """Written whole and then renamed, so a reader never sees half of it."""
+    tmp = Path(f"{path}.tmp")
+    tmp.write_text(json.dumps(what))
+    tmp.rename(path)
+
+
+def serve(sock_path, count, ready, parent):
     """Make `count` pads, write their nodes to `ready` (a JSON list), and
     answer requests on the Unix socket at `sock_path`, a JSON line each,
-    until stopped."""
+    until stopped, or until the process `parent` stops."""
+    die_with_parent(parent)
     pads = []
     try:
         for i in range(int(count)):
             pads.append(Pad(f"shotbox virtual pad {i + 1} (Xbox 360)"))
     except PadError as e:
-        Path(ready).write_text(json.dumps({"error": str(e)}))
+        write_ready(ready, {"error": str(e)})
         return 1
     srv = socket.socket(socket.AF_UNIX)
     srv.bind(sock_path)
     srv.listen(8)
-    Path(ready).write_text(json.dumps([p.node for p in pads]))
+    write_ready(ready, [node for p in pads for node in p.nodes])
     try:
         while True:
             conn, _ = srv.accept()
+            # Any program in the session can connect: one that hangs up, or
+            # says nothing, costs that connection and no more.
+            conn.settimeout(5)
             with conn:
-                line = conn.makefile("rb").readline()
                 try:
-                    reply = handle(pads, json.loads(line))
-                except (PadError, KeyError, ValueError, TypeError) as e:
-                    reply = {"error": str(e) if isinstance(e, PadError) else f"bad request: {e}"}
-                conn.sendall(json.dumps(reply).encode() + b"\n")
+                    line = conn.makefile("rb").readline()
+                    if not line:
+                        continue
+                    try:
+                        reply = handle(pads, json.loads(line))
+                    except (PadError, KeyError, ValueError, TypeError) as e:
+                        reply = {"error": str(e) if isinstance(e, PadError)
+                                 else f"bad request: {e}"}
+                    conn.sendall(json.dumps(reply).encode() + b"\n")
+                except OSError:
+                    pass
     finally:
         for p in pads:
             p.close()
@@ -199,10 +256,16 @@ def ask(scratch, req):
     path = Path(scratch) / "pads.sock"
     if not path.exists():
         raise PadError("this session has no gamepads: start it with --gamepads N")
-    with socket.socket(socket.AF_UNIX) as s:
-        s.connect(str(path))
-        s.sendall(json.dumps(req).encode() + b"\n")
-        reply = json.loads(s.makefile("rb").readline())
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(10)
+            s.connect(str(path))
+            s.sendall(json.dumps(req).encode() + b"\n")
+            reply = json.loads(s.makefile("rb").readline() or b"null")
+    except OSError as e:
+        raise PadError(f"the session's gamepads have gone ({e.strerror or e})")
+    if not isinstance(reply, dict):
+        raise PadError("the session's gamepads have gone (no answer)")
     if "error" in reply:
         raise PadError(reply["error"])
     return reply

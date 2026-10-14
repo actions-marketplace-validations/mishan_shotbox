@@ -437,6 +437,8 @@ class Screen:
     TAP = 0.05      # long enough for a game polling every frame to see it
 
     def _pad(self, req):
+        if not isinstance(req["pad"], int) or req["pad"] < 1:
+            raise SessionError(f"pads are numbered from 1, not {req['pad']}")
         try:
             return pad.ask(self.env.get("SHOTBOX_SCRATCH", ""), req)
         except pad.PadError as e:

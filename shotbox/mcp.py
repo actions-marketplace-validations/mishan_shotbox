@@ -134,6 +134,21 @@ def number(v, what, least=None, most=None):
     return n if most is None else min(most, n)
 
 
+def program_pid(proc):
+    """The program's pid, not that of the sandbox it's in, with gamepads."""
+    return getattr(proc, "program_pid", proc.pid)
+
+
+def within(v, what, least, most, whole=False):
+    """A number between `least` and `most` (and a whole one if `whole`), or
+    None for none; refused otherwise, rather than moved into range."""
+    n = number(v, what)
+    if n is not None and (not least <= n <= most or (whole and n != int(n))):
+        kind = "a whole number from" if whole else "from"
+        raise Refused(f"{what} is {kind} {least:g} to {most:g}, not {n:g}")
+    return int(n) if whole and n is not None else n
+
+
 def held(hold, state):
     """press_keys' and click's hold (seconds) and state (down or up). A hold
     holds up the server, so it's kept short."""
@@ -204,7 +219,7 @@ class Server:
                     xwayland=flag(xwayland), dark=flag(dark),
                     high_contrast=flag(high_contrast),
                     text_scale=number(text_scale, "text_scale"), audio=flag(audio),
-                    gamepads=int(number(gamepads, "gamepads", 0, 4) or 0))
+                    gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0)
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
@@ -236,7 +251,7 @@ class Server:
         proc = s.spawn(self.allowed[program], log=log, cwd=self.home,
                        stdin=subprocess.DEVNULL)
         self.spawned[session].append((program, proc, log))
-        return f"Started {program} (pid {proc.pid}) in {session!r}."
+        return f"Started {program} (pid {program_pid(proc)}) in {session!r}."
 
     def program_output(self, session, program, lines=40):
         session = str(session)
@@ -249,7 +264,7 @@ class Server:
                   else f"exited with status {proc.returncode}")
         tail = log.read_text(errors="replace").splitlines()[
             -int(number(lines, "lines", 1, 2000) or 40):]
-        return f"{program} (pid {proc.pid}) is {status}. Its output:\n" + (
+        return f"{program} (pid {program_pid(proc)}) is {status}. Its output:\n" + (
             "\n".join(tail) or "(nothing)")
 
     # --- looking -------------------------------------------------------------
@@ -330,7 +345,7 @@ class Server:
     def gamepad(self, session, action, pad=1, buttons=None, which=None, x=None, y=None,
                 value=None, hold=None, state=None):
         s = self.session(session)
-        n = int(number(pad, "pad", 1, 4) or 1)
+        n = within(pad, "pad", 1, 4, whole=True) or 1
         hold, state = held(hold, state)
         if action == "press":
             names = words(buttons)
@@ -346,11 +361,11 @@ class Server:
             if which not in ("left", "right"):
                 raise Refused(f"which is left or right, not {which!r}")
             if action == "stick":
-                px, py = number(x, "x", -1, 1) or 0, number(y, "y", -1, 1) or 0
+                px, py = within(x, "x", -1, 1) or 0, within(y, "y", -1, 1) or 0
                 s.pad_stick(which, px, py, n, hold=hold)
                 put = f"Pushed the {which} stick to {px:g}, {py:g}"
             else:
-                v = number(value, "value", 0, 1) or 0
+                v = within(value, "value", 0, 1) or 0
                 s.pad_trigger(which, v, n, hold=hold)
                 put = f"Pulled the {which} trigger to {v:g}"
             let_go = f" for {hold:g} s, then let go" if hold is not None else ""
