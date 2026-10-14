@@ -15,7 +15,7 @@
   node's sides, and little just outside them. The ring the focus left
   isn't counted where the walk found it, so a sibling right beside it, a
   radio button or a toolbar icon with a thin ring, still is, and a
-  sibling with no ring isn't credited with the one leaving its neighbor.
+  sibling with no ring of its own isn't credited with its neighbor's.
 
 ## 0.4.1 — 2026-10-13
 

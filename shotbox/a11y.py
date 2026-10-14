@@ -20,6 +20,7 @@ import re
 import sys
 import threading
 import time
+from collections import Counter
 from functools import cache
 
 from . import picture, x
@@ -444,15 +445,16 @@ def focus_change(before, after, box, was=None, drawn=None):
     area = before.clip((reach[0], reach[1], reach[2] - reach[0], reach[3] - reach[1]))
     if not area:
         return 0, None
+    plain = picture.Changes(before, after, area)
     if was and not drawn:
-        drawn = left_drawn(before, after, area, was)
+        drawn = left_drawn(before, after, area, was, plain)
     if drawn:
         # Not what's well inside the ring: a node there drew that.
         inner = (drawn[0] + RING, drawn[1] + RING, drawn[2] - RING, drawn[3] - RING)
         changes = picture.Changes(before, after, area, drawn, inner)
         holds = meet(grow(was, 0), grow(box, 0)) == grow(box, 0)
     else:
-        changes, holds = picture.Changes(before, after, area), False
+        changes, holds = plain, False
     n, (dx, dy) = shown_at(changes, box, holds)
     return n, tight(changes, grow((box[0] + dx, box[1] + dy, box[2], box[3]), RING))
 
@@ -474,13 +476,12 @@ def tight(changes, rect):
     return x0, y0, x1, y1
 
 
-def left_drawn(before, after, area, was):
+def left_drawn(before, after, area, was, changes):
     """Where the ring round `was`, which the focus has just left, was drawn:
     what changed in `area` round the outline the size of `was` that lost
     the most, if as much as half a one-pixel outline did and what's there
     now looks like what's round it; else None. A node that showed no ring
     loses nothing, but the next one's ring can be where its outline is."""
-    changes = picture.Changes(before, after, area)
 
     def outline(dx, dy):
         moved = (was[0] + dx, was[1] + dy, was[2], was[3])
@@ -506,9 +507,9 @@ def outline_length(ring, area):
 
 def went(before, after, area, ring):
     """Where what changed in a band round the edge of `ring`, a box, went
-    rather than came, as (x0, y0, x1, y1): what now looks like what didn't
-    change just round the band, and didn't before. None if less went than
-    came."""
+    rather than came, as (x0, y0, x1, y1): what's now more like what didn't
+    change just round the band than it was, by how much of that has its
+    color. None if less went than came."""
     def band(outer, inner):
         x0, y0, x1, y1 = meet(outer, area)
         for y in range(y0, y1):
@@ -517,12 +518,14 @@ def went(before, after, area, ring):
                     i = (y * before.width + x) * 3
                     yield x, y, before.data[i:i + 3], after.data[i:i + 3]
 
-    near = {b for _, _, b, a in [*band(grow(ring, RING + 2), grow(ring, RING)),
-                                 *band(grow(ring, -RING), grow(ring, -RING - 2))] if b == a}
-    changed = [(x, y, b in near, a in near)
+    # By how much, since the ring's color can be round it too (a checked box).
+    near = Counter(b for _, _, b, a in [*band(grow(ring, RING + 2), grow(ring, RING)),
+                                        *band(grow(ring, -RING), grow(ring, -RING - 2))]
+                   if b == a)
+    changed = [(x, y, near[b], near[a])
                for x, y, b, a in band(grow(ring, RING), grow(ring, -RING)) if b != a]
-    gone = [(x, y) for x, y, was, now in changed if now and not was]
-    if len(gone) <= sum(was and not now for _, _, was, now in changed):
+    gone = [(x, y) for x, y, was, now in changed if now > was]
+    if len(gone) <= sum(was > now for _, _, was, now in changed):
         return None
     xs, ys = [x for x, _ in gone], [y for _, y in gone]
     return min(xs), min(ys), max(xs) + 1, max(ys) + 1

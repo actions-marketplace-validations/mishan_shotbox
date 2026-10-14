@@ -160,16 +160,18 @@ there now looks like what's round it. Two things it can't tell apart
 from a focus shown, when the node is drawn off its bounds: something the
 node's size changing within 4 pixels of it (a spinner beside a small
 button with no ring of its own can pass for its ring), and a tooltip
-within 2 pixels of a 1-pixel ring (which can hide it). Fewer than half a
-one-pixel outline round the node (its width and its height) is a focus
-that doesn't show: a drawing area that draws
-no ring, a text view that shows only its caret. WCAG 2.2's focus
-appearance asks for a two-pixel outline; this asks for a quarter of
-that, since an old GTK 4 places a node past its padding, and part of its
-ring outside what's counted. A web document, which takes the focus as a
-whole and has nothing drawn round it, and a container, which shows it on
-what it passes it to (a notebook, on its tab), aren't checked. It needs
-the node's bounds, so what can't be placed isn't checked either.
+within 2 pixels of a 1-pixel ring (which can hide it). And a ring drawn
+inside a node's bounds, as GTK 3 draws it, counts for a node inside that
+one if it goes as the focus comes there (a list's ring inside its edge,
+for its first row). Fewer than half a one-pixel outline round the node
+(its width and its height) is a focus that doesn't show: a drawing area
+that draws no ring, a text view that shows only its caret. WCAG 2.2's
+focus appearance asks for a two-pixel outline; this asks for a quarter
+of that, since an old GTK 4 places a node past its padding, and part of
+its ring outside what's counted. A web document, which takes the focus
+as a whole and has nothing drawn round it, and a container, which shows
+it on what it passes it to (a notebook, on its tab), aren't checked. It
+needs the node's bounds, so what can't be placed isn't checked either.
 
 Nodes are told apart by their program's name on the bus and their
 object path, not by their names, so two buttons with the same name are
