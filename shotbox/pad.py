@@ -170,6 +170,8 @@ def check_range(what, v, lo, hi):
 
 def handle(pads, req):
     """One request to the server: a dict in, a dict out."""
+    if not isinstance(req, dict):
+        raise PadError("a request is a JSON object")
     if req.get("op") == "info":
         return {"pads": [p.nodes for p in pads]}
     n = req.get("pad", 1)
@@ -178,6 +180,8 @@ def handle(pads, req):
     pad = pads[n - 1]
     op = req.get("op")
     if op == "buttons":
+        if not isinstance(req["names"], list) or not all(isinstance(n, str) for n in req["names"]):
+            raise PadError("names is a list of buttons")
         check_names(req["names"])
         pad.buttons(req["names"], req["state"] == "down")
     elif op == "stick":
@@ -211,6 +215,27 @@ def write_ready(path, what):
     tmp.rename(path)
 
 
+# Requests are answered one at a time, so each gets this long to arrive:
+# any program in the session can connect, and one that hangs up, stalls or
+# trickles costs no one else more than this.
+REQUEST_SECONDS = 1.0
+
+
+def read_line(conn, seconds):
+    """A line from `conn`, or what came of it in `seconds` in all."""
+    end, data = time.monotonic() + seconds, b""
+    while b"\n" not in data:
+        left = end - time.monotonic()
+        if left <= 0:
+            break
+        conn.settimeout(left)
+        chunk = conn.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    return data.split(b"\n", 1)[0] if b"\n" in data else b""
+
+
 def serve(sock_path, count, ready, parent):
     """Make `count` pads, write their nodes to `ready` (a JSON list), and
     answer requests on the Unix socket at `sock_path`, a JSON line each,
@@ -230,12 +255,9 @@ def serve(sock_path, count, ready, parent):
     try:
         while True:
             conn, _ = srv.accept()
-            # Any program in the session can connect: one that hangs up, or
-            # says nothing, costs that connection and no more.
-            conn.settimeout(5)
             with conn:
                 try:
-                    line = conn.makefile("rb").readline()
+                    line = read_line(conn, REQUEST_SECONDS)
                     if not line:
                         continue
                     try:
@@ -255,13 +277,16 @@ def ask(scratch, req):
     """Send one request to the session's pad server; its answer."""
     path = Path(scratch) / "pads.sock"
     if not path.exists():
-        raise PadError("this session has no gamepads: start it with --gamepads N")
+        raise PadError("this session has no gamepads: start it with some "
+                       "(--gamepads N, or gamepads in MCP's start_session)")
     try:
         with socket.socket(socket.AF_UNIX) as s:
             s.settimeout(10)
             s.connect(str(path))
             s.sendall(json.dumps(req).encode() + b"\n")
             reply = json.loads(s.makefile("rb").readline() or b"null")
+    except TimeoutError:
+        raise PadError("the session's gamepads didn't answer in time: busy, or stuck")
     except OSError as e:
         raise PadError(f"the session's gamepads have gone ({e.strerror or e})")
     if not isinstance(reply, dict):

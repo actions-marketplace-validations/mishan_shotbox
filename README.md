@@ -173,10 +173,12 @@ in: SDL names them "Xbox 360 Controller", and older games find them as
 `/dev/input/jsN` too. Every program the session spawns (with `run`,
 `shoot`, `term`, `spawn` and MCP's `spawn`) runs under bubblewrap with a
 `/dev/input` of its own, holding only these. The machine's raw HID devices
-and `/dev/uinput` are `/dev/null` inside, and `/dev/bus/usb` is empty, so
-no controller of the machine's reaches a program by another way (SDL's
-HIDAPI drivers, libusb); the lists in `/sys` and `/run/udev` still name the
-machine's devices, but none can be opened. What the session starts for
+(`/dev/hidraw*`, `/dev/usb/hiddev*`, `/dev/uhid`) and `/dev/uinput` are a
+file no one can open inside, and `/dev/bus/usb` is empty, so no controller
+of the machine's reaches a program by another way (SDL's HIDAPI drivers,
+hidapi, libusb); the lists in `/sys` and `/run/udev` still name the
+machine's devices, but none can be opened. That's settled as each program
+starts: one plugged in while a program runs can reach it. What the session starts for
 itself, the display server and what D-Bus activates, isn't sandboxed, and
 your desktop can see the virtual pads while the session runs (named
 "shotbox virtual pad N"); they go when it stops, however it stops. It needs

@@ -169,7 +169,8 @@ try:
     said, bad, _ = tool("click", session="h", x=5, y=5, double=True, hold=1)
     check(bad and "not together" in said, "click: double with hold, refused")
     tool("stop_session", session="h")
-    if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap"):
+    if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap") and subprocess.run(
+            ["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0:
         said, bad, _ = tool("start_session", name="g", a11y=False, gamepads=1)
         check(not bad and "1 gamepad" in said, f"start_session with a gamepad ({said})")
         said, _, _ = tool("spawn", session="g", program="padread")

@@ -365,7 +365,7 @@ class Session(Screen):
         if not 0 <= gamepads <= 4:
             raise SessionError(f"gamepads is 0 to 4, not {gamepads}")
         self.gamepads = gamepads
-        self._sandbox = None    # bwrap and its options, with gamepads
+        self._pad_nodes = []    # the pads' /dev/input nodes, with gamepads
         self.a11y = a11y or bool(announce_log)
         self.audio = audio
         self.announce_log = announce_log
@@ -716,7 +716,10 @@ class Session(Screen):
 
     def _start_pads(self):
         """The session's gamepads (see pad.py): a server holding them, and
-        their /dev/input nodes for spawn to give programs."""
+        their /dev/input nodes for spawn to give programs. The server stops
+        when the thread that made it does (Linux's parent-death signal goes
+        by thread), so a Session with gamepads wants a thread that lasts as
+        long as it does."""
         ready = self.scratch / "pads.json"
         here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
         path = os.pathsep.join(filter(None, (here, os.environ.get("PYTHONPATH"))))
@@ -730,24 +733,48 @@ class Session(Screen):
         got = json.loads(ready.read_text())
         if isinstance(got, dict):
             raise SessionError(got["error"])
-        # Programs get the session's pads in a /dev/input of their own, and
-        # none of the machine's: the raw HID and USB devices SDL and libusb
-        # read controllers through are masked, and so is uinput, so nothing
-        # inside can plug a device into the machine.
-        args = ["--dev-bind", "/", "/", "--tmpfs", "/dev/input"]
-        for node in got:
-            args += ["--dev-bind", node, node]
-        for hid in sorted(Path("/dev").glob("hidraw*")) + [Path("/dev/uinput")]:
-            if hid.exists():
-                args += ["--dev-bind", "/dev/null", str(hid)]
-        if Path("/dev/bus/usb").is_dir():
-            args += ["--tmpfs", "/dev/bus/usb"]
-        self._sandbox = ["bwrap", *args, "--die-with-parent"]
-        probe = subprocess.run([*self._sandbox, "--", "true"], capture_output=True, text=True)
+        self._pad_nodes = got
+        masked = self.scratch / "masked"
+        masked.touch(mode=0)
+        probe = subprocess.run([*self._sandbox(), "--", "true"], capture_output=True, text=True)
         if probe.returncode:
             raise SessionError("gamepads need bubblewrap to make a sandbox, and it can't "
                                "here (are unprivileged user namespaces allowed?): "
                                + (probe.stderr.strip() or f"status {probe.returncode}"))
+
+    def _sandbox(self):
+        """bwrap and its options, made for each program, since devices come
+        and go. Programs get the session's pads in a /dev/input of their
+        own, and none of the machine's: the raw HID and USB devices SDL,
+        hidapi and libusb read controllers through are a file no one can
+        open, and so is uinput, so nothing inside can plug a device into the
+        machine. A device plugged in while a program runs can still reach
+        it: /dev is the machine's, live."""
+        args = ["--dev-bind", "/", "/", "--tmpfs", "/dev/input"]
+        for node in self._pad_nodes:
+            args += ["--dev-bind", node, node]
+        masked = str(self.scratch / "masked")
+        dev = Path("/dev")
+        for node in [*dev.glob("hidraw*"), *dev.glob("usb/hiddev*"), dev / "uhid", dev / "uinput"]:
+            if node.exists():
+                args += ["--ro-bind", masked, str(node)]
+        if (dev / "bus/usb").is_dir():
+            args += ["--tmpfs", "/dev/bus/usb"]
+        return ["bwrap", *args, "--die-with-parent"]
+
+    def _runnable(self, program, cwd):
+        """Why `program` can't be run from `cwd` (bwrap would only say so in
+        the program's log), or None if it can."""
+        if os.sep in program:
+            path = os.path.join(cwd or os.getcwd(), program)
+            found = os.path.isfile(path) and path
+        else:
+            found = shutil.which(program, mode=os.F_OK, path=self.env.get("PATH"))
+        if not found:
+            return "No such file or directory"
+        if not shutil.which(found, mode=os.F_OK | os.X_OK):
+            return "Permission denied (not executable)"
+        return None
 
     # --- running things -----------------------------------------------------------
 
@@ -756,18 +783,21 @@ class Session(Screen):
         goes to `log` (a path) if given, else through. With gamepads, it runs
         under bubblewrap, with a /dev/input that has only the session's."""
         info = None
-        if self._sandbox:
-            if not shutil.which(cmd[0], path=self.env.get("PATH")):
-                raise SessionError(f"can't run {cmd[0]}: No such file or directory")
+        if self._pad_nodes:
+            why = self._runnable(cmd[0], kw.get("cwd"))
+            if why:
+                raise SessionError(f"can't run {cmd[0]}: {why}")
             # bwrap says the program's own pid down this pipe.
             info, w = os.pipe()
             kw["pass_fds"] = (*kw.get("pass_fds", ()), w)
-            cmd = [*self._sandbox, "--info-fd", str(w), "--", *cmd]
+            cmd = [*self._sandbox(), "--info-fd", str(w), "--", *cmd]
         out = open(log, "ab") if log else None
         try:
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,
                                     start_new_session=True, **kw)
         except OSError as e:
+            if info is not None:
+                os.close(info)
             raise SessionError(f"can't run {cmd[0]}: {e.strerror}")
         finally:
             if out:

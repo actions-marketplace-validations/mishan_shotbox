@@ -649,7 +649,7 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 # Gamepads: only the session's in its /dev/input, read as a game reads
 # them; what's left down stays down between commands; and gone with the
 # session. Needs write access to /dev/uinput and bubblewrap, or it skips.
-if [ -w /dev/uinput ] && command -v bwrap >/dev/null; then
+if [ -w /dev/uinput ] && command -v bwrap >/dev/null && bwrap --dev-bind / / true 2>/dev/null; then
   : > "$tmp/pad.log"
   "$sb" run --gamepads 2 -- sh -c "'$here/pad_read.py' '$tmp/pad.log' &
     n=0; while ! grep -q ready '$tmp/pad.log' 2>/dev/null && [ \$n -lt 100 ]; do sleep 0.1; n=\$((n + 1)); done
@@ -659,21 +659,24 @@ if [ -w /dev/uinput ] && command -v bwrap >/dev/null; then
     && [ "$(grep -c '^name shotbox virtual pad' "$tmp/pad.log")" = 2 ] \
     && [ "$(grep -c '^name' "$tmp/pad.log")" = 2 ] \
     && ok "gamepads: the session's, and only those, in its /dev/input" || fail "gamepads: $(grep name "$tmp/pad.log")"
-  got=$(grep -E '^(key|abs) ' "$tmp/pad.log" | tr '\n' ' ')
-  [ "$got" = "key 304 1 key 304 0 abs 0 32767 abs 1 -32767 abs 0 0 abs 1 0 abs 5 255 abs 5 0 key 305 1 abs 17 -1 abs 17 0 key 305 0 " ] \
+  # Pad 2 only pulls its trigger (abs 5); each pad's events in order.
+  got=$(grep -E '^(key|abs) ' "$tmp/pad.log" | grep -v '^abs 5 ' | tr '\n' ' ')
+  got2=$(grep '^abs 5 ' "$tmp/pad.log" | tr '\n' ' ')
+  [ "$got" = "key 304 1 key 304 0 abs 0 32767 abs 1 -32767 abs 0 0 abs 1 0 key 305 1 abs 17 -1 abs 17 0 key 305 0 " ] \
+    && [ "$got2" = "abs 5 255 abs 5 0 " ] \
     && ok "gamepads: buttons, sticks, triggers and the d-pad, as an Xbox 360 pad's" || fail "gamepad input: $got"
   grep -q "shotbox virtual pad" /proc/bus/input/devices && fail "gamepads: left behind" \
     || ok "gamepads: gone with the session"
   # Nothing else of the machine's to read controllers from: raw HID devices
-  # and uinput are /dev/null inside, and there's no /dev/bus/usb to scan.
-  "$sb" run --gamepads 1 -- sh -c 'for f in /dev/hidraw* /dev/uinput; do
-      [ -e "$f" ] && [ "$(stat -c %t:%T "$f")" != 1:3 ] && echo "$f"; done
+  # and uinput can't be opened inside, and there's no /dev/bus/usb to scan.
+  "$sb" run --gamepads 1 -- sh -c 'for f in /dev/hidraw* /dev/uhid /dev/usb/hiddev* /dev/uinput; do
+      [ -e "$f" ] && { [ -c "$f" ] || head -c0 "$f"; } 2>/dev/null && echo "$f"; done
     ls /dev/bus/usb 2>/dev/null' > "$tmp/seal.out" \
     && [ ! -s "$tmp/seal.out" ] && ok "gamepads: the machine's HID, USB and uinput, masked" \
     || fail "gamepads: reachable: $(cat "$tmp/seal.out")"
   # The pad server goes with the process that started it, even killed.
   python3 - "$root" <<'PY' && ok "gamepads: gone when what made them is killed" || fail "gamepads: outlived a kill"
-import os, signal, subprocess, sys, tempfile, time
+import os, shutil, signal, subprocess, sys, tempfile, time
 d = tempfile.mkdtemp()
 parent = subprocess.Popen([sys.executable, "-c", f"""
 import os, subprocess, sys, time
@@ -692,6 +695,7 @@ parent.wait()
 end = time.monotonic() + 3
 while there() and time.monotonic() < end:
     time.sleep(0.05)
+shutil.rmtree(d)
 sys.exit(0 if made and not there() else 1)
 PY
   # A program that hangs up, or says nothing, doesn't take the pads down;
@@ -700,6 +704,7 @@ PY
   "$sb" run --gamepads 1 -- sh -c "'$here/pad_read.py' '$tmp/pad2.log' &
     n=0; while ! grep -q ready '$tmp/pad2.log' 2>/dev/null && [ \$n -lt 100 ]; do sleep 0.1; n=\$((n + 1)); done
     python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\")' &&
+    python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); s.sendall(b\"[]\\n\"); s.recv(99)' &&
     python3 -c 'import os, socket, time; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); time.sleep(8)' &
     sleep 0.2; '$sb' pad press x && '$sb' pad press down --down && '$sb' pad press up &&
     '$sb' pad neutral && ! '$sb' pad stick left 5 0 2> '$tmp/range' &&
@@ -709,6 +714,17 @@ PY
     && grep -q "no pad 2: the session has 1" "$tmp/range" && grep -q "numbered from 1, not 0" "$tmp/range" \
     && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused" \
     || fail "gamepads: bad clients and ranges: $(cat "$tmp/range")"
+  # A program named by a path relative to where it's spawned from: found
+  # there, not where the session runs; one that can't run, said why.
+  mkdir -p "$tmp/rel"; printf '#!/bin/sh\ntouch ran\n' > "$tmp/rel/prog"; chmod +x "$tmp/rel/prog"
+  printf '#!/bin/sh\n' > "$tmp/rel/noexec"
+  "$sb" start --name "pads$$" --gamepads 1 >/dev/null
+  (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./prog >/dev/null) \
+    && "$sb" --session "pads$$" wait file "$tmp/rel/ran" --timeout 10 \
+    && ! (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./noexec 2> "$tmp/err") \
+    && grep -q "not executable" "$tmp/err" \
+    && ok "gamepads: a program by a relative path, from where it's spawned" || fail "gamepads: relative path"
+  "$sb" stop "pads$$"
   "$sb" term --shoot "$tmp/term-pad.png" --gamepads 1 --log "$tmp/term-pad.log" --size 40x4 -- \
     sh -c 'ls /dev/input' >/dev/null && grep -aq event "$tmp/term-pad.log" \
     && ok "term --shoot --gamepads: the terminal's program has the pad" || fail "term --shoot --gamepads"
@@ -721,13 +737,13 @@ python3 - "$root" <<'PY' && ok "pad: a server that's gone, said plainly" || fail
 import sys, tempfile, os
 sys.path.insert(0, sys.argv[1])
 from shotbox import pad
-d = tempfile.mkdtemp()
-open(os.path.join(d, "pads.sock"), "w").close()
-try:
-    pad.ask(d, {"op": "info"})
-    sys.exit(1)
-except pad.PadError as e:
-    sys.exit(0 if "have gone" in str(e) else 1)
+with tempfile.TemporaryDirectory() as d:
+    open(os.path.join(d, "pads.sock"), "w").close()
+    try:
+        pad.ask(d, {"op": "info"})
+        sys.exit(1)
+    except pad.PadError as e:
+        sys.exit(0 if "have gone" in str(e) else 1)
 PY
 set +e; "$sb" run -- "$sb" pad press a 2> "$tmp/err"; st=$?; set -e
 [ $st != 0 ] && grep -q -- "--gamepads" "$tmp/err" && ok "pad, in a session without gamepads: says how" \

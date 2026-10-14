@@ -282,12 +282,14 @@ class Server:
         every = number(every, "every")
         if every is not None and not 0 <= every <= 5:
             raise Refused(f"every is 0 to 5 seconds, not {every:g}")
+        if every is not None and not burst:
+            raise Refused("every goes with burst")
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         if burst:
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
                             window=text(window), crop=text(crop), park=flag(park),
-                            vision=vision, sheet=out)
+                            vision=vision, sheet=out, sheet_width=SHEET_WIDTH)
             times = ", ".join(f"{at:.2f}" for _, at in taken)
             said = (f"{len(taken)} pictures of {what} in rows of four, left to right, "
                     f"taken at {times} seconds.")
@@ -448,6 +450,9 @@ def schema(props, required=()):
 
 
 SESSION = {"type": "string", "description": "The session's name, as start_session gave it"}
+# A burst's sheet is one image: shrunk to this many pixels across, it's
+# still readable and not a dozen screens' worth.
+SHEET_WIDTH = 1920
 HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}
