@@ -32,7 +32,7 @@ case $out in D=:0*) fail "DISPLAY is ours" ;; *) ok "a display of its own" ;; es
 # A TMPDIR too long for the session's sockets, said before anything starts.
 long=$tmp/$(printf 'x%.0s' $(seq 45)); mkdir "$long"
 set +e; TMPDIR=$long "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
-[ $st != 0 ] && grep -q "TMPDIR is too long" "$tmp/err" && ok "a TMPDIR too long, said" \
+[ $st != 0 ] && grep -q "too long a path to make the session's sockets in" "$tmp/err" && ok "a TMPDIR too long, said" \
   || fail "long TMPDIR ($st): $(cat "$tmp/err")"
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"
@@ -703,14 +703,21 @@ while there() and time.monotonic() < end:
 shutil.rmtree(d)
 sys.exit(0 if made and not there() else 1)
 PY
-  # The Python API's spawn takes a path, as subprocess does, sandboxed too.
-  python3 - "$root" <<'PY' && ok "gamepads: spawn takes a Path" || fail "gamepads: spawn of a Path"
-import sys
+  # The Python API's spawn takes a path, as subprocess does, sandboxed too;
+  # and what a thread spawns outlives the thread.
+  python3 - "$root" <<'PY' && ok "gamepads: spawn takes a Path, and from a thread that ends" \
+    || fail "gamepads: spawn of a Path, or from a thread"
+import sys, threading, time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from shotbox.session import Session
 with Session(gamepads=1) as s:
-    sys.exit(s.spawn([Path("/bin/true")]).wait())
+    got = []
+    t = threading.Thread(target=lambda: got.append(s.spawn(["sleep", "30"])))
+    t.start()
+    t.join()
+    time.sleep(0.5)
+    sys.exit(s.spawn([Path("/bin/true")]).wait() or got[0].poll() is not None)
 PY
   # A program that hangs up, says nothing, or sends nonsense doesn't take
   # the pads down; values out of range and pads that aren't there are

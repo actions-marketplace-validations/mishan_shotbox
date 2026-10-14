@@ -42,7 +42,20 @@ jobs:
             libglib2.0-bin ffmpeg fonts-dejavu-core \
             sway grim xwayland \
             at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1 \
-            pipewire wireplumber pulseaudio-utils
+            pipewire wireplumber pulseaudio-utils bubblewrap
+
+      # For --gamepads: uinput, and its pads, for this user (a desktop's
+      # udev gives them to the seat's user; a runner has no seat), and
+      # bubblewrap's user namespaces, which Ubuntu's AppArmor holds back.
+      - name: Let the runner make gamepads
+        run: |
+          sudo modprobe uinput
+          printf '%s\n' 'KERNEL=="uinput", MODE="0666"' \
+            'SUBSYSTEM=="input", ATTRS{name}=="shotbox virtual pad*", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/70-shotbox-ci.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --action=change /dev/uinput
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       # Playwright, for the helpers that need a browser. The tests skip
       # rather than fail without it, so CI is where they have to run.
@@ -55,6 +68,7 @@ jobs:
           SHOTBOX_WAYLAND: required
           SHOTBOX_A11Y: required
           SHOTBOX_AUDIO: required
+          SHOTBOX_GAMEPAD: required
 
   # What gets published, built and used the way someone who installs it
   # would: the wheel in a fresh venv (with the system's PyGObject, as the

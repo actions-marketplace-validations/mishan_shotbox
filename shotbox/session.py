@@ -403,9 +403,9 @@ class Session(Screen):
         # sway-ipc.UID.PID.sock), and Linux allows a socket path 107 bytes.
         tmp = tempfile.gettempdir()
         if len(os.fsencode(tmp)) > 59:
-            raise SessionError(f"TMPDIR is too long a path for the session's sockets in it "
-                               f"({len(os.fsencode(tmp))} bytes, {tmp}): set it to one of 59 "
-                               "or fewer")
+            raise SessionError(f"{tmp} is too long a path to make the session's sockets in "
+                               f"({len(os.fsencode(tmp))} bytes, 59 at most): set TMPDIR to "
+                               "a shorter one")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
             self._make_home()
@@ -768,8 +768,11 @@ class Session(Screen):
         if (dev / "bus/usb").is_dir():
             args += ["--tmpfs", "/dev/bus/usb"]
         # Found on shotbox's PATH, where the session checked for it: the
-        # session's PATH is the program's.
-        return [shutil.which("bwrap") or "bwrap", *args, "--die-with-parent"]
+        # session's PATH is the program's. Not --die-with-parent: Linux
+        # sends that when the thread that started bwrap ends, which can be
+        # long before the session does; the session stops bwrap's process
+        # group, and the program in it, itself.
+        return [shutil.which("bwrap") or "bwrap", *args]
 
     def _runnable(self, program, cwd):
         """Why `program` can't be run from `cwd` (bwrap would only say so in
