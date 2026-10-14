@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.2 — 2026-10-13
+
+`tabwalk --visible` on GTK 4's offset nodes.
 
 ### Fixed
 
@@ -16,6 +18,10 @@
   isn't counted where the walk found it, so a sibling right beside it, a
   radio button or a toolbar icon with a thin ring, still is, and a
   sibling with no ring of its own isn't credited with its neighbor's.
+- **No EGL warnings from GTK 4 programs on X11.** They opened EGL though
+  they draw with cairo, and Mesa warned on stderr that Xvfb has no DRI3.
+  A session now sets `GDK_DISABLE=gl` (GTK 4.16 and later); pictures are
+  the same.
 
 ## 0.4.1 — 2026-10-13
 

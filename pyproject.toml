@@ -10,13 +10,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shotbox"
 dynamic = ["version"]
-description = "Reproducible screenshots of real programs in a sealed X11 or Wayland session, taken once they're ready"
+description = "Reproducible screenshots and accessibility checks of real programs in a sealed X11 or Wayland session, with an MCP server for agents"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Misha Nasledov", email = "misha@nasledov.com" }]
 requires-python = ">=3.9"
-keywords = ["screenshots", "xvfb", "wayland", "sway", "visual-regression", "testing", "gtk"]
+keywords = ["screenshots", "accessibility", "a11y", "at-spi", "wcag", "mcp", "xvfb", "wayland", "sway",
+            "visual-regression", "testing", "gtk"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
