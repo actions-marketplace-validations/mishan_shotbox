@@ -66,7 +66,7 @@ come in the order of their names, their windows and children in the
 order they give them, so a tree can be committed and diffed.
 
 Role names are at-spi2-core's, and change between its releases: a push
-button is `push button` before 2.62 and `button` from it. The lint
+button is `push button` before 2.54 and `button` from it. The lint
 compares roles by their enum, not their names, so its rules hold either
 way; a committed tree belongs to one at-spi2-core.
 

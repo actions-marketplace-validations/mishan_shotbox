@@ -33,7 +33,7 @@ STATES = ("focusable", "focused", "selected", "checked", "indeterminate", "press
 
 # Controls with nothing to say for themselves without a name. Atspi.Role
 # names, since the strings change between releases ("push button" is
-# "button" in 2.62); those a release lacks are skipped.
+# "button" from 2.54); those a release lacks are skipped.
 CONTROLS = ("PUSH_BUTTON", "BUTTON", "PUSH_BUTTON_MENU", "TOGGLE_BUTTON", "CHECK_BOX",
             "RADIO_BUTTON", "MENU_ITEM", "CHECK_MENU_ITEM", "RADIO_MENU_ITEM", "LINK",
             "ENTRY", "PASSWORD_TEXT", "SPIN_BUTTON", "SLIDER", "COMBO_BOX", "PAGE_TAB",
