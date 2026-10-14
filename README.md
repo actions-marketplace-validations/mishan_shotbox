@@ -4,23 +4,51 @@
 [![npm](https://img.shields.io/npm/v/shotbox)](https://www.npmjs.com/package/shotbox)
 [![CI](https://github.com/mishan/shotbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mishan/shotbox/actions/workflows/ci.yml)
 
-Reproducible screenshots of real programs, taken where they can't touch your
-desktop.
+Eyes and hands on a real graphical program, for an AI agent, a script or CI.
 
-`shotbox shoot` starts a program on a private X display, with its own D-Bus
-and a scratch home, waits until it's actually ready, takes the picture, and
-cleans up. Run it twice and you get the same bytes. Nothing it runs can
-reach your session: no stray windows on your screen, no settings changed, no
-profiles or caches written in your home.
+An agent working on a program with a window can't see it. shotbox runs the
+program on a sealed display of its own, X11 or Wayland, and lets whatever
+is driving it look and act: read the accessible tree, take screenshots,
+click by a button's name, type, hold keys and gamepad buttons, and wait
+until the program is actually ready. Then measure what it finds: names a
+screen reader can't say, contrast, the Tab order, and pixels changed
+against a reference. Nothing it runs can reach your desktop.
+
+```
+claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
+```
+
+Without an agent, it's the same session from the command line:
 
 ```
 shotbox shoot editor.png --window 'Text Editor' -- gnome-text-editor notes.md
 ```
 
+## For agents
+
+`shotbox mcp --allow PROGRAMS` gives an agent sealed sessions over the
+Model Context Protocol (stdio). It can start a session, spawn programs
+from the list in PROGRAMS (`NAME = COMMAND` a line, and nothing else),
+and then:
+- read the accessible tree, and take screenshots, which come back as
+  images;
+- click by a node's name, press keys, type and work a gamepad;
+- wait for windows, stillness and announcements;
+- lint, measure contrast and walk the Tab order.
+
+That's enough for an agent to check its own change in a GUI, test a game
+by playing it, audit what a screen reader hears, or reproduce a bug report
+in a session that's the same each time. The accessible tree is the cheap
+way to look, a few hundred tokens of text; a screenshot is for what only
+pixels say. An agent can't run anything off the list, and its sessions stop
+when the server does.
+
+What it's for, the tools, and how it's built: [docs/mcp.md](docs/mcp.md).
+
 ## Why
 
-Screenshots for a README, a theme preview, or a check that a UI still looks
-right all want the same things, and every project was growing its own copy:
+An agent checking its change, a screenshot for a README, and a test in CI
+all want the same things, and every project was growing its own copy:
 
 - **Sealed.** The environment is rebuilt from an allowlist, not scrubbed from
   a denylist, so nothing leaks in by accident. `DISPLAY`, `WAYLAND_DISPLAY`
@@ -335,26 +363,6 @@ Bevy, GTK built with it), and for Chromium, headed, given
 `--force-renderer-accessibility` (the Node package's `accessible`), on
 X11. How it's put together, and what each check can and can't tell:
 [docs/accessibility.md](docs/accessibility.md).
-
-## MCP
-
-`shotbox mcp --allow PROGRAMS` gives an agent sealed sessions over the
-Model Context Protocol (stdio). It can start a session, spawn programs
-from the list in PROGRAMS (`NAME = COMMAND` a line, and nothing else),
-and then:
-- read the accessible tree, and take screenshots, which come back as
-  images;
-- click by a node's name, press keys and type;
-- wait for windows, stillness and announcements;
-- lint, measure contrast and walk the Tab order.
-
-Its sessions stop when it does.
-
-```
-claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
-```
-
-What it's for, the tools, and how it's built: [docs/mcp.md](docs/mcp.md).
 
 ## Wayland
 
