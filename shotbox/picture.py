@@ -54,12 +54,15 @@ class Changes:
         self.all, self.skipped = [[0] * (w + 1)], [[0] * (w + 1)]
         for y in range(self.y0, y1):
             a = (y * before.width + self.x0) * 3
-            same = before.data[a:a + w * 3] == after.data[a:a + w * 3]
+            if before.data[a:a + w * 3] == after.data[a:a + w * 3]:
+                # Nothing changed on this row: the sums above it, again.
+                self.all.append(self.all[-1])
+                self.skipped.append(self.skipped[-1])
+                continue
             rows = self.all[-1], self.skipped[-1]
             row_all, row_skip, run_all, run_skip = [0], [0], 0, 0
             for i in range(w):
-                if not same and before.data[a + i * 3:a + i * 3 + 3] != after.data[
-                        a + i * 3:a + i * 3 + 3]:
+                if before.data[a + i * 3:a + i * 3 + 3] != after.data[a + i * 3:a + i * 3 + 3]:
                     run_all += 1
                     x = self.x0 + i
                     run_skip += bool(

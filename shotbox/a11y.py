@@ -20,6 +20,7 @@ import re
 import sys
 import threading
 import time
+from collections import Counter
 from functools import cache
 
 from . import picture, x
@@ -370,7 +371,7 @@ class Look:
         self.Atspi, self.screen = Atspi, screen
         self.shown, self.origins = screen.backend.windows(screen.env), {}
         self.last = self.grab()
-        self.was = self.where(start) if start else None
+        self.was = (self.where(start), None) if start else (None, None)
 
     def grab(self):
         return picture.Picture(*self.screen.backend.pixels(self.screen.env))
@@ -392,46 +393,178 @@ class Look:
         # a container shows it on what it passes it to (a notebook's tab).
         if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
                                                       *CONTAINERS)):
-            n["changed"] = focus_change(self.last, now, box, self.was)
+            n["changed"], drawn = focus_change(self.last, now, box, *self.was)
             n["needed"] = shown_needs(box)
         n["bounds"] = box
-        self.last, self.was = now, box
+        self.last = now
+        self.was = (box, drawn) if not unseen(n) and "changed" in n else (None, None)
 
 
 # How far outside its node a focus ring can be drawn.
 RING = 4
 
-# How far right and down of its bounds a node can be drawn. GTK 4 places a
-# node short of the border and padding of the nodes it's in
-# (docs/accessibility.md, "Where a node is"), never past them: a header
-# bar's buttons 7px, a tab bar's close buttons 10px.
+# How far from its bounds a node can be drawn. GTK 4 places a node short of
+# the border and padding of the nodes it's in (docs/accessibility.md, "Where
+# a node is"): from 4.14.6 right of and below them (a header bar's buttons
+# 7px, a tab bar's close buttons 10px), before that left of and above.
 REACH = 16
 
+# How wide a band just outside a found ring is looked at for change that
+# isn't the ring's: a neighbor's selection, a spinner.
+MARGIN = 4
 
-def focus_change(before, after, box, was):
-    """How many pixels in and round `box` changed from `before` to `after`
-    as the focus came to it from `was`, a box or None: in and round a box
-    its size wherever it fits best, up to REACH right and down of it, where
-    the node may really be. But for the ring the focus left: what changed
-    round the edges of where it was, wherever that really was, a frame
-    whose hole is what's inside it whatever its offset, where a node
-    inside that one (a list's row) is."""
+
+def offsets():
+    """Every offset up to REACH each way, the nearest first."""
+    out = [(dx, dy) for dy in range(-REACH, REACH + 1) for dx in range(-REACH, REACH + 1)]
+    return sorted(out, key=lambda d: abs(d[0]) + abs(d[1]))
+
+
+def grow(box, by):
     x, y, w, h = box
-    area = before.clip((x, y, w + REACH, h + REACH), RING)
+    return (x - by, y - by, x + w + by, y + h + by)
+
+
+def meet(a, b):
+    """Where two (x0, y0, x1, y1) areas meet; empty (x0 >= x1) if they don't."""
+    return (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+
+
+def focus_change(before, after, box, was=None, drawn=None):
+    """How many pixels in and round `box` changed from `before` to `after`
+    as the focus came to it, and where what's counted is: (x0, y0, x1, y1),
+    or None if nothing. First at its bounds; GTK 4 can draw a node up to
+    REACH from them, so then at any offset where what changed looks like a
+    focus shown: change along three or four of the node's sides (a ring, or
+    a rail and a ring, or a fill) and little just outside them (not a
+    neighbor's selection). The focus the node it left showed isn't counted:
+    `was` is where that node is, if its focus showed, and `drawn` where,
+    or None where the walk began, not knowing it. What's in this node's
+    own box counts if `was` holds it (a list's row, inside the list)."""
+    reach = grow(box, REACH + RING + MARGIN)
+    area = before.clip((reach[0], reach[1], reach[2] - reach[0], reach[3] - reach[1]))
     if not area:
-        return 0
-    skip = hole = None
-    if was:
-        px, py, pw, ph = was
-        skip = (px - RING, py - RING, px + pw + REACH + RING, py + ph + REACH + RING)
-        hole = (px + REACH + RING, py + REACH + RING, px + pw - RING, py + ph - RING)
-    changes = picture.Changes(before, after, area, skip, hole)
-    best = 0
-    for dy in range(REACH + 1):
-        for dx in range(REACH + 1):
-            at = (x + dx - RING, y + dy - RING, x + dx + w + RING, y + dy + h + RING)
-            best = max(best, changes.count(at) - changes.count(at, changes.skipped))
-    return best
+        return 0, None
+    plain = picture.Changes(before, after, area)
+    if was and not drawn:
+        drawn = left_drawn(before, after, area, was, plain)
+    if drawn:
+        # Not what's well inside the ring: a node there drew that.
+        inner = (drawn[0] + RING, drawn[1] + RING, drawn[2] - RING, drawn[3] - RING)
+        changes = picture.Changes(before, after, area, drawn, inner)
+        holds = meet(grow(was, 0), grow(box, 0)) == grow(box, 0)
+    else:
+        changes, holds = plain, False
+    n, (dx, dy) = shown_at(changes, box, holds)
+    return n, tight(changes, grow((box[0] + dx, box[1] + dy, box[2], box[3]), RING))
+
+
+def tight(changes, rect):
+    """The least (x0, y0, x1, y1) in `rect` that holds all that changed in
+    it, or None."""
+    x0, y0, x1, y1 = rect
+    if not changes.count(rect):
+        return None
+    while not changes.count((x0, y0, x0 + 1, y1)):
+        x0 += 1
+    while not changes.count((x1 - 1, y0, x1, y1)):
+        x1 -= 1
+    while not changes.count((x0, y0, x1, y0 + 1)):
+        y0 += 1
+    while not changes.count((x0, y1 - 1, x1, y1)):
+        y1 -= 1
+    return x0, y0, x1, y1
+
+
+def left_drawn(before, after, area, was, changes):
+    """Where the ring round `was`, which the focus has just left, was drawn:
+    what changed in `area` round the outline the size of `was` that lost
+    the most, if as much as half a one-pixel outline did and what's there
+    now looks like what's round it; else None. A node that showed no ring
+    loses nothing, but the next one's ring can be where its outline is."""
+
+    def outline(dx, dy):
+        moved = (was[0] + dx, was[1] + dy, was[2], was[3])
+        inner = grow(moved, -RING)
+        n = changes.count(grow(moved, RING))
+        return n - changes.count(inner) if inner[0] < inner[2] and inner[1] < inner[3] else n
+
+    dx, dy = max(offsets(), key=lambda d: outline(*d))
+    moved = (was[0] + dx, was[1] + dy, was[2], was[3])
+    if outline(dx, dy) * 2 < outline_length(grow(moved, 0), area):
+        return None
+    return went(before, after, area, moved)
+
+
+def outline_length(ring, area):
+    """How long the one-pixel outline of `ring` is in `area`, both (x0, y0,
+    x1, y1)."""
+    across = max(0, min(ring[2], area[2]) - max(ring[0], area[0]))
+    down = max(0, min(ring[3], area[3]) - max(ring[1], area[1]))
+    return (across * sum(area[1] <= y < area[3] for y in (ring[1], ring[3] - 1))
+            + down * sum(area[0] <= x < area[2] for x in (ring[0], ring[2] - 1)))
+
+
+def went(before, after, area, ring):
+    """Where what changed in a band round the edge of `ring`, a box, went
+    rather than came, as (x0, y0, x1, y1): what's now more like what didn't
+    change just round the band than it was, by how much of that has its
+    color. None if less went than came."""
+    def band(outer, inner):
+        x0, y0, x1, y1 = meet(outer, area)
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                if not (inner[0] <= x < inner[2] and inner[1] <= y < inner[3]):
+                    i = (y * before.width + x) * 3
+                    yield x, y, before.data[i:i + 3], after.data[i:i + 3]
+
+    # By how much, since the ring's color can be round it too (a checked box).
+    near = Counter(b for _, _, b, a in [*band(grow(ring, RING + 2), grow(ring, RING)),
+                                        *band(grow(ring, -RING), grow(ring, -RING - 2))]
+                   if b == a)
+    changed = [(x, y, near[b], near[a])
+               for x, y, b, a in band(grow(ring, RING), grow(ring, -RING)) if b != a]
+    gone = [(x, y) for x, y, was, now in changed if now > was]
+    if len(gone) <= sum(was > now for _, _, was, now in changed):
+        return None
+    xs, ys = [x for x, _ in gone], [y for _, y in gone]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def shown_at(changes, box, holds):
+    """The count for `box` in `changes`, and the offset it's at: at its
+    bounds, or the best offset where the change looks like a focus shown,
+    if more; even when its bounds have enough, the next node needs to know
+    where its ring really was. What `changes` skips counts only inside the
+    box, and only if `holds`."""
+    x, y, w, h = box
+
+    def counted(rect, inside):
+        n = changes.count(rect) - changes.count(rect, changes.skipped)
+        return n + (changes.count(meet(rect, inside), changes.skipped) if holds else 0)
+
+    def at(dx, dy):
+        inside = grow((x + dx, y + dy, w, h), 0)
+        return counted(grow((x + dx, y + dy, w, h), RING), inside), inside
+
+    found, _ = at(0, 0)
+    best = (0, 0)
+    for dx, dy in offsets()[1:]:
+        n, inside = at(dx, dy)
+        if n <= found:
+            continue
+        bx, by, bx1, by1 = inside
+        sides = [((bx - RING, by - RING, bx1 + RING, by + RING), w),
+                 ((bx - RING, by1 - RING, bx1 + RING, by1 + RING), w),
+                 ((bx - RING, by - RING, bx + RING, by1 + RING), h),
+                 ((bx1 - RING, by - RING, bx1 + RING, by1 + RING), h)]
+        if sum(counted(band, inside) * 2 >= length for band, length in sides) < 3:
+            continue
+        outside = counted(grow((bx, by, w, h), RING + MARGIN), inside) - n
+        if outside * 2 > w + h:
+            continue
+        found, best = n, (dx, dy)
+    return found, best
 
 
 def shown_needs(box):
