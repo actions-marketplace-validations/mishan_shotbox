@@ -43,7 +43,8 @@ right all want the same things, and every project was growing its own copy:
 Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
-`--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber. On Debian:
+`--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
+`--gamepads`, bubblewrap and write access to `/dev/uinput`. On Debian:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
@@ -152,7 +153,8 @@ for a [Wayland](#wayland) session; `--a11y` for an
 [accessibility bus](#accessibility); `--audio` for a PipeWire of the
 session's own, speaking the pulse protocol too, whose one sink plays to
 nowhere, so a program that makes sound has somewhere to play it (without
-it there's no sound server at all); and the display presets:
+it there's no sound server at all); `--gamepads N` for
+[gamepads](#gamepads); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
 - `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
@@ -162,6 +164,36 @@ it there's no sound server at all); and the display presets:
 
 Each is off unless asked for, so pictures without them don't change.
 Reduced motion needs no preset: GTK's animations are always off.
+
+### Gamepads
+
+`--gamepads N` gives the session N virtual Xbox 360 controllers (1 to 4),
+made with Linux's uinput, so a game reads them as it reads a pad plugged
+in: SDL names them "Xbox 360 Controller". Every program the session starts
+runs under bubblewrap with a `/dev/input` of its own, holding only these:
+none of the machine's controllers, keyboards or mice get in. Your desktop
+can still see the virtual pads while the session runs (named "shotbox
+virtual pad N"); they go when it stops. It needs `bwrap` and write access
+to `/dev/uinput`, which many desktops give the logged-in user and the
+`input` group otherwise has.
+
+Inside, `shotbox pad` works them. What's left down stays down between
+commands, on X11 and Wayland alike, since a server in the session holds
+the pads:
+
+```
+shotbox pad press a                     # tap A
+shotbox pad press lb rb --hold 0.5      # together, for half a second
+shotbox pad press b --down              # left down, until --up
+shotbox pad stick left 1 0 --hold 1.5   # walk right for a second and a half
+shotbox pad stick right -1 0            # aim left, and leave it there
+shotbox pad --pad 2 trigger right 1     # the second pad's right trigger, all the way
+shotbox pad neutral                     # let go of everything
+```
+
+Buttons are `a b x y lb rb back start guide ls rs` and the d-pad's `up
+down left right`. A stick's x and y go from -1 to 1, with y down; a
+trigger from 0 to 1.
 
 **`shotbox term [options] -- COMMAND...`** is a terminal to take pictures of:
 VTE, the engine behind GNOME Terminal, Ptyxis and Tilix, in a plain window
@@ -357,10 +389,14 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `wait_port(n)`, `wait_file(path)`, `wait_ready()`,
   `wait_stable(secs=0.5, window=None)`, and `until(what, test)` for a test
   of your own; each takes `timeout` (30).
-- Input: `key(*chords)`, `type(text)`, `click(x, y, window=None,
-  button=1, double=False)`, `move`, `drag`, `park()`. One X connection,
-  kept.
-- Pictures: `capture(out, window=None, crop=None, park=False)`, and
+- Input: `key(*chords, hold=None, state=None)`, `type(text)`, `click(x, y,
+  window=None, button=1, double=False, hold=None, state=None)`, `move`,
+  `drag`, `park()`. One X connection, kept. In a session with `gamepads`:
+  `pad_press(names, n=1, hold=None, state=None)`, `pad_stick(which, x, y,
+  n=1, hold=None)`, `pad_trigger(which, value, n=1, hold=None)` and
+  `pad_neutral(n=1)`.
+- Pictures: `capture(out, window=None, crop=None, park=False,
+  vision=None)`, `burst(out, count, every=0, ..., sheet=None)`, and
   `window(re)` for where one is.
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
@@ -476,8 +512,9 @@ takes a few seconds. The helpers that need a browser use Playwright's
 Chromium (`npm install && npx playwright install chromium`) and skip
 without it, the Wayland sessions need sway, grim and Xwayland and skip
 without them, the accessibility checks need GTK 4, libadwaita and
-at-spi2-core and skip without them, and `--audio` needs PipeWire,
-WirePlumber and `pactl` and skips without them.
+at-spi2-core and skip without them, `--audio` needs PipeWire,
+WirePlumber and `pactl` and skips without them, and `--gamepads` needs
+bubblewrap and a writable `/dev/uinput` and skips without them.
 
 ## License
 

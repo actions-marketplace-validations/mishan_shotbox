@@ -36,6 +36,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
+                 f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -168,6 +169,29 @@ try:
     said, bad, _ = tool("click", session="h", x=5, y=5, double=True, hold=1)
     check(bad and "not together" in said, "click: double with hold, refused")
     tool("stop_session", session="h")
+    if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap"):
+        said, bad, _ = tool("start_session", name="g", a11y=False, gamepads=1)
+        check(not bad and "1 gamepad" in said, f"start_session with a gamepad ({said})")
+        tool("spawn", session="g", program="padread")
+        log, end = tmp / "pad.log", time.monotonic() + 10
+        while not (log.exists() and "ready" in log.read_text()) and time.monotonic() < end:
+            time.sleep(0.1)
+        said = [tool("gamepad", session="g", action="press", buttons="a"),
+                tool("gamepad", session="g", action="stick", which="left", x=1, y=0, hold=0.1),
+                tool("gamepad", session="g", action="press", buttons="y", state="down"),
+                tool("gamepad", session="g", action="neutral")]
+        time.sleep(0.3)
+        # The kernel passes on only what changes: y stays 0, so says nothing.
+        got = [line for line in log.read_text().splitlines() if line.startswith(("key", "abs"))]
+        check(not any(bad for _, bad, _ in said)
+              and got == ["key 304 1", "key 304 0", "abs 0 32767", "abs 0 0",
+                          "key 308 1", "key 308 0"],
+              f"gamepad: press, a stick held a while, a button left down, neutral ({got})")
+        said, bad, _ = tool("gamepad", session="g", action="press", buttons="z")
+        check(bad and "no button z" in said, "gamepad: a button there isn't, said")
+        tool("stop_session", session="g")
+    else:
+        print("skip  gamepad: no writable /dev/uinput or no bwrap")
     said, bad, _ = tool("click", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
     said, bad, _ = tool("program_output", session="t", program="app")

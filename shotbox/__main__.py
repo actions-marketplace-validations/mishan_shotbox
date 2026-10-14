@@ -16,6 +16,7 @@
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
+    shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
@@ -91,6 +92,10 @@ def session_options(p):
     g.add_argument("--high-contrast", action="store_true", help="the high-contrast style")
     g.add_argument("--text-scale", type=scale, metavar="N",
                    help="scale text by N (1.25), as the desktop's text scaling does")
+    g.add_argument("--gamepads", type=int, default=0, metavar="N",
+                   help="N virtual Xbox 360 pads (1 to 4), seen only by the session's "
+                        "programs, for `shotbox pad`; needs write access to /dev/uinput, "
+                        "and bubblewrap")
 
 
 def make_session(a):
@@ -103,7 +108,7 @@ def make_session(a):
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
-                   audio=a.audio)
+                   audio=a.audio, gamepads=a.gamepads)
 
 
 def self_command():
@@ -442,6 +447,39 @@ def cmd_focus(argv):
     return 0
 
 
+def cmd_pad(argv):
+    p = argparse.ArgumentParser(prog="shotbox pad",
+                                description="Inside a session started with --gamepads: "
+                                            "work a gamepad. What's left down stays down "
+                                            "between commands, on X11 and Wayland alike.")
+    p.add_argument("--pad", type=int, default=1, metavar="N", help="which pad (1)")
+    sub = p.add_subparsers(dest="what", required=True)
+    press = sub.add_parser("press", help="press buttons together: a b x y lb rb back start "
+                                         "guide ls rs, and up down left right")
+    press.add_argument("buttons", nargs="+", metavar="BUTTON")
+    held_options(press, "the buttons", "them")
+    for name, args, what in (("stick", ("x", "y"), "push a stick to X Y, each -1 to 1, y down"),
+                             ("trigger", ("value",), "pull a trigger, 0 to 1")):
+        q = sub.add_parser(name, help=what)
+        q.add_argument("which", choices=("left", "right"))
+        for arg in args:
+            q.add_argument(arg, type=float)
+        q.add_argument("--hold", type=seconds, metavar="SECS",
+                       help="for this long, then let go (else it stays there)")
+    sub.add_parser("neutral", help="let go of everything: buttons up, sticks centered")
+    a = p.parse_args(argv)
+    s = inside()
+    if a.what == "press":
+        s.pad_press(a.buttons, a.pad, hold=a.hold, state=a.state)
+    elif a.what == "stick":
+        s.pad_stick(a.which, a.x, a.y, a.pad, hold=a.hold)
+    elif a.what == "trigger":
+        s.pad_trigger(a.which, a.value, a.pad, hold=a.hold)
+    else:
+        s.pad_neutral(a.pad)
+    return 0
+
+
 def per_name(values, name, default):
     """--fuzz and --max: the last NAME=VALUE for this picture, else the last
     plain VALUE, else the default."""
@@ -533,13 +571,15 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "capture": cmd_capture, "compare": cmd_compare, "vision": cmd_vision, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main,
+            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "pad": cmd_pad,
+            "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
             "sessions": cmd_sessions}
 
 # What --session puts inside a lasting session.
-INSIDE = ("wait", "capture", "key", "type", "click", "move", "drag", "park", "focus", "a11y")
+INSIDE = ("wait", "capture", "key", "type", "click", "move", "drag", "park", "focus", "pad",
+          "a11y")
 
 
 def main(argv=None):

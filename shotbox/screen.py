@@ -26,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import wl, wlinput, x, xtest
+from . import pad, wl, wlinput, x, xtest
 
 
 class SessionError(RuntimeError):
@@ -431,6 +431,58 @@ class Screen:
     def drag(self, x1, y1, x2, y2, window=None, button=1):
         dx, dy = self._at(0, 0, window)
         self.xt.drag(x1 + dx, y1 + dy, x2 + dx, y2 + dy, button=button)
+
+    # --- gamepads (a session started with gamepads; see pad.py) -------------
+
+    TAP = 0.05      # long enough for a game polling every frame to see it
+
+    def _pad(self, req):
+        try:
+            return pad.ask(self.env.get("SHOTBOX_SCRATCH", ""), req)
+        except pad.PadError as e:
+            raise SessionError(str(e))
+
+    def pad_press(self, names, n=1, hold=None, state=None):
+        """Press gamepad `n`'s buttons (a, b, x, y, lb, rb, back, start,
+        guide, ls, rs, and the d-pad's up, down, left, right) together:
+        tapped, held `hold` seconds, or with `state` only pressed (left down,
+        across commands) or only let go."""
+        try:
+            pad.check_names(names)
+        except pad.PadError as e:
+            raise SessionError(str(e))
+        if state:
+            self._pad({"op": "buttons", "pad": n, "names": names, "state": state})
+            return
+        self._pad({"op": "buttons", "pad": n, "names": names, "state": "down"})
+        try:
+            time.sleep(self.TAP if hold is None else hold)
+        finally:
+            self._pad({"op": "buttons", "pad": n, "names": names, "state": "up"})
+
+    def pad_stick(self, which, px, py, n=1, hold=None):
+        """Push gamepad `n`'s left or right stick to px, py, each -1 to 1 (y
+        down): left there, or for `hold` seconds and then centered."""
+        self._pad({"op": "stick", "pad": n, "which": which, "x": px, "y": py})
+        if hold is not None:
+            try:
+                time.sleep(hold)
+            finally:
+                self._pad({"op": "stick", "pad": n, "which": which, "x": 0, "y": 0})
+
+    def pad_trigger(self, which, value, n=1, hold=None):
+        """Pull gamepad `n`'s left or right trigger to `value`, 0 to 1: left
+        there, or for `hold` seconds and then let go."""
+        self._pad({"op": "trigger", "pad": n, "which": which, "value": value})
+        if hold is not None:
+            try:
+                time.sleep(hold)
+            finally:
+                self._pad({"op": "trigger", "pad": n, "which": which, "value": 0})
+
+    def pad_neutral(self, n=1):
+        """Let go of everything on gamepad `n`: buttons up, sticks centered."""
+        self._pad({"op": "neutral", "pad": n})
 
     def park(self, settle=2.0):
         """Move the pointer to the screen's bottom-right corner, off whatever

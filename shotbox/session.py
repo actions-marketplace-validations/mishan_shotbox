@@ -341,8 +341,12 @@ class Session(Screen):
     def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
-                 dark=False, high_contrast=False, text_scale=None, audio=False):
+                 dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0):
         self.size = size
+        if not 0 <= gamepads <= 4:
+            raise SessionError(f"gamepads is 0 to 4, not {gamepads}")
+        self.gamepads = gamepads
+        self._pad_nodes = []
         self.a11y = a11y or bool(announce_log)
         self.audio = audio
         self.announce_log = announce_log
@@ -374,6 +378,8 @@ class Session(Screen):
             need("gdbus")
         if self.audio:
             need("pipewire", "wireplumber", "pw-dump")
+        if self.gamepads:
+            need("bwrap")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
             self._make_home()
@@ -403,6 +409,8 @@ class Session(Screen):
                 self._start_a11y()
             if self.audio:
                 self._start_audio()
+            if self.gamepads:
+                self._start_pads()
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -568,6 +576,10 @@ class Session(Screen):
             SHOTBOX_SCRATCH=str(self.scratch),
         )
         env.update(graphics)
+        if self.gamepads:
+            # SDL finds the pads in /dev/input itself; asked, udev would name
+            # the machine's, which aren't there.
+            env["SDL_JOYSTICK_DISABLE_UDEV"] = "1"
         if bus:
             env["DBUS_SESSION_BUS_ADDRESS"] = bus
         if sysbus:
@@ -681,11 +693,33 @@ class Session(Screen):
             said = (self.scratch / "announce.log").read_text(errors="replace").strip()
             raise SessionError(f"{e}; it said: {said or '(nothing)'}")
 
+    def _start_pads(self):
+        """The session's gamepads (see pad.py): a server holding them, and
+        their /dev/input nodes for spawn to give programs."""
+        ready = self.scratch / "pads.json"
+        here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
+        serve = "import sys; from shotbox.pad import serve; sys.exit(serve(*sys.argv[1:]))"
+        proc = subprocess.Popen([sys.executable, "-c", serve,
+                                 str(self.scratch / "pads.sock"), str(self.gamepads), str(ready)],
+                                env={**os.environ, "PYTHONPATH": here},
+                                stdout=subprocess.DEVNULL, start_new_session=True)
+        self._procs.append(proc)
+        wait_for("the gamepads", lambda: ready.exists() and ready.stat().st_size, 10, alive=proc)
+        got = json.loads(ready.read_text())
+        if isinstance(got, dict):
+            raise SessionError(got["error"])
+        self._pad_nodes = got
+
     # --- running things -----------------------------------------------------------
 
     def spawn(self, cmd, log=None, **kw):
         """Start `cmd` inside the session, in its own process group. Output
-        goes to `log` (a path) if given, else through."""
+        goes to `log` (a path) if given, else through. With gamepads, it runs
+        under bubblewrap, with a /dev/input that has only the session's."""
+        if self._pad_nodes:
+            binds = [arg for node in self._pad_nodes for arg in ("--dev-bind", node, node)]
+            cmd = ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/dev/input", *binds,
+                   "--die-with-parent", "--", *cmd]
         out = open(log, "ab") if log else None
         try:
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,

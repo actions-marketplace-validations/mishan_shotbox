@@ -646,6 +646,32 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
   && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
   && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
 
+# Gamepads: only the session's in its /dev/input, read as a game reads
+# them; what's left down stays down between commands; and gone with the
+# session. Needs write access to /dev/uinput and bubblewrap, or it skips.
+if [ -w /dev/uinput ] && command -v bwrap >/dev/null; then
+  : > "$tmp/pad.log"
+  "$sb" run --gamepads 2 -- sh -c "'$here/pad_read.py' '$tmp/pad.log' &
+    while ! grep -q ready '$tmp/pad.log' 2>/dev/null; do sleep 0.1; done
+    '$sb' pad press a && '$sb' pad stick left 1 -1 --hold 0.1 &&
+    '$sb' pad --pad 2 trigger right 1 --hold 0.1 && '$sb' pad press b --down &&
+    '$sb' pad press up && '$sb' pad neutral && sleep 0.3" \
+    && [ "$(grep -c '^name shotbox virtual pad' "$tmp/pad.log")" = 2 ] \
+    && [ "$(grep -c '^name' "$tmp/pad.log")" = 2 ] \
+    && ok "gamepads: the session's, and only those, in its /dev/input" || fail "gamepads: $(grep name "$tmp/pad.log")"
+  got=$(grep -E '^(key|abs) ' "$tmp/pad.log" | tr '\n' ' ')
+  [ "$got" = "key 304 1 key 304 0 abs 0 32767 abs 1 -32767 abs 0 0 abs 1 0 abs 5 255 abs 5 0 key 305 1 abs 17 -1 abs 17 0 key 305 0 " ] \
+    && ok "gamepads: buttons, sticks, triggers and the d-pad, as an Xbox 360 pad's" || fail "gamepad input: $got"
+  grep -q "shotbox virtual pad" /proc/bus/input/devices && fail "gamepads: left behind" \
+    || ok "gamepads: gone with the session"
+else
+  [ "${SHOTBOX_GAMEPAD-}" = required ] && fail "gamepads skipped: no writable /dev/uinput or no bwrap" \
+    || echo "skip  gamepads: no writable /dev/uinput or no bwrap"
+fi
+set +e; "$sb" run -- "$sb" pad press a 2> "$tmp/err"; st=$?; set -e
+[ $st != 0 ] && grep -q -- "--gamepads" "$tmp/err" && ok "pad, in a session without gamepads: says how" \
+  || fail "pad without gamepads ($st)"
+
 # Vision: red, green, blue and gray, as each kind of color vision sees
 # them, against the model worked out here (within 2 levels: ImageMagick
 # rounds a little differently); and a capture taken with --vision is the

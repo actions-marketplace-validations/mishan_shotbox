@@ -192,7 +192,7 @@ class Server:
 
     def start_session(self, name=None, a11y=True, wayland=False, xwayland=False,
                       dark=False, high_contrast=False, text_scale=None, audio=False,
-                      screen="1280x800"):
+                      screen="1280x800", gamepads=0):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
         if name in self.sessions:
@@ -203,13 +203,15 @@ class Server:
         s = Session(size=(int(m[1]), int(m[2])), a11y=flag(a11y), wayland=flag(wayland),
                     xwayland=flag(xwayland), dark=flag(dark),
                     high_contrast=flag(high_contrast),
-                    text_scale=number(text_scale, "text_scale"), audio=flag(audio))
+                    text_scale=number(text_scale, "text_scale"), audio=flag(audio),
+                    gamepads=int(number(gamepads, "gamepads", 0, 4) or 0))
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
         progs = ", ".join(self.allowed) or "none (shotbox mcp was given no --allow file)"
         return (f"Session {name!r} is up: {kind}, {m[1]}x{m[2]}"
                 + (", with an accessibility bus" if s.a11y else ", no accessibility bus")
+                + (f", {s.gamepads} gamepad{'s' * (s.gamepads > 1)}" if s.gamepads else "")
                 + f". Programs it can spawn: {progs}.")
 
     def stop_session(self, session):
@@ -325,6 +327,39 @@ class Server:
             state, f"Held for {hold:g} s" if hold is not None else "Pressed")
         return f"{done} " + ", ".join(chords) + "."
 
+    def gamepad(self, session, action, pad=1, buttons=None, which=None, x=None, y=None,
+                value=None, hold=None, state=None):
+        s = self.session(session)
+        n = int(number(pad, "pad", 1, 4) or 1)
+        hold, state = held(hold, state)
+        if action == "press":
+            names = words(buttons)
+            if not names:
+                raise Refused("press takes buttons, like [\"a\"] or \"lb rb\"")
+            s.pad_press(names, n, hold=hold, state=state)
+            done = {"down": "Pressed and left down", "up": "Let go of"}.get(
+                state, f"Held for {hold:g} s" if hold is not None else "Pressed")
+            return f"{done} {', '.join(names)} on pad {n}."
+        if state:
+            raise Refused("state goes with press; a stick or trigger stays where it's put")
+        if action in ("stick", "trigger"):
+            if which not in ("left", "right"):
+                raise Refused(f"which is left or right, not {which!r}")
+            if action == "stick":
+                px, py = number(x, "x", -1, 1) or 0, number(y, "y", -1, 1) or 0
+                s.pad_stick(which, px, py, n, hold=hold)
+                put = f"Pushed the {which} stick to {px:g}, {py:g}"
+            else:
+                v = number(value, "value", 0, 1) or 0
+                s.pad_trigger(which, v, n, hold=hold)
+                put = f"Pulled the {which} trigger to {v:g}"
+            let_go = f" for {hold:g} s, then let go" if hold is not None else ""
+            return f"{put}{let_go}, on pad {n}."
+        if action == "neutral":
+            s.pad_neutral(n)
+            return f"Let go of everything on pad {n}."
+        raise Refused(f"action is press, stick, trigger or neutral, not {action!r}")
+
     def type_text(self, session, text):
         self.session(session).type(str(text))
         return f"Typed {len(str(text))} characters."
@@ -420,6 +455,8 @@ TOOLS = [
              "wayland": {"type": "boolean"}, "xwayland": {"type": "boolean"},
              "dark": {"type": "boolean"}, "high_contrast": {"type": "boolean"},
              "text_scale": {"type": "number"}, "audio": {"type": "boolean"},
+             "gamepads": {"type": "integer",
+                          "description": "Virtual Xbox 360 pads, 0 to 4, for the gamepad tool"},
              "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"}})),
     ("stop_session", "Stop a session and everything running in it.",
      schema({"session": SESSION}, ["session"])),
@@ -483,6 +520,21 @@ TOOLS = [
      "click while a key is held).",
      schema({"session": SESSION, "keys": {"type": "array", "items": {"type": "string"}},
              "hold": HOLD, "state": STATE}, ["session", "keys"])),
+    ("gamepad",
+     "Work a virtual gamepad, in a session started with gamepads: press buttons (a b x y "
+     "lb rb back start guide ls rs, and the d-pad's up down left right) together, tapped, "
+     "held for hold seconds, or with state down left down until a call with state up; push "
+     "a stick (which: left or right) to x, y, each -1 to 1 with y down; pull a trigger to "
+     "value, 0 to 1; or neutral, letting go of everything. A stick or trigger stays where "
+     "it's put, unless hold says for how long. Programs in the session see a real Xbox 360 "
+     "controller, and none of the machine's.",
+     schema({"session": SESSION,
+             "action": {"type": "string", "enum": ["press", "stick", "trigger", "neutral"]},
+             "pad": {"type": "integer", "description": "Which pad (1)"},
+             "buttons": {"type": "array", "items": {"type": "string"}},
+             "which": {"type": "string", "enum": ["left", "right"]},
+             "x": {"type": "number"}, "y": {"type": "number"}, "value": {"type": "number"},
+             "hold": HOLD, "state": STATE}, ["session", "action"])),
     ("type_text",
      "Type text into whatever has the keyboard focus. ASCII only.",
      schema({"session": SESSION, "text": {"type": "string"}}, ["session", "text"])),
