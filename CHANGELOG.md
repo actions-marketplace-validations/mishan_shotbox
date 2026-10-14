@@ -8,6 +8,10 @@
   button, so its off mark was held to text's 4.5:1.
 - **`contrast --edges` takes a field's edge from what it fills all
   round:** a text view in a frame, which has no edge of its own.
+- **A GTK 4 icon button is held to graphics' 3:1, not text's 4.5:1.**
+  GTK 4 puts a label in a control that draws text, so one with none
+  draws an icon. GTK 3's buttons keep their labels to themselves, and
+  are still held to text's.
 - **A missing GObject typelib is said in a line,** naming the packages,
   rather than with a traceback from the announcement recorder.
 

@@ -741,16 +741,21 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         box = shown(n)
         if not box:
             continue
+        # GTK 4 puts a label in a control that draws text, so one with none
+        # draws an icon: a graphic, held to graphics' ratio.
+        if n._role in controls and gtk4(n):
+            k = "graphics"
         least = text if k == "text" else graphics
         got = picture.text_contrast(pic, box)
-        if got is None and k == "text":
+        if got is None and (k == "text" or n._role in controls):
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
             # A control can be drawn only when the pointer's over it: a tab's
             # close button. Say how it is then, to tell.
             over = n._role in controls and picture.text_contrast(hovered(box), box)
             then = (f"; with the pointer over it, {ratio_text(over[0])}:1, "
-                    f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])}" if over else "")
-            problems.append((n, f"text not seen: nothing drawn on {back}{then}"))
+                    f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} (at least {least:g})"
+                    if over else "")
+            problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
         elif got and got[0] < least:
             said = said_color(Atspi, n)
             # Light or small text covers no pixel whole, so measures short of
@@ -780,6 +785,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
 def grow_box(box, by):
     return [box[0] - by, box[1] - by, box[2] + 2 * by, box[3] + 2 * by]
+
+
+def gtk4(n):
+    app = n._acc.get_application()
+    return bool(app) and app.get_toolkit_name() == "GTK" and (
+        app.get_toolkit_version() or "").startswith("4.")
 
 
 def gtk3_switch(Atspi, n):

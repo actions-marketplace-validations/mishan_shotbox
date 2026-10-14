@@ -215,10 +215,10 @@ the pointer parked, and measures each node in its bounds:
   drawn see-through looks the same; where GTK 3 says the text's color
   and what's drawn is a lighter shade of it, a failure says that color
   too, to tell which (GTK 4 doesn't say).
-  A control may draw its name or an icon (GTK 3's and Qt's buttons keep
-  their text to themselves, GTK 4's icon buttons are named by their
-  tooltips), and the tree can't tell which, so it's held to text's
-  ratio. Text is taken as normal size, so large text, which WCAG holds
+  A control may draw its name or an icon, and GTK 3's and Qt's buttons
+  keep their text to themselves, so the tree can't tell which: it's held
+  to text's ratio. GTK 4 puts a label in a control that draws text, so a
+  GTK 4 control with none draws an icon, and is held to graphics'. Text is taken as normal size, so large text, which WCAG holds
   to 3:1, has to be given its own run.
 - **Graphics**: a named image: measured the same way, at least 3:1
   (`--graphics`).
@@ -229,9 +229,10 @@ the pointer parked, and measures each node in its bounds:
   measured as text.
 - A node that can't be placed fails ("not measured"), and so does text
   whose bounds on the screen are one color ("not seen"): text the color
-  of its background. For a control, that says how it measures with the
-  pointer over it too, since some are drawn only then (a tab's close
-  button). An image of one color passes.
+  of its background, and a control, text or icon, of one color. For a
+  control, that says how it measures with the pointer over it too,
+  since some are drawn only then (a tab's close button). An image of one
+  color passes.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
