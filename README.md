@@ -213,7 +213,7 @@ game from finding your controllers, not one that sets out to; and
 your desktop can see the virtual pads while the session runs (named
 "shotbox virtual pad N"); they go when it stops, however it stops. They're
 real devices on the machine, so what reads controllers on your desktop
-meanwhile, Steam or a game, can act on what's pressed on them (Steam can
+meanwhile, Steam or a game, can act on what's pressed on them (Steam may
 open its overlay for `guide`): close it, or use another machine. It needs
 write access to `/dev/uinput` (which many desktops give the logged-in user,
 and the `input` group has) and `bwrap` with user namespaces, which the
