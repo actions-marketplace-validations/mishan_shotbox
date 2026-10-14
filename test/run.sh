@@ -241,12 +241,12 @@ got=$(held "$tmp/held.log")
   sleep 0.3" && awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' \
   "$tmp/down.log" && ok "key --down, then --up: held between commands" || fail "--down, --up"
 # Two held chords sharing Ctrl: letting go of one leaves Ctrl down for the
-# other. A chord it can't press is said before anything goes down, a hold
+# other, and one is let go however it's spelled. A chord it can't press is said before anything goes down, a hold
 # that isn't one is refused, and a hold stopped midway lets go.
 : > "$tmp/mods.log"
 "$sb" run -- sh -c "'$here/held.py' held '$tmp/mods.log' &
   '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
-  '$sb' key --down ctrl+c && '$sb' key --down ctrl+d && '$sb' key --up ctrl+d && echo mark >> '$tmp/mods.log' &&
+  '$sb' key --down Control+c && '$sb' key --down ctrl+d && '$sb' key --up ctrl+d && echo mark >> '$tmp/mods.log' &&
   '$sb' key --up ctrl+c && ! '$sb' key --hold 0.2 b bogus 2>/dev/null &&
   ! '$sb' key --hold -1 b 2>/dev/null && { '$sb' key --hold 30 e & k=\$!; sleep 0.5; kill \$k; wait \$k;
   sleep 0.3; }"
@@ -256,17 +256,17 @@ got=$(awk '$1 == "mark" { printf "| "; next }
   && ok "held chords share a modifier; a bad chord or hold presses nothing; stopped, it lets go" \
   || fail "held modifiers: $got"
 # While Shift+W is held, a key pressed and let go (or typed) leaves Shift
-# down for W; a chord held twice is pressed once, and a hold over it doesn't
-# let it go.
+# down for W; a chord held twice is pressed once, and a hold or a tap over it
+# doesn't let it go.
 : > "$tmp/twice.log"
 "$sb" run -- sh -c "'$here/held.py' held '$tmp/twice.log' &
   '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
-  '$sb' key --down shift+w && '$sb' key shift+a && '$sb' type B && '$sb' key --down shift+w &&
+  '$sb' key --down shift+w && '$sb' key shift+a && '$sb' type B && '$sb' key shift+w && '$sb' key --down shift+w &&
   '$sb' key --hold 0.1 shift+w && echo mark >> '$tmp/twice.log' && '$sb' key --up shift+w && sleep 0.3"
 got=$(awk '$1 == "mark" { printf "| "; next }
   { s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$tmp/twice.log")
 [ "$got" = "+button1 -button1 +Shift_L +W +A -A +B -B | -W -Shift_L " ] \
-  && ok "keys tapped while one's held keep its modifier; held twice, pressed once" \
+  && ok "keys tapped while one's held keep its modifier; held twice, or tapped, it stays down" \
   || fail "tap while held: $got"
 set +e; "$sb" key ctrl+comma 2>/dev/null; st=$?; set -e
 [ $st != 0 ] && ok "input needs a session" || fail "key ran outside a session"
@@ -560,6 +560,18 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   set +e; "$sb" run --wayland -- "$sb" key --down w 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q "use --hold" "$tmp/err" \
     && ok "wayland: key --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
+  # Shift+W held by one command: keys from others are shifted too. And a
+  # hold killed outright, which can't let go, is cleared with --up.
+  : > "$tmp/wl-mods.log"
+  "$sb" run --wayland -- sh -c "'$here/held.py' held '$tmp/wl-mods.log' &
+    '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
+    { '$sb' key --hold 1 shift+w & h=\$!; sleep 0.4; '$sb' key a && '$sb' type b; wait \$h; } &&
+    { '$sb' key --hold 30 e & k=\$!; sleep 0.4; kill -KILL \$k; } &&
+    '$sb' key --up e && '$sb' key --hold 0.1 e && sleep 0.3"
+  grep -q "press A" "$tmp/wl-mods.log" && grep -q "press B" "$tmp/wl-mods.log" \
+    && [ "$(grep -c "press e" "$tmp/wl-mods.log")" = 2 ] \
+    && ok "wayland: a chord held by one command shifts another's; a killed hold is let go with --up" \
+    || fail "wayland: held across commands: $(tr '\n' ' ' < "$tmp/wl-mods.log")"
   "$sb" run --wayland -- sh -c "
     '$sb' term --size 40x6 --log '$tmp/wl-keys.log' -- sh -c cat & t=\$!
     '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term &&

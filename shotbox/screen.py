@@ -48,6 +48,13 @@ def wait_for(what, test, timeout, interval=0.1, alive=None):
         time.sleep(interval)
 
 
+def _same(a, b):
+    """Whether two chords are the same keys, however spelled: Ctrl+w and
+    control+w, Esc and Escape."""
+    (sa, ma), (sb, mb) = xtest.parse_chord(a), xtest.parse_chord(b)
+    return sa == sb and set(ma) == set(mb)
+
+
 class Screen:
     """The display in `env` (DISPLAY, XAUTHORITY and SHOTBOX_SCRATCH; the
     process's own environment by default)."""
@@ -309,14 +316,14 @@ class Screen:
         seconds, then let go, last first: walking while running, say. With
         `state` "down" or "up", only press them or only let them go. A chord
         it can't press is said before any key goes down, and a chord already
-        held down isn't pressed again."""
+        held down isn't pressed again, or let go by a press."""
         for c in chords:
             self.xt.needs(c)
         if state == "up":
             self._let_go(chords)
             return
         if hold is None and state is None:
-            keep = self._held_needs()
+            keep = self._held()
             for c in chords:
                 self.xt.chord(c, keep=keep)
             return
@@ -324,11 +331,11 @@ class Screen:
         try:
             for c in chords:
                 with self._held_keys() as held:
-                    if c in held:
+                    if any(_same(h, c) for h in held):
                         continue
+                    pressed.append(c)
                     self.xt.chord(c, "down")
                     held.append(c)
-                pressed.append(c)
             if hold is not None:
                 time.sleep(hold)
             done = True
@@ -354,25 +361,22 @@ class Screen:
             yield held
             f.write_text("".join(f"{c}\n" for c in held))
 
-    def _held_needs(self):
-        """The modifiers the chords held down need, which a key pressed and
-        let go meanwhile mustn't let go of."""
+    def _held(self):
+        """The chords held down, whose keys a key pressed and let go
+        meanwhile mustn't let go of."""
         with self._held_keys() as held:
-            return set().union(*(self.xt.needs(h) for h in held))
+            return list(held)
 
     def _let_go(self, chords):
-        """Let go of each chord, leaving down the modifiers still held keys
-        need."""
+        """Let go of each chord, leaving down what chords still held need."""
         with self._held_keys() as held:
             for c in chords:
-                if c in held:
-                    held.remove(c)
-                keep = set().union(*(self.xt.needs(h) for h in held))
-                self.xt.chord(c, "up", keep=keep)
+                held[:] = [h for h in held if not _same(h, c)]
+                self.xt.chord(c, "up", keep=held)
 
     def type(self, text):
         """Type ASCII text into whatever has the keyboard focus."""
-        self.xt.type(text, keep=self._held_needs())
+        self.xt.type(text, keep=self._held())
 
     def move(self, px, py, window=None):
         """Move the pointer to X, Y on the screen, or inside `window`."""

@@ -12,7 +12,7 @@ Holding keys and buttons, and pictures as colorblind eyes see them.
   (`&`), one is held while other input goes on.
 - **`key --down`/`--up` and `click --down`/`--up`** leave a key or button
   down between commands, on X11. A Wayland virtual keyboard's keys go up
-  when its connection closes, so there they're refused, saying to use
+  when its connection closes, so there `--down` is refused, saying to use
   `--hold`.
 - **`shotbox vision IN OUT --as KIND`**, and `--vision KIND` on `capture`
   and `shoot`: a picture as someone with protanopia, deuteranopia or

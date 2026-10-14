@@ -172,7 +172,7 @@ class Display:
 
     def press(self, keysym, modifiers=(), keep=()):
         """Press and release one key, holding the modifier keysyms down, and
-        leaving down those in `keep`, which held keys need."""
+        leaving down the keys the chords in `keep`, held, hold."""
         self.down(keysym, modifiers, sync=False)
         self.up(keysym, modifiers, keep)
 
@@ -188,12 +188,14 @@ class Display:
 
     def up(self, keysym, modifiers=(), keep=()):
         """Let go of a key pressed with `down`, then its modifiers, but for
-        those in `keep`: the server counts no presses, so a modifier another
-        held key still needs has to stay down."""
+        the keys the chords in `keep` hold: the server counts no presses, so
+        a key another held chord still needs has to stay down."""
         code, held = self._codes(keysym, modifiers)
-        kept = {self.keycode(k)[0] for k in keep}
-        self._fake(KEY_RELEASE, code)
-        for c in reversed(held):
+        kept = set()
+        for spec in keep:
+            k, mods = self._codes(*parse_chord(spec))
+            kept.update(mods, [k])
+        for c in [code, *reversed(held)]:
             if c not in kept:
                 self._fake(KEY_RELEASE, c)
         self.sync()
@@ -209,7 +211,7 @@ class Display:
     def chord(self, spec, state=None, keep=()):
         """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
         or with `state` "down" or "up", only press it or only let it go
-        (leaving the modifiers in `keep` down)."""
+        (leaving down what the chords in `keep` hold)."""
         sym, mods = parse_chord(spec)
         if state == "down":
             self.down(sym, mods)
@@ -218,7 +220,7 @@ class Display:
 
     def type(self, text, keep=()):
         """Type text, one key at a time. ASCII only: a character is typed by
-        the key its symbol is on. Modifiers in `keep` stay down."""
+        the key its symbol is on. What the chords in `keep` hold stays down."""
         for ch in text:
             sym = {"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch))
             self.press(sym, keep=keep)

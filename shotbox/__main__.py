@@ -334,9 +334,9 @@ def cmd_key(argv):
 
 
 def held_here(screen, a):
-    """The screen, unless --down or --up can't work on it: a Wayland virtual
+    """The screen, unless --down can't work on it: a Wayland virtual
     keyboard's keys and pointer's buttons go up when this command ends."""
-    if a.state and screen.wayland:
+    if a.state == "down" and screen.wayland:
         raise SessionError("on Wayland, what --down presses is let go when the command "
                            "ends: use --hold SECS instead (in the background, with `&`, "
                            "to hold it while doing something else)")
@@ -543,8 +543,10 @@ def main(argv=None):
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
         if argv[0] in ("key", "click"):
-            # Stopped mid-hold (by kill or timeout(1)), let go on the way out.
-            signal.signal(signal.SIGTERM, signal.default_int_handler)
+            # Stopped mid-hold (by kill, timeout(1) or a closed terminal),
+            # let go on the way out.
+            for sig in (signal.SIGTERM, signal.SIGHUP):
+                signal.signal(sig, signal.default_int_handler)
         if session:
             if argv[0] not in INSIDE:
                 raise SessionError(f"--session is for the commands used inside a "

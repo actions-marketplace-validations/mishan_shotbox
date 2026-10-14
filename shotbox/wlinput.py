@@ -222,19 +222,28 @@ class Display:
             mask |= MOD_BITS[m]
         return code, mask
 
-    def _held_mods(self):
-        mask = 0
+    def _held(self, keep):
+        """The modifier bits held keys need, and the keycodes they hold: this
+        keyboard's, and the chords in `keep`, held by other commands, whose
+        keyboards a program doesn't tell apart from this one."""
+        mask, codes = 0, set()
         for m in self.held.values():
             mask |= m
-        return mask
+        for spec in keep:
+            code, m = self._code(*parse_chord(spec))
+            mask |= m
+            codes.add(code)
+        return mask, codes
 
-    def press(self, keysym, modifiers=()):
-        """Press and release one key, holding the modifier keysyms down."""
+    def press(self, keysym, modifiers=(), keep=()):
+        """Press and release one key, holding the modifier keysyms down, and
+        leaving down what the chords in `keep`, held, hold."""
         code, mask = self._code(keysym, modifiers)
-        held = self._held_mods()
-        if mask:
-            self._mods(held | mask)
-        self._key(code)
+        held, codes = self._held(keep)
+        self._mods(held | mask)
+        self._key(code, PRESSED)
+        if code not in codes:
+            self._key(code, RELEASED)
         if mask:
             self._mods(held)
         self.sync()
@@ -245,16 +254,19 @@ class Display:
         key stays down only as long as this Display does."""
         code, mask = self._code(keysym, modifiers)
         self.held[keysym] = mask
-        self._mods(self._held_mods())
+        self._mods(self._held(())[0])
         self._key(code, PRESSED)
         self.sync()
 
-    def up(self, keysym, modifiers=()):
-        """Let go of a key pressed with `down`, and its modifiers."""
+    def up(self, keysym, modifiers=(), keep=()):
+        """Let go of a key pressed with `down`, and its modifiers, but for
+        what the chords in `keep` hold."""
         code, _ = self._code(keysym, modifiers)
-        self._key(code, RELEASED)
         self.held.pop(keysym, None)
-        self._mods(self._held_mods())
+        held, codes = self._held(keep)
+        if code not in codes:
+            self._key(code, RELEASED)
+        self._mods(held)
         self.sync()
 
     def needs(self, spec):
@@ -264,16 +276,19 @@ class Display:
 
     def chord(self, spec, state=None, keep=()):
         """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
-        or with `state` "down" or "up", only press it or only let it go. The
-        modifiers follow what's still held, so `keep` isn't needed here."""
+        or with `state` "down" or "up", only press it or only let it go
+        (leaving down what the chords in `keep` hold)."""
         sym, mods = parse_chord(spec)
-        {None: self.press, "down": self.down, "up": self.up}[state](sym, mods)
+        if state == "down":
+            self.down(sym, mods)
+        else:
+            (self.up if state == "up" else self.press)(sym, mods, keep)
 
     def type(self, text, keep=()):
-        """Type text, one key at a time. ASCII only, as on X11. Held keys'
-        modifiers stay down by themselves, so `keep` isn't needed here."""
+        """Type text, one key at a time. ASCII only, as on X11. What the
+        chords in `keep` hold stays down."""
         for ch in text:
-            self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)))
+            self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)), keep=keep)
 
     # --- the pointer ----------------------------------------------------------
 
