@@ -222,7 +222,7 @@ def answer(session, conn):
                 raise SessionError("nothing to spawn")
             proc = session.spawn(request["cmd"], log=request.get("log"),
                                  cwd=request.get("cwd"))
-            reply = {"pid": proc.pid}
+            reply = {"pid": getattr(proc, "program_pid", proc.pid)}
         else:
             reply = {"error": f"don't know {op!r}"}
     except (SessionError, OSError) as e:

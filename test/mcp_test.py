@@ -36,6 +36,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
+                 f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -114,6 +115,12 @@ try:
     said, bad, content = tool("screenshot", session="t", window="a11y-test", vision="tritanopia")
     check(not bad and "as seen with tritanopia" in said
           and any(c["type"] == "image" for c in content), "screenshot: with a kind of color vision")
+    said, bad, content = tool("screenshot", session="t", window="a11y-test", burst=3, every=0.1)
+    png = [c for c in content if c["type"] == "image"]
+    check(not bad and len(png) == 1 and said.startswith("3 pictures") and "0.10" in said,
+          f"screenshot: a burst, as one sheet ({said})")
+    said, bad, _ = tool("screenshot", session="t", burst=40)
+    check(bad and "2 to 12" in said, "screenshot: a burst too big, refused")
     said, bad, _ = tool("screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")
@@ -162,6 +169,42 @@ try:
     said, bad, _ = tool("click", session="h", x=5, y=5, double=True, hold=1)
     check(bad and "not together" in said, "click: double with hold, refused")
     tool("stop_session", session="h")
+    if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap") and subprocess.run(
+            ["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0:
+        said, bad, _ = tool("start_session", name="g", a11y=False, gamepads=1)
+        check(not bad and "1 gamepad" in said, f"start_session with a gamepad ({said})")
+        said, _, _ = tool("spawn", session="g", program="padread")
+        pid = re.search(r"pid (\d+)", said)[1]
+        log, end = tmp / "pad.log", time.monotonic() + 10
+        while not (log.exists() and "ready" in log.read_text()) and time.monotonic() < end:
+            time.sleep(0.1)
+        # Once it's ready: before then, bwrap's child may not be the program yet.
+        check(Path(f"/proc/{pid}/comm").read_text().strip() != "bwrap"
+              and "pad_read" in Path(f"/proc/{pid}/cmdline").read_text(),
+              "spawn in a gamepad session: the program's own pid, not the sandbox's")
+        said = [tool("gamepad", session="g", action="press", buttons="a"),
+                tool("gamepad", session="g", action="stick", which="left", x=1, y=0, hold=0.1),
+                tool("gamepad", session="g", action="press", buttons="y", state="down"),
+                tool("gamepad", session="g", action="neutral")]
+        time.sleep(0.3)
+        # The kernel passes on only what changes: y stays 0, so says nothing.
+        got = [line for line in log.read_text().splitlines() if line.startswith(("key", "abs"))]
+        check(not any(bad for _, bad, _ in said)
+              and got == ["key 304 1", "key 304 0", "abs 0 32767", "abs 0 0",
+                          "key 308 1", "key 308 0"],
+              f"gamepad: press, a stick held a while, a button left down, neutral ({got})")
+        said, bad, _ = tool("gamepad", session="g", action="press", buttons="z")
+        check(bad and "no button z" in said, "gamepad: a button there isn't, said")
+        refused = [tool("gamepad", session="g", action="press", buttons="a", pad=7),
+                   tool("gamepad", session="g", action="stick", which="left", x=5, y=0),
+                   tool("gamepad", session="g", action="trigger", which="left", value=-1),
+                   tool("start_session", name="g9", gamepads=9)]
+        check(all(bad for _, bad, _ in refused) and "1 to 4, not 7" in refused[0][0]
+              and "-1 to 1, not 5" in refused[1][0] and "0 to 4, not 9" in refused[3][0],
+              "gamepad: a pad, stick, trigger or count out of range, refused")
+        tool("stop_session", session="g")
+    else:
+        print("skip  gamepad: no writable /dev/uinput or no bwrap")
     said, bad, _ = tool("click", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
     said, bad, _ = tool("program_output", session="t", program="app")

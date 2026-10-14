@@ -26,7 +26,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from . import wl, wlinput, x, xtest
+from . import pad, wl, wlinput, x, xtest
 
 
 class SessionError(RuntimeError):
@@ -277,6 +277,41 @@ class Screen:
             x.vision(out, out, vision)
         return Path(out)
 
+    def burst(self, out, count, every=0.0, window=None, crop=None, park=False, vision=None,
+              sheet=None, sheet_width=None):
+        """`count` pictures, as `capture` takes them, each starting `every`
+        seconds or more after the last, or as fast as they come, to
+        OUT-1.png, OUT-2.png...
+        (numbered to the width of `count`); with `sheet`, all of them in rows
+        of four there too. Motion a single picture can't show: an
+        animation, a transition, something moving. [(path, seconds after
+        the first)]."""
+        if count < 1:
+            raise SessionError(f"a burst is 1 picture or more, not {count}")
+        if park:
+            self.park()
+        out = Path(out)
+        width = len(str(count))
+        taken, start, last = [], time.monotonic(), None
+        for i in range(count):
+            wait = 0 if last is None else last + every - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            last = time.monotonic()
+            at = last - start
+            path = out.with_name(f"{out.stem}-{i + 1:0{width}d}{out.suffix or '.png'}")
+            # Found again each time: on Wayland it's taken by where it is,
+            # and it may have moved.
+            found = self.window(window) if window else None
+            self.backend.capture(self.env, path, window=found, crop=crop)
+            taken.append((path, at))
+        for path, _ in taken:
+            if vision:
+                x.vision(path, path, vision)
+        if sheet:
+            x.sheet([p for p, _ in taken], sheet, width=sheet_width)
+        return taken
+
     # --- input ----------------------------------------------------------------
 
     @property
@@ -400,6 +435,63 @@ class Screen:
     def drag(self, x1, y1, x2, y2, window=None, button=1):
         dx, dy = self._at(0, 0, window)
         self.xt.drag(x1 + dx, y1 + dy, x2 + dx, y2 + dy, button=button)
+
+    # --- gamepads (a session started with gamepads; see pad.py) -------------
+
+    TAP = 0.05      # long enough for a game polling every frame to see it
+
+    def _pad(self, req):
+        if not isinstance(req["pad"], int) or req["pad"] < 1:
+            raise SessionError(f"pads are numbered from 1, not {req['pad']}")
+        try:
+            return pad.ask(self.env.get("SHOTBOX_SCRATCH", ""), req)
+        except pad.PadError as e:
+            raise SessionError(str(e))
+
+    def pad_press(self, names, n=1, hold=None, state=None):
+        """Press gamepad `n`'s buttons (a, b, x, y, lb, rb, back, start,
+        guide, ls, rs, and the d-pad's up, down, left, right) together:
+        tapped, held `hold` seconds, or with `state` only pressed (left down,
+        across commands) or only let go. One left down stays down through taps
+        and holds of it, holds that overlap let go when the last ends, and
+        letting go with `state` "up" ends its holds too."""
+        try:
+            pad.check_names(names)
+        except pad.PadError as e:
+            raise SessionError(str(e))
+        if state:
+            self._pad({"op": "buttons", "pad": n, "names": names, "state": state})
+            return
+        token = self._pad({"op": "buttons", "pad": n, "names": names, "state": "press"})["token"]
+        try:
+            time.sleep(self.TAP if hold is None else hold)
+        finally:
+            self._pad({"op": "buttons", "pad": n, "names": names, "state": "release",
+                       "token": token})
+
+    def pad_stick(self, which, px, py, n=1, hold=None):
+        """Push gamepad `n`'s left or right stick to px, py, each -1 to 1 (y
+        down): left there, or for `hold` seconds and then centered."""
+        self._pad({"op": "stick", "pad": n, "which": which, "x": px, "y": py})
+        if hold is not None:
+            try:
+                time.sleep(hold)
+            finally:
+                self._pad({"op": "stick", "pad": n, "which": which, "x": 0, "y": 0})
+
+    def pad_trigger(self, which, value, n=1, hold=None):
+        """Pull gamepad `n`'s left or right trigger to `value`, 0 to 1: left
+        there, or for `hold` seconds and then let go."""
+        self._pad({"op": "trigger", "pad": n, "which": which, "value": value})
+        if hold is not None:
+            try:
+                time.sleep(hold)
+            finally:
+                self._pad({"op": "trigger", "pad": n, "which": which, "value": 0})
+
+    def pad_neutral(self, n=1):
+        """Let go of everything on gamepad `n`: buttons up, sticks centered."""
+        self._pad({"op": "neutral", "pad": n})
 
     def park(self, settle=2.0):
         """Move the pointer to the screen's bottom-right corner, off whatever

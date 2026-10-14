@@ -637,6 +637,150 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 [ $st = 2 ] && grep -q "no .*nope.png" "$tmp/err" && ok "compare: a missing picture, said plainly" \
   || fail "compare missing: $st $(cat "$tmp/err")"
 
+# A burst: five pictures a tenth of a second apart, numbered, and a sheet
+# of them in rows of four.
+"$sb" run -- sh -c "'$here/window.py' bw & '$sb' wait window bw &&
+  '$sb' capture '$tmp/burst.png' --window bw --burst 5 --every 0.1 --sheet '$tmp/sheet.png'" > "$tmp/burst.txt" \
+  && [ "$(identify -format %wx%h "$tmp/burst-5.png")" = 200x120 ] \
+  && [ "$(identify -format %wx%h "$tmp/sheet.png")" = 800x240 ] \
+  && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
+  && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
+
+# Gamepads: only the session's in its /dev/input, read as a game reads
+# them; what's left down stays down between commands; and gone with the
+# session. Needs write access to /dev/uinput and bubblewrap, or it skips.
+if [ -w /dev/uinput ] && command -v bwrap >/dev/null && bwrap --dev-bind / / true 2>/dev/null; then
+  : > "$tmp/pad.log"
+  "$sb" run --gamepads 2 -- sh -c "'$here/pad_read.py' '$tmp/pad.log' &
+    n=0; while ! grep -q ready '$tmp/pad.log' 2>/dev/null && [ \$n -lt 100 ]; do sleep 0.1; n=\$((n + 1)); done
+    '$sb' pad press a && '$sb' pad stick left 1 -1 --hold 0.1 &&
+    '$sb' pad --pad 2 trigger right 1 --hold 0.1 && '$sb' pad press b --down &&
+    '$sb' pad press up && '$sb' pad neutral && sleep 0.3" \
+    && [ "$(grep -c '^name shotbox virtual pad' "$tmp/pad.log")" = 2 ] \
+    && [ "$(grep -c '^name' "$tmp/pad.log")" = 2 ] \
+    && ok "gamepads: the session's, and only those, in its /dev/input" || fail "gamepads: $(grep name "$tmp/pad.log")"
+  # Pad 2 only pulls its trigger (abs 5); each pad's events in order.
+  got=$(grep -E '^(key|abs) ' "$tmp/pad.log" | grep -v '^abs 5 ' | tr '\n' ' ')
+  got2=$(grep '^abs 5 ' "$tmp/pad.log" | tr '\n' ' ')
+  [ "$got" = "key 304 1 key 304 0 abs 0 32767 abs 1 -32767 abs 0 0 abs 1 0 key 305 1 abs 17 -1 abs 17 0 key 305 0 " ] \
+    && [ "$got2" = "abs 5 255 abs 5 0 " ] \
+    && ok "gamepads: buttons, sticks, triggers and the d-pad, as an Xbox 360 pad's" || fail "gamepad input: $got"
+  grep -q "shotbox virtual pad" /proc/bus/input/devices && fail "gamepads: left behind" \
+    || ok "gamepads: gone with the session"
+  # Nothing else of the machine's to read controllers from: raw HID devices
+  # and uinput can't be opened inside, and there's no /dev/bus/usb to scan.
+  "$sb" run --gamepads 1 -- sh -c 'for f in /dev/hidraw* /dev/uhid /dev/usb/hiddev* /dev/uinput; do
+      [ -e "$f" ] && { [ -c "$f" ] || head -c0 "$f"; } 2>/dev/null && echo "$f"; done
+    [ ! -d /dev/bus/usb ] || ls /dev/bus/usb' > "$tmp/seal.out" \
+    && [ ! -s "$tmp/seal.out" ] && ok "gamepads: the machine's HID, USB and uinput, masked" \
+    || fail "gamepads: reachable: $(cat "$tmp/seal.out")"
+  # The pad server goes with the process that started it, even killed.
+  python3 - "$root" <<'PY' && ok "gamepads: gone when what made them is killed" || fail "gamepads: outlived a kill"
+import os, shutil, signal, subprocess, sys, tempfile, time
+d = tempfile.mkdtemp()
+parent = subprocess.Popen([sys.executable, "-c", f"""
+import os, subprocess, sys, time
+sys.path.insert(0, {sys.argv[1]!r})
+subprocess.Popen([sys.executable, "-c", "import sys; sys.path.insert(0, {sys.argv[1]!r}); "
+                  "from shotbox.pad import serve; serve(*sys.argv[1:])",
+                  "{d}/pads.sock", "1", "{d}/ready", str(os.getpid())])
+time.sleep(60)"""])
+end = time.monotonic() + 10
+while not os.path.exists(f"{d}/ready") and time.monotonic() < end:
+    time.sleep(0.05)
+there = lambda: "shotbox virtual pad" in open("/proc/bus/input/devices").read()
+made = there()
+parent.send_signal(signal.SIGKILL)
+parent.wait()
+end = time.monotonic() + 3
+while there() and time.monotonic() < end:
+    time.sleep(0.05)
+shutil.rmtree(d)
+sys.exit(0 if made and not there() else 1)
+PY
+  # The Python API's spawn takes a path, as subprocess does, sandboxed too.
+  python3 - "$root" <<'PY' && ok "gamepads: spawn takes a Path" || fail "gamepads: spawn of a Path"
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from shotbox.session import Session
+with Session(gamepads=1) as s:
+    sys.exit(s.spawn([Path("/bin/true")]).wait())
+PY
+  # A program that hangs up, says nothing, or sends nonsense doesn't take
+  # the pads down; values out of range and pads that aren't there are
+  # refused, not moved.
+  : > "$tmp/pad2.log"
+  "$sb" run --gamepads 1 -- sh -c "'$here/pad_read.py' '$tmp/pad2.log' &
+    n=0; while ! grep -q ready '$tmp/pad2.log' 2>/dev/null && [ \$n -lt 100 ]; do sleep 0.1; n=\$((n + 1)); done
+    python3 -c 'import os, socket; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\")' &&
+    python3 -c 'import json, os, socket
+for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\", x=10**400, y=0)).encode()):
+    s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); s.sendall(m + b\"\\n\"); s.recv(99)' &&
+    python3 -c 'import os, socket, time; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); time.sleep(8)' &
+    sleep 0.2; '$sb' pad press x && '$sb' pad press down --down && '$sb' pad press up &&
+    '$sb' pad neutral && ! '$sb' pad stick left 5 0 2> '$tmp/range' &&
+    ! '$sb' pad --pad 2 press a 2>> '$tmp/range' && ! '$sb' pad --pad 0 press a 2>> '$tmp/range' &&
+    { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; } &&
+    '$sb' pad press lb --down && '$sb' pad press lb --hold 0.1 && '$sb' pad press lb a &&
+    '$sb' pad press lb --up &&
+    { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
+    { '$sb' pad press rs --hold 1 & h=\$!; sleep 0.3; '$sb' pad neutral && '$sb' pad press rs --hold 2 & h2=\$!;
+      wait \$h; sleep 0.3; echo mark >> '$tmp/pad2.log'; wait \$h2; } && sleep 0.3" \
+    && grep -q "^key 307 1" "$tmp/pad2.log" && grep -q "goes from -1 to 1, not 5" "$tmp/range" \
+    && grep -q "^key 305 0" "$tmp/pad2.log" \
+    && [ "$(grep '^key 310' "$tmp/pad2.log" | tr '\n' ' ')" = "key 310 1 key 310 0 " ] \
+    && [ "$(grep -E '^(key 308|upmark)' "$tmp/pad2.log" | tr '\n' ' ')" = "key 308 1 key 308 0 upmark " ] \
+    && [ "$(grep -E '^(key 318|mark$)' "$tmp/pad2.log" | tr '\n' ' ')" = "key 318 1 key 318 0 key 318 1 mark key 318 0 " ] \
+    && [ "$(grep '^abs 17' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 17 1 abs 17 0 abs 17 1 abs 17 0 " ] \
+    && grep -q "no pad 2: the session has 1" "$tmp/range" && grep -q "numbered from 1, not 0" "$tmp/range" \
+    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go; one left down stays down; --up ends a killed hold; neutral's not undone by an older hold" \
+    || fail "gamepads: bad clients and ranges: $(cat "$tmp/range")"
+  # A program named by a path relative to where it's spawned from: found
+  # there, not where the session runs; one on PATH past one of the same
+  # name that can't run, or in a relative PATH entry, from where it's
+  # spawned; one that can't run, said why. The session's PATH is the
+  # program's: a bwrap on it isn't the one shotbox runs.
+  mkdir -p "$tmp/rel/relbin" "$tmp/path1" "$tmp/path2"; printf '#!/bin/sh\ntouch ran\n' > "$tmp/rel/prog"; chmod +x "$tmp/rel/prog"
+  printf '#!/bin/sh\n' > "$tmp/rel/noexec"
+  printf '#!/bin/sh\n' > "$tmp/path1/onpath"; printf '#!/bin/sh\ntouch ran2\n' > "$tmp/path2/onpath"; chmod +x "$tmp/path2/onpath"
+  printf '#!/bin/sh\ntouch ran3\n' > "$tmp/rel/relbin/inrel"; chmod +x "$tmp/rel/relbin/inrel"
+  printf '#!/bin/sh\nexit 1\n' > "$tmp/path1/bwrap"; chmod +x "$tmp/path1/bwrap"
+  "$sb" start --name "pads$$" --gamepads 1 --env "PATH=$tmp/path1:relbin:$tmp/path2:$PATH" >/dev/null
+  (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./prog >/dev/null) \
+    && "$sb" --session "pads$$" wait file "$tmp/rel/ran" --timeout 10 \
+    && (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- onpath >/dev/null) \
+    && "$sb" --session "pads$$" wait file "$tmp/rel/ran2" --timeout 10 \
+    && (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- inrel >/dev/null) \
+    && "$sb" --session "pads$$" wait file "$tmp/rel/ran3" --timeout 10 \
+    && ! (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./noexec 2> "$tmp/err") \
+    && grep -q "not executable" "$tmp/err" \
+    && ok "gamepads: a program by a relative path or PATH entry, from where it's spawned, or on PATH past one that can't run; shotbox's bwrap" || fail "gamepads: relative path"
+  "$sb" stop "pads$$"
+  "$sb" term --shoot "$tmp/term-pad.png" --gamepads 1 --log "$tmp/term-pad.log" --size 40x4 -- \
+    sh -c 'ls /dev/input' >/dev/null && grep -aq event "$tmp/term-pad.log" \
+    && ok "term --shoot --gamepads: the terminal's program has the pad" || fail "term --shoot --gamepads"
+else
+  [ "${SHOTBOX_GAMEPAD-}" = required ] && fail "gamepads skipped: no writable /dev/uinput or no bwrap" \
+    || echo "skip  gamepads: no writable /dev/uinput or no bwrap"
+fi
+# A pad server that's gone, said plainly.
+python3 - "$root" <<'PY' && ok "pad: a server that's gone, said plainly" || fail "pad: server gone"
+import sys, tempfile, os
+sys.path.insert(0, sys.argv[1])
+from shotbox import pad
+with tempfile.TemporaryDirectory() as d:
+    open(os.path.join(d, "pads.sock"), "w").close()
+    try:
+        pad.ask(d, {"op": "info"})
+        sys.exit(1)
+    except pad.PadError as e:
+        sys.exit(0 if "have gone" in str(e) else 1)
+PY
+set +e; "$sb" run -- "$sb" pad press a 2> "$tmp/err"; st=$?; set -e
+[ $st != 0 ] && grep -q -- "--gamepads" "$tmp/err" && ok "pad, in a session without gamepads: says how" \
+  || fail "pad without gamepads ($st)"
+
 # Vision: red, green, blue and gray, as each kind of color vision sees
 # them, against the model worked out here (within 2 levels: ImageMagick
 # rounds a little differently); and a capture taken with --vision is the

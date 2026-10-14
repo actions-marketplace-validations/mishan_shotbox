@@ -134,6 +134,21 @@ def number(v, what, least=None, most=None):
     return n if most is None else min(most, n)
 
 
+def program_pid(proc):
+    """The program's pid, not that of the sandbox it's in, with gamepads."""
+    return getattr(proc, "program_pid", proc.pid)
+
+
+def within(v, what, least, most, whole=False):
+    """A number between `least` and `most` (and a whole one if `whole`), or
+    None for none; refused otherwise, rather than moved into range."""
+    n = number(v, what)
+    if n is not None and (not least <= n <= most or (whole and n != int(n))):
+        kind = "a whole number from" if whole else "from"
+        raise Refused(f"{what} is {kind} {least:g} to {most:g}, not {n:g}")
+    return int(n) if whole and n is not None else n
+
+
 def held(hold, state):
     """press_keys' and click's hold (seconds) and state (down or up). A hold
     holds up the server, so it's kept short."""
@@ -192,7 +207,7 @@ class Server:
 
     def start_session(self, name=None, a11y=True, wayland=False, xwayland=False,
                       dark=False, high_contrast=False, text_scale=None, audio=False,
-                      screen="1280x800"):
+                      screen="1280x800", gamepads=0):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
         if name in self.sessions:
@@ -203,13 +218,15 @@ class Server:
         s = Session(size=(int(m[1]), int(m[2])), a11y=flag(a11y), wayland=flag(wayland),
                     xwayland=flag(xwayland), dark=flag(dark),
                     high_contrast=flag(high_contrast),
-                    text_scale=number(text_scale, "text_scale"), audio=flag(audio))
+                    text_scale=number(text_scale, "text_scale"), audio=flag(audio),
+                    gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0)
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
         progs = ", ".join(self.allowed) or "none (shotbox mcp was given no --allow file)"
         return (f"Session {name!r} is up: {kind}, {m[1]}x{m[2]}"
                 + (", with an accessibility bus" if s.a11y else ", no accessibility bus")
+                + (f", {s.gamepads} gamepad{'s' * (s.gamepads > 1)}" if s.gamepads else "")
                 + f". Programs it can spawn: {progs}.")
 
     def stop_session(self, session):
@@ -234,7 +251,7 @@ class Server:
         proc = s.spawn(self.allowed[program], log=log, cwd=self.home,
                        stdin=subprocess.DEVNULL)
         self.spawned[session].append((program, proc, log))
-        return f"Started {program} (pid {proc.pid}) in {session!r}."
+        return f"Started {program} (pid {program_pid(proc)}) in {session!r}."
 
     def program_output(self, session, program, lines=40):
         session = str(session)
@@ -247,23 +264,41 @@ class Server:
                   else f"exited with status {proc.returncode}")
         tail = log.read_text(errors="replace").splitlines()[
             -int(number(lines, "lines", 1, 2000) or 40):]
-        return f"{program} (pid {proc.pid}) is {status}. Its output:\n" + (
+        return f"{program} (pid {program_pid(proc)}) is {status}. Its output:\n" + (
             "\n".join(tail) or "(nothing)")
 
     # --- looking -------------------------------------------------------------
 
-    def screenshot(self, session, window=None, crop=None, park=False, vision=None):
+    def screenshot(self, session, window=None, crop=None, park=False, vision=None,
+                   burst=None, every=None):
         s = self.session(session)
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
         if vision and vision not in VISION:
             raise Refused(f"vision is one of {', '.join(sorted(VISION))}, not {vision!r}")
-        s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
+        burst = number(burst, "burst")
+        if burst is not None and not (burst == int(burst) and 2 <= burst <= 12):
+            raise Refused(f"burst is 2 to 12 pictures, not {burst:g}")
+        every = number(every, "every")
+        if every is not None and not 0 <= every <= 5:
+            raise Refused(f"every is 0 to 5 seconds, not {every:g}")
+        if every is not None and not burst:
+            raise Refused("every goes with burst")
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
+        if burst:
+            taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
+                            window=text(window), crop=text(crop), park=flag(park),
+                            vision=vision, sheet=out, sheet_width=SHEET_WIDTH)
+            times = ", ".join(f"{at:.2f}" for _, at in taken)
+            said = (f"{len(taken)} pictures of {what} in rows of four, left to right, "
+                    f"taken at {times} seconds.")
+        else:
+            s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
+            said = f"A picture of {what}."
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
-                {"type": "text", "text": f"A picture of {what}."}]
+                {"type": "text", "text": said}]
 
     def accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
@@ -308,6 +343,39 @@ class Server:
         done = {"down": "Pressed and left down", "up": "Let go of"}.get(
             state, f"Held for {hold:g} s" if hold is not None else "Pressed")
         return f"{done} " + ", ".join(chords) + "."
+
+    def gamepad(self, session, action, pad=1, buttons=None, which=None, x=None, y=None,
+                value=None, hold=None, state=None):
+        s = self.session(session)
+        n = within(pad, "pad", 1, 4, whole=True) or 1
+        hold, state = held(hold, state)
+        if action == "press":
+            names = words(buttons)
+            if not names:
+                raise Refused("press takes buttons, like [\"a\"] or \"lb rb\"")
+            s.pad_press(names, n, hold=hold, state=state)
+            done = {"down": "Pressed and left down", "up": "Let go of"}.get(
+                state, f"Held for {hold:g} s" if hold is not None else "Pressed")
+            return f"{done} {', '.join(names)} on pad {n}."
+        if state:
+            raise Refused("state goes with press; a stick or trigger stays where it's put")
+        if action in ("stick", "trigger"):
+            if which not in ("left", "right"):
+                raise Refused(f"which is left or right, not {which!r}")
+            if action == "stick":
+                px, py = within(x, "x", -1, 1) or 0, within(y, "y", -1, 1) or 0
+                s.pad_stick(which, px, py, n, hold=hold)
+                put = f"Pushed the {which} stick to {px:g}, {py:g}"
+            else:
+                v = within(value, "value", 0, 1) or 0
+                s.pad_trigger(which, v, n, hold=hold)
+                put = f"Pulled the {which} trigger to {v:g}"
+            let_go = f" for {hold:g} s, then let go" if hold is not None else ""
+            return f"{put}{let_go}, on pad {n}."
+        if action == "neutral":
+            s.pad_neutral(n)
+            return f"Let go of everything on pad {n}."
+        raise Refused(f"action is press, stick, trigger or neutral, not {action!r}")
 
     def type_text(self, session, text):
         self.session(session).type(str(text))
@@ -382,6 +450,9 @@ def schema(props, required=()):
 
 
 SESSION = {"type": "string", "description": "The session's name, as start_session gave it"}
+# A burst's sheet is one image: shrunk to this many pixels across, it's
+# still readable and not a dozen screens' worth.
+SHEET_WIDTH = 1920
 HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}
@@ -404,6 +475,8 @@ TOOLS = [
              "wayland": {"type": "boolean"}, "xwayland": {"type": "boolean"},
              "dark": {"type": "boolean"}, "high_contrast": {"type": "boolean"},
              "text_scale": {"type": "number"}, "audio": {"type": "boolean"},
+             "gamepads": {"type": "integer",
+                          "description": "Virtual Xbox 360 pads, 0 to 4, for the gamepad tool"},
              "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"}})),
     ("stop_session", "Stop a session and everything running in it.",
      schema({"session": SESSION}, ["session"])),
@@ -436,10 +509,13 @@ TOOLS = [
      "accessible tree; take the window rather than the screen, and crop when you need a "
      "part. park moves the pointer out of the way first, so nothing shows its hover. "
      "vision shows it as someone with that color vision sees it, to check nothing is "
-     "told apart by color alone.",
+     "told apart by color alone. burst takes several, every seconds apart, as one image "
+     "in rows of four: for motion, an animation or a transition.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
              "park": {"type": "boolean"},
+             "burst": {"type": "integer", "description": "Pictures to take, 2 to 12"},
+             "every": {"type": "number", "description": "With burst, seconds between them"},
              "vision": {"type": "string", "enum": sorted(VISION),
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"}},
@@ -464,6 +540,21 @@ TOOLS = [
      "click while a key is held).",
      schema({"session": SESSION, "keys": {"type": "array", "items": {"type": "string"}},
              "hold": HOLD, "state": STATE}, ["session", "keys"])),
+    ("gamepad",
+     "Work a virtual gamepad, in a session started with gamepads: press buttons (a b x y "
+     "lb rb back start guide ls rs, and the d-pad's up down left right) together, tapped, "
+     "held for hold seconds, or with state down left down until a call with state up; push "
+     "a stick (which: left or right) to x, y, each -1 to 1 with y down; pull a trigger to "
+     "value, 0 to 1; or neutral, letting go of everything. A stick or trigger stays where "
+     "it's put, unless hold says for how long. Programs in the session see a real Xbox 360 "
+     "controller, and none of the machine's.",
+     schema({"session": SESSION,
+             "action": {"type": "string", "enum": ["press", "stick", "trigger", "neutral"]},
+             "pad": {"type": "integer", "description": "Which pad (1)"},
+             "buttons": {"type": "array", "items": {"type": "string"}},
+             "which": {"type": "string", "enum": ["left", "right"]},
+             "x": {"type": "number"}, "y": {"type": "number"}, "value": {"type": "number"},
+             "hold": HOLD, "state": STATE}, ["session", "action"])),
     ("type_text",
      "Type text into whatever has the keyboard focus. ASCII only.",
      schema({"session": SESSION, "text": {"type": "string"}}, ["session", "text"])),

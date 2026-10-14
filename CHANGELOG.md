@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Holding keys and buttons, and pictures as colorblind eyes see them.
+Holding keys and buttons, pictures as colorblind eyes see them, bursts, and gamepads.
 
 ### Added
 
@@ -17,9 +17,19 @@ Holding keys and buttons, and pictures as colorblind eyes see them.
 - **`shotbox vision IN OUT --as KIND`**, and `--vision KIND` on `capture`
   and `shoot`: a picture as someone with protanopia, deuteranopia or
   tritanopia sees it (Machado et al., 2009, at full severity), or in gray.
+- **`capture --burst N`**, with `--every SECS` and `--sheet FILE`: several
+  pictures, numbered and timed, and a sheet of them, for motion.
+- **`--gamepads N`** and **`shotbox pad`**: virtual Xbox 360 controllers,
+  made with uinput, that only the session's programs see: each runs under
+  bubblewrap with a `/dev/input` of its own, and the machine's raw HID and
+  USB devices masked. Worked with `pad press`, `stick`, `trigger` and
+  `neutral`; what's left down stays down between commands. MCP:
+  `start_session` takes `gamepads`, and a `gamepad` tool.
+- **`term --shoot`** passes `--audio` on to the session it starts.
 - **MCP:** `press_keys` and `click` take `hold` (seconds) and `state` (down
   or up), which last across calls on Wayland too, since a session keeps its
-  input connection; `screenshot` takes `vision`.
+  input connection; `screenshot` takes `vision`, and `burst` and `every` for
+  a burst as one sheet.
 
 ## 0.4.3 — 2026-10-13
 

@@ -112,9 +112,10 @@ def shoot(args):
     outer += ["--system-bus"] * args.system_bus + ["--keep"] * args.keep
     outer += ["--wayland"] * args.wayland + ["--xwayland"] * args.xwayland
     outer += ["--a11y"] * args.a11y + ["--dark"] * args.dark
-    outer += ["--high-contrast"] * args.high_contrast
+    outer += ["--high-contrast"] * args.high_contrast + ["--audio"] * args.audio
     for opt, value in (("--failed", args.failed), ("--seed", args.seed),
-                       ("--announce-log", args.announce_log), ("--text-scale", args.text_scale)):
+                       ("--announce-log", args.announce_log), ("--text-scale", args.text_scale),
+                       ("--gamepads", args.gamepads)):
         if value:
             outer += [opt, str(value)]
     for e in args.env:

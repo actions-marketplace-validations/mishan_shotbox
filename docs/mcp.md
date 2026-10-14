@@ -80,12 +80,13 @@ adds is clicks and keys on a display no one else is looking at.
 
 | | |
 |---|---|
-| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size |
+| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size, gamepads |
 | `spawn`, `program_output` | a program from the list, and how it's doing |
 | `accessible_tree` | the tree, a node a line, with bounds if asked |
-| `screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it |
+| `screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |
 | `click` | by a node's name (and role), or a point, the button held a while or left down if asked |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
+| `gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, or the focus |
 | `lint`, `contrast`, `tab_walk` | the checks `shotbox a11y` makes |
 | `announcements` | what's been announced to a screen reader |

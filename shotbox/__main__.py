@@ -8,7 +8,7 @@
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
     shotbox wait window|port|file|ready|stable|announce ARG
                                                     (inside a session) wait for it
-    shotbox capture OUT.png [--window RE]           (inside a session) take a picture
+    shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox key CHORD...                            (inside a session) press keys
     shotbox type TEXT                               (inside a session) type text
     shotbox click X Y [--window RE]                 (inside a session) click there
@@ -16,6 +16,7 @@
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
+    shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
@@ -91,6 +92,10 @@ def session_options(p):
     g.add_argument("--high-contrast", action="store_true", help="the high-contrast style")
     g.add_argument("--text-scale", type=scale, metavar="N",
                    help="scale text by N (1.25), as the desktop's text scaling does")
+    g.add_argument("--gamepads", type=int, default=0, metavar="N",
+                   help="N virtual Xbox 360 pads (1 to 4), seen only by the session's "
+                        "programs, for `shotbox pad`; needs write access to /dev/uinput, "
+                        "and bubblewrap")
 
 
 def make_session(a):
@@ -103,7 +108,7 @@ def make_session(a):
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
-                   audio=a.audio)
+                   audio=a.audio, gamepads=a.gamepads)
 
 
 def self_command():
@@ -291,8 +296,22 @@ def cmd_capture(argv):
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
     vision_option(p)
+    p.add_argument("--burst", type=int, metavar="N",
+                   help="take N pictures, to OUT-1.png, OUT-2.png...: for motion")
+    p.add_argument("--every", type=seconds, default=0, metavar="SECS",
+                   help="with --burst: start one every SECS (default: as fast as they come)")
+    p.add_argument("--sheet", metavar="FILE",
+                   help="with --burst: all the pictures in rows of four here too")
     a = p.parse_args(argv)
-    inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision)
+    if a.burst is None:
+        if a.every or a.sheet:
+            p.error("--every and --sheet go with --burst")
+        inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision)
+        return 0
+    taken = inside().burst(a.out, a.burst, every=a.every, window=a.window, crop=a.crop,
+                           park=a.park, vision=a.vision, sheet=a.sheet)
+    for path, at in taken:
+        print(f"{path}  {at:.3f}s")
     return 0
 
 
@@ -343,14 +362,14 @@ def held_here(screen, a):
     return screen
 
 
-def held_options(p, what, them):
-    """--hold SECS, --down and --up, for keys and buttons."""
+def held_options(p, what, them, where=" (X11; on Wayland, use --hold)"):
+    """--hold SECS, --down and --up, for keys and buttons; `where` --down
+    works."""
     g = p.add_mutually_exclusive_group()
     g.add_argument("--hold", type=seconds, metavar="SECS",
                    help=f"press {what}, keep {them} down this long, then let go")
     g.add_argument("--down", dest="state", action="store_const", const="down",
-                   help=f"press {what} and leave {them} down, until --up (X11; on "
-                        "Wayland, use --hold)")
+                   help=f"press {what} and leave {them} down, until --up{where}")
     g.add_argument("--up", dest="state", action="store_const", const="up",
                    help=f"let go of {what}, pressed with --down")
     return g
@@ -425,6 +444,39 @@ def cmd_focus(argv):
                    help="its title, a regex matched in full, or app=RE for its app id")
     a = p.parse_args(argv)
     inside().focus_window(a.window)
+    return 0
+
+
+def cmd_pad(argv):
+    p = argparse.ArgumentParser(prog="shotbox pad",
+                                description="Inside a session started with --gamepads: "
+                                            "work a gamepad. What's left down stays down "
+                                            "between commands, on X11 and Wayland alike.")
+    p.add_argument("--pad", type=int, default=1, metavar="N", help="which pad (1)")
+    sub = p.add_subparsers(dest="what", required=True)
+    press = sub.add_parser("press", help="press buttons together: a b x y lb rb back start "
+                                         "guide ls rs, and up down left right")
+    press.add_argument("buttons", nargs="+", metavar="BUTTON")
+    held_options(press, "the buttons", "them", where="")
+    for name, args, what in (("stick", ("x", "y"), "push a stick to X Y, each -1 to 1, y down"),
+                             ("trigger", ("value",), "pull a trigger, 0 to 1")):
+        q = sub.add_parser(name, help=what)
+        q.add_argument("which", choices=("left", "right"))
+        for arg in args:
+            q.add_argument(arg, type=float)
+        q.add_argument("--hold", type=seconds, metavar="SECS",
+                       help="for this long, then let go (else it stays there)")
+    sub.add_parser("neutral", help="let go of everything: buttons up, sticks centered")
+    a = p.parse_args(argv)
+    s = inside()
+    if a.what == "press":
+        s.pad_press(a.buttons, a.pad, hold=a.hold, state=a.state)
+    elif a.what == "stick":
+        s.pad_stick(a.which, a.x, a.y, a.pad, hold=a.hold)
+    elif a.what == "trigger":
+        s.pad_trigger(a.which, a.value, a.pad, hold=a.hold)
+    else:
+        s.pad_neutral(a.pad)
     return 0
 
 
@@ -519,13 +571,15 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "capture": cmd_capture, "compare": cmd_compare, "vision": cmd_vision, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main,
+            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "pad": cmd_pad,
+            "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
             "sessions": cmd_sessions}
 
 # What --session puts inside a lasting session.
-INSIDE = ("wait", "capture", "key", "type", "click", "move", "drag", "park", "focus", "a11y")
+INSIDE = ("wait", "capture", "key", "type", "click", "move", "drag", "park", "focus", "pad",
+          "a11y")
 
 
 def main(argv=None):
@@ -542,7 +596,7 @@ def main(argv=None):
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
-        if argv[0] in ("key", "click"):
+        if argv[0] in ("key", "click", "pad"):
             # Stopped mid-hold (by kill, timeout(1) or a closed terminal),
             # let go on the way out.
             for sig in (signal.SIGTERM, signal.SIGHUP):
