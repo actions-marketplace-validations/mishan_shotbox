@@ -2,6 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/shotbox)](https://pypi.org/project/shotbox/)
 [![npm](https://img.shields.io/npm/v/shotbox)](https://www.npmjs.com/package/shotbox)
+[![CI](https://github.com/mishan/shotbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mishan/shotbox/actions/workflows/ci.yml)
 
 Reproducible screenshots of real programs, taken where they can't touch your
 desktop.

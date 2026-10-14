@@ -17,6 +17,13 @@ changelog's newest heading; `test/run.sh` fails if they disagree.
    git tag vX.Y.Z && git push origin vX.Y.Z
    ```
 
+4. Once `release.yml` has published it, add the release on GitHub, with
+   the changelog's section for it as its notes:
+
+   ```
+   gh release create vX.Y.Z --verify-tag --title X.Y.Z --notes-file NOTES.md
+   ```
+
 `.github/workflows/release.yml` then runs the tests (`ci.yml`, including
 its build of both packages from scratch), checks the tag is the version,
 and publishes to PyPI and npm.

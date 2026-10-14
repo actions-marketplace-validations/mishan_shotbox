@@ -64,6 +64,9 @@ SEALED_ENV = {
     "TZ": "UTC",
     "GDK_BACKEND": "x11",
     "GSK_RENDERER": "cairo",
+    # Cairo needs no GL, but GTK 4 opens EGL anyway, and Mesa warns on
+    # Xvfb that it has no DRI3.
+    "GDK_DISABLE": "gl",
     "ADW_DISABLE_PORTAL": "1",
     "GDK_DEBUG": "no-portals",
     "GTK_A11Y": "none",
