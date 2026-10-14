@@ -85,7 +85,7 @@ APP = Path(__file__).resolve().parent / "a11y_app.py"
 def a11y():
     with shotbox.Session(size=(640, 480), a11y=True) as s:
         s.spawn([str(APP)])
-        # "push button" until at-spi2-core 2.62, "button" since.
+        # "push button" until at-spi2-core 2.54, "button" since.
         roles = sorted(n.role for n in s.find(name="Save", window="a11y-test"))
         button = [r for r in roles if r != "label"]
         check(len(roles) == 2 and "label" in roles and button[0] in ("button", "push button"),
