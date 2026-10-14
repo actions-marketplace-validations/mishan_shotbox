@@ -768,11 +768,14 @@ class Session(Screen):
         if os.sep in program:
             path = os.path.join(cwd or os.getcwd(), program)
             found = os.path.isfile(path) and path
+            runs = found and os.access(found, os.X_OK)
         else:
-            found = shutil.which(program, mode=os.F_OK, path=self.env.get("PATH"))
+            # As exec does: the first that runs, past any on PATH that don't.
+            runs = shutil.which(program, path=self.env.get("PATH"))
+            found = runs or shutil.which(program, mode=os.F_OK, path=self.env.get("PATH"))
         if not found:
             return "No such file or directory"
-        if not shutil.which(found, mode=os.F_OK | os.X_OK):
+        if not runs:
             return "Permission denied (not executable)"
         return None
 
@@ -782,17 +785,18 @@ class Session(Screen):
         """Start `cmd` inside the session, in its own process group. Output
         goes to `log` (a path) if given, else through. With gamepads, it runs
         under bubblewrap, with a /dev/input that has only the session's."""
-        info = None
         if self._pad_nodes:
             why = self._runnable(cmd[0], kw.get("cwd"))
             if why:
                 raise SessionError(f"can't run {cmd[0]}: {why}")
-            # bwrap says the program's own pid down this pipe.
-            info, w = os.pipe()
-            kw["pass_fds"] = (*kw.get("pass_fds", ()), w)
-            cmd = [*self._sandbox(), "--info-fd", str(w), "--", *cmd]
         out = open(log, "ab") if log else None
+        info = None
         try:
+            if self._pad_nodes:
+                # bwrap says the program's own pid down this pipe.
+                info, w = os.pipe()
+                kw["pass_fds"] = (*kw.get("pass_fds", ()), w)
+                cmd = [*self._sandbox(), "--info-fd", str(w), "--", *cmd]
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,
                                     start_new_session=True, **kw)
         except OSError as e:

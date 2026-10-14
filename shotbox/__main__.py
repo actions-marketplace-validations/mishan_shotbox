@@ -596,7 +596,7 @@ def main(argv=None):
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
-        if argv[0] in ("key", "click"):
+        if argv[0] in ("key", "click", "pad"):
             # Stopped mid-hold (by kill, timeout(1) or a closed terminal),
             # let go on the way out.
             for sig in (signal.SIGTERM, signal.SIGHUP):

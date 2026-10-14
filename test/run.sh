@@ -671,7 +671,7 @@ if [ -w /dev/uinput ] && command -v bwrap >/dev/null && bwrap --dev-bind / / tru
   # and uinput can't be opened inside, and there's no /dev/bus/usb to scan.
   "$sb" run --gamepads 1 -- sh -c 'for f in /dev/hidraw* /dev/uhid /dev/usb/hiddev* /dev/uinput; do
       [ -e "$f" ] && { [ -c "$f" ] || head -c0 "$f"; } 2>/dev/null && echo "$f"; done
-    ls /dev/bus/usb 2>/dev/null' > "$tmp/seal.out" \
+    [ ! -d /dev/bus/usb ] || ls /dev/bus/usb' > "$tmp/seal.out" \
     && [ ! -s "$tmp/seal.out" ] && ok "gamepads: the machine's HID, USB and uinput, masked" \
     || fail "gamepads: reachable: $(cat "$tmp/seal.out")"
   # The pad server goes with the process that started it, even killed.
@@ -711,22 +711,28 @@ for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\",
     python3 -c 'import os, socket, time; s = socket.socket(socket.AF_UNIX); s.connect(os.environ[\"SHOTBOX_SCRATCH\"] + \"/pads.sock\"); time.sleep(8)' &
     sleep 0.2; '$sb' pad press x && '$sb' pad press down --down && '$sb' pad press up &&
     '$sb' pad neutral && ! '$sb' pad stick left 5 0 2> '$tmp/range' &&
-    ! '$sb' pad --pad 2 press a 2>> '$tmp/range' && ! '$sb' pad --pad 0 press a 2>> '$tmp/range' && sleep 0.3" \
+    ! '$sb' pad --pad 2 press a 2>> '$tmp/range' && ! '$sb' pad --pad 0 press a 2>> '$tmp/range' &&
+    { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; }" \
     && grep -q "^key 307 1" "$tmp/pad2.log" && grep -q "goes from -1 to 1, not 5" "$tmp/range" \
+    && grep -q "^key 305 0" "$tmp/pad2.log" \
     && [ "$(grep '^abs 17' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 17 1 abs 17 0 abs 17 1 abs 17 0 " ] \
     && grep -q "no pad 2: the session has 1" "$tmp/range" && grep -q "numbered from 1, not 0" "$tmp/range" \
-    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused" \
+    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go" \
     || fail "gamepads: bad clients and ranges: $(cat "$tmp/range")"
   # A program named by a path relative to where it's spawned from: found
-  # there, not where the session runs; one that can't run, said why.
-  mkdir -p "$tmp/rel"; printf '#!/bin/sh\ntouch ran\n' > "$tmp/rel/prog"; chmod +x "$tmp/rel/prog"
+  # there, not where the session runs; one on PATH past one of the same
+  # name that can't run; one that can't run, said why.
+  mkdir -p "$tmp/rel" "$tmp/path1" "$tmp/path2"; printf '#!/bin/sh\ntouch ran\n' > "$tmp/rel/prog"; chmod +x "$tmp/rel/prog"
   printf '#!/bin/sh\n' > "$tmp/rel/noexec"
-  "$sb" start --name "pads$$" --gamepads 1 >/dev/null
+  printf '#!/bin/sh\n' > "$tmp/path1/onpath"; printf '#!/bin/sh\ntouch ran2\n' > "$tmp/path2/onpath"; chmod +x "$tmp/path2/onpath"
+  "$sb" start --name "pads$$" --gamepads 1 --env "PATH=$tmp/path1:$tmp/path2:$PATH" >/dev/null
   (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./prog >/dev/null) \
     && "$sb" --session "pads$$" wait file "$tmp/rel/ran" --timeout 10 \
+    && (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- onpath >/dev/null) \
+    && "$sb" --session "pads$$" wait file "$tmp/rel/ran2" --timeout 10 \
     && ! (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./noexec 2> "$tmp/err") \
     && grep -q "not executable" "$tmp/err" \
-    && ok "gamepads: a program by a relative path, from where it's spawned" || fail "gamepads: relative path"
+    && ok "gamepads: a program by a relative path, from where it's spawned, or on PATH past one that can't run" || fail "gamepads: relative path"
   "$sb" stop "pads$$"
   "$sb" term --shoot "$tmp/term-pad.png" --gamepads 1 --log "$tmp/term-pad.log" --size 40x4 -- \
     sh -c 'ls /dev/input' >/dev/null && grep -aq event "$tmp/term-pad.log" \
