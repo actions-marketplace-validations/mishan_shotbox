@@ -201,6 +201,24 @@ chords() {
     && grep -aq 'A!+' "$log" && grep -aq "$(printf '\033')\[Z" "$log"
 }
 
+# held LOG [SESSION OPTIONS]: keys and a button held for a while, into
+# test/held.py, which logs each press and release with its time; prints
+# what came in, pressed (+) or let go (-), a button said once.
+held() {
+  log=$1; shift
+  : > "$log"
+  "$sb" run "$@" -- sh -c "'$here/held.py' held '$log' &
+    '$sb' wait window held && '$sb' wait stable --window held &&
+    '$sb' click 50 50 --window held && '$sb' key --hold 0.4 a d &&
+    '$sb' click 60 60 --window held --hold 0.3; st=\$?; sleep 0.3; exit \$st" || return 1
+  awk '{ s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$log"
+}
+# How long the key a was held in LOG, in hundredths of a second.
+held_for() {
+  awk '$2 == "a" { t[$1] = $3 } END { printf "%d", (t["release"] - t["press"]) * 100 }' "$1"
+}
+want_held="+button1 -button1 +a +d -d -a +button1 -button1 "
+
 # Input: a click for focus, typed text with shifted symbols, and chords.
 "$sb" run -- sh -c "
   '$sb' term --size 40x6 --log '$tmp/input.log' -- sh -c cat & t=\$!
@@ -212,6 +230,44 @@ chords() {
   && ok "click, type and key reach the program" || fail "input"
 chords "$tmp/chords.log" && ok "shift in a chord: the shifted symbol, and back-tab" \
   || fail "shift chords"
+got=$(held "$tmp/held.log")
+[ "$got" = "$want_held" ] && [ "$(held_for "$tmp/held.log")" -ge 35 ] \
+  && ok "key and click --hold: held together, let go last first" || fail "hold: $got"
+# --down and --up: a key left down between two commands, X11's server keeps it.
+: > "$tmp/down.log"
+"$sb" run -- sh -c "'$here/held.py' held '$tmp/down.log' &
+  '$sb' wait window held && '$sb' wait stable --window held &&
+  '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
+  sleep 0.3" && awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' \
+  "$tmp/down.log" && ok "key --down, then --up: held between commands" || fail "--down, --up"
+# Two held chords sharing Ctrl: letting go of one leaves Ctrl down for the
+# other, and one is let go however it's spelled. A chord it can't press is said before anything goes down, a hold
+# that isn't one is refused, and a hold stopped midway lets go.
+: > "$tmp/mods.log"
+"$sb" run -- sh -c "'$here/held.py' held '$tmp/mods.log' &
+  '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
+  '$sb' key --down Control+c && '$sb' key --down ctrl+d && '$sb' key --up ctrl+d && echo mark >> '$tmp/mods.log' &&
+  '$sb' key --up ctrl+c && ! '$sb' key --hold 0.2 b bogus 2>/dev/null &&
+  ! '$sb' key --hold -1 b 2>/dev/null && { '$sb' key --hold 30 e & k=\$!; sleep 0.5; kill \$k; wait \$k;
+  sleep 0.3; }"
+got=$(awk '$1 == "mark" { printf "| "; next }
+  { s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$tmp/mods.log")
+[ "$got" = "+button1 -button1 +Control_L +c +d -d | -c -Control_L +e -e " ] \
+  && ok "held chords share a modifier; a bad chord or hold presses nothing; stopped, it lets go" \
+  || fail "held modifiers: $got"
+# While Shift+W is held, a key pressed and let go (or typed) leaves Shift
+# down for W; a chord held twice is pressed once, a hold or a tap over it
+# doesn't let it go, and it's let go however it's spelled.
+: > "$tmp/twice.log"
+"$sb" run -- sh -c "'$here/held.py' held '$tmp/twice.log' &
+  '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
+  '$sb' key --down shift+w && '$sb' key shift+a && '$sb' type B && '$sb' key shift+w && '$sb' key --down shift+w &&
+  '$sb' key --hold 0.1 shift+w && echo mark >> '$tmp/twice.log' && '$sb' key --up W && sleep 0.3"
+got=$(awk '$1 == "mark" { printf "| "; next }
+  { s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$tmp/twice.log")
+[ "$got" = "+button1 -button1 +Shift_L +W +A -A +B -B | -W -Shift_L " ] \
+  && ok "keys tapped while one's held keep its modifier; held twice, or tapped, it stays down" \
+  || fail "tap while held: $got"
 set +e; "$sb" key ctrl+comma 2>/dev/null; st=$?; set -e
 [ $st != 0 ] && ok "input needs a session" || fail "key ran outside a session"
 
@@ -498,6 +554,27 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     && ok "wayland: click, type and key reach the program" || fail "wayland: input"
   chords "$tmp/wl-chords.log" --wayland \
     && ok "wayland: shift in a chord: the shifted symbol, and back-tab" || fail "wayland: shift chords"
+  got=$(held "$tmp/wl-held.log" --wayland)
+  [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/wl-held.log")" -ge 35 ] \
+    && ok "wayland: key and click --hold" || fail "wayland: hold: $got"
+  set +e; "$sb" run --wayland -- "$sb" key --down w 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && grep -q "use --hold" "$tmp/err" \
+    && ok "wayland: key --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
+  # Shift+W held by one command: keys pressed, typed or held by others are
+  # shifted too, and pressing W again doesn't let it go. And a hold killed
+  # outright, which can't let go, is cleared with --up.
+  : > "$tmp/wl-mods.log"
+  "$sb" run --wayland -- sh -c "'$here/held.py' held '$tmp/wl-mods.log' &
+    '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
+    { '$sb' key --hold 3 shift+w & h=\$!; sleep 0.4; '$sb' key a && '$sb' type b &&
+      '$sb' key --hold 0.2 c && '$sb' key shift+w; wait \$h; } &&
+    { '$sb' key --hold 30 e & k=\$!; sleep 0.4; kill -KILL \$k; } &&
+    '$sb' key --up e && '$sb' key --hold 0.1 e && sleep 0.3"
+  grep -q "press A" "$tmp/wl-mods.log" && grep -q "press B" "$tmp/wl-mods.log" \
+    && grep -q "press C" "$tmp/wl-mods.log" && [ "$(grep -c "release [Ww]" "$tmp/wl-mods.log")" = 1 ] \
+    && [ "$(grep -c "press e" "$tmp/wl-mods.log")" = 2 ] \
+    && ok "wayland: a chord held by one command shifts another's and stays down; a killed hold is let go with --up" \
+    || fail "wayland: held across commands: $(tr '\n' ' ' < "$tmp/wl-mods.log")"
   "$sb" run --wayland -- sh -c "
     '$sb' term --size 40x6 --log '$tmp/wl-keys.log' -- sh -c cat & t=\$!
     '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term &&
@@ -559,6 +636,51 @@ set +e; out=$("$sb" compare "$tmp/ref" "$tmp/new" --diff "$tmp/diffs"); st=$?; s
 set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 [ $st = 2 ] && grep -q "no .*nope.png" "$tmp/err" && ok "compare: a missing picture, said plainly" \
   || fail "compare missing: $st $(cat "$tmp/err")"
+
+# Vision: red, green, blue and gray, as each kind of color vision sees
+# them, against the model worked out here (within 2 levels: ImageMagick
+# rounds a little differently); and a capture taken with --vision is the
+# capture, then that.
+convert -size 4x1 xc:white -fill '#ff0000' -draw 'point 0,0' -fill '#00ff00' -draw 'point 1,0' \
+  -fill '#0000ff' -draw 'point 2,0' -fill '#808080' -draw 'point 3,0' "$tmp/colors.png"
+for kind in protanopia deuteranopia tritanopia gray; do
+  "$sb" vision "$tmp/colors.png" "$tmp/v-$kind.png" --as $kind >/dev/null
+  convert "$tmp/v-$kind.png" -depth 8 txt:- | grep -o '#[0-9A-F]\{6\}' | tr '\n' ' ' > "$tmp/v-$kind.txt"
+done
+python3 - "$tmp" <<'PY' && ok "vision: each kind, as modeled" || fail "vision: colors"
+import sys
+# Machado, Oliveira and Fernandes (2009), severity 1.0, written out here
+# from the paper rather than taken from shotbox, so a typo there shows.
+VISION = {
+    "protanopia": (0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216,
+                   -0.003882, -0.048116, 1.051998),
+    "deuteranopia": (0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413,
+                     -0.011820, 0.042940, 0.968881),
+    "tritanopia": (1.255528, -0.076749, -0.178779, -0.078411, 0.930809, 0.147602,
+                   0.004733, 0.691367, 0.303900),
+    "gray": (0.2126, 0.7152, 0.0722) * 3,
+}
+def lin(c):
+    c /= 255
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+def enc(v):
+    v = min(max(v, 0), 1)
+    return round(255 * (12.92 * v if v <= 0.0031308 else 1.055 * v ** (1 / 2.4) - 0.055))
+bad = 0
+for kind, m in VISION.items():
+    got = open(f"{sys.argv[1]}/v-{kind}.txt").read().split()
+    for rgb, g in zip([(255, 0, 0), (0, 255, 0), (0, 0, 255), (128, 128, 128)], got):
+        want = [enc(sum(m[r * 3 + i] * lin(c) for i, c in enumerate(rgb))) for r in range(3)]
+        if any(abs(w - int(g[1 + 2 * r:3 + 2 * r], 16)) > 2 for r, w in enumerate(want)):
+            print(f"  {kind}: {rgb} is {g}, not {want}")
+            bad += 1
+sys.exit(bad)
+PY
+"$sb" run -- sh -c "'$here/window.py' vis & '$sb' wait window vis && '$sb' wait stable --window vis &&
+  '$sb' capture '$tmp/vis.png' --window vis && '$sb' capture '$tmp/vis-d.png' --window vis --vision deuteranopia" \
+  && "$sb" vision "$tmp/vis.png" "$tmp/vis-d2.png" --as deuteranopia >/dev/null \
+  && cmp -s "$tmp/vis-d.png" "$tmp/vis-d2.png" && ok "capture --vision: the picture, as seen" \
+  || fail "capture --vision"
 
 # Node.
 node --test --test-reporter=spec "$here"/node.test.mjs >"$tmp/node.log" 2>&1 && ok "node helpers" \

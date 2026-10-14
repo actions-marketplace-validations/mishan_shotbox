@@ -34,6 +34,19 @@ class XError(RuntimeError):
     pass
 
 
+def parse_chord(spec):
+    """A chord's (keysym, modifier keysyms): `ctrl+comma`, `Return`,
+    `alt+shift+Tab`. A lone `+` is the plus key."""
+    *mods, key = spec.split("+") if spec != "+" else ["+"]
+    for m in mods:
+        if m.lower() not in MODIFIERS:
+            raise XError(f"unknown modifier {m!r} in {spec!r}")
+    sym = KEYSYMS.get(key, ord(key) if len(key) == 1 else None)
+    if sym is None:
+        raise XError(f"unknown key {key!r} in {spec!r}")
+    return sym, [MODIFIERS[m.lower()] for m in mods]
+
+
 def _pad(n):
     return (4 - n % 4) % 4
 
@@ -148,39 +161,68 @@ class Display:
             raise XError(f"no key for keysym 0x{keysym:x} in this keymap")
         return self.keymap[keysym]
 
-    def press(self, keysym, modifiers=()):
-        """Press and release one key, holding the modifier keysyms down, and
-        Shift too if the key's symbol is on its shifted level."""
+    def _codes(self, keysym, modifiers):
+        """The key's keycode, and the modifiers' to hold with it: Shift too
+        if the key's symbol is on its shifted level."""
         code, shifted = self.keycode(keysym)
         held = [self.keycode(m)[0] for m in modifiers]
         if shifted and SHIFT not in modifiers:
             held.append(self.keycode(SHIFT)[0])
+        return code, held
+
+    def press(self, keysym, modifiers=(), keep=()):
+        """Press and release one key, holding the modifier keysyms down, and
+        leaving down the keys the chords in `keep`, held, hold."""
+        self.down(keysym, modifiers, sync=False)
+        self.up(keysym, modifiers, keep)
+
+    def down(self, keysym, modifiers=(), sync=True):
+        """Press a key, modifiers first, and leave them all down. The X
+        server keeps them down after this connection closes, until `up`."""
+        code, held = self._codes(keysym, modifiers)
         for c in held:
             self._fake(KEY_PRESS, c)
         self._fake(KEY_PRESS, code)
-        self._fake(KEY_RELEASE, code)
-        for c in reversed(held):
-            self._fake(KEY_RELEASE, c)
+        if sync:
+            self.sync()
+
+    def up(self, keysym, modifiers=(), keep=()):
+        """Let go of a key pressed with `down`, then its modifiers, but for
+        the keys the chords in `keep` hold: the server counts no presses, so
+        a key another held chord still needs has to stay down."""
+        code, held = self._codes(keysym, modifiers)
+        kept = set()
+        for spec in keep:
+            k, mods = self._codes(*parse_chord(spec))
+            kept.update(mods, [k])
+        for c in [code, *reversed(held)]:
+            if c not in kept:
+                self._fake(KEY_RELEASE, c)
         self.sync()
 
-    def chord(self, spec):
-        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`.
-        A lone `+` is the plus key."""
-        *mods, key = spec.split("+") if spec != "+" else ["+"]
-        for m in mods:
-            if m.lower() not in MODIFIERS:
-                raise XError(f"unknown modifier {m!r} in {spec!r}")
-        sym = KEYSYMS.get(key, ord(key) if len(key) == 1 else None)
-        if sym is None:
-            raise XError(f"unknown key {key!r} in {spec!r}")
-        self.press(sym, [MODIFIERS[m.lower()] for m in mods])
+    def chord_keys(self, spec):
+        """What a chord presses, however it's spelled: its key's keycode and
+        its modifiers', Shift's for a shifted symbol too; an XError if this
+        keymap can't press it."""
+        code, held = self._codes(*parse_chord(spec))
+        return code, frozenset(held)
 
-    def type(self, text):
+    def chord(self, spec, state=None, keep=()):
+        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
+        or with `state` "down" or "up", only press it or only let it go
+        (leaving down what the chords in `keep` hold)."""
+        sym, mods = parse_chord(spec)
+        if state == "down":
+            self.down(sym, mods)
+        else:
+            (self.up if state == "up" else self.press)(sym, mods, keep)
+
+    def type(self, text, keep=()):
         """Type text, one key at a time. ASCII only: a character is typed by
-        the key its symbol is on."""
+        the key its symbol is on. What the chords in `keep` hold stays down."""
         for ch in text:
             sym = {"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch))
-            self.press(sym)
+            self.press(sym, keep=keep)
 
     def move(self, x, y):
         self._fake(MOTION, 0, x, y)
@@ -191,6 +233,12 @@ class Display:
         for _ in range(count):
             self._fake(BUTTON_PRESS, button)
             self._fake(BUTTON_RELEASE, button)
+        self.sync()
+
+    def button(self, x, y, button=1, state="down"):
+        """Move to x, y and press a button, leaving it down, or let it go."""
+        self.move(x, y)
+        self._fake(BUTTON_PRESS if state == "down" else BUTTON_RELEASE, button)
         self.sync()
 
     def drag(self, x1, y1, x2, y2, button=1, steps=10):

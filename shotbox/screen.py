@@ -17,6 +17,7 @@ Anything that fails raises SessionError, saying what. With `failed` set (or
 $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 """
 
+import contextlib
 import fcntl
 import json
 import os
@@ -262,14 +263,18 @@ class Screen:
         (a dialog) gets neither by itself."""
         self.backend.focus(self.env, self.window(name))
 
-    def capture(self, out, window=None, crop=None, park=False):
+    def capture(self, out, window=None, crop=None, park=False, vision=None):
         """A picture of the display, or of the window named `window`, to
         `out` (a PNG), then cropped (WxH+X+Y). With `park`, the pointer
-        goes out of the way first, so nothing shows its hover."""
+        goes out of the way first, so nothing shows its hover. With
+        `vision` (protanopia, deuteranopia, tritanopia or gray), it's as
+        someone with that color vision sees it."""
         if park:
             self.park()
         self.backend.capture(self.env, out, window=self.window(window) if window else None,
                              crop=crop)
+        if vision:
+            x.vision(out, out, vision)
         return Path(out)
 
     # --- input ----------------------------------------------------------------
@@ -298,22 +303,99 @@ class Screen:
         w = self.window(window)
         return w[4] + px, w[5] + py
 
-    def key(self, *chords):
+    def key(self, *chords, hold=None, state=None):
         """Press and release each chord in turn: ctrl+comma, Return,
-        alt+shift+Tab."""
+        alt+shift+Tab. With `hold`, press them all, keep them down that many
+        seconds, then let go, last first: walking while running, say. With
+        `state` "down" or "up", only press them or only let them go. A chord
+        it can't press is said before any key goes down, and a chord already
+        held down isn't pressed again, or let go by a press."""
         for c in chords:
-            self.xt.chord(c)
+            self.xt.chord_keys(c)
+        if state == "up":
+            self._let_go(chords)
+            return
+        if hold is None and state is None:
+            keep = self._held()
+            for c in chords:
+                self.xt.chord(c, keep=keep)
+            return
+        pressed, done = [], False
+        try:
+            for c in chords:
+                with self._held_keys() as held:
+                    if any(self._same(h, c) for h in held):
+                        continue
+                    pressed.append(c)
+                    self.xt.chord(c, "down", keep=held)
+                    held.append(c)
+            if hold is not None:
+                time.sleep(hold)
+            done = True
+        finally:
+            # After a hold, or if anything went wrong: nothing it pressed
+            # may stay down.
+            if hold is not None or not done:
+                self._let_go(pressed[::-1])
+
+    @contextlib.contextmanager
+    def _held_keys(self):
+        """The chords held down and not yet let go, to change in place: kept
+        in the session's scratch dir, since each command is its own process,
+        and locked while they change, since commands run side by side."""
+        scratch = self.env.get("SHOTBOX_SCRATCH")
+        if not scratch:
+            yield self.__dict__.setdefault("_held_chords", [])
+            return
+        f = Path(scratch) / "held-keys"
+        with open(Path(scratch) / "held-keys.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            held = f.read_text().split() if f.exists() else []
+            yield held
+            f.write_text("".join(f"{c}\n" for c in held))
+
+    def _held(self):
+        """The chords held down, whose keys a key pressed and let go
+        meanwhile mustn't let go of."""
+        with self._held_keys() as held:
+            return list(held)
+
+    def _same(self, a, b):
+        """Whether two chords press the same keys, however spelled: Ctrl+w
+        and control+w, Esc and Escape, W and shift+w."""
+        return self.xt.chord_keys(a) == self.xt.chord_keys(b)
+
+    def _let_go(self, chords):
+        """Let go of each chord, leaving down what chords still held need."""
+        with self._held_keys() as held:
+            for c in chords:
+                held[:] = [h for h in held if not self._same(h, c)]
+                self.xt.chord(c, "up", keep=held)
 
     def type(self, text):
         """Type ASCII text into whatever has the keyboard focus."""
-        self.xt.type(text)
+        self.xt.type(text, keep=self._held())
 
     def move(self, px, py, window=None):
         """Move the pointer to X, Y on the screen, or inside `window`."""
         self.xt.move(*self._at(px, py, window))
 
-    def click(self, px, py, window=None, button=1, double=False):
-        self.xt.click(*self._at(px, py, window), button=button, count=2 if double else 1)
+    def click(self, px, py, window=None, button=1, double=False, hold=None, state=None):
+        """Click at X, Y on the screen, or inside `window`. With `hold`,
+        keep the button down that many seconds; with `state` "down" or "up",
+        only press it or only let it go (moving there first)."""
+        at = self._at(px, py, window)
+        if hold is not None:
+            self.xt.button(*at, button=button, state="down")
+            try:
+                time.sleep(hold)
+            finally:
+                self.xt.button(*at, button=button, state="up")
+            return
+        if state:
+            self.xt.button(*at, button=button, state=state)
+        else:
+            self.xt.click(*at, button=button, count=2 if double else 1)
 
     def drag(self, x1, y1, x2, y2, window=None, button=1):
         dx, dy = self._at(0, 0, window)

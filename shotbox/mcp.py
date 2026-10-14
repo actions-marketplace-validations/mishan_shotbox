@@ -45,6 +45,7 @@ from . import __version__
 from .a11y import Node, unseen
 from .screen import SessionError
 from .session import Session
+from .x import VISION
 from .xtest import XError
 
 # Newest first: a client asking for one of these gets it; any other, the newest.
@@ -131,6 +132,20 @@ def number(v, what, least=None, most=None):
     if least is not None:
         n = max(least, n)
     return n if most is None else min(most, n)
+
+
+def held(hold, state):
+    """press_keys' and click's hold (seconds) and state (down or up). A hold
+    holds up the server, so it's kept short."""
+    hold = number(hold, "hold")
+    if hold is not None and not 0 <= hold <= 60:
+        raise Refused(f"hold is 0 to 60 seconds, not {hold:g}")
+    state = text(state) or None
+    if state not in (None, "down", "up"):
+        raise Refused(f"state is down or up, not {state!r}")
+    if hold is not None and state:
+        raise Refused("hold or state, not both")
+    return hold, state
 
 
 def flag(v):
@@ -237,11 +252,15 @@ class Server:
 
     # --- looking -------------------------------------------------------------
 
-    def screenshot(self, session, window=None, crop=None, park=False):
+    def screenshot(self, session, window=None, crop=None, park=False, vision=None):
         s = self.session(session)
         out = s.scratch / "screenshot.png"
-        s.capture(out, window=text(window), crop=text(crop), park=flag(park))
+        vision = text(vision) or None
+        if vision and vision not in VISION:
+            raise Refused(f"vision is one of {', '.join(sorted(VISION))}, not {vision!r}")
+        s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
         what = f"the window {window!r}" if window else "the whole screen"
+        what += f", as seen with {vision}" if vision else ""
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": f"A picture of {what}."}]
@@ -260,25 +279,35 @@ class Server:
     # --- acting --------------------------------------------------------------
 
     def click(self, session, name=None, role=None, x=None, y=None, window=None,
-              button=1, double=False):
+              button=1, double=False, hold=None, state=None):
         s = self.session(session)
         button, double = int(number(button, "button") or 1), flag(double)
+        hold, state = held(hold, state)
+        if double and (hold is not None or state):
+            raise Refused("double, or hold and state: not together")
         if name is not None:
+            if hold is not None or state:
+                raise Refused("hold and state go with x and y, not a node's name")
             n = self.a11y_session(session).click_node(
                 str(name), role=text(role), window=text(window), button=button, double=double)
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click takes a node's name, or x and y")
         px, py = int(number(x, "x")), int(number(y, "y"))
-        s.click(px, py, window=text(window), button=button, double=double)
-        return f"Clicked at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
+        s.click(px, py, window=text(window), button=button, double=double, hold=hold,
+                state=state)
+        done = {"down": "Pressed and left down", "up": "Let go"}.get(state, "Clicked")
+        return f"{done} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
-    def press_keys(self, session, keys):
+    def press_keys(self, session, keys, hold=None, state=None):
         chords = words(keys)
         if not chords:
             raise Refused("press_keys takes the keys to press, like [\"ctrl+s\"] or \"Tab Tab\"")
-        self.session(session).key(*chords)
-        return "Pressed " + ", ".join(chords) + "."
+        hold, state = held(hold, state)
+        self.session(session).key(*chords, hold=hold, state=state)
+        done = {"down": "Pressed and left down", "up": "Let go of"}.get(
+            state, f"Held for {hold:g} s" if hold is not None else "Pressed")
+        return f"{done} " + ", ".join(chords) + "."
 
     def type_text(self, session, text):
         self.session(session).type(str(text))
@@ -353,6 +382,9 @@ def schema(props, required=()):
 
 
 SESSION = {"type": "string", "description": "The session's name, as start_session gave it"}
+HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
+STATE = {"type": "string", "enum": ["down", "up"],
+         "description": "Only press, leaving it down until a call with up; or only let go"}
 WINDOW = {"type": "string", "description":
           "A window by its title (a regex, matched in full), or app=RE for its app id"}
 
@@ -402,26 +434,36 @@ TOOLS = [
      "A picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look at: "
      "the only way to see colors, layout and what's drawn. Pictures cost far more than the "
      "accessible tree; take the window rather than the screen, and crop when you need a "
-     "part. park moves the pointer out of the way first, so nothing shows its hover.",
+     "part. park moves the pointer out of the way first, so nothing shows its hover. "
+     "vision shows it as someone with that color vision sees it, to check nothing is "
+     "told apart by color alone.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
-             "park": {"type": "boolean"}}, ["session"])),
+             "park": {"type": "boolean"},
+             "vision": {"type": "string", "enum": sorted(VISION),
+                        "description": "protanopia (no red cones), deuteranopia (no green), "
+                                       "tritanopia (no blue), or gray (no color)"}},
+            ["session"])),
     ("click",
      "Click a node by its name, as the accessible tree gives it (a regex, matched in "
      "full; role narrows it, like \"button\" or \"(push )?button\"), or a point by x and "
      "y, on the screen or inside a window. By name is the one to use: it finds the node "
      "wherever it is, raises its window and clicks its middle, and fails saying why when "
      "two nodes match. A click gives a window the keyboard, which nothing else does on "
-     "X11.",
+     "X11. hold and state, by x and y, hold the button as press_keys holds keys.",
      schema({"session": SESSION, "name": {"type": "string"}, "role": {"type": "string"},
              "x": {"type": "integer"}, "y": {"type": "integer"}, "window": WINDOW,
              "button": {"type": "integer", "description": "1 left, 2 middle, 3 right"},
-             "double": {"type": "boolean"}}, ["session"])),
+             "double": {"type": "boolean"},
+             "hold": HOLD, "state": STATE}, ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. "
-     "They go to whatever has the keyboard; click a window first if nothing does.",
-     schema({"session": SESSION, "keys": {"type": "array", "items": {"type": "string"}}},
-            ["session", "keys"])),
+     "They go to whatever has the keyboard; click a window first if nothing does. hold "
+     "presses them all together and keeps them down that long (walking while running); "
+     "state down leaves them down, across calls, until a call with state up (move or "
+     "click while a key is held).",
+     schema({"session": SESSION, "keys": {"type": "array", "items": {"type": "string"}},
+             "hold": HOLD, "state": STATE}, ["session", "keys"])),
     ("type_text",
      "Type text into whatever has the keyboard focus. ASCII only.",
      schema({"session": SESSION, "text": {"type": "string"}}, ["session", "text"])),

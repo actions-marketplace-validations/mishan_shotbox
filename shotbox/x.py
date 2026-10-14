@@ -94,6 +94,29 @@ def capture(env, out, window=None, crop=None):
     return Path(out)
 
 
+# How colors look without one kind of cone, as Machado, Oliveira and
+# Fernandes (2009) model it at full severity: a 3x3 matrix on linear RGB.
+# Gray is no color at all, by luminance.
+VISION = {
+    "protanopia": (0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216,
+                   -0.003882, -0.048116, 1.051998),
+    "deuteranopia": (0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413,
+                     -0.011820, 0.042940, 0.968881),
+    "tritanopia": (1.255528, -0.076749, -0.178779, -0.078411, 0.930809, 0.147602,
+                   0.004733, 0.691367, 0.303900),
+    "gray": (0.2126, 0.7152, 0.0722) * 3,
+}
+
+
+def vision(src, out, kind):
+    """`src` as someone with `kind` of color vision (a VISION key) sees it,
+    to `out`. The two may be the same file."""
+    matrix = " ".join(f"{v:.6f}" for v in VISION[kind])
+    subprocess.run(CONVERT + [str(src), "-colorspace", "RGB", "-color-matrix", f"3x3: {matrix}",
+                              "-colorspace", "sRGB"] + QUIET_PNG + [str(out)], check=True)
+    return Path(out)
+
+
 def try_capture(env, out, backend=None):
     """Screenshot the whole display for a look at what went wrong: the path,
     or None if there was no display left to take. `backend` is the module

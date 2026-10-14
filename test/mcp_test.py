@@ -35,6 +35,7 @@ allow = tmp / "programs"
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
+                 f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -110,6 +111,11 @@ try:
     check(len(png) == 1 and png[0]["mimeType"] == "image/png"
           and base64.b64decode(png[0]["data"])[:4] == b"\x89PNG",
           "screenshot: an image, returned")
+    said, bad, content = tool("screenshot", session="t", window="a11y-test", vision="tritanopia")
+    check(not bad and "as seen with tritanopia" in said
+          and any(c["type"] == "image" for c in content), "screenshot: with a kind of color vision")
+    said, bad, _ = tool("screenshot", session="t", vision="martian")
+    check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")
     check(len(said.splitlines()) == 2 and "with no name" in said,
           f"lint, ignoring images given as text ({said!r})")
@@ -120,6 +126,42 @@ try:
           "tab_walk: the order, and where the focus doesn't show")
     said, bad, _ = tool("press_keys", session="t", keys="Tab Tab")
     check(not bad and said == "Pressed Tab, Tab.", "press_keys: keys given as text")
+    # Held keys and buttons, across calls: on Wayland too, since a session
+    # keeps its input connection.
+    # A session of its own: in "t", the window clicked by name keeps the keyboard.
+    tool("start_session", name="h")
+    tool("spawn", session="h", program="held")
+    tool("wait_for", session="h", what="window", value="held", timeout="20")
+    tool("wait_for", session="h", what="stable", window="held")
+    steps = [("click", dict(x=50, y=50, window="held")),
+             ("press_keys", dict(keys="w", state="down")),
+             ("click", dict(x=60, y=60, window="held", state="down")),
+             ("click", dict(x=60, y=60, window="held", state="up")),
+             ("press_keys", dict(keys="w", state="up")),
+             ("press_keys", dict(keys="d", hold="0.3"))]
+    said = [tool(name, session="h", **args) for name, args in steps]
+    time.sleep(0.3)
+    # GTK may say a button twice, and a key held long enough repeats: a
+    # press of what's already down is dropped.
+    events, down = [], set()
+    for what, name in (line.split()[:2] for line in (tmp / "held.log").read_text().splitlines()):
+        if (what == "press") == (name in down):
+            continue
+        (down.add if what == "press" else down.discard)(name)
+        events.append([what, name])
+    want = [["press", "button1"], ["release", "button1"], ["press", "w"],
+            ["press", "button1"], ["release", "button1"], ["release", "w"],
+            ["press", "d"], ["release", "d"]]
+    check(not any(bad for _, bad, _ in said) and events == want
+          and said[1][0] == "Pressed and left down w." and said[5][0] == "Held for 0.3 s d.",
+          f"press_keys and click: held down across calls, and for a while ({events})")
+    said, bad, _ = tool("press_keys", session="h", keys="w", hold=1, state="down")
+    check(bad and "not both" in said, "press_keys: hold and state together, refused")
+    said, bad, _ = tool("press_keys", session="h", keys="w", hold=120)
+    check(bad and "0 to 60" in said, "press_keys: a hold too long, refused")
+    said, bad, _ = tool("click", session="h", x=5, y=5, double=True, hold=1)
+    check(bad and "not together" in said, "click: double with hold, refused")
+    tool("stop_session", session="h")
     said, bad, _ = tool("click", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
     said, bad, _ = tool("program_output", session="t", program="app")

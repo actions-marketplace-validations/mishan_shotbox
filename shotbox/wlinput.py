@@ -24,7 +24,7 @@ import struct
 import time
 
 from . import wl
-from .xtest import KEYSYMS, MODIFIERS, SHIFT, XError
+from .xtest import KEYSYMS, SHIFT, XError, parse_chord
 
 # Real modifier bits, as the keymap below maps them.
 MOD_BITS = {0xFFE1: 0x01, 0xFFE3: 0x04, 0xFFE9: 0x08, 0xFFE7: 0x08, 0xFFEB: 0x40}
@@ -137,6 +137,7 @@ class Display:
         self.sync()
         time.sleep(0.05)
         self.width, self.height = self._size(env)
+        self.held = {}          # keysym: its modifier bits, while `down`
 
     # --- the wire -------------------------------------------------------------
 
@@ -210,38 +211,87 @@ class Display:
     def _mods(self, mask):
         self._send(self.keyboard, 2, struct.pack("<IIII", mask, 0, 0, 0))
 
-    def press(self, keysym, modifiers=()):
-        """Press and release one key, holding the modifier keysyms down, and
-        Shift too if the key's symbol is on its shifted level."""
+    def _code(self, keysym, modifiers):
+        """The key's keycode, and the modifier bits to hold with it: Shift
+        too if the key's symbol is on its shifted level."""
         if keysym not in self.keys:
             raise XError(f"no key for keysym 0x{keysym:x} in shotbox's keymap")
         code, shifted = self.keys[keysym]
         mask = MOD_BITS[SHIFT] if shifted else 0
         for m in modifiers:
             mask |= MOD_BITS[m]
-        if mask:
-            self._mods(mask)
+        return code, mask
+
+    def _held(self, keep):
+        """The modifier bits held keys need, and the keycodes they hold: this
+        keyboard's, and the chords in `keep`, held by other commands, whose
+        keyboards a program doesn't tell apart from this one."""
+        mask, codes = 0, set()
+        for m in self.held.values():
+            mask |= m
+        for spec in keep:
+            code, m = self._code(*parse_chord(spec))
+            mask |= m
+            codes.add(code)
+        return mask, codes
+
+    def press(self, keysym, modifiers=(), keep=()):
+        """Press and release one key, holding the modifier keysyms down, and
+        leaving down what the chords in `keep`, held, hold. A key they hold
+        isn't pressed, as on X11: this keyboard would let go of it when its
+        connection closes, though the other's still holds it."""
+        code, mask = self._code(keysym, modifiers)
+        held, codes = self._held(keep)
+        if code in codes:
+            return
+        self._mods(held | mask)
         self._key(code)
         if mask:
-            self._mods(0)
+            self._mods(held)
         self.sync()
 
-    def chord(self, spec):
-        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`.
-        A lone `+` is the plus key."""
-        *mods, key = spec.split("+") if spec != "+" else ["+"]
-        for m in mods:
-            if m.lower() not in MODIFIERS:
-                raise XError(f"unknown modifier {m!r} in {spec!r}")
-        sym = KEYSYMS.get(key, ord(key) if len(key) == 1 else None)
-        if sym is None:
-            raise XError(f"unknown key {key!r} in {spec!r}")
-        self.press(sym, [MODIFIERS[m.lower()] for m in mods])
+    def down(self, keysym, modifiers=(), keep=()):
+        """Press a key with its modifiers and leave it down, with the
+        modifiers the chords in `keep` hold too. A virtual keyboard's keys go
+        up when its connection closes, so on Wayland a key stays down only
+        as long as this Display does."""
+        code, mask = self._code(keysym, modifiers)
+        self.held[keysym] = mask
+        self._mods(self._held(keep)[0])
+        self._key(code, PRESSED)
+        self.sync()
 
-    def type(self, text):
-        """Type text, one key at a time. ASCII only, as on X11."""
+    def up(self, keysym, modifiers=(), keep=()):
+        """Let go of a key pressed with `down`, and its modifiers, but for
+        what the chords in `keep` hold."""
+        code, _ = self._code(keysym, modifiers)
+        self.held.pop(keysym, None)
+        held, codes = self._held(keep)
+        if code not in codes:
+            self._key(code, RELEASED)
+        self._mods(held)
+        self.sync()
+
+    def chord_keys(self, spec):
+        """What a chord presses, however it's spelled: its keycode and
+        modifier bits; an XError if shotbox's keymap can't press it."""
+        return self._code(*parse_chord(spec))
+
+    def chord(self, spec, state=None, keep=()):
+        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
+        or with `state` "down" or "up", only press it or only let it go
+        (leaving down what the chords in `keep` hold)."""
+        sym, mods = parse_chord(spec)
+        if state == "down":
+            self.down(sym, mods, keep)
+        else:
+            (self.up if state == "up" else self.press)(sym, mods, keep)
+
+    def type(self, text, keep=()):
+        """Type text, one key at a time. ASCII only, as on X11. What the
+        chords in `keep` hold stays down."""
         for ch in text:
-            self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)))
+            self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)), keep=keep)
 
     # --- the pointer ----------------------------------------------------------
 
@@ -266,6 +316,12 @@ class Display:
         for _ in range(count):
             self._button(button, PRESSED)
             self._button(button, RELEASED)
+        self.sync()
+
+    def button(self, x, y, button=1, state="down"):
+        """Move to x, y and press a button, leaving it down, or let it go."""
+        self.move(x, y)
+        self._button(button, PRESSED if state == "down" else RELEASED)
         self.sync()
 
     def drag(self, x1, y1, x2, y2, button=1, steps=10):
