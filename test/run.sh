@@ -712,27 +712,36 @@ for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\",
     sleep 0.2; '$sb' pad press x && '$sb' pad press down --down && '$sb' pad press up &&
     '$sb' pad neutral && ! '$sb' pad stick left 5 0 2> '$tmp/range' &&
     ! '$sb' pad --pad 2 press a 2>> '$tmp/range' && ! '$sb' pad --pad 0 press a 2>> '$tmp/range' &&
-    { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; }" \
+    { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; } &&
+    '$sb' pad press lb --down && '$sb' pad press lb --hold 0.1 && '$sb' pad press lb a &&
+    '$sb' pad press lb --up && sleep 0.3" \
     && grep -q "^key 307 1" "$tmp/pad2.log" && grep -q "goes from -1 to 1, not 5" "$tmp/range" \
     && grep -q "^key 305 0" "$tmp/pad2.log" \
+    && [ "$(grep '^key 310' "$tmp/pad2.log" | tr '\n' ' ')" = "key 310 1 key 310 0 " ] \
     && [ "$(grep '^abs 17' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 17 1 abs 17 0 abs 17 1 abs 17 0 " ] \
     && grep -q "no pad 2: the session has 1" "$tmp/range" && grep -q "numbered from 1, not 0" "$tmp/range" \
-    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go" \
+    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go; one left down stays down" \
     || fail "gamepads: bad clients and ranges: $(cat "$tmp/range")"
   # A program named by a path relative to where it's spawned from: found
   # there, not where the session runs; one on PATH past one of the same
-  # name that can't run; one that can't run, said why.
-  mkdir -p "$tmp/rel" "$tmp/path1" "$tmp/path2"; printf '#!/bin/sh\ntouch ran\n' > "$tmp/rel/prog"; chmod +x "$tmp/rel/prog"
+  # name that can't run, or in a relative PATH entry, from where it's
+  # spawned; one that can't run, said why. The session's PATH is the
+  # program's: a bwrap on it isn't the one shotbox runs.
+  mkdir -p "$tmp/rel/relbin" "$tmp/path1" "$tmp/path2"; printf '#!/bin/sh\ntouch ran\n' > "$tmp/rel/prog"; chmod +x "$tmp/rel/prog"
   printf '#!/bin/sh\n' > "$tmp/rel/noexec"
   printf '#!/bin/sh\n' > "$tmp/path1/onpath"; printf '#!/bin/sh\ntouch ran2\n' > "$tmp/path2/onpath"; chmod +x "$tmp/path2/onpath"
-  "$sb" start --name "pads$$" --gamepads 1 --env "PATH=$tmp/path1:$tmp/path2:$PATH" >/dev/null
+  printf '#!/bin/sh\ntouch ran3\n' > "$tmp/rel/relbin/inrel"; chmod +x "$tmp/rel/relbin/inrel"
+  printf '#!/bin/sh\nexit 1\n' > "$tmp/path1/bwrap"; chmod +x "$tmp/path1/bwrap"
+  "$sb" start --name "pads$$" --gamepads 1 --env "PATH=$tmp/path1:relbin:$tmp/path2:$PATH" >/dev/null
   (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./prog >/dev/null) \
     && "$sb" --session "pads$$" wait file "$tmp/rel/ran" --timeout 10 \
     && (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- onpath >/dev/null) \
     && "$sb" --session "pads$$" wait file "$tmp/rel/ran2" --timeout 10 \
+    && (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- inrel >/dev/null) \
+    && "$sb" --session "pads$$" wait file "$tmp/rel/ran3" --timeout 10 \
     && ! (cd "$tmp/rel" && "$sb" spawn --session "pads$$" -- ./noexec 2> "$tmp/err") \
     && grep -q "not executable" "$tmp/err" \
-    && ok "gamepads: a program by a relative path, from where it's spawned, or on PATH past one that can't run" || fail "gamepads: relative path"
+    && ok "gamepads: a program by a relative path or PATH entry, from where it's spawned, or on PATH past one that can't run; shotbox's bwrap" || fail "gamepads: relative path"
   "$sb" stop "pads$$"
   "$sb" term --shoot "$tmp/term-pad.png" --gamepads 1 --log "$tmp/term-pad.log" --size 40x4 -- \
     sh -c 'ls /dev/input' >/dev/null && grep -aq event "$tmp/term-pad.log" \

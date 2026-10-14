@@ -14,6 +14,7 @@ The standard library only: the ioctls and structs are Linux's, from
 <linux/uinput.h> and <linux/input.h>.
 """
 
+import collections
 import fcntl
 import json
 import os
@@ -90,7 +91,11 @@ class Pad:
         sysname = fcntl.ioctl(self.fd, UI_GET_SYSNAME, bytes(64)).split(b"\0")[0].decode()
         self.nodes = self._nodes(sysname)
         self.state = {}         # (type, code): value, what isn't at rest
-        self.dpad = set()       # d-pad directions down
+        # A button is down while it's left down (state "down", until "up"),
+        # or while any tap or hold of it lasts ("press" to "release"; these
+        # can overlap).
+        self.left = set()
+        self.pressing = collections.Counter()
 
     @staticmethod
     def _nodes(sysname):
@@ -117,17 +122,32 @@ class Pad:
     def _sync(self):
         os.write(self.fd, EVENT.pack(0, 0, EV_SYN, 0, 0))
 
-    def buttons(self, names, down):
+    def _down(self, name):
+        return name in self.left or self.pressing[name] > 0
+
+    def buttons(self, names, state):
+        """Buttons left down or let go ("down", "up"), or a tap or hold of
+        them begun or ended ("press", "release")."""
         for name in names:
+            was = self._down(name)
+            if state == "down":
+                self.left.add(name)
+            elif state == "up":
+                self.left.discard(name)
+            elif state == "press":
+                self.pressing[name] += 1
+            elif self.pressing[name] > 0:
+                self.pressing[name] -= 1
+            if self._down(name) == was:
+                continue
             if name in DPAD:
                 # Each direction goes up on its own: letting go of up while
                 # down is held leaves the pad pointing down.
-                (self.dpad.add if down else self.dpad.discard)(name)
                 code, _ = DPAD[name]
-                ways = [w for n, (c, w) in DPAD.items() if c == code and n in self.dpad]
+                ways = [w for n, (c, w) in DPAD.items() if c == code and self._down(n)]
                 self._emit(EV_ABS, code, ways[-1] if len(ways) == 1 else 0)
             else:
-                self._emit(EV_KEY, BUTTONS[name], int(down))
+                self._emit(EV_KEY, BUTTONS[name], int(self._down(name)))
         self._sync()
 
     def stick(self, which, x, y):
@@ -141,7 +161,8 @@ class Pad:
         self._sync()
 
     def neutral(self):
-        self.dpad.clear()
+        self.left.clear()
+        self.pressing.clear()
         for kind, code in list(self.state):
             self._emit(kind, code, 0)
         self._sync()
@@ -183,7 +204,9 @@ def handle(pads, req):
         if not isinstance(req["names"], list) or not all(isinstance(n, str) for n in req["names"]):
             raise PadError("names is a list of buttons")
         check_names(req["names"])
-        pad.buttons(req["names"], req["state"] == "down")
+        if req["state"] not in ("down", "up", "press", "release"):
+            raise PadError(f"no button state {req['state']!r}")
+        pad.buttons(req["names"], req["state"])
     elif op == "stick":
         pad.stick(req["which"], check_range("a stick", req["x"], -1, 1),
                   check_range("a stick", req["y"], -1, 1))

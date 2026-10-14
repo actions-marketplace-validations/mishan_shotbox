@@ -452,7 +452,8 @@ class Screen:
         """Press gamepad `n`'s buttons (a, b, x, y, lb, rb, back, start,
         guide, ls, rs, and the d-pad's up, down, left, right) together:
         tapped, held `hold` seconds, or with `state` only pressed (left down,
-        across commands) or only let go."""
+        across commands) or only let go. One left down stays down through taps
+        and holds of it, and holds that overlap let go when the last ends."""
         try:
             pad.check_names(names)
         except pad.PadError as e:
@@ -460,11 +461,11 @@ class Screen:
         if state:
             self._pad({"op": "buttons", "pad": n, "names": names, "state": state})
             return
-        self._pad({"op": "buttons", "pad": n, "names": names, "state": "down"})
+        self._pad({"op": "buttons", "pad": n, "names": names, "state": "press"})
         try:
             time.sleep(self.TAP if hold is None else hold)
         finally:
-            self._pad({"op": "buttons", "pad": n, "names": names, "state": "up"})
+            self._pad({"op": "buttons", "pad": n, "names": names, "state": "release"})
 
     def pad_stick(self, which, px, py, n=1, hold=None):
         """Push gamepad `n`'s left or right stick to px, py, each -1 to 1 (y

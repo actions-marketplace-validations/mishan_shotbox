@@ -760,19 +760,25 @@ class Session(Screen):
                 args += ["--ro-bind", masked, str(node)]
         if (dev / "bus/usb").is_dir():
             args += ["--tmpfs", "/dev/bus/usb"]
-        return ["bwrap", *args, "--die-with-parent"]
+        # Found on shotbox's PATH, where the session checked for it: the
+        # session's PATH is the program's.
+        return [shutil.which("bwrap") or "bwrap", *args, "--die-with-parent"]
 
     def _runnable(self, program, cwd):
         """Why `program` can't be run from `cwd` (bwrap would only say so in
         the program's log), or None if it can."""
+        cwd = cwd or os.getcwd()
         if os.sep in program:
-            path = os.path.join(cwd or os.getcwd(), program)
+            path = os.path.join(cwd, program)
             found = os.path.isfile(path) and path
             runs = found and os.access(found, os.X_OK)
         else:
-            # As exec does: the first that runs, past any on PATH that don't.
-            runs = shutil.which(program, path=self.env.get("PATH"))
-            found = runs or shutil.which(program, mode=os.F_OK, path=self.env.get("PATH"))
+            # As exec does from `cwd`: the first that runs, past any on PATH
+            # that don't, a relative or empty entry being from `cwd`.
+            dirs = os.pathsep.join(os.path.join(cwd, d)
+                                   for d in self.env.get("PATH", os.defpath).split(os.pathsep))
+            runs = shutil.which(program, path=dirs)
+            found = runs or shutil.which(program, mode=os.F_OK, path=dirs)
         if not found:
             return "No such file or directory"
         if not runs:
