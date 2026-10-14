@@ -18,6 +18,7 @@
     shotbox focus RE                                (inside a session) give a window the keyboard
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
+    shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
     shotbox compare REFDIR NEWDIR [NAME...]         the same, picture by picture
 
@@ -162,6 +163,7 @@ def cmd_shoot(argv):
                    help="then wait this long for the last paint (0.3)")
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way before the picture")
+    vision_option(p)
     p.add_argument("--timeout", type=float, default=30, metavar="SECS",
                    help="give up on a wait after this long (30)")
     p.add_argument("--log", metavar="FILE", help="keep the command's output here")
@@ -195,7 +197,7 @@ def cmd_shoot(argv):
             crop = a.crop
             if not crop and (s.scratch / "crop").exists():
                 crop = (s.scratch / "crop").read_text().strip()
-            s.capture(a.out, window=a.window, crop=crop, park=a.park)
+            s.capture(a.out, window=a.window, crop=crop, park=a.park, vision=a.vision)
         except SessionError as e:
             sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
             return 1
@@ -280,8 +282,34 @@ def cmd_capture(argv):
     p.add_argument("--crop", metavar="WxH+X+Y")
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
+    vision_option(p)
     a = p.parse_args(argv)
-    inside().capture(a.out, window=a.window, crop=a.crop, park=a.park)
+    inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision)
+    return 0
+
+
+def vision_option(p):
+    p.add_argument("--vision", choices=sorted(x.VISION), metavar="KIND",
+                   help="take it as someone with this color vision sees it: protanopia, "
+                        "deuteranopia, tritanopia, or gray (none)")
+
+
+def cmd_vision(argv):
+    p = argparse.ArgumentParser(prog="shotbox vision",
+                                description="Write a picture as someone with another "
+                                            "kind of color vision sees it, to check "
+                                            "that nothing is told apart by color alone.")
+    p.add_argument("src", metavar="IN.png")
+    p.add_argument("out", metavar="OUT.png")
+    p.add_argument("--as", dest="kind", required=True, choices=sorted(x.VISION), metavar="KIND",
+                   help="protanopia (no red cones), deuteranopia (no green), tritanopia "
+                        "(no blue), or gray (no color)")
+    a = p.parse_args(argv)
+    if not Path(a.src).exists():
+        sys.stderr.write(f"shotbox: no {a.src}\n")
+        return 2
+    x.vision(a.src, a.out, a.kind)
+    print(a.out)
     return 0
 
 
@@ -291,9 +319,33 @@ def cmd_key(argv):
                                             "chord in turn, e.g. ctrl+comma, Return, "
                                             "alt+shift+Tab.")
     p.add_argument("chords", nargs="+", metavar="CHORD")
+    held_options(p, "the chords", "them")
     a = p.parse_args(argv)
-    inside().key(*a.chords)
+    held_here(inside(), a).key(*a.chords, hold=a.hold, state=a.state)
     return 0
+
+
+def held_here(screen, a):
+    """The screen, unless --down or --up can't work on it: a Wayland virtual
+    keyboard's keys and pointer's buttons go up when this command ends."""
+    if a.state and screen.wayland:
+        raise SessionError("on Wayland, what --down presses is let go when the command "
+                           "ends: use --hold SECS instead (in the background, with `&`, "
+                           "to hold it while doing something else)")
+    return screen
+
+
+def held_options(p, what, them):
+    """--hold SECS, --down and --up, for keys and buttons."""
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--hold", type=float, metavar="SECS",
+                   help=f"press {what}, keep {them} down this long, then let go")
+    g.add_argument("--down", dest="state", action="store_const", const="down",
+                   help=f"press {what} and leave {them} down, until --up (X11; on "
+                        "Wayland, use --hold)")
+    g.add_argument("--up", dest="state", action="store_const", const="up",
+                   help=f"let go of {what}, pressed with --down")
+    return g
 
 
 def cmd_type(argv):
@@ -316,10 +368,12 @@ def pointer_command(name, what):
                        help="X and Y are inside this window rather than the screen")
         if name == "click":
             p.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
-            p.add_argument("--double", action="store_true", help="click twice")
+            g = held_options(p, "the button", "it")
+            g.add_argument("--double", action="store_true", help="click twice")
         a = p.parse_args(argv)
         if name == "click":
-            inside().click(a.x, a.y, window=a.window, button=a.button, double=a.double)
+            held_here(inside(), a).click(a.x, a.y, window=a.window, button=a.button,
+                                         double=a.double, hold=a.hold, state=a.state)
         else:
             inside().move(a.x, a.y, window=a.window)
         return 0
@@ -454,7 +508,7 @@ def cmd_compare(argv):
 
 
 COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_wait,
-            "capture": cmd_capture, "compare": cmd_compare, "key": cmd_key,
+            "capture": cmd_capture, "compare": cmd_compare, "vision": cmd_vision, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "a11y": a11y.main,

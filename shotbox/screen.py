@@ -262,14 +262,18 @@ class Screen:
         (a dialog) gets neither by itself."""
         self.backend.focus(self.env, self.window(name))
 
-    def capture(self, out, window=None, crop=None, park=False):
+    def capture(self, out, window=None, crop=None, park=False, vision=None):
         """A picture of the display, or of the window named `window`, to
         `out` (a PNG), then cropped (WxH+X+Y). With `park`, the pointer
-        goes out of the way first, so nothing shows its hover."""
+        goes out of the way first, so nothing shows its hover. With
+        `vision` (protanopia, deuteranopia, tritanopia or gray), it's as
+        someone with that color vision sees it."""
         if park:
             self.park()
         self.backend.capture(self.env, out, window=self.window(window) if window else None,
                              crop=crop)
+        if vision:
+            x.vision(out, out, vision)
         return Path(out)
 
     # --- input ----------------------------------------------------------------
@@ -298,11 +302,18 @@ class Screen:
         w = self.window(window)
         return w[4] + px, w[5] + py
 
-    def key(self, *chords):
+    def key(self, *chords, hold=None, state=None):
         """Press and release each chord in turn: ctrl+comma, Return,
-        alt+shift+Tab."""
+        alt+shift+Tab. With `hold`, press them all, keep them down that many
+        seconds, then let go, last first: walking while running, say. With
+        `state` "down" or "up", only press them or only let them go."""
+        if hold is not None:
+            for c in chords:
+                self.xt.chord(c, "down")
+            time.sleep(hold)
+            chords, state = chords[::-1], "up"
         for c in chords:
-            self.xt.chord(c)
+            self.xt.chord(c, state)
 
     def type(self, text):
         """Type ASCII text into whatever has the keyboard focus."""
@@ -312,8 +323,19 @@ class Screen:
         """Move the pointer to X, Y on the screen, or inside `window`."""
         self.xt.move(*self._at(px, py, window))
 
-    def click(self, px, py, window=None, button=1, double=False):
-        self.xt.click(*self._at(px, py, window), button=button, count=2 if double else 1)
+    def click(self, px, py, window=None, button=1, double=False, hold=None, state=None):
+        """Click at X, Y on the screen, or inside `window`. With `hold`,
+        keep the button down that many seconds; with `state` "down" or "up",
+        only press it or only let it go (moving there first)."""
+        at = self._at(px, py, window)
+        if hold is not None:
+            self.xt.button(*at, button=button, state="down")
+            time.sleep(hold)
+            state = "up"
+        if state:
+            self.xt.button(*at, button=button, state=state)
+        else:
+            self.xt.click(*at, button=button, count=2 if double else 1)
 
     def drag(self, x1, y1, x2, y2, window=None, button=1):
         dx, dy = self._at(0, 0, window)

@@ -84,7 +84,8 @@ sealed session, waits, takes the picture and stops everything.
 **`shotbox run [options] -- COMMAND...`** runs a command in a sealed session
 and exits with its status. For scripts that take several pictures: inside,
 `shotbox wait window|port|file|ready|stable ARG` and `shotbox capture OUT.png
-[--window RE] [--crop G] [--park]` work on the session's display. `shotbox wait
+[--window RE] [--crop G] [--park] [--vision KIND]` work on the session's
+display. `shotbox wait
 stable [SECS] [--window RE]` is the one to use after a click, in place of a
 sleep. A wait that gives up takes a picture of the screen with `--failed
 FILE`, or wherever `$SHOTBOX_FAILED` says (`--env SHOTBOX_FAILED=...`).
@@ -100,6 +101,16 @@ is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
 there's no window manager to do that for a window that comes up after
 another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
 display directly, so there's still nothing to install.
+
+Keys and buttons can be held, for games and for anything that reacts to
+how long they're down. `shotbox key --hold SECS CHORD...` presses the
+chords together, keeps them down that long, and lets go, last first;
+`shotbox click X Y --hold SECS` does that with a button. To hold one while
+doing something else, run it in the background: `shotbox key --hold 2 w &
+shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
+down, across commands, until the same command with `--up`; on Wayland a
+virtual keyboard's keys go up when the command ends, so `--down` is refused
+there, saying to use `--hold`.
 
 **`shotbox start [--name NAME] [options]`** starts a session that lasts
 until `shotbox stop NAME`, and prints its name (`s1`, `s2`... without
@@ -175,6 +186,14 @@ ready -- shotbox term ...`.
 **`shotbox compare A.png B.png [--diff D.png] [--fuzz 1%] [--max N]`**
 counts the pixels that differ and fails if more than `--max` (0) do. With a
 committed picture, that's a visual regression test.
+
+**`shotbox vision IN.png OUT.png --as KIND`** writes a picture as someone
+with another kind of color vision sees it: `protanopia` (no red cones),
+`deuteranopia` (no green), `tritanopia` (no blue), or `gray` (no color).
+It's Machado, Oliveira and Fernandes' model (2009) at full severity, on
+linear RGB. Anything told apart only by color (a status, a series in a
+chart, a team in a game) that looks the same in one of them needs another
+cue. `capture` and `shoot` take `--vision KIND` to take a picture that way.
 
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line

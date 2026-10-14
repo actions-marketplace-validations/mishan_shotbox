@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+Holding keys and buttons, and pictures as colorblind eyes see them.
+
+### Added
+
+- **`key --hold SECS` and `click --hold SECS`** keep keys or a button down
+  that long, the chords pressed together and let go last first: for games,
+  and anything that reacts to how long something's held. In the background
+  (`&`), one is held while other input goes on.
+- **`key --down`/`--up` and `click --down`/`--up`** leave a key or button
+  down between commands, on X11. A Wayland virtual keyboard's keys go up
+  when its connection closes, so there they're refused, saying to use
+  `--hold`.
+- **`shotbox vision IN OUT --as KIND`**, and `--vision KIND` on `capture`
+  and `shoot`: a picture as someone with protanopia, deuteranopia or
+  tritanopia sees it (Machado et al., 2009, at full severity), or in gray.
+- **MCP:** `press_keys` and `click` take `hold` (seconds) and `state` (down
+  or up), which last across calls on Wayland too, since a session keeps its
+  input connection; `screenshot` takes `vision`.
+
 ## 0.4.3 — 2026-10-13
 
 `contrast` on GTK 3 and on GTK 4 icons and fields.

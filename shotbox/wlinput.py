@@ -24,7 +24,7 @@ import struct
 import time
 
 from . import wl
-from .xtest import KEYSYMS, MODIFIERS, SHIFT, XError
+from .xtest import KEYSYMS, SHIFT, XError, parse_chord
 
 # Real modifier bits, as the keymap below maps them.
 MOD_BITS = {0xFFE1: 0x01, 0xFFE3: 0x04, 0xFFE9: 0x08, 0xFFE7: 0x08, 0xFFEB: 0x40}
@@ -137,6 +137,7 @@ class Display:
         self.sync()
         time.sleep(0.05)
         self.width, self.height = self._size(env)
+        self.held = {}          # keysym: its modifier bits, while `down`
 
     # --- the wire -------------------------------------------------------------
 
@@ -210,33 +211,57 @@ class Display:
     def _mods(self, mask):
         self._send(self.keyboard, 2, struct.pack("<IIII", mask, 0, 0, 0))
 
-    def press(self, keysym, modifiers=()):
-        """Press and release one key, holding the modifier keysyms down, and
-        Shift too if the key's symbol is on its shifted level."""
+    def _code(self, keysym, modifiers):
+        """The key's keycode, and the modifier bits to hold with it: Shift
+        too if the key's symbol is on its shifted level."""
         if keysym not in self.keys:
             raise XError(f"no key for keysym 0x{keysym:x} in shotbox's keymap")
         code, shifted = self.keys[keysym]
         mask = MOD_BITS[SHIFT] if shifted else 0
         for m in modifiers:
             mask |= MOD_BITS[m]
+        return code, mask
+
+    def _held_mods(self):
+        mask = 0
+        for m in self.held.values():
+            mask |= m
+        return mask
+
+    def press(self, keysym, modifiers=()):
+        """Press and release one key, holding the modifier keysyms down."""
+        code, mask = self._code(keysym, modifiers)
+        held = self._held_mods()
         if mask:
-            self._mods(mask)
+            self._mods(held | mask)
         self._key(code)
         if mask:
-            self._mods(0)
+            self._mods(held)
         self.sync()
 
-    def chord(self, spec):
-        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`.
-        A lone `+` is the plus key."""
-        *mods, key = spec.split("+") if spec != "+" else ["+"]
-        for m in mods:
-            if m.lower() not in MODIFIERS:
-                raise XError(f"unknown modifier {m!r} in {spec!r}")
-        sym = KEYSYMS.get(key, ord(key) if len(key) == 1 else None)
-        if sym is None:
-            raise XError(f"unknown key {key!r} in {spec!r}")
-        self.press(sym, [MODIFIERS[m.lower()] for m in mods])
+    def down(self, keysym, modifiers=()):
+        """Press a key with its modifiers and leave it down. A virtual
+        keyboard's keys go up when its connection closes, so on Wayland a
+        key stays down only as long as this Display does."""
+        code, mask = self._code(keysym, modifiers)
+        self.held[keysym] = mask
+        self._mods(self._held_mods())
+        self._key(code, PRESSED)
+        self.sync()
+
+    def up(self, keysym, modifiers=()):
+        """Let go of a key pressed with `down`, and its modifiers."""
+        code, _ = self._code(keysym, modifiers)
+        self._key(code, RELEASED)
+        self.held.pop(keysym, None)
+        self._mods(self._held_mods())
+        self.sync()
+
+    def chord(self, spec, state=None):
+        """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
+        or with `state` "down" or "up", only press it or only let it go."""
+        sym, mods = parse_chord(spec)
+        {None: self.press, "down": self.down, "up": self.up}[state](sym, mods)
 
     def type(self, text):
         """Type text, one key at a time. ASCII only, as on X11."""
@@ -266,6 +291,12 @@ class Display:
         for _ in range(count):
             self._button(button, PRESSED)
             self._button(button, RELEASED)
+        self.sync()
+
+    def button(self, x, y, button=1, state="down"):
+        """Move to x, y and press a button, leaving it down, or let it go."""
+        self.move(x, y)
+        self._button(button, PRESSED if state == "down" else RELEASED)
         self.sync()
 
     def drag(self, x1, y1, x2, y2, button=1, steps=10):
