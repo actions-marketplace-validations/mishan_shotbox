@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.3 — 2026-10-13
+
+`contrast` on GTK 3 and on GTK 4 icons and fields.
 
 ### Fixed
 
