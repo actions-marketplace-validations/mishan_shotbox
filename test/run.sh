@@ -103,7 +103,7 @@ kill $other 2>/dev/null || true
 mkdir -p "$tmp/seed/.local/share/dbus-1/services"
 printf '[D-BUS Service]\nName=org.shotbox.Probe\nExec=/bin/sh -c '"'"'echo "$HOME $DISPLAY" > %s'"'"'\n' \
   "$tmp/activated" > "$tmp/seed/.local/share/dbus-1/services/org.shotbox.Probe.service"
-"$sb" run --desktop --seed "$tmp/seed" -- sh -c 'gdbus call --session --dest org.shotbox.Probe \
+"$sb" run --desktop --seed "$tmp/seed" -- sh -c 'gdbus call --session --timeout 2 --dest org.shotbox.Probe \
   --object-path / --method org.shotbox.Probe.Nothing >/dev/null 2>&1
   [ "$(cat '"$tmp/activated"')" = "$HOME $DISPLAY" ]' \
   && ok "--desktop: what the bus activates is inside the session" \
