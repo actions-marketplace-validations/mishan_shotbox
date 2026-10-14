@@ -698,6 +698,15 @@ while there() and time.monotonic() < end:
 shutil.rmtree(d)
 sys.exit(0 if made and not there() else 1)
 PY
+  # The Python API's spawn takes a path, as subprocess does, sandboxed too.
+  python3 - "$root" <<'PY' && ok "gamepads: spawn takes a Path" || fail "gamepads: spawn of a Path"
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from shotbox.session import Session
+with Session(gamepads=1) as s:
+    sys.exit(s.spawn([Path("/bin/true")]).wait())
+PY
   # A program that hangs up, says nothing, or sends nonsense doesn't take
   # the pads down; values out of range and pads that aren't there are
   # refused, not moved.
@@ -714,13 +723,18 @@ for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\",
     ! '$sb' pad --pad 2 press a 2>> '$tmp/range' && ! '$sb' pad --pad 0 press a 2>> '$tmp/range' &&
     { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; } &&
     '$sb' pad press lb --down && '$sb' pad press lb --hold 0.1 && '$sb' pad press lb a &&
-    '$sb' pad press lb --up && sleep 0.3" \
+    '$sb' pad press lb --up &&
+    { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
+    { '$sb' pad press rs --hold 1 & h=\$!; sleep 0.3; '$sb' pad neutral && '$sb' pad press rs --hold 2 & h2=\$!;
+      wait \$h; sleep 0.3; echo mark >> '$tmp/pad2.log'; wait \$h2; } && sleep 0.3" \
     && grep -q "^key 307 1" "$tmp/pad2.log" && grep -q "goes from -1 to 1, not 5" "$tmp/range" \
     && grep -q "^key 305 0" "$tmp/pad2.log" \
     && [ "$(grep '^key 310' "$tmp/pad2.log" | tr '\n' ' ')" = "key 310 1 key 310 0 " ] \
+    && [ "$(grep -E '^(key 308|upmark)' "$tmp/pad2.log" | tr '\n' ' ')" = "key 308 1 key 308 0 upmark " ] \
+    && [ "$(grep -E '^(key 318|mark$)' "$tmp/pad2.log" | tr '\n' ' ')" = "key 318 1 key 318 0 key 318 1 mark key 318 0 " ] \
     && [ "$(grep '^abs 17' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 17 1 abs 17 0 abs 17 1 abs 17 0 " ] \
     && grep -q "no pad 2: the session has 1" "$tmp/range" && grep -q "numbered from 1, not 0" "$tmp/range" \
-    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go; one left down stays down" \
+    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go; one left down stays down; --up ends a killed hold; neutral's not undone by an older hold" \
     || fail "gamepads: bad clients and ranges: $(cat "$tmp/range")"
   # A program named by a path relative to where it's spawned from: found
   # there, not where the session runs; one on PATH past one of the same

@@ -453,7 +453,8 @@ class Screen:
         guide, ls, rs, and the d-pad's up, down, left, right) together:
         tapped, held `hold` seconds, or with `state` only pressed (left down,
         across commands) or only let go. One left down stays down through taps
-        and holds of it, and holds that overlap let go when the last ends."""
+        and holds of it, holds that overlap let go when the last ends, and
+        letting go with `state` "up" ends its holds too."""
         try:
             pad.check_names(names)
         except pad.PadError as e:
@@ -461,11 +462,12 @@ class Screen:
         if state:
             self._pad({"op": "buttons", "pad": n, "names": names, "state": state})
             return
-        self._pad({"op": "buttons", "pad": n, "names": names, "state": "press"})
+        token = self._pad({"op": "buttons", "pad": n, "names": names, "state": "press"})["token"]
         try:
             time.sleep(self.TAP if hold is None else hold)
         finally:
-            self._pad({"op": "buttons", "pad": n, "names": names, "state": "release"})
+            self._pad({"op": "buttons", "pad": n, "names": names, "state": "release",
+                       "token": token})
 
     def pad_stick(self, which, px, py, n=1, hold=None):
         """Push gamepad `n`'s left or right stick to px, py, each -1 to 1 (y

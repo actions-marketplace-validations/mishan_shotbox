@@ -767,7 +767,7 @@ class Session(Screen):
     def _runnable(self, program, cwd):
         """Why `program` can't be run from `cwd` (bwrap would only say so in
         the program's log), or None if it can."""
-        cwd = cwd or os.getcwd()
+        program, cwd = os.fspath(program), cwd or os.getcwd()
         if os.sep in program:
             path = os.path.join(cwd, program)
             found = os.path.isfile(path) and path

@@ -362,14 +362,14 @@ def held_here(screen, a):
     return screen
 
 
-def held_options(p, what, them):
-    """--hold SECS, --down and --up, for keys and buttons."""
+def held_options(p, what, them, where=" (X11; on Wayland, use --hold)"):
+    """--hold SECS, --down and --up, for keys and buttons; `where` --down
+    works."""
     g = p.add_mutually_exclusive_group()
     g.add_argument("--hold", type=seconds, metavar="SECS",
                    help=f"press {what}, keep {them} down this long, then let go")
     g.add_argument("--down", dest="state", action="store_const", const="down",
-                   help=f"press {what} and leave {them} down, until --up (X11; on "
-                        "Wayland, use --hold)")
+                   help=f"press {what} and leave {them} down, until --up{where}")
     g.add_argument("--up", dest="state", action="store_const", const="up",
                    help=f"let go of {what}, pressed with --down")
     return g
@@ -457,7 +457,7 @@ def cmd_pad(argv):
     press = sub.add_parser("press", help="press buttons together: a b x y lb rb back start "
                                          "guide ls rs, and up down left right")
     press.add_argument("buttons", nargs="+", metavar="BUTTON")
-    held_options(press, "the buttons", "them")
+    held_options(press, "the buttons", "them", where="")
     for name, args, what in (("stick", ("x", "y"), "push a stick to X Y, each -1 to 1, y down"),
                              ("trigger", ("value",), "pull a trigger, 0 to 1")):
         q = sub.add_parser(name, help=what)

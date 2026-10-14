@@ -195,7 +195,8 @@ number. The pid `spawn` reports is the program's own.
 
 Inside, `shotbox pad` works them. What's left down stays down between
 commands, on X11 and Wayland alike, since a server in the session holds
-the pads, and through taps and holds of the same button:
+the pads, and through taps and holds of the same button; `--up` lets go
+of it, holds and all (a hold whose command was killed, say):
 
 ```
 shotbox pad press a                     # tap A

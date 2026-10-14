@@ -16,6 +16,7 @@ The standard library only: the ioctls and structs are Linux's, from
 
 import collections
 import fcntl
+import itertools
 import json
 import os
 import platform
@@ -93,9 +94,12 @@ class Pad:
         self.state = {}         # (type, code): value, what isn't at rest
         # A button is down while it's left down (state "down", until "up"),
         # or while any tap or hold of it lasts ("press" to "release"; these
-        # can overlap).
+        # can overlap). Each press has a token its release names, so a
+        # release after neutral, or after --up let go of a hold whose
+        # command was killed, can't end a later one.
         self.left = set()
-        self.pressing = collections.Counter()
+        self.pressing = collections.defaultdict(set)
+        self.tokens = itertools.count(1)
 
     @staticmethod
     def _nodes(sysname):
@@ -123,21 +127,25 @@ class Pad:
         os.write(self.fd, EVENT.pack(0, 0, EV_SYN, 0, 0))
 
     def _down(self, name):
-        return name in self.left or self.pressing[name] > 0
+        return name in self.left or bool(self.pressing.get(name))
 
-    def buttons(self, names, state):
-        """Buttons left down or let go ("down", "up"), or a tap or hold of
-        them begun or ended ("press", "release")."""
+    def buttons(self, names, state, token=None):
+        """Buttons left down or let go ("down", "up": every hold of them
+        too), or a tap or hold of them begun ("press", which returns its
+        token) or ended ("release" with that token)."""
+        if state == "press":
+            token = next(self.tokens)
         for name in names:
             was = self._down(name)
             if state == "down":
                 self.left.add(name)
             elif state == "up":
                 self.left.discard(name)
+                self.pressing.pop(name, None)
             elif state == "press":
-                self.pressing[name] += 1
-            elif self.pressing[name] > 0:
-                self.pressing[name] -= 1
+                self.pressing[name].add(token)
+            else:
+                self.pressing[name].discard(token)
             if self._down(name) == was:
                 continue
             if name in DPAD:
@@ -149,6 +157,7 @@ class Pad:
             else:
                 self._emit(EV_KEY, BUTTONS[name], int(self._down(name)))
         self._sync()
+        return token
 
     def stick(self, which, x, y):
         cx, cy = STICKS[which]
@@ -206,7 +215,8 @@ def handle(pads, req):
         check_names(req["names"])
         if req["state"] not in ("down", "up", "press", "release"):
             raise PadError(f"no button state {req['state']!r}")
-        pad.buttons(req["names"], req["state"])
+        token = pad.buttons(req["names"], req["state"], req.get("token"))
+        return {"token": token} if req["state"] == "press" else {}
     elif op == "stick":
         pad.stick(req["which"], check_range("a stick", req["x"], -1, 1),
                   check_range("a stick", req["y"], -1, 1))
