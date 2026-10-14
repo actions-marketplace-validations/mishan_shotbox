@@ -115,6 +115,14 @@ def strongest(colors, against, least=1):
     return best
 
 
+def between(color, a, b):
+    """Whether `color` is a mix of `a` and `b`, within a few levels a
+    channel: what antialiasing or opacity makes of `b` drawn over `a`."""
+    way = [y - x for x, y in zip(a, b)]
+    t = sum((c - x) * w for c, x, w in zip(color, a, way)) / (sum(w * w for w in way) or 1)
+    return 0 <= t <= 1 and all(abs(c - (x + t * w)) <= 12 for c, x, w in zip(color, a, way))
+
+
 def text_contrast(pic, box):
     """Text (or an icon) on its background, in `box`: the background is the
     color most of it is, the text the color with the most contrast against

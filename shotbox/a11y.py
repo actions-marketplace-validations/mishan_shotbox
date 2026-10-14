@@ -67,9 +67,14 @@ def atspi():
     """libatspi, on the session's accessibility bus and nobody else's."""
     if not os.environ.get("AT_SPI_BUS_ADDRESS") or not os.environ.get("SHOTBOX_SCRATCH"):
         raise SessionError("no accessibility bus: start the session with --a11y")
-    import gi
-    gi.require_version("Atspi", "2.0")
-    from gi.repository import Atspi, GLib
+    try:
+        import gi
+        gi.require_version("Atspi", "2.0")
+        from gi.repository import Atspi, GLib
+    except (ImportError, ValueError) as e:
+        raise SessionError(f"AT-SPI's Python bindings won't load ({e}): they're in python3-gi and "
+                           "gir1.2-atspi-2.0 on Debian, and python3-gobject, at-spi2-core and "
+                           "gobject-introspection on Fedora")
 
     # AccessKit's adapter has no cache object, which libatspi asks every
     # program for, and says so on each read of a tree with one in it.
@@ -659,7 +664,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     def kind(n):
         if (not n._showing or not n.name or "editable" in n.states
-                or "disabled" in n.states or n._role in textless):
+                or "disabled" in n.states or n._role in textless or gtk3_switch(Atspi, n)):
             return None
         if n._role in images:
             return "graphics"
@@ -685,6 +690,44 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 box = overlap(box, outer)
         return box if box[2] > 0 and box[3] > 0 else None
 
+    def hovered(box):
+        """The screen with the pointer over the middle of `box`."""
+        s = Screen()
+        try:
+            s.move(box[0] + box[2] // 2, box[1] + box[3] // 2)
+            try:
+                wait_for("", x.Still(s.env, quiet=0.3, backend=s.backend), 2)
+            except SessionError:
+                pass
+            return picture.Picture(*s.backend.pixels(s.env))
+        finally:
+            s.park()
+            s.close()
+
+    def framed(n, box):
+        """Whether what `n` is in draws its edge for it, as a frame does a
+        text view's: the nearest node round it with an edge, of those it
+        fills all round, but not one at its window's edge, whose edge is
+        the window's. Filling it only side to side isn't enough: a form's
+        fields do that in a bordered box, each looking like its inside."""
+        win, path = n._window, n.path
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            outer = parents.get(path) and shown(parents[path])
+            if not outer:
+                continue
+            if not all(abs(box[i] - outer[i]) <= REACH
+                       and abs(box[i] + box[i + 2] - outer[i] - outer[i + 2]) <= REACH
+                       for i in (0, 1)):
+                return False
+            if win and overlap(grow_box(outer, 3), list(win)) != grow_box(outer, 3):
+                return False
+            # Or drawn just outside it, as a box shadow is.
+            if any(got and got[0] >= edges for got in (
+                    picture.edge_contrast(pic, outer), picture.edge_contrast(pic, grow_box(outer, 2)))):
+                return True
+        return False
+
     measured = [n for n in nodes if kind(n)]
     problems = []
     for n in measured:
@@ -698,26 +741,76 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         box = shown(n)
         if not box:
             continue
+        # GTK 4 puts a label in a control that draws text, so one with none
+        # draws an icon: a graphic, held to graphics' ratio.
+        if n._role in controls and gtk4(n):
+            k = "graphics"
         least = text if k == "text" else graphics
         got = picture.text_contrast(pic, box)
-        if got is None and k == "text":
+        if got is None and (k == "text" or n._role in controls):
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
-            problems.append((n, f"text not seen: nothing drawn on {back}"))
+            # A control can be drawn only when the pointer's over it: a tab's
+            # close button. Say how it is then, to tell.
+            over = n._role in controls and picture.text_contrast(hovered(box), box)
+            then = (f"; with the pointer over it, {ratio_text(over[0])}:1, "
+                    f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} (at least {least:g})"
+                    if over else "")
+            problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
         elif got and got[0] < least:
+            said = said_color(Atspi, n)
+            # Light or small text covers no pixel whole, so measures short of
+            # its color, as text drawn see-through does: say both.
+            meant = (f"; drawn lighter than its color, {picture.hex_of(said)}, which is "
+                     f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
+                     if said and picture.ratio(said, got[2]) > got[0]
+                     and picture.between(got[1], got[2], said) else "")
             problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
-                                f"{picture.hex_of(got[2])} (at least {least:g})"))
+                                f"{picture.hex_of(got[2])} (at least {least:g}){meant}"))
     if edges:
         for n in nodes:
             if not (n._showing and "disabled" not in n.states and (
-                    n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))):
+                    n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))
+                    ) or gtk3_switch(Atspi, n):
                 continue
             box = shown(n)
             got = box and picture.edge_contrast(pic, box)
-            if got and got[0] < edges:
+            # A field's edge can be what it's in: a frame's.
+            field = n._role in (Atspi.Role.TEXT, Atspi.Role.COMBO_BOX)
+            if got and got[0] < edges and not (field and framed(n, box)):
                 problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
                                     f"{picture.hex_of(got[2])} (at least {edges:g})"))
     return [(n, what) for n, what in problems
             if not any(re.search(i, f"{n.path}: {what}") for i in ignore)]
+
+
+def grow_box(box, by):
+    return [box[0] - by, box[1] - by, box[2] + 2 * by, box[3] + 2 * by]
+
+
+def gtk4(n):
+    app = n._acc.get_application()
+    return bool(app) and app.get_toolkit_name() == "GTK" and (
+        app.get_toolkit_version() or "").startswith("4.")
+
+
+def gtk3_switch(Atspi, n):
+    """GTK 3 calls a switch a toggle button; unlike its buttons, it has no
+    image, which they all say they have."""
+    acc = n._acc
+    return (n._role == Atspi.Role.TOGGLE_BUTTON and (acc.get_toolkit_version() or "").startswith("3.")
+            and "Image" not in acc.get_interfaces())
+
+
+def said_color(Atspi, n):
+    """The color GTK 3 says `n`'s text is, as (r, g, b), or None. Before
+    opacity and a link's own color, so it's only said, not measured. GTK 4
+    doesn't say; Chromium does, but not for its own window's controls."""
+    acc = n._acc
+    if not (acc.get_toolkit_version() or "").startswith("3.") or "Text" not in acc.get_interfaces():
+        return None
+    said = (Atspi.Text.get_default_attributes(acc) or {}).get("fg-color", "")
+    channels = [int(c) for c in re.findall(r"\d+", said)]
+    return tuple(c // 257 for c in channels) if len(channels) == 3 else None
 
 
 def overlap(a, b):
@@ -900,4 +993,7 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except SessionError as e:
+        sys.exit(f"shotbox: {e}")

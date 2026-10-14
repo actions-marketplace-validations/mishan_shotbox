@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **GTK 3's switch isn't measured as text.** It calls a switch a toggle
+  button, so its off mark was held to text's 4.5:1.
+- **`contrast --edges` takes a field's edge from what it fills all
+  round:** a text view in a frame, which has no edge of its own.
+- **A GTK 4 icon button is held to graphics' 3:1, not text's 4.5:1.**
+  GTK 4 puts a label in a control that draws text, so one with none
+  draws an icon. GTK 3's buttons keep their labels to themselves, and
+  are still held to text's.
+- **A missing GObject typelib is said in a line,** naming the packages,
+  rather than with a traceback from the announcement recorder.
+
+### Changed
+
+- **A control with nothing drawn says how it measures with the pointer
+  over it,** as a tab's close button is drawn only then: still "text not
+  seen", but now one can tell that from text that's never seen.
+- **Light GTK 3 text that fails says its color too.** Light or small
+  text covers no pixel whole, so it measures short of its color, by more
+  on one font and renderer than another, and text drawn see-through
+  looks the same: it's still measured as drawn, but where GTK 3 says the
+  color, and what's drawn is a lighter shade of it, the failure says it.
+
 ## 0.4.2 — 2026-10-13
 
 `tabwalk --visible` on GTK 4's offset nodes.
