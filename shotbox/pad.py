@@ -100,6 +100,9 @@ class Pad:
         self.left = set()
         self.pressing = collections.defaultdict(set)
         self.tokens = itertools.count(1)
+        # The token of what last set each stick and trigger: a hold's end
+        # puts it back only if nothing has set it since, neutral included.
+        self.set_by = {}
 
     @staticmethod
     def _nodes(sysname):
@@ -159,19 +162,30 @@ class Pad:
         self._sync()
         return token
 
-    def stick(self, which, x, y):
-        cx, cy = STICKS[which]
-        self._emit(EV_ABS, cx, round(x * STICK_MAX))
-        self._emit(EV_ABS, cy, round(y * STICK_MAX))
+    def _set(self, control, token, values):
+        """Set a stick's or trigger's axes, [(code, value)], and return the
+        token that did; with `token`, only if that token set it last."""
+        if token is not None and self.set_by.get(control) != token:
+            return None
+        for code, value in values:
+            self._emit(EV_ABS, code, value)
         self._sync()
+        self.set_by[control] = next(self.tokens)
+        return self.set_by[control]
 
-    def trigger(self, which, value):
-        self._emit(EV_ABS, TRIGGERS[which], round(value * TRIGGER_MAX))
-        self._sync()
+    def stick(self, which, x, y, token=None):
+        cx, cy = STICKS[which]
+        return self._set(("stick", which), token,
+                         [(cx, round(x * STICK_MAX)), (cy, round(y * STICK_MAX))])
+
+    def trigger(self, which, value, token=None):
+        return self._set(("trigger", which), token,
+                         [(TRIGGERS[which], round(value * TRIGGER_MAX))])
 
     def neutral(self):
         self.left.clear()
         self.pressing.clear()
+        self.set_by.clear()
         for kind, code in list(self.state):
             self._emit(kind, code, 0)
         self._sync()
@@ -218,10 +232,11 @@ def handle(pads, req):
         token = pad.buttons(req["names"], req["state"], req.get("token"))
         return {"token": token} if req["state"] == "press" else {}
     elif op == "stick":
-        pad.stick(req["which"], check_range("a stick", req["x"], -1, 1),
-                  check_range("a stick", req["y"], -1, 1))
+        return {"token": pad.stick(req["which"], check_range("a stick", req["x"], -1, 1),
+                                   check_range("a stick", req["y"], -1, 1), req.get("token"))}
     elif op == "trigger":
-        pad.trigger(req["which"], check_range("a trigger", req["value"], 0, 1))
+        return {"token": pad.trigger(req["which"], check_range("a trigger", req["value"], 0, 1),
+                                     req.get("token"))}
     elif op == "neutral":
         pad.neutral()
     else:

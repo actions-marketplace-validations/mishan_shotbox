@@ -278,7 +278,7 @@ class Screen:
         return Path(out)
 
     def burst(self, out, count, every=0.0, window=None, crop=None, park=False, vision=None,
-              sheet=None, sheet_width=None):
+              sheet=None, sheet_size=None):
         """`count` pictures, as `capture` takes them, each starting `every`
         seconds or more after the last, or as fast as they come, to
         OUT-1.png, OUT-2.png...
@@ -309,7 +309,7 @@ class Screen:
             if vision:
                 x.vision(path, path, vision)
         if sheet:
-            x.sheet([p for p, _ in taken], sheet, width=sheet_width)
+            x.sheet([p for p, _ in taken], sheet, size=sheet_size)
         return taken
 
     # --- input ----------------------------------------------------------------
@@ -471,23 +471,27 @@ class Screen:
 
     def pad_stick(self, which, px, py, n=1, hold=None):
         """Push gamepad `n`'s left or right stick to px, py, each -1 to 1 (y
-        down): left there, or for `hold` seconds and then centered."""
-        self._pad({"op": "stick", "pad": n, "which": which, "x": px, "y": py})
+        down): left there, or for `hold` seconds and then centered, unless
+        it's been moved since."""
+        token = self._pad({"op": "stick", "pad": n, "which": which, "x": px, "y": py})["token"]
         if hold is not None:
             try:
                 time.sleep(hold)
             finally:
-                self._pad({"op": "stick", "pad": n, "which": which, "x": 0, "y": 0})
+                self._pad({"op": "stick", "pad": n, "which": which, "x": 0, "y": 0,
+                           "token": token})
 
     def pad_trigger(self, which, value, n=1, hold=None):
         """Pull gamepad `n`'s left or right trigger to `value`, 0 to 1: left
-        there, or for `hold` seconds and then let go."""
-        self._pad({"op": "trigger", "pad": n, "which": which, "value": value})
+        there, or for `hold` seconds and then let go, unless it's been pulled
+        since."""
+        token = self._pad({"op": "trigger", "pad": n, "which": which, "value": value})["token"]
         if hold is not None:
             try:
                 time.sleep(hold)
             finally:
-                self._pad({"op": "trigger", "pad": n, "which": which, "value": 0})
+                self._pad({"op": "trigger", "pad": n, "which": which, "value": 0,
+                           "token": token})
 
     def pad_neutral(self, n=1):
         """Let go of everything on gamepad `n`: buttons up, sticks centered."""

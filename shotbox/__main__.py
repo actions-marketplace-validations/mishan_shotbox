@@ -98,6 +98,14 @@ def session_options(p):
                         "and bubblewrap")
 
 
+def stop_once(signum, frame):
+    """Stop as ctrl-C does, the first time: another signal (a kill sent
+    twice, say) mustn't cut short the letting go that follows."""
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, signal.SIG_IGN)
+    raise KeyboardInterrupt
+
+
 def make_session(a):
     # Stopped by kill or timeout(1), stop the session too, as for ctrl-C,
     # rather than leave its display and programs running.
@@ -600,7 +608,7 @@ def main(argv=None):
             # Stopped mid-hold (by kill, timeout(1) or a closed terminal),
             # let go on the way out.
             for sig in (signal.SIGTERM, signal.SIGHUP):
-                signal.signal(sig, signal.default_int_handler)
+                signal.signal(sig, stop_once)
         if session:
             if argv[0] not in INSIDE:
                 raise SessionError(f"--session is for the commands used inside a "
