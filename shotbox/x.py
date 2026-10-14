@@ -194,16 +194,16 @@ def montage(images, out, across=True):
     return Path(out)
 
 
-def sheet(images, out, across=4, width=None):
+def sheet(images, out, across=4, size=None):
     """Put images in rows of `across`, left to right, top to bottom: a
-    contact sheet, shrunk to `width` pixels across if it's wider."""
+    contact sheet, shrunk to fit `size` pixels each way if it doesn't."""
     rows = [images[i:i + across] for i in range(0, len(images), across)]
     cmd = list(CONVERT)
     for row in rows:
         cmd += ["(", *map(str, row), "+append", ")"]
     cmd += ["-background", "black", "-append"]
-    if width:
-        cmd += ["-resize", f"{width}x>"]
+    if size:
+        cmd += ["-resize", f"{size}x{size}>"]
     subprocess.run(cmd + [*QUIET_PNG, str(out)], check=True)
     return Path(out)
 

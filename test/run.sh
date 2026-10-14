@@ -29,6 +29,11 @@ case $out in
   *) fail "the environment leaked: $out" ;;
 esac
 case $out in D=:0*) fail "DISPLAY is ours" ;; *) ok "a display of its own" ;; esac
+# A TMPDIR too long for the session's sockets, said before anything starts.
+long=$tmp/$(printf 'x%.0s' $(seq 45)); mkdir "$long"
+set +e; TMPDIR=$long "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
+[ $st != 0 ] && grep -q "TMPDIR is too long" "$tmp/err" && ok "a TMPDIR too long, said" \
+  || fail "long TMPDIR ($st): $(cat "$tmp/err")"
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"
 set +e; "$sb" run -- sh -c 'exit 7'; st=$?; set -e

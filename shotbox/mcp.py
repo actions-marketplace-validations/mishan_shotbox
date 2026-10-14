@@ -289,7 +289,7 @@ class Server:
         if burst:
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
                             window=text(window), crop=text(crop), park=flag(park),
-                            vision=vision, sheet=out, sheet_width=SHEET_WIDTH)
+                            vision=vision, sheet=out, sheet_size=SHEET_SIZE)
             times = ", ".join(f"{at:.2f}" for _, at in taken)
             said = (f"{len(taken)} pictures of {what} in rows of four, left to right, "
                     f"taken at {times} seconds.")
@@ -450,9 +450,9 @@ def schema(props, required=()):
 
 
 SESSION = {"type": "string", "description": "The session's name, as start_session gave it"}
-# A burst's sheet is one image: shrunk to this many pixels across, it's
-# still readable and not a dozen screens' worth.
-SHEET_WIDTH = 1920
+# A burst's sheet is one image: shrunk to this many pixels each way, it's
+# still readable and not a dozen screens' worth, however tall its pictures.
+SHEET_SIZE = 1920
 HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}

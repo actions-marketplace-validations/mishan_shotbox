@@ -10,6 +10,7 @@ import re
 import select
 import shutil
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
@@ -119,6 +120,10 @@ try:
     png = [c for c in content if c["type"] == "image"]
     check(not bad and len(png) == 1 and said.startswith("3 pictures") and "0.10" in said,
           f"screenshot: a burst, as one sheet ({said})")
+    said, bad, content = tool("screenshot", session="t", burst=12, crop="20x800+0+0")
+    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+    w, h = struct.unpack(">II", png[16:24])
+    check(not bad and max(w, h) <= 1920, f"screenshot: a burst of tall pictures, shrunk to fit ({w}x{h})")
     said, bad, _ = tool("screenshot", session="t", burst=40)
     check(bad and "2 to 12" in said, "screenshot: a burst too big, refused")
     said, bad, _ = tool("screenshot", session="t", vision="martian")

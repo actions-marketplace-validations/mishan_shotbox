@@ -31,6 +31,12 @@ Holding keys and buttons, pictures as colorblind eyes see them, bursts, and game
   input connection; `screenshot` takes `vision`, and `burst` and `every` for
   a burst as one sheet.
 
+### Fixed
+
+- **A `TMPDIR` too long for a session's sockets** is said at the start
+  (Linux allows a socket path 107 bytes), rather than D-Bus failing to
+  start or sway crashing.
+
 ## 0.4.3 — 2026-10-13
 
 `contrast` on GTK 3 and on GTK 4 icons and fields.

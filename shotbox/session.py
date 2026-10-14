@@ -399,6 +399,13 @@ class Session(Screen):
             need("pipewire", "wireplumber", "pw-dump")
         if self.gamepads:
             need("bwrap")
+        # Sockets are made in the scratch dir, the longest sway's (run/
+        # sway-ipc.UID.PID.sock), and Linux allows a socket path 107 bytes.
+        tmp = tempfile.gettempdir()
+        if len(os.fsencode(tmp)) > 59:
+            raise SessionError(f"TMPDIR is too long a path for the session's sockets in it "
+                               f"({len(os.fsencode(tmp))} bytes, {tmp}): set it to one of 59 "
+                               "or fewer")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
             self._make_home()

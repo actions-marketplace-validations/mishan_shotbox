@@ -278,7 +278,7 @@ class Screen:
         return Path(out)
 
     def burst(self, out, count, every=0.0, window=None, crop=None, park=False, vision=None,
-              sheet=None, sheet_width=None):
+              sheet=None, sheet_size=None):
         """`count` pictures, as `capture` takes them, each starting `every`
         seconds or more after the last, or as fast as they come, to
         OUT-1.png, OUT-2.png...
@@ -309,7 +309,7 @@ class Screen:
             if vision:
                 x.vision(path, path, vision)
         if sheet:
-            x.sheet([p for p, _ in taken], sheet, width=sheet_width)
+            x.sheet([p for p, _ in taken], sheet, size=sheet_size)
         return taken
 
     # --- input ----------------------------------------------------------------
