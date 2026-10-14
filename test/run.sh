@@ -731,15 +731,20 @@ for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\",
     '$sb' pad press lb --up &&
     { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
     { '$sb' pad press rs --hold 1 & h=\$!; sleep 0.3; '$sb' pad neutral && '$sb' pad press rs --hold 2 & h2=\$!;
-      wait \$h; sleep 0.3; echo mark >> '$tmp/pad2.log'; wait \$h2; } && sleep 0.3" \
+      wait \$h; sleep 0.3; echo mark >> '$tmp/pad2.log'; wait \$h2; } &&
+    { '$sb' pad stick left 1 0 --hold 1 & h=\$!; '$sb' pad trigger right 1 --hold 1 & h2=\$!; sleep 0.3;
+      '$sb' pad neutral && '$sb' pad stick left 0 1 && '$sb' pad trigger right 0.5;
+      wait \$h \$h2; sleep 0.3; echo smark >> '$tmp/pad2.log'; } && sleep 0.3" \
     && grep -q "^key 307 1" "$tmp/pad2.log" && grep -q "goes from -1 to 1, not 5" "$tmp/range" \
     && grep -q "^key 305 0" "$tmp/pad2.log" \
     && [ "$(grep '^key 310' "$tmp/pad2.log" | tr '\n' ' ')" = "key 310 1 key 310 0 " ] \
     && [ "$(grep -E '^(key 308|upmark)' "$tmp/pad2.log" | tr '\n' ' ')" = "key 308 1 key 308 0 upmark " ] \
     && [ "$(grep -E '^(key 318|mark$)' "$tmp/pad2.log" | tr '\n' ' ')" = "key 318 1 key 318 0 key 318 1 mark key 318 0 " ] \
+    && [ "$(grep -E '^(abs 1 |smark)' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 1 32767 smark " ] \
+    && [ "$(grep -E '^(abs 5 |smark)' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 5 255 abs 5 0 abs 5 128 smark " ] \
     && [ "$(grep '^abs 17' "$tmp/pad2.log" | tr '\n' ' ')" = "abs 17 1 abs 17 0 abs 17 1 abs 17 0 " ] \
     && grep -q "no pad 2: the session has 1" "$tmp/range" && grep -q "numbered from 1, not 0" "$tmp/range" \
-    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go; one left down stays down; --up ends a killed hold; neutral's not undone by an older hold" \
+    && ok "gamepads: a client that hangs up or stalls doesn't stop them; d-pad directions each let go; out of range, refused; a stopped hold lets go; one left down stays down; --up ends a killed hold; neutral, and what's set after, not undone by an older hold of a button, stick or trigger" \
     || fail "gamepads: bad clients and ranges: $(cat "$tmp/range")"
   # A program named by a path relative to where it's spawned from: found
   # there, not where the session runs; one on PATH past one of the same
