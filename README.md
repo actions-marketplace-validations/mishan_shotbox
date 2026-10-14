@@ -110,7 +110,9 @@ doing something else, run it in the background: `shotbox key --hold 2 w &
 shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
 down, across commands, until the same command with `--up`; on Wayland a
 virtual keyboard's keys go up when the command ends, so `--down` is refused
-there, saying to use `--hold`. As on a real keyboard, a shifted symbol held
+there, saying to use `--hold`. A chord already held isn't pressed again,
+and keys pressed or typed while one is held leave its modifiers down. As
+on a real keyboard, a shifted symbol held
 with other keys shifts them too, and a key held past the repeat delay
 (about half a second) repeats.
 

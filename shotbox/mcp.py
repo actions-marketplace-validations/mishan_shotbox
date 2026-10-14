@@ -41,10 +41,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, x
+from . import __version__
 from .a11y import Node, unseen
 from .screen import SessionError
 from .session import Session
+from .x import VISION
 from .xtest import XError
 
 # Newest first: a client asking for one of these gets it; any other, the newest.
@@ -255,8 +256,8 @@ class Server:
         s = self.session(session)
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
-        if vision and vision not in x.VISION:
-            raise Refused(f"vision is one of {', '.join(sorted(x.VISION))}, not {vision!r}")
+        if vision and vision not in VISION:
+            raise Refused(f"vision is one of {', '.join(sorted(VISION))}, not {vision!r}")
         s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
@@ -439,7 +440,7 @@ TOOLS = [
      schema({"session": SESSION, "window": WINDOW,
              "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
              "park": {"type": "boolean"},
-             "vision": {"type": "string", "enum": sorted(x.VISION),
+             "vision": {"type": "string", "enum": sorted(VISION),
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"}},
             ["session"])),

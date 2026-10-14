@@ -170,10 +170,11 @@ class Display:
             held.append(self.keycode(SHIFT)[0])
         return code, held
 
-    def press(self, keysym, modifiers=()):
-        """Press and release one key, holding the modifier keysyms down."""
+    def press(self, keysym, modifiers=(), keep=()):
+        """Press and release one key, holding the modifier keysyms down, and
+        leaving down those in `keep`, which held keys need."""
         self.down(keysym, modifiers, sync=False)
-        self.up(keysym, modifiers)
+        self.up(keysym, modifiers, keep)
 
     def down(self, keysym, modifiers=(), sync=True):
         """Press a key, modifiers first, and leave them all down. The X
@@ -210,17 +211,17 @@ class Display:
         or with `state` "down" or "up", only press it or only let it go
         (leaving the modifiers in `keep` down)."""
         sym, mods = parse_chord(spec)
-        if state == "up":
-            self.up(sym, mods, keep)
+        if state == "down":
+            self.down(sym, mods)
         else:
-            (self.down if state == "down" else self.press)(sym, mods)
+            (self.up if state == "up" else self.press)(sym, mods, keep)
 
-    def type(self, text):
+    def type(self, text, keep=()):
         """Type text, one key at a time. ASCII only: a character is typed by
-        the key its symbol is on."""
+        the key its symbol is on. Modifiers in `keep` stay down."""
         for ch in text:
             sym = {"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch))
-            self.press(sym)
+            self.press(sym, keep=keep)
 
     def move(self, x, y):
         self._fake(MOTION, 0, x, y)

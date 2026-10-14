@@ -269,8 +269,9 @@ class Display:
         sym, mods = parse_chord(spec)
         {None: self.press, "down": self.down, "up": self.up}[state](sym, mods)
 
-    def type(self, text):
-        """Type text, one key at a time. ASCII only, as on X11."""
+    def type(self, text, keep=()):
+        """Type text, one key at a time. ASCII only, as on X11. Held keys'
+        modifiers stay down by themselves, so `keep` isn't needed here."""
         for ch in text:
             self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)))
 

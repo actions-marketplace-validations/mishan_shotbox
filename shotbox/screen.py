@@ -17,6 +17,7 @@ Anything that fails raises SessionError, saying what. With `failed` set (or
 $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 """
 
+import contextlib
 import fcntl
 import json
 import os
@@ -307,63 +308,71 @@ class Screen:
         alt+shift+Tab. With `hold`, press them all, keep them down that many
         seconds, then let go, last first: walking while running, say. With
         `state` "down" or "up", only press them or only let them go. A chord
-        it can't press is said before any key goes down."""
+        it can't press is said before any key goes down, and a chord already
+        held down isn't pressed again."""
         for c in chords:
             self.xt.needs(c)
-        if hold is None and state is None:
-            for c in chords:
-                self.xt.chord(c)
-            return
         if state == "up":
             self._let_go(chords)
             return
-        held, pressed = self._held(), []
+        if hold is None and state is None:
+            keep = self._held_needs()
+            for c in chords:
+                self.xt.chord(c, keep=keep)
+            return
+        pressed, done = [], False
         try:
             for c in chords:
-                self.xt.chord(c, "down")
+                with self._held_keys() as held:
+                    if c in held:
+                        continue
+                    self.xt.chord(c, "down")
+                    held.append(c)
                 pressed.append(c)
-                held.append(c)
-                self._keep_held(held)
             if hold is not None:
                 time.sleep(hold)
-        except BaseException:
-            # Interrupted or failed: nothing it pressed may stay down.
-            self._let_go(pressed[::-1])
-            raise
-        if hold is not None:
-            self._let_go(chords[::-1])
+            done = True
+        finally:
+            # After a hold, or if anything went wrong: nothing it pressed
+            # may stay down.
+            if hold is not None or not done:
+                self._let_go(pressed[::-1])
 
-    def _held_file(self):
+    @contextlib.contextmanager
+    def _held_keys(self):
+        """The chords held down and not yet let go, to change in place: kept
+        in the session's scratch dir, since each command is its own process,
+        and locked while they change, since commands run side by side."""
         scratch = self.env.get("SHOTBOX_SCRATCH")
-        return Path(scratch) / "held-keys" if scratch else None
-
-    def _held(self):
-        """The chords held down with `state` "down" and not yet let go: kept
-        in the session's scratch dir, since each command is its own process."""
-        f = self._held_file()
-        if f is None:
-            return self.__dict__.setdefault("_held_keys", [])
-        return f.read_text().split() if f.exists() else []
-
-    def _keep_held(self, held):
-        f = self._held_file()
-        if f is not None:
+        if not scratch:
+            yield self.__dict__.setdefault("_held_chords", [])
+            return
+        f = Path(scratch) / "held-keys"
+        with open(Path(scratch) / "held-keys.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            held = f.read_text().split() if f.exists() else []
+            yield held
             f.write_text("".join(f"{c}\n" for c in held))
+
+    def _held_needs(self):
+        """The modifiers the chords held down need, which a key pressed and
+        let go meanwhile mustn't let go of."""
+        with self._held_keys() as held:
+            return set().union(*(self.xt.needs(h) for h in held))
 
     def _let_go(self, chords):
         """Let go of each chord, leaving down the modifiers still held keys
         need."""
-        held = self._held()
-        for c in chords:
-            if c in held:
-                held.remove(c)
-            keep = set().union(*(self.xt.needs(h) for h in held))
-            self.xt.chord(c, "up", keep=keep)
-        self._keep_held(held)
+        with self._held_keys() as held:
+            for c in chords:
+                if c in held:
+                    held.remove(c)
+                keep = set().union(*(self.xt.needs(h) for h in held))
+                self.xt.chord(c, "up", keep=keep)
 
     def type(self, text):
         """Type ASCII text into whatever has the keyboard focus."""
-        self.xt.type(text)
+        self.xt.type(text, keep=self._held_needs())
 
     def move(self, px, py, window=None):
         """Move the pointer to X, Y on the screen, or inside `window`."""

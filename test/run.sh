@@ -255,6 +255,19 @@ got=$(awk '$1 == "mark" { printf "| "; next }
 [ "$got" = "+button1 -button1 +Control_L +c +d -d | -c -Control_L +e -e " ] \
   && ok "held chords share a modifier; a bad chord or hold presses nothing; stopped, it lets go" \
   || fail "held modifiers: $got"
+# While Shift+W is held, a key pressed and let go (or typed) leaves Shift
+# down for W; a chord held twice is pressed once, and a hold over it doesn't
+# let it go.
+: > "$tmp/twice.log"
+"$sb" run -- sh -c "'$here/held.py' held '$tmp/twice.log' &
+  '$sb' wait window held && '$sb' wait stable --window held && '$sb' click 50 50 --window held &&
+  '$sb' key --down shift+w && '$sb' key shift+a && '$sb' type B && '$sb' key --down shift+w &&
+  '$sb' key --hold 0.1 shift+w && echo mark >> '$tmp/twice.log' && '$sb' key --up shift+w && sleep 0.3"
+got=$(awk '$1 == "mark" { printf "| "; next }
+  { s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$tmp/twice.log")
+[ "$got" = "+button1 -button1 +Shift_L +W +A -A +B -B | -W -Shift_L " ] \
+  && ok "keys tapped while one's held keep its modifier; held twice, pressed once" \
+  || fail "tap while held: $got"
 set +e; "$sb" key ctrl+comma 2>/dev/null; st=$?; set -e
 [ $st != 0 ] && ok "input needs a session" || fail "key ran outside a session"
 
@@ -619,10 +632,19 @@ for kind in protanopia deuteranopia tritanopia gray; do
   "$sb" vision "$tmp/colors.png" "$tmp/v-$kind.png" --as $kind >/dev/null
   convert "$tmp/v-$kind.png" -depth 8 txt:- | grep -o '#[0-9A-F]\{6\}' | tr '\n' ' ' > "$tmp/v-$kind.txt"
 done
-python3 - "$tmp" "$root" <<'PY' && ok "vision: each kind, as modeled" || fail "vision: colors"
+python3 - "$tmp" <<'PY' && ok "vision: each kind, as modeled" || fail "vision: colors"
 import sys
-sys.path.insert(0, sys.argv[2])
-from shotbox import x
+# Machado, Oliveira and Fernandes (2009), severity 1.0, written out here
+# from the paper rather than taken from shotbox, so a typo there shows.
+VISION = {
+    "protanopia": (0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216,
+                   -0.003882, -0.048116, 1.051998),
+    "deuteranopia": (0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413,
+                     -0.011820, 0.042940, 0.968881),
+    "tritanopia": (1.255528, -0.076749, -0.178779, -0.078411, 0.930809, 0.147602,
+                   0.004733, 0.691367, 0.303900),
+    "gray": (0.2126, 0.7152, 0.0722) * 3,
+}
 def lin(c):
     c /= 255
     return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
@@ -630,7 +652,7 @@ def enc(v):
     v = min(max(v, 0), 1)
     return round(255 * (12.92 * v if v <= 0.0031308 else 1.055 * v ** (1 / 2.4) - 0.055))
 bad = 0
-for kind, m in x.VISION.items():
+for kind, m in VISION.items():
     got = open(f"{sys.argv[1]}/v-{kind}.txt").read().split()
     for rgb, g in zip([(255, 0, 0), (0, 255, 0), (0, 0, 255), (128, 128, 128)], got):
         want = [enc(sum(m[r * 3 + i] * lin(c) for i, c in enumerate(rgb))) for r in range(3)]

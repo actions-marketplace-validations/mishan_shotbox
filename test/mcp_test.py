@@ -141,9 +141,14 @@ try:
              ("press_keys", dict(keys="d", hold="0.3"))]
     said = [tool(name, session="h", **args) for name, args in steps]
     time.sleep(0.3)
-    events = [line.split()[:2] for line in (tmp / "held.log").read_text().splitlines()]
-    events = [e for i, e in enumerate(events)          # GTK may say a button twice
-              if i == 0 or e != events[i - 1]]
+    # GTK may say a button twice, and a key held long enough repeats: a
+    # press of what's already down is dropped.
+    events, down = [], set()
+    for what, name in (line.split()[:2] for line in (tmp / "held.log").read_text().splitlines()):
+        if (what == "press") == (name in down):
+            continue
+        (down.add if what == "press" else down.discard)(name)
+        events.append([what, name])
     want = [["press", "button1"], ["release", "button1"], ["press", "w"],
             ["press", "button1"], ["release", "button1"], ["release", "w"],
             ["press", "d"], ["release", "d"]]

@@ -48,8 +48,8 @@ def scale(s):
 
 def seconds(s):
     n = float(s)
-    if not (math.isfinite(n) and n >= 0):
-        raise argparse.ArgumentTypeError(f"seconds, 0 or more, not {s}")
+    if not (math.isfinite(n) and 0 <= n <= 86400):
+        raise argparse.ArgumentTypeError(f"seconds, 0 to a day (86400), not {s}")
     return n
 
 
@@ -542,7 +542,7 @@ def main(argv=None):
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
-        if argv[0] in INSIDE:
+        if argv[0] in ("key", "click"):
             # Stopped mid-hold (by kill or timeout(1)), let go on the way out.
             signal.signal(signal.SIGTERM, signal.default_int_handler)
         if session:
