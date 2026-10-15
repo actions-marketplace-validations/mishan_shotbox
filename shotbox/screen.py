@@ -19,6 +19,7 @@ $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 
 import contextlib
 import fcntl
+import functools
 import json
 import os
 import re
@@ -304,7 +305,7 @@ class Screen:
             now.unlink(missing_ok=True)
         return at
 
-    def flicker(self, seconds=2.0, window=None, crop=None, tile=16, brief=0.1, times=4,
+    def flicker(self, seconds=2.0, window=None, crop=None, tile=16, brief=0.1, times=8,
                 fuzz=6.0, ignore=()):
         """Watch the display, or the window named `window`, cropped, for
         `seconds`, as fast as pictures come, for flicker and flashes (see
@@ -475,6 +476,7 @@ class Screen:
                            / (sum(d * d for d in ab) or 1)))
             return near(p, [x + t * d for x, d in zip(a, ab)])
 
+        @functools.lru_cache(maxsize=None)
         def turned(m, i):
             """Tile m's colors where it changed in its state i, before and
             after, or None."""
@@ -502,8 +504,10 @@ class Screen:
             stepping from one into the other, as an aliased line's step
             does, or a square leaving a tile as it enters the next."""
             k, look, then = now[n][4], now[n][2], now[n][3]
+            if not along([-c for c in toward(k, n)], toward(k, m)):
+                return False
             i = next((i for i, st in enumerate(helds[m]) if i and st[3] == k), None)
-            return (bool(i and turned(m, i)) and along([-c for c in toward(k, n)], toward(k, m))
+            return (bool(i and turned(m, i))
                     and near(turned(m, i)[0], look) and near(turned(m, i)[1], then))
 
         def took(m, i):

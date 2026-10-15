@@ -261,7 +261,7 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 255; `--tile 8` halves that); its pixels decide:
 
 - Flicker: A, B, A, B..., each held no longer than `--brief` (100 ms),
-  `--times` changes (4) or more, in one place: the pixels most changes
+  `--times` changes (8) or more, kept up, in one place: the pixels most changes
   change, by a quarter of `--fuzz` or more, are most of what most of them
   do, and at least a line across the tile, its shorter side, so something
   passing through the rest of it, or a scene moving on in a column or two

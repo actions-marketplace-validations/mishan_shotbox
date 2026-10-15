@@ -735,8 +735,9 @@ def cmd_flicker(argv):
     p.add_argument("--brief", type=float, default=100, metavar="MS",
                    help="a look held no longer than this is brief (100): a caret's blink is "
                         "longer")
-    p.add_argument("--times", type=int, default=4, metavar="N",
-                   help="brief changes between two looks, in a row, that are flicker (4)")
+    p.add_argument("--times", type=int, default=8, metavar="N",
+                   help="brief changes between two looks, in a row, that are flicker (8): "
+                        "flicker keeps on, a quarter of a second or so")
     p.add_argument("--fuzz", type=float, default=6, metavar="PCT",
                    help="how near two colors are to count as one (6): a tile's mean "
                         "color moving a quarter of this is a new look, and its pixels "
