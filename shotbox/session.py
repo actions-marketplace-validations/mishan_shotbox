@@ -498,18 +498,21 @@ class Session(Screen):
         theirs where the user's systemd can make one, and what its own
         processes do, read from /proc."""
         self._started = time.monotonic()
-        self._sampler = usage.Sampler()
         if shutil.which("systemd-run"):
             try:
                 self._slice = usage.Slice(self.scratch.name)
             except OSError:
                 pass
+        # With a slice for the programs, the sampler has only the session's
+        # own processes to read, steadier than they: less often.
+        self._sampler = usage.Sampler(every=0.5 if self._slice else 0.2)
 
     def usage(self):
         """With usage, what the session's programs and its own processes
         have used so far: {"seconds": since it started, "programs" and
         "session": {"peak": bytes of memory, all at once, at most, "cpu":
-        seconds, "how": "cgroup" or "sampled"}}; else None."""
+        seconds, "how": "cgroup, with page cache" or "sampled, resident"}};
+        else None."""
         if not self._sampler:
             return None
         programs = self._slice.read() if self._slice else self._sampler.read("programs")

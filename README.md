@@ -290,7 +290,8 @@ processes hold, and the page cache and tmpfs files they made too. That's
 processes, `/proc` is read five times a second for what the processes
 hold in memory, theirs and their children's: a peak between reads is
 missed, and so is the CPU time of a process that comes and goes between
-them. That's `sampled, resident`. Compare runs measured the same way.
+them, or one left behind by a parent that's gone, which the user's
+systemd takes in. That's `sampled, resident`. Compare runs measured the same way.
 From Python, `Session(usage=True)` and its `usage()`; over MCP,
 `start_session`'s `usage`, said when it's stopped.
 

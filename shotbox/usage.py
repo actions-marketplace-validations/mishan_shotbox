@@ -27,7 +27,8 @@ class Sampler:
     resident memory together at its peak, and each process's CPU time, as
     last seen."""
 
-    def __init__(self):
+    def __init__(self, every=0.2):
+        self.every = every
         self.groups = {"programs": set(), "session": set()}
         self.peak = {kind: 0 for kind in self.groups}
         self.cpu = {kind: {} for kind in self.groups}
@@ -39,7 +40,7 @@ class Sampler:
         self.groups[kind].add(pgid)
 
     def _run(self):
-        while not self._done.wait(0.2):
+        while not self._done.wait(self.every):
             self.sample()
 
     def sample(self):
@@ -123,8 +124,11 @@ class Slice:
             # systemd-run's own, which the program's environment hasn't.
             back = ["env", "-uINVOCATION_ID", *[f"-u{k}" for k in host if k not in env],
                     *[f"{k}={env[k]}" for k in host if k in env]]
+        # A description, so the user's journal says that, not the command
+        # with the session's environment in it.
         return ["env", *[f"{k}={v}" for k, v in host.items()], "systemd-run", "--user",
-                "--scope", "--quiet", f"--slice={self.name}", "--", *back, *cmd]
+                "--scope", "--quiet", f"--slice={self.name}",
+                "--description=a program in a shotbox session", "--", *back, *cmd]
 
     def read(self):
         cpu = dict(line.split() for line in (self.dir / "cpu.stat").read_text().splitlines())
@@ -137,8 +141,12 @@ class Slice:
         if self.holder.poll() is None:
             self.holder.kill()
             self.holder.wait()
-        subprocess.run(["systemctl", "--user", "stop", self.name.removesuffix("-programs.slice")
-                        + ".slice"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # What's left in it, killed first, as the session kills what its
+        # programs leave: one that ignores SIGTERM would hold the stop 90 s.
+        session = self.name.removesuffix("-programs.slice") + ".slice"
+        for what in (["kill", "--signal=KILL"], ["stop"]):
+            subprocess.run(["systemctl", "--user", *what, session],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def line(used):
