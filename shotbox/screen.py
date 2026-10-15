@@ -454,24 +454,33 @@ class Screen:
 
         for k in sorted({f[4] for fs in flashes.values() for f in fs}):
             # Tiles that flashed in the same picture make a box. Something
-            # moving through turns a tile beside it the same way within
-            # `brief`, or a picture, before or after, if pictures come
-            # slower; a flash doesn't, and what changes beside it in the
-            # same picture, or another way, is something else: a caret, a
-            # spinner, a word in the flash.
+            # moving through turns a tile beside it the same way, briefly,
+            # as it passes, within `brief`, or a picture, before or after,
+            # if pictures come slower; a flash doesn't, and what changes
+            # beside it in the same picture, another way, or for longer, is
+            # something else: a caret, a spinner, a word in the flash.
             now = {n: f for n, fs in flashes.items() for f in fs if f[4] == k}
-            for bx, by, bw, bh, group in flicker.boxes(now, across, tile):
+            # What showed only while the flash did, one color or not, is one
+            # thing with it, and what's beside that is what's beside it: a
+            # square passing, a sliver of it in a tile at the window's edge,
+            # or lines of text drawn once in a terminal scrolling.
+            gone = max(f[5] for f in now.values())
+            with_it = {m for m, held in helds.items()
+                       for st, after in zip(held, held[1:]) if st[3] == k and after[3] <= gone}
+            for bx, by, bw, bh, group in flicker.boxes(now.keys() | with_it, across, tile):
+                if not now.keys() & set(group):
+                    continue
                 way = [sum(c) / len(group) for c in zip(*(toward(k, n) for n in group))]
                 size = sum(c * c for c in way) ** 0.5
                 if size and any(
                         sum(a * b for a, b in zip(way, d)) > 0.8 * size * sum(c * c for c in d) ** 0.5
                         for m in beside(group) if m in helds
-                        for st in helds[m][1:] if st[3] != k
+                        for st in helds[m][1:] if st[3] != k and st[2] <= brief
                         and (abs(st[3] - k) == 1 or abs(st[1] - times_[k]) <= brief)
                         for d in [toward(st[3], m)]):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
-                at, held_for, look, then, *_ = now[group[0]]
+                at, held_for, look, then, *_ = next(now[n] for n in group if n in now)
                 out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
                                 every=held_for,
                                 looks=(flicker.hex_of(then), flicker.hex_of(look))))

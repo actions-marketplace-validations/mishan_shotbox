@@ -3,7 +3,7 @@
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, line, gradient or passer. With LOG, it holds an entry instead, and
+or TITLE text, line, gradient, passer or skip. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -268,6 +268,23 @@ elif sys.argv[2:3] == ["gradient"]:
         cr.set_source_rgb(0.76, 0.44, 0.44)
         cr.rectangle(0, 0, n[0] * 3 % 240 + (6 if n[0] % 2 else -6), 120)
         cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["skip"]:
+    # Motion faster than the tiles: a red square of 12, between pixels so
+    # its edges are blended, a step of 24 a frame along a row, and gone a
+    # frame at the end, so that last, at the window's edge, a column of it
+    # is in a tile alone, and where it was before isn't beside that.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        if n[0] % 9 < 8:
+            cr.set_source_rgb(0.8, 0, 0)
+            cr.rectangle(12.5 + 24 * (n[0] % 9), 50, 12, 12)
+            cr.fill()
     area.connect("draw", draw)
     GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)

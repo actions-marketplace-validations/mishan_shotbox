@@ -270,8 +270,9 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
   crop), how many changes, how often, and the colors of what changed.
 - A flash: A, B, A, from a picture that held still, to one color where
   it differs (a frame drawn black), and back; each said. Something moving
-  through isn't, which turns the tiles beside it the same way within
-  `--brief`, or a picture, before or after.
+  through isn't, which turns the tiles beside it the same way, briefly,
+  within `--brief`, or a picture, before or after: beside all that showed
+  only while the flash did, one color or not.
 
 A caret's half-second blink is neither, nor is something moving through,
 a thin line's steps crawling, an edge between two faces a little apart
