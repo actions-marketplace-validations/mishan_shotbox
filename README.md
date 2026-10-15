@@ -261,17 +261,17 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 255; `--tile 8` halves that); its pixels decide:
 
 - Flicker: A, B, A, B..., each held no longer than `--brief` (100 ms),
-  `--times` changes (8) or more, kept up, in one place: the pixels most changes
-  change, by a quarter of `--fuzz` or more, are most of what most of them
-  do, and at least a line across the tile, its shorter side, so something
-  passing through the rest of it, or a scene moving on in a column or two
-  beside, doesn't hide it. Both looks come back as the same pictures most
-  times, nearer than A is to B, or one of them does, one color where it
-  differs from the other: black between frames of a scene that moves on,
-  as bzflag's strip was, the scene not one color, or a shape of it, as
-  pages of text between blanks aren't. Said with its box (whole tiles, in
-  what's watched: the window or the crop), how many changes, how often,
-  and the colors of what changed.
+  `--times` changes (8) or more, kept up, in one place: the pixels most
+  changes change, by a quarter of `--fuzz` or more, are most of what
+  most of them do, and at least a line across the tile, its shorter
+  side, so something passing through the rest of it, or a scene moving
+  on in a column or two beside, doesn't hide it. Both looks come back as
+  the same pictures most times, nearer than A is to B, or one of them
+  does, one color where it differs from the other: black between frames
+  of a scene that moves on, as bzflag's strip was, the scene not one
+  color, or a shape of it, as pages of text between blanks aren't. Said
+  with its box (whole tiles, in what's watched: the window or the crop),
+  how many changes, how often, and the colors of what changed.
 - A flash: A, B, A, from a picture that held still, to one color where
   it differs (a frame drawn black), a shape of it, a band, a line, an
   icon, as scattered strokes of text drawn once aren't, and back; each
@@ -283,9 +283,15 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
   flash did. Nor is one in a box most of which went other ways, a region
   drawn anew, as a terminal scrolling a page at a time is, or one a thin
   thing stepped out of into a tile beside, a line's step. A flash drawn
-  torn, part of it a picture later, is one. A flash comes from a look
-  held longer than `--brief`, or since watching began: a frame drawn
-  black between two different views, A, black, C, isn't found.
+  torn, part of it a picture later, is one. A frame drawn black between
+  two different views, A, black, C, isn't found.
+
+Nor is a burst of fewer changes than `--times`: a double or triple
+flash, or a strip flickering only an eighth of a second. `--times 4`
+finds those, and with them some things passing through: a ground line's
+step going back and forth, something crossing a tile in a fifth of a
+second. A watch too short, at the rate pictures came, to hold `--times`
+changes is said.
 
 A caret's half-second blink is neither, nor is something moving through,
 a thin line's steps crawling, an edge between two faces a little apart

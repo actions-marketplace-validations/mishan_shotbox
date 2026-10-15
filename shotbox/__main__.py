@@ -737,7 +737,7 @@ def cmd_flicker(argv):
                         "longer")
     p.add_argument("--times", type=int, default=8, metavar="N",
                    help="brief changes between two looks, in a row, that are flicker (8): "
-                        "flicker keeps on, a quarter of a second or so")
+                        "kept up that long, each no longer than --brief")
     p.add_argument("--fuzz", type=float, default=6, metavar="PCT",
                    help="how near two colors are to count as one (6): a tile's mean "
                         "color moving a quarter of this is a new look, and its pixels "
@@ -761,6 +761,9 @@ def cmd_flicker(argv):
         sys.stderr.write(f"shotbox: {taken / a.seconds:.0f} pictures a second, fewer than two "
                          f"to {a.brief:g} ms: a look that brief may be missed, and motion taken "
                          "for a flash\n")
+    if taken <= a.times:
+        sys.stderr.write(f"shotbox: {taken} pictures in {a.seconds:g} s, too few to hold "
+                         f"{a.times} changes: flicker can't be seen\n")
     for f in found:
         if f["kind"] == "flicker":
             print(f"flicker: {f['box']}, {f['changes']} changes, every {f['every'] * 1000:.0f} "

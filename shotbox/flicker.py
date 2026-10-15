@@ -261,12 +261,11 @@ def find(held, brief, times, fuzz, pixels, wide):
             run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *looks,
                    [st[3] for st in seq[1:]])
             best = run if best is None or changes > best[1] else best
-        # A flash: from a look that held still, longer than `brief` or
-        # since watching began, to a color, and back:
+        # A flash: from a picture that held still, to a color, and back:
         # what's moving holds no picture still, though it come back. And
         # it's a shape gone to that color, a band, a line, an icon, not
         # the scattered strokes of text drawn once, nor a line gone.
-        elif (changes == 2 and (seq[0][2] > brief or seq[0] is held[0]) and back[0] and plains[1]
+        elif (changes == 2 and back[0] and plains[1]
               and alike(a, pixels(seq[1][3] - 1), fuzz) and filled(where, wide, high)
               and not dropped(a, b, where, wide, fuzz)):
             flashes.append((seq[1][1], seq[1][2], looks[1], looks[0], seq[1][3], seq[2][3]))
