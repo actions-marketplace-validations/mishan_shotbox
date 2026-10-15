@@ -1076,8 +1076,9 @@ PY
     # --sound: what plays too, AAC in an MP4, Opus in a WebM, both streams
     # --seconds long, each tone starting within 0.1 s of its flash, and
     # what `listen` would say of it said: with --strict, its gaps fail it,
-    # unless --gap is longer than they are. Stopped by kill, or by the
-    # session's PipeWire going (said), the sound as long as the picture.
+    # unless --gap is longer than they are. Stopped by kill, before its
+    # --seconds or with none, or by the session's PipeWire going (said),
+    # the sound as long as the picture, and as long as it ran.
     if audio; then
       rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
       TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
@@ -1085,6 +1086,7 @@ PY
           [ \$? = 1 ]; } &&
         '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
         { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; } &&
+        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; sleep 2; kill \$r; wait \$r; } &&
         : > '$tmp/$pre-go' && '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound > '$tmp/$pre-heard3'" \
         > /dev/null 2>&1 & r=$!
       n=0; until [ -e "$tmp/$pre-go" ] || [ $n -ge 600 ]; do sleep 0.1; n=$((n + 1)); done; sleep 2
@@ -1094,8 +1096,9 @@ PY
       wait $r \
         && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
         && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-sp.mp4" >> "$tmp/$pre-av" \
+        && python3 "$tmp/av.py" "$tmp/$pre-st.mp4" >> "$tmp/$pre-av" \
         && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | grep -qx "h264 3.000 aac 3.000 vp9 2.000 opus 2.000 " \
-        && [ "$(sed -n '5p;7p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && ($2 - $4) ^ 2 < 0.01' | wc -l)" = 2 ] \
+        && [ "$(sed -n '5p;7p;9p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < 0.01' | wc -l)" = 3 ] \
         && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
         && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -q "gaps of silence" "$tmp/$pre-heard" \
         && ! grep -q gap "$tmp/$pre-heard2" && grep -q "^the sound server stopped" "$tmp/$pre-heard3" \

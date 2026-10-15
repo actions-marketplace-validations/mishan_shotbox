@@ -125,9 +125,9 @@ VIDEO = {
               "-b:v", "0", "-pix_fmt", "yuv420p"],
 }
 SOUND = {".mp4": ["-c:a", "aac"], ".webm": ["-c:a", "libopus"]}
-# With sound and no --seconds, the picture's encoder holds back no frames:
-# ffmpeg holds the sound back as far as it does, and what's held back when
-# a signal stops it is lost. Timed, it ends by itself, with all of it.
+# With sound, the picture's encoder holds back no frames: ffmpeg holds the
+# sound back as far as it does, and what's held back when a signal stops
+# it is lost.
 PROMPT = {".mp4": ["-tune", "zerolatency"], ".webm": ["-lag-in-frames", "0"]}
 # What plays at the session's sink, in its own format, so what plays in
 # that format comes through as is.
@@ -246,7 +246,7 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
             end = f",atrim=end_sample={round(seconds * 48000)}" if seconds is not None else ""
             cmd += ["-filter_complex", f"[1:a]aresample=async=1:first_pts=0{end},asplit[a][heard]",
                     "-map", "0:v", "-map", "[a]", "-shortest", *SOUND[kind]]
-            cmd += PROMPT[kind] if seconds is None else []
+            cmd += PROMPT[kind]
             heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le", "-f", "wav"], "gap": gap}
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
@@ -357,6 +357,8 @@ def keep_recording(cmd, out, grab, heard):
             if select.select([sys.stdin], [], [], 0.5)[0] or not up:
                 proc.send_signal(signal.SIGTERM)
                 break
+        # Whether the sound server had gone when it ended, not later.
+        cut = bool(heard) and not socket_up(pulse)
         if feed:
             # ffmpeg waits on its input, and with sway gone, wf-recorder
             # waits for good on a frame: an end to the pipe ends both.
@@ -391,7 +393,7 @@ def keep_recording(cmd, out, grab, heard):
             return 1
         if heard:
             from .sound import hear
-            print(json.dumps({**hear(wav, gap=heard["gap"]), "cut": not socket_up(pulse)}),
+            print(json.dumps({**hear(wav, gap=heard["gap"]), "cut": cut}),
                   flush=True)
         if gif:
             made = subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i",
