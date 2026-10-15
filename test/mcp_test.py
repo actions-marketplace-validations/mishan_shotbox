@@ -5,6 +5,7 @@ and at-spi2-core; prints ok/FAIL lines like it."""
 
 import base64
 import json
+import math
 import os
 import re
 import select
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wave
 from pathlib import Path
 
 here = Path(__file__).resolve().parent
@@ -38,6 +40,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
                  f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
+                 f"tone = paplay {tmp / 'tone.wav'}\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -221,6 +224,26 @@ try:
         tool("stop_session", session="g")
     else:
         print("skip  gamepad: no writable /dev/uinput or no bwrap")
+    if shutil.which("pipewire") and shutil.which("wireplumber") and shutil.which("paplay"):
+        with wave.open(str(tmp / "tone.wav"), "wb") as w:
+            w.setnchannels(2), w.setsampwidth(2), w.setframerate(48000)
+            w.writeframes(b"".join(struct.pack("<hh", v, v) for v in (
+                int(8000 * math.sin(2 * math.pi * 440 * i / 48000)) for i in range(24000))))
+        tool("start_session", name="a", a11y=False, audio=True)
+        said, bad, _ = tool("sound", session="a", action="stop")
+        check(bad and "action start first" in said, "sound: stop before start, refused")
+        tool("sound", session="a", action="start")
+        tool("spawn", session="a", program="tone")
+        time.sleep(1.5)
+        said, bad, _ = tool("sound", session="a", action="stop")
+        check(not bad and "No gaps, clipping or silence." in said
+              and re.search(r"peak -12\.\d dBFS", said),
+              f"sound: what a program played, heard ({said})")
+        tool("stop_session", session="a")
+        said, bad, _ = tool("sound", session="t", action="start")
+        check(bad and "start a session with audio" in said, "sound: no audio, refused")
+    else:
+        print("skip  sound: no PipeWire, WirePlumber or paplay")
     said, bad, _ = tool("click", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
     said, bad, _ = tool("program_output", session="t", program="app")

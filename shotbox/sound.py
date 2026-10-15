@@ -31,16 +31,19 @@ def hear(path, gap=0.001):
             raise ValueError(f"{path} is {8 * w.getsampwidth()}-bit: only 16-bit PCM is heard")
         channels, rate = w.getnchannels(), w.getframerate()
         data = w.readframes(w.getnframes())
+    width, shortest = 2 * channels, max(1, round(gap * rate))
+    data = data[:len(data) // width * width]    # a file cut off mid-frame
     samples = array.array("h", data)
     if sys.byteorder == "big":
         samples.byteswap()
     peak = max(max(samples, default=0), -min(samples, default=0))
-    width, shortest = 2 * channels, max(1, round(gap * rate))
     gaps = []
-    for m in re.finditer(b"(?:%s){%d,}" % (b"\0" * width, shortest), data):
-        # A run found from the middle of a frame starts at the next one.
+    # Each run of zero bytes, whole, from its first: the lookbehind fails
+    # at once anywhere else in it, so this is linear however long the runs.
+    for m in re.finditer(b"(?<!\0)\0{%d,}" % (shortest * width), data):
+        # The frames wholly inside it: one may begin mid-frame.
         start, end = -(-m.start() // width) * width, m.end() // width * width
-        if start > 0 and end < len(data) and (end - start) // width >= shortest:
+        if m.start() > 0 and m.end() < len(data) and (end - start) // width >= shortest:
             gaps.append((start // width / rate, (end - start) // width / rate))
     return {
         "seconds": len(samples) // channels / rate, "rate": rate, "channels": channels,
@@ -50,6 +53,14 @@ def hear(path, gap=0.001):
         "clipped": samples.count(32767) + samples.count(-32768),
         "gaps": gaps,
     }
+
+
+def describe(heard):
+    """What `hear` found, a line each: the whole, then each gap."""
+    return ([f"{heard['seconds']:.3f}s, {heard['rate']} Hz, {heard['channels']} channels: "
+             f"peak {heard['peak']:.1f} dBFS, rms {heard['rms']:.1f} dBFS, "
+             f"{heard['clipped']} clipped"]
+            + [f"gap at {at:.3f}s, {long * 1000:.1f} ms" for at, long in heard["gaps"]])
 
 
 def problems(heard, quiet=-60.0, clipped=0):

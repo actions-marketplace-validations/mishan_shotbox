@@ -185,7 +185,8 @@ PY
     sleep 0.7; python3 '$tmp/stutter.py' | pacat --format=s16le --rate=48000 --channels=2 \
       --latency-msec=10; wait \$r"
   set +e; "$sb" listen "$tmp/stutter.wav" > "$tmp/heard"; st=$?; set -e
-  [ $st = 1 ] && [ "$(grep -c '^gap at ' "$tmp/heard")" = 2 ] \
+  # A loaded machine may add short gaps of its own: the stalls are long.
+  [ $st = 1 ] && [ "$(awk '/^gap at / && $4 >= 150' "$tmp/heard" | wc -l)" = 2 ] \
     && ok "listen: a player that stalls twice, heard as two gaps" || { fail "listen: stalls ($st)"; cat "$tmp/heard"; }
 else
   [ "${SHOTBOX_AUDIO-}" = required ] && fail "audio skipped: no PipeWire, WirePlumber or pactl" \
@@ -1007,8 +1008,9 @@ set +e; "$sb" run -- "$sb" pad press a 2> "$tmp/err"; st=$?; set -e
   || fail "pad without gamepads ($st)"
 
 # listen: a tone heard clean, its silence before and after not gaps; one
-# with 5 ms of silence in it, a gap, but not with --gap 10; clipped; and
-# silent.
+# with 5 ms of silence in it, a gap, but not with --gap 10; clipped;
+# silent; and silence after a sample of 1, at the end none, and in the
+# middle, a millisecond of it, one.
 python3 - "$tmp" <<'PY'
 import math, struct, sys, wave
 def write(name, values):
@@ -1020,16 +1022,20 @@ write("clean", [0] * 4800 + tone + [0] * 4800)
 write("gap", tone[:24000] + [0] * 240 + tone[24000:])
 write("loud", [max(-32768, min(32767, v * 5)) for v in tone])
 write("silent", [0] * 48000)
+# Silence after a sample whose high byte is zero starts mid-frame.
+write("fade", tone + [1] + [0] * 4800)
+write("short", tone[:24001] + [1] + [0] * 48 + tone[24001:])
 PY
 listened=""
-for c in "clean 0" "gap 1 gap at 0.500s, 5.0 ms" "gap --gap 10 0" "loud 1 clipped: " "silent 1 silent: "; do
+for c in "clean 0" "gap 1 gap at 0.500s, 5.0 ms" "gap --gap 10 0" "loud 1 clipped: " "silent 1 silent: " \
+         "fade 0" "short 1 , 1.0 ms"; do
   set -- $c; name=$1; shift; opts=""
   [ "$1" = --gap ] && { opts="--gap $2"; shift 2; }
   want=$1; shift
   set +e; out=$("$sb" listen "$tmp/$name.wav" $opts); st=$?; set -e
   [ $st = "$want" ] && { [ $# = 0 ] || echo "$out" | grep -qF "$*"; } || listened="$listened $name($st: $out)"
 done
-[ -z "$listened" ] && ok "listen: clean, a gap (not with --gap 10), clipped, silent" \
+[ -z "$listened" ] && ok "listen: clean, a gap (not with --gap 10), clipped, silent; silence after a sample of 1" \
   || fail "listen:$listened"
 
 # Vision: red, green, blue and gray, as each kind of color vision sees

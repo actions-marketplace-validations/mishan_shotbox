@@ -444,14 +444,8 @@ def cmd_listen(argv):
     except (OSError, EOFError, ValueError, wave.Error) as e:
         sys.stderr.write(f"shotbox: {a.wav}: {e}\n")
         return 2
-    print(f"{heard['seconds']:.3f}s, {heard['rate']} Hz, {heard['channels']} channels: "
-          f"peak {heard['peak']:.1f} dBFS, rms {heard['rms']:.1f} dBFS, "
-          f"{heard['clipped']} clipped")
-    for at, long in heard["gaps"]:
-        print(f"gap at {at:.3f}s, {long * 1000:.1f} ms")
     bad = sound.problems(heard, quiet=a.quiet, clipped=a.clipped)
-    for line in bad:
-        print(line)
+    print("\n".join(sound.describe(heard) + bad))
     return 1 if bad else 0
 
 

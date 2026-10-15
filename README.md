@@ -34,7 +34,8 @@ and then:
   images;
 - click by a node's name, press keys, type and work a gamepad;
 - wait for windows, stillness and announcements;
-- lint, measure contrast and walk the Tab order.
+- lint, measure contrast and walk the Tab order;
+- record what a session plays, and hear where it dropped out.
 
 That's enough for an agent to check its own change in a GUI, test a game
 by playing it, audit what a screen reader hears, or reproduce a bug report
