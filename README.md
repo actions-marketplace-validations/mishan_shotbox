@@ -388,6 +388,25 @@ linear RGB. Anything told apart only by color (a status, a series in a
 chart, a team in a game) that looks the same in one of them needs another
 cue. `capture` and `shoot` take `--vision KIND` to take a picture that way.
 
+**`shotbox listen IN.wav`** says how loud a recording of a session's
+sound is (`shotbox record OUT.wav`), its peak and RMS in dBFS, and where
+it dropped out or clipped, and fails if it did, or is silent. A program
+that falls behind feeding its sound leaves the sink silent, which
+PipeWire fills with exact zeros: a run of them in every channel, `--gap
+MS` (1) or longer, between the first sound and the last, is a gap, said
+with where it is and how long. Silence before and after the sound isn't
+one, and a program that means to be silent for a while needs a longer
+`--gap`. `--clipped N` samples at full scale are allowed (0), and a peak
+under `--quiet DB` (-60) is silence. Glitches that leave no silence, a
+click or a jump in the wave, it doesn't hear. From Python,
+`shotbox.sound.hear(path)` (`import shotbox.sound`) returns the same, as a
+dict.
+
+```
+shotbox run --audio -- sh -c 'shotbox record soak.wav --seconds 60 & ./app; wait'
+shotbox listen soak.wav
+```
+
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
 each, and fails if any differs, is missing, or changed size. `--diff DIR`
