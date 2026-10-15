@@ -883,9 +883,6 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
       '$sb' wait announce 'notes\.md' --timeout 10" \
       && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
   fi
-  set +e; "$sb" run --wayland -- "$sb" record "$tmp/wl.mp4" --seconds 1 2> "$tmp/err"; st=$?; set -e
-  [ $st != 0 ] && grep -q "X11 sessions only" "$tmp/err" \
-    && ok "wayland: record, X11's for now, refused saying so" || fail "wayland: record ($st)"
   pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
     || ok "wayland: sway stops with the session"
   [ -z "$(ours_xwayland)" ] \
@@ -928,82 +925,90 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 
 # Recording: a window for two seconds as an MP4; the screen as a WebM at
 # 10 frames a second; a crop as a GIF, its odd sides evened; and one with
-# no length, stopped by kill, finished properly.
+# no length, stopped by kill, finished properly. On X11, and on Wayland,
+# which needs wf-recorder too, or skips as the Wayland tests do.
 if command -v ffmpeg >/dev/null; then
   probe() { ffprobe -v error -select_streams v -show_entries stream=codec_name,width,height \
     -show_entries format=duration -of csv=p=0 "$1" | tr '\n' ' '; }
   frames() { ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames \
     -of csv=p=0 "$1"; }
-  "$sb" run -- sh -c "'$here/window.py' rec & '$sb' wait window rec &&
-    '$sb' record '$tmp/rec.mp4' --window rec --seconds 2 && '$sb' record '$tmp/rec.webm' --fps 10 --seconds 1 &&
-    '$sb' record '$tmp/rec.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
-    { '$sb' record '$tmp/rec-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
-    ! '$sb' record '$tmp/rec.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/rec0.mp4' --seconds 0 2>> '$tmp/err'" > /dev/null \
-    && [ "$(probe "$tmp/rec.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/rec.mp4")" -ge 50 ] \
-    && [ "$(probe "$tmp/rec.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/rec.webm")" = 10 ] \
-    && [ "$(probe "$tmp/rec.gif")" = "gif,100,50 1.000000 " ] \
-    && probe "$tmp/rec-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/rec-k.mp4")" -ge 15 ] \
-    && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/rec0.mp4" ] \
-    && ok "record: a window, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
-    || fail "record: $(probe "$tmp/rec.mp4"); $(probe "$tmp/rec.webm"); $(probe "$tmp/rec.gif"); $(probe "$tmp/rec-k.mp4")"
-  # A GIF whose session is stopped (run killed) is finished all the same,
-  # leaving nothing behind in the temp dir.
-  rm -rf "$tmp/rtmp"; mkdir "$tmp/rtmp"
-  "$sb" run --env "TMPDIR=$tmp/rtmp" -- sh -c "'$here/window.py' rg & '$sb' wait window rg &&
-    '$sb' record '$tmp/rec-run.gif'" > /dev/null & r=$!
-  sleep 6; kill $r; wait $r || true
-  n=0; while [ -n "$(ls "$tmp/rtmp")" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
-  [ "$(probe "$tmp/rec-run.gif" | cut -d' ' -f1)" = gif,1280,800 ] && [ -z "$(ls "$tmp/rtmp")" ] \
-    && ok "record: a GIF in a session that's stopped, finished, nothing left behind" \
-    || fail "record, stopped run: $(probe "$tmp/rec-run.gif"); $(ls "$tmp/rtmp")"
-  # Killed outright, record takes its ffmpeg with it, which otherwise goes
-  # on recording a display that's gone; the file is finished all the same.
-  "$sb" run -- sh -c "'$here/window.py' rk & '$sb' wait window rk &&
-    { '$sb' record '$tmp/rec-9.mp4' --window rk & r=\$!; sleep 1.5; kill -9 \$r; }
-    n=0; while pgrep -ax ffmpeg | grep -q rec-9 && [ \$n -lt 50 ]; do sleep 0.1; n=\$((n + 1)); done
-    ! pgrep -ax ffmpeg | grep -q rec-9" > /dev/null \
-    && probe "$tmp/rec-9.mp4" | grep -q "^h264,200,120 " \
-    && ok "record: killed outright, its ffmpeg stops and finishes the file" \
-    || { fail "record, killed: $(probe "$tmp/rec-9.mp4")"
-         pgrep -ax ffmpeg | grep rec-9 | cut -d' ' -f1 | xargs -r kill; }
-  # Stopped a moment after it starts, in the background, where a job's
-  # Ctrl-C is ignored: it ends rather than recording for good. Killed, then
-  # killed outright while it finishes: the file is still whole. A GIF
-  # killed outright, once it has frames (ffmpeg can take a second or more
-  # to start), is made all the same, and nothing left in TMPDIR.
-  rm -rf "$tmp/rtmp2"; mkdir "$tmp/rtmp2"
-  "$sb" run --env "TMPDIR=$tmp/rtmp2" -- sh -c "'$here/window.py' re & '$sb' wait window re || exit 1
-    for d in 0.05 0.08 0.1 0.15 0.2 0.3 0.5; do
-      '$sb' record '$tmp/rec-e.mp4' --window re 2>/dev/null & r=\$!; sleep \$d; kill \$r
-      n=0; while kill -0 \$r 2>/dev/null; do [ \$n -lt 100 ] || { echo \"hung, killed at \$d\"; kill -9 \$r; exit 1; }
-        sleep 0.1; n=\$((n + 1)); done
-    done
-    '$sb' record '$tmp/rec-2.mp4' --window re & r=\$!; sleep 1.5; kill \$r; sleep 0.1; kill -9 \$r
-    '$sb' record '$tmp/rec-9.gif' --window re & r=\$!
-    n=0; until pgrep -ax python3 | grep keep_recording | grep -q rec-9.gif; do
-      [ \$n -lt 100 ] || { echo 'no keeper'; pgrep -ax python3; exit 1; }; sleep 0.1; n=\$((n + 1)); done
-    sleep 3; kill -9 \$r
-    n=0; while [ ! -s '$tmp/rec-9.gif' ] || [ -n \"\$(ls '$tmp/rtmp2')\" ]; do
-      [ \$n -lt 300 ] || { echo 'no GIF'; pgrep -ax python3; pgrep -ax ffmpeg; exit 1; }
-      sleep 0.1; n=\$((n + 1)); done" > "$tmp/rec-steps" 2>&1 \
-    && probe "$tmp/rec-2.mp4" | grep -q "^h264,200,120 " && probe "$tmp/rec-9.gif" | grep -q "^gif,200,120 " \
-    && ok "record: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
-    || { fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
-         cat "$tmp/rec-steps"; }
+  # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
+  records() {
+    opt=$1 pre=$2 say=$3
+    "$sb" run $opt -- sh -c "'$here/window.py' rec & '$sb' wait window rec && '$sb' capture '$tmp/$pre-win.png' --window rec &&
+      '$sb' record '$tmp/$pre.mp4' --window rec --seconds 2 && '$sb' record '$tmp/$pre.webm' --fps 10 --seconds 1 &&
+      '$sb' record '$tmp/$pre.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
+      { '$sb' record '$tmp/$pre-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
+      ! '$sb' record '$tmp/$pre.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/${pre}0.mp4' --seconds 0 2>> '$tmp/err'" > /dev/null \
+      && [ "$(probe "$tmp/$pre.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/$pre.mp4")" -ge 50 ] \
+      && ffmpeg -loglevel error -y -ss 1 -i "$tmp/$pre.mp4" -frames:v 1 "$tmp/$pre-frame.png" \
+      && "$sb" compare "$tmp/$pre-win.png" "$tmp/$pre-frame.png" --fuzz 20% > /dev/null \
+      && [ "$(probe "$tmp/$pre.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/$pre.webm")" = 10 ] \
+      && [ "$(probe "$tmp/$pre.gif")" = "gif,100,50 1.000000 " ] \
+      && probe "$tmp/$pre-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/$pre-k.mp4")" -ge 15 ] \
+      && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/${pre}0.mp4" ] \
+      && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
+      || fail "$say: $(probe "$tmp/$pre.mp4"); $(probe "$tmp/$pre.webm"); $(probe "$tmp/$pre.gif"); $(probe "$tmp/$pre-k.mp4")"
+    # A GIF whose session is stopped (run killed) is finished all the same,
+    # leaving nothing behind in the temp dir.
+    rm -rf "$tmp/$pre-tmp"; mkdir "$tmp/$pre-tmp"
+    "$sb" run $opt --env "TMPDIR=$tmp/$pre-tmp" -- sh -c "'$here/window.py' rg & '$sb' wait window rg &&
+      '$sb' record '$tmp/$pre-run.gif'" > /dev/null & r=$!
+    sleep 6; kill $r; wait $r || true
+    n=0; while [ -n "$(ls "$tmp/$pre-tmp")" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    [ "$(probe "$tmp/$pre-run.gif" | cut -d' ' -f1)" = gif,1280,800 ] && [ -z "$(ls "$tmp/$pre-tmp")" ] \
+      && ok "$say: a GIF in a session that's stopped, finished, nothing left behind" \
+      || fail "$say, stopped run: $(probe "$tmp/$pre-run.gif"); $(ls "$tmp/$pre-tmp")"
+    # Killed outright, record takes its ffmpeg with it, which otherwise goes
+    # on recording a display that's gone; the file is finished all the same.
+    "$sb" run $opt -- sh -c "'$here/window.py' rk & '$sb' wait window rk &&
+      { '$sb' record '$tmp/$pre-9.mp4' --window rk & r=\$!; sleep 1.5; kill -9 \$r; }
+      n=0; while pgrep -ax ffmpeg | grep -q $pre-9 && [ \$n -lt 50 ]; do sleep 0.1; n=\$((n + 1)); done
+      ! pgrep -ax ffmpeg | grep -q $pre-9" > /dev/null \
+      && probe "$tmp/$pre-9.mp4" | grep -q "^h264,200,120 " \
+      && ok "$say: killed outright, its ffmpeg stops and finishes the file" \
+      || { fail "$say, killed: $(probe "$tmp/$pre-9.mp4")"
+           pgrep -ax ffmpeg | grep $pre-9 | cut -d' ' -f1 | xargs -r kill; }
+    # Stopped a moment after it starts, in the background, where a job's
+    # Ctrl-C is ignored: it ends rather than recording for good. Killed, then
+    # killed outright while it finishes: the file is still whole. A GIF
+    # killed outright, once it has frames (ffmpeg can take a second or more
+    # to start), is made all the same, and nothing left in TMPDIR.
+    rm -rf "$tmp/$pre-tmp2"; mkdir "$tmp/$pre-tmp2"
+    "$sb" run $opt --env "TMPDIR=$tmp/$pre-tmp2" -- sh -c "'$here/window.py' re & '$sb' wait window re || exit 1
+      for d in 0.05 0.08 0.1 0.15 0.2 0.3 0.5; do
+        '$sb' record '$tmp/$pre-e.mp4' --window re 2>/dev/null & r=\$!; sleep \$d; kill \$r
+        n=0; while kill -0 \$r 2>/dev/null; do [ \$n -lt 100 ] || { echo \"hung, killed at \$d\"; kill -9 \$r; exit 1; }
+          sleep 0.1; n=\$((n + 1)); done
+      done
+      '$sb' record '$tmp/$pre-2.mp4' --window re & r=\$!; sleep 1.5; kill \$r; sleep 0.1; kill -9 \$r
+      '$sb' record '$tmp/$pre-9.gif' --window re & r=\$!
+      n=0; until pgrep -ax python3 | grep keep_recording | grep -q $pre-9.gif; do
+        [ \$n -lt 100 ] || { echo 'no keeper'; pgrep -ax python3; exit 1; }; sleep 0.1; n=\$((n + 1)); done
+      sleep 3; kill -9 \$r
+      n=0; while [ ! -s '$tmp/$pre-9.gif' ] || [ -n \"\$(ls '$tmp/$pre-tmp2')\" ]; do
+        [ \$n -lt 300 ] || { echo 'no GIF'; pgrep -ax python3; pgrep -ax ffmpeg; exit 1; }
+        sleep 0.1; n=\$((n + 1)); done" > "$tmp/$pre-steps" 2>&1 \
+      && probe "$tmp/$pre-2.mp4" | grep -q "^h264,200,120 " && probe "$tmp/$pre-9.gif" | grep -q "^gif,200,120 " \
+      && ok "$say: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
+      || { fail "$say, stopped early or killed: $(probe "$tmp/$pre-2.mp4"); $(probe "$tmp/$pre-9.gif"); $(ls "$tmp/$pre-tmp2")"
+           cat "$tmp/$pre-steps"; }
+    # A lasting session stopped while it records: the recording ends with it.
+    "$sb" start --name "$pre$$" $opt >/dev/null
+    "$sb" --session "$pre$$" record "$tmp/$pre-stop.mp4" & r=$!
+    sleep 2; "$sb" stop "$pre$$" >/dev/null
+    n=0; while kill -0 $r 2>/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    if kill -0 $r 2>/dev/null; then kill -9 $r; fail "$say: outlived its session's stop"
+    else probe "$tmp/$pre-stop.mp4" | grep -q "^h264,1280,800 " && ok "$say: ends, finished, when its lasting session stops" \
+      || fail "$say, session stopped: $(probe "$tmp/$pre-stop.mp4")"; fi
+  }
+  records "" rec record
   # Run from where another shotbox is, the keeper is still this one.
   mkdir -p "$tmp/other/shotbox"; : > "$tmp/other/shotbox/__init__.py"
   echo 'raise ImportError("the other shotbox")' > "$tmp/other/shotbox/x.py"
   (cd "$tmp/other" && "$sb" run -- "$sb" record "$tmp/rec-cwd.mp4" --seconds 1 > /dev/null) \
     && probe "$tmp/rec-cwd.mp4" | grep -q "^h264,1280,800 " \
     && ok "record: from where another shotbox is, still this one's" || fail "record, from another shotbox's dir"
-  # A lasting session stopped while it records: the recording ends with it.
-  "$sb" start --name "rec$$" >/dev/null
-  "$sb" --session "rec$$" record "$tmp/rec-stop.mp4" & r=$!
-  sleep 2; "$sb" stop "rec$$" >/dev/null
-  n=0; while kill -0 $r 2>/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
-  if kill -0 $r 2>/dev/null; then kill -9 $r; fail "record: outlived its session's stop"
-  else probe "$tmp/rec-stop.mp4" | grep -q "^h264,1280,800 " && ok "record: ends, finished, when its lasting session stops" \
-    || fail "record, session stopped: $(probe "$tmp/rec-stop.mp4")"; fi
   # A window partly off the screen is recorded as far as it shows; one
   # entirely off it is refused.
   if command -v xdotool >/dev/null; then
@@ -1017,6 +1022,15 @@ if command -v ffmpeg >/dev/null; then
       || fail "record off screen: $(probe "$tmp/rec-off.mp4"); $(cat "$tmp/err")"
   else
     echo "skip  record off the screen: no xdotool"
+  fi
+  if command -v sway >/dev/null && command -v grim >/dev/null && command -v wf-recorder >/dev/null; then
+    records --wayland wrec "wayland: record"
+    set +e; "$sb" run --wayland -- "$sb" record "$tmp/wrec-p.mp4" --pointer --seconds 1 2> "$tmp/err"; st=$?; set -e
+    [ $st != 0 ] && grep -q "no pointer" "$tmp/err" \
+      && ok "wayland: record --pointer, refused saying why" || fail "wayland: record --pointer ($st)"
+  else
+    [ "${SHOTBOX_WAYLAND-}" = required ] && fail "wayland: record skipped: no sway, grim or wf-recorder" \
+      || echo "skip  wayland: record: no sway, grim or wf-recorder"
   fi
 else
   echo "skip  record: no ffmpeg"

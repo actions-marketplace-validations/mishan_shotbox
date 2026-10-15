@@ -45,6 +45,9 @@ session's environment:
   - pictures come from `grim`, run through ImageMagick like the X ones,
     so the PNGs have no timestamps;
   - a `stable` wait's fingerprint is `grim` writing a PPM to a pipe;
+  - videos come from `wf-recorder`, over the same screencopy, piped raw
+    to the ffmpeg X11's recordings use, so the options and the ways to
+    stop are the same;
 - **Wayland input** is wlinput.py, a small Wayland client of our own for
   sway's virtual keyboard and pointer, the way xtest.py is for X: the
   keymap goes over as text in a memfd, passed with `sendmsg`.
@@ -128,6 +131,7 @@ can connect for as long as the session lasts.
 
 ## Needs
 
-`sway` and `grim` for `--wayland`, and `Xwayland` for `--xwayland`. On
-Debian and Ubuntu: `sudo apt install sway grim xwayland`. Nothing else;
+`sway` and `grim` for `--wayland`, `Xwayland` for `--xwayland`, and
+`wf-recorder` for `record`. On Debian and Ubuntu: `sudo apt install sway
+grim xwayland wf-recorder`. Nothing else;
 X11 sessions need none of them.

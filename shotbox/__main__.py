@@ -512,8 +512,8 @@ def cmd_record(argv):
                                             "display or one window, or with --audio, a "
                                             ".wav of what plays, for --seconds, or "
                                             "until stopped (Ctrl-C, or kill, which ends "
-                                            "the file properly). Video in X11 sessions; "
-                                            "needs ffmpeg.")
+                                            "the file properly). Needs ffmpeg, and "
+                                            "on Wayland, wf-recorder.")
     p.add_argument("out", metavar="OUT", help="an .mp4, .webm, .gif or .wav")
     p.add_argument("--seconds", type=seconds, metavar="SECS")
     p.add_argument("--window", metavar="RE",
@@ -522,7 +522,8 @@ def cmd_record(argv):
     p.add_argument("--crop", metavar="WxH+X+Y", help="inside the display or the window")
     p.add_argument("--fps", type=int, choices=range(1, 61), metavar="N",
                    help="frames a second, 1 to 60 (30, or 15 for a GIF)")
-    p.add_argument("--pointer", action="store_true", help="draw the pointer too")
+    p.add_argument("--pointer", action="store_true",
+                   help="draw the pointer too (X11 only: sway draws none)")
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
     a = p.parse_args(argv)

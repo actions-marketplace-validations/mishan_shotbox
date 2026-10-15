@@ -120,6 +120,15 @@ def pixels(env):
                               check=True).stdout)
 
 
+def root_size(env):
+    """The output's width and height."""
+    try:
+        r = ipc(env, GET_OUTPUTS)[0]["rect"]
+    except OSError:
+        raise RuntimeError("can't reach sway: is the session still up?")
+    return r["width"], r["height"]
+
+
 def focus(env, window):
     """Give `window` (as find_window has it) the keyboard, and raise it."""
     r = ipc(env, RUN_COMMAND, f"[con_id={window[0]}] focus")

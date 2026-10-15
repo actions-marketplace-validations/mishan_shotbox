@@ -214,10 +214,11 @@ GIF after `shotbox run` returns. The
 pointer isn't drawn unless `--pointer`, as in a picture (`--park` moves it
 aside first). A window is recorded where it is when recording starts, as
 far as it's on the screen: it isn't followed if it moves, and what's drawn
-over it is recorded too. It needs ffmpeg, and works in X11 sessions only
-for now. `shotbox record OUT.wav` records what plays in a session with
-`--audio` instead: the sink's mix, 48 kHz 16-bit stereo, so what plays in
-that format comes through bit for bit, and `--seconds` is to the sample.
+over it is recorded too. It needs ffmpeg, and on Wayland wf-recorder;
+sway draws no pointer, so there `--pointer` is refused. `shotbox record
+OUT.wav` records what plays in a session with `--audio` instead: the
+sink's mix, 48 kHz 16-bit stereo, so what plays in that format comes
+through bit for bit, and `--seconds` is to the sample.
 On X11 or Wayland, and it stops the same ways. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
@@ -641,19 +642,19 @@ shotbox shoot editor.png --wayland --window app=org.gnome.TextEditor -- gnome-te
 ```
 
 Everything else is the same: windows by title or `app=`, pictures, waits,
-failure pictures, keys, text, the pointer, `park`, `term` and the Python
-API (`shotbox.Session(wayland=True)`, or `here()` inside). Windows come
-from sway's IPC socket and pictures from `grim`; keys and the pointer go
-over sway's virtual keyboard and pointer, from a small client of
-shotbox's own, as XTEST does on X11.
+failure pictures, keys, text, the pointer, `park`, `term`, `record` and
+the Python API (`shotbox.Session(wayland=True)`, or `here()` inside).
+Windows come from sway's IPC socket, pictures from `grim` and videos
+from wf-recorder; keys and the pointer go over sway's virtual keyboard
+and pointer, from a small client of shotbox's own, as XTEST does on X11.
 
 The pictures aren't X11's: GTK draws its own decorations on Wayland,
 and under Xwayland, with no XSETTINGS, its text at 96 dpi. A committed
 picture belongs to one backend.
 
-Needs `sway` and `grim`, and `Xwayland` for `--xwayland`:
-`sudo apt install sway grim xwayland`. Why sway, and how it fits:
-[docs/wayland.md](docs/wayland.md).
+Needs `sway` and `grim`, `Xwayland` for `--xwayland`, and wf-recorder
+for `record`: `sudo apt install sway grim xwayland wf-recorder`. Why
+sway, and how it fits: [docs/wayland.md](docs/wayland.md).
 
 ## Python
 
