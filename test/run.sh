@@ -68,21 +68,26 @@ print(urllib.request.urlopen('http://127.0.0.1:$port/').status, open('/proc/net/
     || fail "--net loopback: $(cat "$tmp/net.log")"
   "$sb" stop "$net"
 fi
-# --identity: every way of asking who and where says USER and HOST, for a
-# program run and one spawned later in a started session; a bad one, refused.
+# --identity: every way of asking who and where says USER and HOST, and no
+# group names the real user, for a program run and one spawned later in a
+# started session; a bad one, or a user the machine has, refused.
 if bwrap --dev-bind / / --unshare-uts --hostname x true 2>/dev/null; then
-  ask='echo $(hostname) $(uname -n) $(whoami) $(id -un) $(ls -ld "$HOME" | cut -d" " -f3-4) $USER $LOGNAME $HOSTNAME'
-  want="neon neon doll doll doll doll doll doll neon"
-  out=$("$sb" run --identity doll@neon -- sh -c "$ask")
-  idn=id$$; "$sb" start --name "$idn" --identity doll@neon >/dev/null
+  ask='echo $(hostname) $(hostname -f) $(cat /etc/hostname) $(uname -n) $(whoami) $(id -un)
+echo $(ls -ld "$HOME" | cut -d" " -f3-4) $USER $LOGNAME $HOSTNAME
+cut -d: -f4 /etc/group | tr , "\n" | grep -xF "$REAL" | wc -l'
+  want=$(printf 'neon neon neon neon doll doll\ndoll doll doll doll neon\n0')
+  real="--env REAL=$(id -un)"
+  out=$("$sb" run --identity doll@neon $real -- sh -c "$ask")
+  idn=id$$; "$sb" start --name "$idn" --identity doll@neon $real >/dev/null
   "$sb" spawn --session "$idn" --log "$tmp/id.log" -- sh -c "$ask" >/dev/null
-  n=0; until [ -s "$tmp/id.log" ] || [ $n = 50 ]; do sleep 0.1; n=$((n + 1)); done
+  n=0; until grep -qx '[0-9]*' "$tmp/id.log" 2>/dev/null || [ $n = 50 ]; do sleep 0.1; n=$((n + 1)); done
   "$sb" stop "$idn"
-  set +e; "$sb" run --identity 'doll@neon;x' -- true 2> "$tmp/err"; st=$?; set -e
-  [ "$out" = "$want" ] && [ "$(cat "$tmp/id.log")" = "$want" ] && [ $st != 0 ] \
-    && grep -q "identity is USER@HOST" "$tmp/err" \
-    && ok "--identity: who and where, for every program, and a bad one refused" \
-    || fail "--identity: run [$out], spawned [$(cat "$tmp/id.log")], bad ($st) $(cat "$tmp/err")"
+  set +e; "$sb" run --identity 'doll@neon;x' -- true 2> "$tmp/err"; st=$?
+  "$sb" run --identity root@x -- true 2>> "$tmp/err"; st2=$?; set -e
+  [ "$out" = "$want" ] && [ "$(cat "$tmp/id.log")" = "$want" ] && [ $st != 0 ] && [ $st2 != 0 ] \
+    && grep -q "identity is USER@HOST" "$tmp/err" && grep -q "root is the machine's user 0" "$tmp/err" \
+    && ok "--identity: who and where, for every program, and bad ones refused" \
+    || fail "--identity: run [$out], spawned [$(cat "$tmp/id.log")], bad ($st $st2) $(cat "$tmp/err")"
 fi
 # --usage: what a program used, its 300 MB at once among it, and what the
 # session's own processes did, said and written as JSON.

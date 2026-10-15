@@ -365,15 +365,20 @@ Not sealed:
   and not `--no-sandbox`, since setuid helpers can't work in it either.
 - Who and where you are, unless `--identity USER@HOST`: a shell's
   prompt, `ls -l` and a title bar show your user and host name. With
-  it, programs see USER and HOST however they ask: `hostname`, `uname
+  it, programs see USER and HOST in: `hostname`, `hostname -f`, `uname
   -n` and `gethostname()` (each program in a UTS namespace of its own,
-  all with the one name), `whoami`, `id -un`, `getpwuid()` and `ls -l`'s
-  owner (an `/etc/passwd` and `/etc/group` of the session's, the
-  machine's with your uid and gid called USER, the scratch home theirs),
-  and `$USER`, `$LOGNAME` and `$HOSTNAME`. It needs bubblewrap, and
-  fails without, rather than take a picture with your names in it; and
-  not `--no-sandbox`. `Session(identity="USER@HOST")` from Python, and
-  `start_session`'s `identity` over MCP.
+  all with the one name), `/etc/hostname` and `/etc/hosts`; `whoami`,
+  `id -un`, `getpwuid()` and `ls -l`'s owner (an `/etc/passwd` and
+  `/etc/group` of the session's, the machine's with your uid and gid
+  called USER, the scratch home theirs, and your name in no group); and
+  `$USER`, `$LOGNAME` and `$HOSTNAME`. `who` and `users` find no one.
+  Your paths still show: the directory a program starts in, and `PATH`,
+  are yours, so a prompt that shows where it is wants a `cd` into the
+  session's home first. USER can't be a user or group the machine has
+  already. It needs bubblewrap, and fails without, rather than take a
+  picture with your names in it; and not `--no-sandbox`.
+  `Session(identity="USER@HOST")` from Python, and `start_session`'s
+  `identity` over MCP.
 - The machine's system bus, unless `--system-bus`: logind,
   NetworkManager and the rest, which may let a program in your desktop's
   session suspend or power off the machine.

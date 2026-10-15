@@ -39,6 +39,7 @@ The pieces, and why each one:
 """
 
 import json
+import grp
 import os
 import pwd
 import re
@@ -46,6 +47,7 @@ import secrets
 import select
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -537,18 +539,47 @@ class Session(Screen):
     def _make_identity(self):
         """The machine's /etc/passwd and /etc/group, for programs to see,
         with the session's uid and gid USER's, home the session's, and
-        nothing else called that: whoami, ls -l and getpwuid all say USER."""
-        user, uid, gid = self.identity[0], os.getuid(), os.getgid()
+        nothing else called that, nor the real name in a group's members:
+        whoami, ls -l and getpwuid all say USER. /etc/hostname, and
+        /etc/hosts with HOST in it, so hostname -f finds it without asking
+        DNS; and no logins, which who and users would name."""
+        (user, host), uid, gid = self.identity, os.getuid(), os.getgid()
+        for kind, look, ours in (("user", pwd.getpwnam, uid), ("group", grp.getgrnam, gid)):
+            try:
+                theirs = look(user)[2]
+            except KeyError:
+                continue
+            if theirs != ours:
+                # Its line would go, and its files show as a number.
+                raise SessionError(f"identity's {user} is the machine's {kind} {theirs} "
+                                   "already: pick another name")
         try:
-            shell = pwd.getpwuid(uid).pw_shell
+            me = pwd.getpwuid(uid)
+            real, shell = me.pw_name, me.pw_shell
         except KeyError:
-            shell = "/bin/sh"
+            real, shell = None, "/bin/sh"
         home = self.scratch / "home"
+        files = {}
         for name, id_, ours in (("passwd", uid, f"{user}:x:{uid}:{gid}:{user}:{home}:{shell}"),
                                 ("group", gid, f"{user}:x:{gid}:")):
             kept = [line for line in Path("/etc", name).read_text().splitlines()
                     if line.split(":")[0] != user and line.split(":")[2:3] != [str(id_)]]
-            (self.scratch / name).write_text("\n".join([*kept, ours]) + "\n")
+            if name == "group":
+                kept = [":".join([*f[:3], ",".join(m for m in f[3].split(",") if m != real)])
+                        if len(f := line.split(":")) == 4 else line for line in kept]
+            files[f"/etc/{name}"] = [*kept, ours]
+        machine = socket.gethostname().split(".")[0]
+        files["/etc/hosts"] = [
+            line for line in Path("/etc/hosts").read_text().splitlines()
+            if not any(n.split(".")[0] == machine for n in line.split("#")[0].split()[1:])
+        ] + [f"127.0.1.1\t{host}"]
+        files["/etc/hostname"] = [host]
+        files["/run/utmp"] = []
+        self._faked = {}
+        for i, (where, lines) in enumerate(files.items()):
+            if Path(where).exists():
+                self._faked[where] = self.scratch / f"identity-{i}"
+                self._faked[where].write_text("".join(f"{line}\n" for line in lines))
 
     def _make_home(self):
         home = self.scratch / "home"
@@ -971,8 +1002,10 @@ class Session(Screen):
         if self.identity:
             # A UTS namespace each, every one with the same name in it.
             args += ["--unshare-uts", "--hostname", self.identity[1]]
-            for name in ("passwd", "group"):
-                args += ["--ro-bind", str(self.scratch / name), f"/etc/{name}"]
+            for where, made in self._faked.items():
+                args += ["--ro-bind", str(made), where]
+            if Path("/run/systemd/sessions").is_dir():
+                args += ["--tmpfs", "/run/systemd/sessions"]
         # Found on shotbox's PATH, where the session checked for it: the
         # session's PATH is the program's. Not --die-with-parent: Linux
         # sends that when the thread that started bwrap ends, which can be
