@@ -4,15 +4,19 @@
 [![npm](https://img.shields.io/npm/v/shotbox)](https://www.npmjs.com/package/shotbox)
 [![CI](https://github.com/mishan/shotbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mishan/shotbox/actions/workflows/ci.yml)
 
-Eyes and hands on a real graphical program, for an AI agent, a script or CI.
+Eyes, ears and hands on a real graphical program, for an AI agent, a
+script or CI.
 
-An agent working on a program with a window can't see it. shotbox runs the
-program on a sealed display of its own, X11 or Wayland, and lets whatever
-is driving it look and act: read the accessible tree, take screenshots,
-click by a button's name, type, hold keys and gamepad buttons, and wait
-until the program is actually ready. Then measure what it finds: names a
-screen reader can't say, contrast, the Tab order, and pixels changed
-against a reference. Nothing it runs reaches your desktop by accident.
+An agent working on a program with a window can't see it or hear it.
+shotbox runs the program in a sealed session of its own, X11 or Wayland,
+and lets whatever is driving it look, listen and act: read the accessible
+tree, take screenshots, record what it plays, click by a button's name,
+type, hold keys and gamepad buttons, and wait until the program is
+actually ready. Then measure what it finds: names a screen reader can't
+say, contrast, the Tab order, pixels changed against a reference, how
+fast it follows the pointer, where its sound drops out, and what it used.
+Nothing it runs reaches your desktop or speakers by accident, and with
+`--net loopback`, not your network either.
 
 ```
 claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
