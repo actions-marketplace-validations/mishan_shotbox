@@ -192,6 +192,40 @@ st=$?; set -e
 [ $st != 0 ] && grep -q "hold still" "$tmp/err" && [ -s "$tmp/busy.png" ] \
   && ok "stable gives up on a busy screen, with a picture of it" || fail "busy: status $st"
 
+# match: the window as it was pictured, how long that took; one the same
+# size that looks different, given up on; another size, said; and options
+# it can't use, refused. change: from when the wait starts.
+"$sb" run -- sh -c "'$here/window.py' t1 &
+  '$sb' wait match '$tmp/app1.png' --window t1" > "$tmp/out" \
+  && grep -qx '[0-9.]*s' "$tmp/out" && ok "match waits for a window to look like a picture" \
+  || fail "match: $(cat "$tmp/out")"
+set +e
+"$sb" run -- sh -c "'$here/window.py' t1 '$tmp/entry.log' &
+  '$sb' wait match '$tmp/app1.png' --window t1 --timeout 2" 2> "$tmp/err"
+st=$?
+"$sb" run -- sh -c "'$here/window.py' t1 &
+  '$sb' wait match '$tmp/app1.png' --window t1 --crop 10x10+0+0 --timeout 1" 2> "$tmp/err2"
+st2=$?
+"$sb" run -- sh -c "'$here/window.py' t1 &
+  '$sb' wait change --window t1 --crop 300x10+0+0 --timeout 1" 2> "$tmp/err3"
+st3=$?
+bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--fuzz 150%' '--max -1' '--crop 10x10' '--crop 10x10+5000+0'; do
+  '$sb' wait change \$o --timeout 1 2>&1 && echo took; done")
+set -e
+[ $st != 0 ] && grep -q "window 't1' to match" "$tmp/err" && ! grep -q "picture taken" "$tmp/err" \
+  && [ $st2 != 0 ] && grep -q "app1.png is 200x120, the picture taken 10x10" "$tmp/err2" \
+  && [ $st3 != 0 ] && grep -q "the crop isn't inside the window, 200x120" "$tmp/err3" \
+  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 5 ] \
+  && ok "match gives up on a picture it doesn't look like, saying sizes that differ; bad options refused" \
+  || fail "match miss: $st $(cat "$tmp/err") $st2 $(cat "$tmp/err2") $st3 $(cat "$tmp/err3") $bad"
+"$sb" run -- sh -c "
+  '$sb' term --size 30x5 -- bash --norc -c 'until [ -e $tmp/go ]; do sleep 0.1; done; echo go; sleep 60' &
+  '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term || exit 1
+  { sleep 1; touch '$tmp/go'; } &
+  '$sb' wait change --window shotbox-term" > "$tmp/out" \
+  && awk '{ exit !($1 + 0 >= 1) }' "$tmp/out" && ok "change waits for the screen to change, and says when" \
+  || fail "change: $(cat "$tmp/out")"
+
 # chords LOG [SESSION OPTIONS]: Shift in a chord, into cat in a terminal:
 # the symbol on the key's shifted level, as on a keyboard (A, !, +), and
 # Shift+Tab as the terminal's back-tab, ESC [ Z.

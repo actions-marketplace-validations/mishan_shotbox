@@ -6,7 +6,7 @@
     shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
-    shotbox wait window|port|file|ready|stable|announce ARG
+    shotbox wait window|port|file|ready|stable|announce|match|change [ARG]
                                                     (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox record OUT.mp4 [--seconds S] [--window RE]  (inside a session) take a video
@@ -274,24 +274,50 @@ def cmd_wait(argv):
     p = argparse.ArgumentParser(prog="shotbox wait",
                                 description="Inside `shotbox run`: wait for a window, "
                                             "a port, a file, the ready file, the "
-                                            "screen to stop changing, or an "
-                                            "announcement.")
-    p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce"))
+                                            "screen to stop changing, an "
+                                            "announcement, the screen to look like a "
+                                            "picture, or to change. match and change "
+                                            "say how long they took.")
+    p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
+                                    "match", "change"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
                         "stable, how long it must hold still (0.5); for announce, "
-                        "a regex found in what was said (needs --a11y)")
+                        "a regex found in what was said (needs --a11y); for match, "
+                        "the picture (a PNG) to look like")
     p.add_argument("--window", metavar="RE",
-                   help="for stable: watch this window rather than the display")
+                   help="for stable, match and change: watch this window rather than "
+                        "the display")
+    p.add_argument("--crop", metavar="WxH+X+Y",
+                   help="for match and change: watch just this part of it")
+    p.add_argument("--fuzz", metavar="PCT",
+                   help="for match and change: colors this close count as the same (0%%)")
+    p.add_argument("--max", type=int, metavar="N",
+                   help="for match and change: pixels that may differ and still count "
+                        "as the same (0)")
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
                         "($SHOTBOX_FAILED)")
     a = p.parse_args(argv)
+    if a.kind == "match" and not a.arg:
+        p.error("match needs the picture to look like")
+    if a.kind == "change" and a.arg:
+        p.error("change takes no ARG: it waits for a change from how it looks now")
+    looks = a.kind in ("match", "change")
+    if not looks and (a.crop or a.fuzz is not None or a.max is not None):
+        p.error("--crop, --fuzz and --max go with match and change")
     screen = inside()
     screen.failed = a.failed or screen.failed
-    screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
+    if not looks:
+        screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
+        return 0
+    how = dict(window=a.window, crop=a.crop, fuzz="0%" if a.fuzz is None else a.fuzz,
+               most=a.max or 0,
+               timeout=a.timeout)
+    at = screen.wait_match(a.arg, **how) if a.kind == "match" else screen.wait_change(**how)
+    print(f"{at:.3f}s")
     return 0
 
 

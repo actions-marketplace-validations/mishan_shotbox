@@ -145,6 +145,17 @@ try:
     tool("spawn", session="h", program="held")
     tool("wait_for", session="h", what="window", value="held", timeout="20")
     tool("wait_for", session="h", what="stable", window="held")
+    said, bad, _ = tool("wait_for", session="h", what="change", window="held", timeout=1)
+    check(bad and "to change" in said, f"wait_for: change gives up on a still window ({said})")
+    _, _, content = tool("screenshot", session="h", window="held")
+    png = next(c for c in content if c["type"] == "image")
+    (tmp / "held.png").write_bytes(base64.b64decode(png["data"]))
+    said, bad, _ = tool("wait_for", session="h", what="match", value="held.png", window="held")
+    refused = [tool("wait_for", session="h", what="match", value=v)[:2]
+               for v in ("/etc/passwd", "../" * 20 + "etc/hostname", "nope.png")]
+    check(not bad and "matches held.png" in said
+          and all(bad and "no file" in said for said, bad in refused),
+          f"wait_for: match, a picture in the allow file's directory and nowhere else ({said})")
     steps = [("click", dict(x=50, y=50, window="held")),
              ("press_keys", dict(keys="w", state="down")),
              ("click", dict(x=60, y=60, window="held", state="down")),
