@@ -95,7 +95,10 @@ def grab(env, window=None, box=None):
     else:
         region = _region(window)
     r = subprocess.run(["grim", *region, "-t", "ppm", "-"], env=env, capture_output=True)
-    return None if r.returncode or not r.stdout else ppm(r.stdout)
+    try:
+        return None if r.returncode or not r.stdout else ppm(r.stdout)
+    except ValueError:      # not a PPM it can read: the slower way's
+        return None
 
 
 def capture(env, out, window=None, crop=None):

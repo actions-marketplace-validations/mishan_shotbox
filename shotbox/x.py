@@ -484,7 +484,10 @@ def compare(a, b, diff=None, fuzz="0%"):
     # by hand: compare's own AE metric weighs pixels differently from one
     # ImageMagick release to the next.
     out = subprocess.run(
-        [*CONVERT, str(a), str(b), "-alpha", "off", "-compose", "difference",
+        # sRGB: ImageMagick reads a gray PNG, as it writes any picture with
+        # no color in it, as one channel, and would count only that.
+        [*CONVERT, str(a), str(b), "-colorspace", "sRGB", "-alpha", "off",
+         "-compose", "difference",
          "-composite", "-separate", "-evaluate-sequence", "max",
          "-threshold", fuzz, "-format", "%[fx:round(mean*w*h)]", "info:"],
         capture_output=True, text=True, check=True).stdout
