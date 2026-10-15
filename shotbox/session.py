@@ -360,8 +360,12 @@ class Session(Screen):
     def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
-                 dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0):
+                 dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
+                 sandbox=True):
         self.size = size
+        self.sandbox = sandbox
+        self._sandboxed = False
+        self.unsealed = None    # what programs can reach that they shouldn't, to say
         if not 0 <= gamepads <= 4:
             raise SessionError(f"gamepads is 0 to 4, not {gamepads}")
         self.gamepads = gamepads
@@ -408,6 +412,8 @@ class Session(Screen):
                                "a shorter one")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
+            if self.sandbox or self.gamepads:
+                self._probe_sandbox()
             self._make_home()
             # What the buses run what they activate with, until there's a
             # display and a bus to add: never the caller's.
@@ -743,23 +749,68 @@ class Session(Screen):
         if isinstance(got, dict):
             raise SessionError(got["error"])
         self._pad_nodes = got
-        masked = self.scratch / "masked"
-        masked.touch(mode=0)
-        probe = subprocess.run([*self._sandbox(), "--", "true"], capture_output=True, text=True)
-        if probe.returncode:
-            raise SessionError("gamepads need bubblewrap to make a sandbox, and it can't "
-                               "here (are unprivileged user namespaces allowed?): "
-                               + (probe.stderr.strip() or f"status {probe.returncode}"))
+
+    def _probe_sandbox(self):
+        """Run programs under bubblewrap if it can make a sandbox here. Gamepads
+        need one; without them, the session goes on without, saying so."""
+        (self.scratch / "masked").touch(mode=0)
+        why = None
+        if not shutil.which("bwrap"):
+            why = "there's no bwrap (bubblewrap)"
+        else:
+            probe = subprocess.run([*self._sandbox(), "--", "true"], capture_output=True,
+                                   text=True)
+            if probe.returncode:
+                why = ("it can't make one here (are unprivileged user namespaces allowed?): "
+                       + ("; ".join(filter(None, probe.stderr.strip().splitlines()))
+                          or f"status {probe.returncode}"))
+        if why and self.gamepads:
+            raise SessionError(f"gamepads need bubblewrap to make a sandbox, and {why}")
+        kept = [d for d in self._runtime_dirs() if self.scratch.resolve().is_relative_to(d)]
+        if why:
+            self.unsealed = ("programs run without a sandbox, so they can reach the "
+                             f"machine's sound devices and the desktop's sockets: {why}")
+        elif kept:
+            self.unsealed = (f"the session's scratch dir is in {kept[0]}, so programs can "
+                             "reach the desktop's sockets there: set TMPDIR elsewhere")
+        if self.unsealed:
+            sys.stderr.write(f"shotbox: {self.unsealed}\n")
+        self._sandboxed = not why
+
+    def _runtime_dirs(self):
+        """The desktop's runtime dirs, where its own sockets are (Wayland,
+        PulseAudio, PipeWire, its bus), for the sandbox to hide: /run/user/UID
+        and XDG_RUNTIME_DIR, where it's one, the user's own and no one
+        else's. Not one with the scratch dir in it, which _probe_sandbox
+        says."""
+        dirs = []
+        for d in filter(None, (f"/run/user/{os.getuid()}", os.environ.get("XDG_RUNTIME_DIR"))):
+            d = Path(d).resolve()
+            try:
+                st = d.stat()
+            except OSError:
+                continue
+            if (d.is_dir() and st.st_uid == os.getuid() and not st.st_mode & 0o077
+                    and d not in dirs):
+                dirs.append(d)
+        return dirs
 
     def _sandbox(self):
         """bwrap and its options, made for each program, since devices come
-        and go. Programs get the session's pads in a /dev/input of their
+        and go. Programs get no sound devices and none of the desktop's
+        sockets, so nothing plays through the machine's speakers or opens
+        on its screen, and the session's pads in a /dev/input of their
         own, and none of the machine's: the raw HID and USB devices SDL,
         hidapi and libusb read controllers through are a file no one can
         open, and so is uinput, so nothing inside can plug a device into the
         machine. A device plugged in while a program runs can still reach
         it: /dev is the machine's, live."""
         args = ["--dev-bind", "/", "/", "--tmpfs", "/dev/input"]
+        if Path("/dev/snd").is_dir():
+            args += ["--tmpfs", "/dev/snd"]
+        for run in self._runtime_dirs():
+            if not self.scratch.resolve().is_relative_to(run):
+                args += ["--tmpfs", str(run)]
         for node in self._pad_nodes:
             args += ["--dev-bind", node, node]
         masked = str(self.scratch / "masked")
@@ -801,16 +852,23 @@ class Session(Screen):
 
     def spawn(self, cmd, log=None, **kw):
         """Start `cmd` inside the session, in its own process group. Output
-        goes to `log` (a path) if given, else through. With gamepads, it runs
-        under bubblewrap, with a /dev/input that has only the session's."""
-        if self._pad_nodes:
+        goes to `log` (a path) if given, else through. It runs under
+        bubblewrap where it can, with no sound devices, and a /dev/input
+        that has only the session's gamepads."""
+        if self._sandboxed:
+            cwd = Path(kw.get("cwd") or os.getcwd()).resolve()
+            hidden = [d for d in self._runtime_dirs() if cwd.is_relative_to(d)
+                      and not self.scratch.resolve().is_relative_to(d)]
+            if hidden:
+                raise SessionError(f"can't run {cmd[0]} from {cwd}: programs in the "
+                                   f"session don't see {hidden[0]}")
             why = self._runnable(cmd[0], kw.get("cwd"))
             if why:
                 raise SessionError(f"can't run {cmd[0]}: {why}")
         out = open(log, "ab") if log else None
         info = None
         try:
-            if self._pad_nodes:
+            if self._sandboxed:
                 # bwrap says the program's own pid down this pipe.
                 info, w = os.pipe()
                 kw["pass_fds"] = (*kw.get("pass_fds", ()), w)

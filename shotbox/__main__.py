@@ -97,6 +97,10 @@ def session_options(p):
                    help="N virtual Xbox 360 pads (1 to 4), seen only by the session's "
                         "programs, for `shotbox pad`; needs write access to /dev/uinput, "
                         "and bubblewrap")
+    g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
+                   help="run programs outside bubblewrap, for those that need setuid "
+                        "helpers (sudo, AppImages); they can reach the machine's sound "
+                        "devices then")
 
 
 def stop_once(signum, frame):
@@ -117,7 +121,7 @@ def make_session(a):
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
-                   audio=a.audio, gamepads=a.gamepads)
+                   audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox)
 
 
 def self_command():

@@ -18,7 +18,7 @@ fds = []
 for path in sorted(glob.glob("/dev/input/event*")):
     fd = os.open(path, os.O_RDONLY)
     name = fcntl.ioctl(fd, EVIOCGNAME, bytes(256)).split(b"\0")[0].decode()
-    log.write(f"name {name}\n")
+    log.write(f"name {name}\nnode {path}\n")
     fds.append(fd)
 log.write("ready\n")
 while fds:

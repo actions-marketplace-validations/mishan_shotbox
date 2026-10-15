@@ -34,6 +34,23 @@ long=$tmp/$(printf 'x%.0s' $(seq 45)); mkdir "$long"
 set +e; TMPDIR=$long "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
 [ $st != 0 ] && grep -q "too long a path to make the session's sockets in" "$tmp/err" && ok "a TMPDIR too long, said" \
   || fail "long TMPDIR ($st): $(cat "$tmp/err")"
+# Under bubblewrap: none of the machine's sound devices, and none of the
+# desktop's sockets; all of them with --no-sandbox.
+look='find /dev/snd "/run/user/$(id -u)" -mindepth 1 -maxdepth 1 2>/dev/null; true'
+if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
+  in=$("$sb" run -- sh -c "$look"); out=$("$sb" run --no-sandbox -- sh -c "$look")
+  [ -z "$in" ] && [ -n "$out" ] \
+    && ok "no sound devices or desktop sockets inside, but with --no-sandbox" \
+    || fail "inside: [$in], with --no-sandbox: [$out]"
+  # Run from inside it, where the program wouldn't be: refused, saying so.
+  hid="/run/user/$(id -u)/shotbox-test-$$"
+  if mkdir "$hid" 2>/dev/null; then
+    set +e; (cd "$hid" && "$sb" run -- true) 2> "$tmp/err"; st=$?; set -e
+    rmdir "$hid"
+    [ $st != 0 ] && grep -q "programs in the session don't see" "$tmp/err" \
+      && ok "a program run from where it's hidden, refused" || fail "hidden cwd: $st $(cat "$tmp/err")"
+  fi
+fi
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"
 set +e; "$sb" run -- sh -c 'exit 7'; st=$?; set -e
@@ -803,8 +820,11 @@ if [ -w /dev/uinput ] && command -v bwrap >/dev/null && bwrap --dev-bind / / tru
   [ "$got" = "key 304 1 key 304 0 abs 0 32767 abs 1 -32767 abs 0 0 abs 1 0 key 305 1 abs 17 -1 abs 17 0 key 305 0 " ] \
     && [ "$got2" = "abs 5 255 abs 5 0 " ] \
     && ok "gamepads: buttons, sticks, triggers and the d-pad, as an Xbox 360 pad's" || fail "gamepad input: $got"
-  grep -q "shotbox virtual pad" /proc/bus/input/devices && fail "gamepads: left behind" \
-    || ok "gamepads: gone with the session"
+  # Its own pads, by their nodes: another session's may be up meanwhile.
+  nodes=$(sed -n 's|^node /dev/input/||p' "$tmp/pad.log")
+  left=$(for n in $nodes; do cat "/sys/class/input/$n/device/name" 2>/dev/null || true; done)
+  [ -n "$nodes" ] && ! echo "$left" | grep -q "shotbox virtual pad" \
+    && ok "gamepads: gone with the session" || fail "gamepads: left behind ($nodes)"
   # Nothing else of the machine's to read controllers from: raw HID devices
   # and uinput can't be opened inside, and there's no /dev/bus/usb to scan.
   "$sb" run --gamepads 1 -- sh -c 'for f in /dev/hidraw* /dev/uhid /dev/usb/hiddev* /dev/uinput; do
@@ -814,7 +834,8 @@ if [ -w /dev/uinput ] && command -v bwrap >/dev/null && bwrap --dev-bind / / tru
     || fail "gamepads: reachable: $(cat "$tmp/seal.out")"
   # The pad server goes with the process that started it, even killed.
   python3 - "$root" <<'PY' && ok "gamepads: gone when what made them is killed" || fail "gamepads: outlived a kill"
-import os, shutil, signal, subprocess, sys, tempfile, time
+import json, os, shutil, signal, subprocess, sys, tempfile, time
+from pathlib import Path
 d = tempfile.mkdtemp()
 parent = subprocess.Popen([sys.executable, "-c", f"""
 import os, subprocess, sys, time
@@ -826,7 +847,14 @@ time.sleep(60)"""])
 end = time.monotonic() + 10
 while not os.path.exists(f"{d}/ready") and time.monotonic() < end:
     time.sleep(0.05)
-there = lambda: "shotbox virtual pad" in open("/proc/bus/input/devices").read()
+nodes = json.load(open(f"{d}/ready")) if os.path.exists(f"{d}/ready") else []
+
+
+def there():
+    names = [Path(f"/sys/class/input/{Path(n).name}/device/name") for n in nodes]
+    return any(p.exists() and p.read_text().startswith("shotbox virtual pad") for p in names)
+
+
 made = there()
 parent.send_signal(signal.SIGKILL)
 parent.wait()

@@ -135,7 +135,7 @@ def number(v, what, least=None, most=None):
 
 
 def program_pid(proc):
-    """The program's pid, not that of the sandbox it's in, with gamepads."""
+    """The program's pid, not that of the sandbox it's in."""
     return getattr(proc, "program_pid", proc.pid)
 
 
@@ -227,7 +227,8 @@ class Server:
         return (f"Session {name!r} is up: {kind}, {m[1]}x{m[2]}"
                 + (", with an accessibility bus" if s.a11y else ", no accessibility bus")
                 + (f", {s.gamepads} gamepad{'s' * (s.gamepads > 1)}" if s.gamepads else "")
-                + f". Programs it can spawn: {progs}.")
+                + f". Programs it can spawn: {progs}."
+                + (f" Note: {s.unsealed}." if s.unsealed else ""))
 
     def stop_session(self, session):
         session = str(session)

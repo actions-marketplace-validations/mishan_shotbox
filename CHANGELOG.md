@@ -2,8 +2,27 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- Under bubblewrap, a program can't gain privileges, its supplementary
+  groups show as `nogroup`, and one killed by a signal exits with 128
+  plus the signal's number. `--no-sandbox` runs it as before.
+
+### Changed
+
+- **Every program a session spawns runs under bubblewrap where it can,**
+  not only with `--gamepads`: `/dev/snd` and `/run/user/UID` are empty
+  for it, so it can't play through the machine's speakers or find the
+  desktop's Wayland, PulseAudio, PipeWire or bus sockets. Without
+  bubblewrap, the session says so and runs it as before.
+
 ### Added
 
+- **`--no-sandbox`**, for a program that needs a setuid helper (sudo, an
+  AppImage), which can't run under bubblewrap.
+- **What's sealed**, in the README: what a session keeps from a program,
+  and what it doesn't. And instructions to give an agent so it runs
+  graphical programs, browsers and sound in a session.
 - **`wait match REF.png` and `wait change`**, with `--window`, `--crop`,
   `--fuzz` and `--max`: wait until the screen looks like a picture, or
   looks different from when the wait started, and say how long it took.
