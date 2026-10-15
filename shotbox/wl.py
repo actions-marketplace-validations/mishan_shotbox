@@ -85,6 +85,19 @@ def _region(window):
     return ["-g", f"{window[4]},{window[5]} {window[2]}x{window[3]}"] if window else []
 
 
+def grab(env, window=None, box=None):
+    """As x.grab: the output, or `window`, or the `box` (width, height, x,
+    y) of it, as (width, height, RGB bytes), from grim with no PNG to
+    make; or None where grim can't take it."""
+    if box:
+        ox, oy = (window[4], window[5]) if window else (0, 0)
+        region = ["-g", f"{ox + box[2]},{oy + box[3]} {box[0]}x{box[1]}"]
+    else:
+        region = _region(window)
+    r = subprocess.run(["grim", *region, "-t", "ppm", "-"], env=env, capture_output=True)
+    return None if r.returncode or not r.stdout else ppm(r.stdout)
+
+
 def capture(env, out, window=None, crop=None):
     """Screenshot the whole output, or one window, to `out` (a PNG), then
     crop it (WxH+X+Y, relative to what was taken). grim takes it and

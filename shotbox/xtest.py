@@ -96,13 +96,14 @@ class Display:
     # --- the wire -------------------------------------------------------------
 
     def _read(self, n):
-        buf = b""
-        while len(buf) < n:
-            got = self.sock.recv(n - len(buf))
-            if not got:
+        buf, got = bytearray(n), 0
+        view = memoryview(buf)
+        while got < n:
+            k = self.sock.recv_into(view[got:])
+            if not k:
                 raise XError("the X server closed the connection")
-            buf += got
-        return buf
+            got += k
+        return bytes(buf)
 
     def _request(self, data):
         self.sock.sendall(data)
@@ -121,6 +122,21 @@ class Display:
                 if struct.unpack_from("<H", head, 2)[0] == self.seq:
                     return body
             # anything else is an event; nobody asked for it
+
+    def image(self, drawable, x, y, width, height):
+        """The pixels of a rectangle of `drawable` (a window's id, or the
+        root's), as red, green, blue bytes, a row at a time from the top:
+        or XError if some of it isn't on the screen, or it isn't 24-bit
+        color four bytes a pixel, as Xvfb's is."""
+        self._request(struct.pack("<BBHIhhHHI", 73, 2, 5, drawable, x, y, width, height,
+                                  0xFFFFFFFF))     # GetImage, as a ZPixmap
+        reply = self._reply()
+        data = bytearray(reply[32:])
+        if reply[1] != 24 or len(data) != width * height * 4:
+            raise XError(f"a {reply[1]}-bit picture, {len(data)} bytes for {width}x{height}")
+        del data[3::4]      # each pixel's fourth byte, unused
+        data[0::3], data[2::3] = data[2::3], data[0::3]    # blue, green, red on the wire
+        return bytes(data)
 
     def sync(self):
         """Wait until the server has handled everything sent so far."""

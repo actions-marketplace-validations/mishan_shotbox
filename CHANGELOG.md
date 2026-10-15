@@ -17,6 +17,12 @@
 
 ### Changed
 
+- **Waits look faster.** `wait stable`, `match` and `change` take their
+  pictures straight from the X server (a few milliseconds, where `import`
+  took tens) or from grim's raw output on Wayland, and compare them in
+  memory, with no PNG between; `match` and `change` look every 10 ms. A
+  change is seen within about a frame, and the time `change` says is that
+  close.
 - **Every program a session spawns runs under bubblewrap where it can,**
   not only with `--gamepads`: `/dev/snd` and `/run/user/UID` are empty
   for it, so it can't play through the machine's speakers or find the

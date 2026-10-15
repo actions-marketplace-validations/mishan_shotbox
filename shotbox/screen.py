@@ -180,13 +180,28 @@ class Screen:
         fd, now = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
         os.close(fd)
         now = Path(now)
-        was = now.with_suffix(".was.png")
+
+        def picture(w=None, area=None):
+            """(width, height, RGB bytes), in memory where the backend can,
+            else through a PNG; or None, a window gone between finding it
+            and taking it."""
+            got = self.backend.grab(self.env, w, area)
+            if got:
+                return got
+            geometry = area and "{}x{}+{}+{}".format(*area)
+            try:
+                self.backend.capture(self.env, now, window=w, crop=geometry)
+            except subprocess.CalledProcessError:
+                return None
+            return x.rgb(now)
+
         start, at, sizes, small = time.monotonic(), None, None, None
+        ref = x.rgb(ref) if match else None
+        fuzz = float(fuzz[:-1])
         # The display's size doesn't change: a crop off it never fits. A
         # window's may, still coming up, so one it doesn't fit is waited on.
         if box and not window:
-            self.backend.capture(self.env, now)
-            wide, high = map(int, x.size_of(now).split("x"))
+            wide, high, _ = picture()
             if box[0] + box[2] > wide or box[1] + box[3] > high:
                 now.unlink()
                 self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
@@ -202,17 +217,16 @@ class Screen:
                     small = f"{w[2]}x{w[3]}"
                     return False
             t = time.monotonic()
-            try:
-                self.backend.capture(self.env, now, window=w, crop=crop)
-            except subprocess.CalledProcessError:
-                return False        # a window gone between finding it and taking it
-            if ref is None:
-                ref = now.rename(was)
+            got = picture(w, box)
+            if got is None:
                 return False
-            try:
-                n = x.compare(ref, now, fuzz=fuzz)
-            except ValueError:
-                n, sizes = None, (x.size_of(ref), x.size_of(now))
+            if ref is None:
+                ref = got
+                return False
+            if got[:2] == ref[:2]:
+                n = x.differ(ref[2], got[2], fuzz, most)
+            else:
+                n, sizes = None, ("{}x{}".format(*ref[:2]), "{}x{}".format(*got[:2]))
             if (n is not None and n <= most) == match:
                 at = t - start
                 return True
@@ -222,7 +236,7 @@ class Screen:
         where += f", cropped to {crop}," if crop else ""
         what = f"{where} to match {name}" if match else f"{where} to change"
         try:
-            wait_for(what, looks, timeout)
+            wait_for(what, looks, timeout, interval=0.01)
         except SessionError as e:
             if small:
                 e = f"{e}; the crop isn't inside the window, {small}"
@@ -231,7 +245,6 @@ class Screen:
             self.fail(str(e))
         finally:
             now.unlink(missing_ok=True)
-            was.unlink(missing_ok=True)
         return at
 
     def wait_announce(self, pattern, timeout=30):
