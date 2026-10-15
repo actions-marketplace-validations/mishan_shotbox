@@ -92,7 +92,9 @@
   as fast as they come, a tile at a time, by its mean color and in time:
   its box, how many changes, how often, and both colors; and how many
   pictures it took and how many changed, on stdout whatever's found, a
-  rate too slow said.
+  rate too slow said. With `--save DIR`, a sheet of each one's pictures,
+  its box outlined and a tile round it magnified, each labeled with when
+  it showed.
   `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
@@ -145,6 +147,14 @@
   `--gap`, `--clipped` and `--quiet`, failing for them with `--strict`.
   Also `Screen.record(..., sound=True)`, whose Recording has what
   `shotbox.sound.hear` heard, and its `problems()`.
+- **MCP's `record` tool**: a clip of the screen or a window, up to 60
+  seconds and 100 MB, saved as an .mp4 in the session's scratch
+  directory or as a new file in the `--allow` file's directory. It
+  answers with the path, the clip's length and a sheet of up to 8
+  frames from it with their times, as an image, since a model can look
+  at frames but not play a file; with `sound`, in a session with
+  `audio`, what was heard, as the `sound` tool says it.
+  `Screen.record(..., size=N)` ends a recording at N bytes.
 
 ### Fixed
 

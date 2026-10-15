@@ -220,6 +220,19 @@ flicker: 64x16+1216+592, 66 changes, every 30 ms, #000000 and #009900, from 0.02
 watched 2 s, 104 pictures, 52 a second, 104 changed
 ```
 
+`--save DIR` (made if it isn't there) puts a sheet of each one's
+pictures there, `1-flicker-64x16+1216+592.png` and so on, in the order
+they're said, and says each on its line; a file of the same name is
+replaced, and others are left. Each picture is the box, outlined two
+pixels wide in magenta just outside it, and a tile round it, magnified
+up to 8 times a pixel a square so a band a pixel wide is seen, or shrunk
+so the sheet is no more than 1920 pixels each way; in order, each
+labeled with when it showed, from when it was first seen to when one
+that differed was, in seconds from the start of watching
+(`0.495–0.869s`). A flicker's are its first look and eight changes; a
+flash's, the picture before it, the flash and the picture after. A sheet
+that can't be written is said, and what was found is still printed.
+
 The last line, how many pictures were taken, is printed whatever's found.
 Pictures that came fewer than two to a `--brief` are said: a look that
 brief may be missed, and something moving through taken for a flash.

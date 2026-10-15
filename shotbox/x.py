@@ -159,11 +159,12 @@ class Recording:
         return cut + problems(self.heard, quiet=quiet, clipped=clipped)
 
 
-def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
+def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001,
+           size=None):
     """As `recording`, and wait for it: a Recording, or RuntimeError.
     Ctrl-C stops it, and it's finished all the same."""
     proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound,
-                     gap=gap)
+                     gap=gap, size=size)
     try:
         proc.wait()
     except KeyboardInterrupt:
@@ -174,15 +175,16 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
     return Recording(out, json.load(proc.said) if sound else None)
 
 
-def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
+def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001,
+              size=None):
     """Record the display's box (width, height, x, y) to `out`, an .mp4,
     .webm or .gif, at `fps` (30, or 15 for a GIF), for `seconds`, or until
     interrupted (Ctrl-C, or SIGTERM as the command line turns it). A GIF
     is recorded as a video first, then given its own palette. A .wav is
     what plays to the session's sink (with --audio) instead, and takes no
     box. With `sound`, an .mp4 or .webm has what plays in it too, heard
-    with `gap` as `sound.hear` takes it. Needs
-    ffmpeg, and on Wayland, wf-recorder.
+    with `gap` as `sound.hear` takes it. With `size`, it ends when the
+    file reaches that many bytes. Needs ffmpeg, and on Wayland, wf-recorder.
 
     A keeper process of its own (keep_recording) runs ffmpeg and finishes
     the file, so it's finished however this one goes: interrupted, killed,
@@ -260,7 +262,7 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
     # Its own session: `shotbox run`, stopped, kills its command's group
     # two seconds on, which would cut the finishing short.
     proc = subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out),
-                             json.dumps(grab), json.dumps(heard)],
+                             json.dumps(grab), json.dumps(heard), str(size or 0)],
                             env={**env, "PYTHONPATH": path}, stdin=subprocess.PIPE,
                             stdout=said, stderr=subprocess.PIPE, start_new_session=True)
     proc.said = said
@@ -304,7 +306,7 @@ def tied(sig):
     return tie
 
 
-def keep_recording(cmd, out, grab, heard):
+def keep_recording(cmd, out, grab, heard, size="0"):
     """Run the ffmpeg command `cmd` (JSON, without its output file) to
     record to `out`, reading what the command `grab` (JSON, or null)
     writes, and with `heard` (JSON: output options and a gap, or null), the
@@ -312,8 +314,9 @@ def keep_recording(cmd, out, grab, heard):
     and stop it with one signal, which it finishes the file on (a second
     makes it quit unfinished): when a line comes on stdin or stdin closes,
     as when what started this goes however it goes, or when the display
-    goes (the sound server, for a .wav; sway, on Wayland). Then make the
-    GIF, for a .gif. Status 0, or 1 and why on stderr."""
+    goes (the sound server, for a .wav; sway, on Wayland), or when what
+    it writes reaches `size` bytes (0 for no end). Then make the GIF, for a
+    .gif. Status 0, or 1 and why on stderr."""
     cmd, out, grab, heard = json.loads(cmd), Path(out), json.loads(grab), json.loads(heard)
     gif = out.suffix.lower() == ".gif"
     # Files with no names, which ffmpeg writes by their fds: nothing is left
@@ -354,7 +357,10 @@ def keep_recording(cmd, out, grab, heard):
             up = socket_up(sock) if sock else display_up(os.environ["DISPLAY"])
             # With sound, the sound server going ends the picture too.
             up = up and (not heard or socket_up(pulse))
-            if select.select([sys.stdin], [], [], 0.5)[0] or not up:
+            # Stopped, not cut off as ffmpeg's -fs would: the sound heard
+            # ends with the picture.
+            full = int(size) and video.exists() and video.stat().st_size >= int(size)
+            if select.select([sys.stdin], [], [], 0.5)[0] or not up or full:
                 proc.send_signal(signal.SIGTERM)
                 break
         # Whether the sound server had gone when it ended, not later.

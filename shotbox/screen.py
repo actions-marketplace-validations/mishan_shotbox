@@ -306,7 +306,7 @@ class Screen:
         return at
 
     def flicker(self, seconds=2.0, window=None, crop=None, tile=16, brief=0.1, times=8,
-                fuzz=6.0, ignore=()):
+                fuzz=6.0, ignore=(), save=None):
         """Watch the display, or the window named `window`, cropped, for
         `seconds`, as fast as pictures come, for flicker and flashes (see
         flicker.py): tiles `tile` pixels square, a state no longer than
@@ -314,7 +314,9 @@ class Screen:
         within `fuzz` percent the same, and boxes (WxH+X+Y) in `ignore`
         left out. [dict(kind="flicker" or "flash", box, at, changes,
         every, looks)], a box of tiles each, in order, how many pictures
-        were taken, and how many of them changed."""
+        were taken, and how many of them changed. With `save`, a directory,
+        each one's pictures there as a sheet (see `_sheet`), its path its
+        "sheet", or "unsaved" if it couldn't be written."""
         from . import flicker
         w = self.window(window) if window else None
         geometry = r"(\d+)x(\d+)\+(\d+)\+(\d+)"
@@ -330,6 +332,16 @@ class Screen:
             if not m:
                 self.fail(f"what to ignore is WIDTHxHEIGHT+X+Y, not {g}")
             skip.append(tuple(int(n) for n in m.groups()))
+        if save is not None:
+            if not str(save):
+                self.fail("a directory to save to, not ''")
+            try:
+                Path(save).mkdir(parents=True, exist_ok=True)
+                tempfile.TemporaryFile(dir=save).close()
+            except (FileExistsError, NotADirectoryError):
+                self.fail(f"can't save to {save}: it, or a directory it's in, is a file")
+            except OSError as e:
+                self.fail(f"can't save to {save}: {e.strerror}")
         fd, png = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
         os.close(fd)
 
@@ -442,14 +454,16 @@ class Screen:
         found["flicker"] = {n: f for n, f in found["flicker"].items() if not scrolling(n, f[5])}
         found["flash"] = {n: [f for f in fs if not scrolling(n, f[4:])]
                           for n, fs in found["flash"].items()}
-        out = []
+        out, seen = [], []
         for bx, by, bw, bh, group in flicker.boxes(found["flicker"], across, tile):
             bw, bh = min(bw, width - bx), min(bh, height - by)    # tiles at the edge
             # The box said as its tile that changed most does.
-            at, changes, every, a, b, _ = max((found["flicker"][n] for n in group),
-                                              key=lambda f: f[1])
+            at, changes, every, a, b, ks = max((found["flicker"][n] for n in group),
+                                               key=lambda f: f[1])
             out.append(dict(kind="flicker", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=changes,
                             every=every, looks=(flicker.hex_of(a), flicker.hex_of(b))))
+            # A first look and eight changes: both looks, coming back.
+            seen.append(((bx, by, bw, bh), [ks[0] - 1, *ks[:8]]))
         flashes = found["flash"]
         down = len(looks[0]) // across
 
@@ -578,12 +592,68 @@ class Screen:
                        and still(m, i, st[1]) and brings(m, i, shown)):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
-                at, held_for, look, then, *_ = min((now[n] for n in group if n in now),
-                                                   key=lambda f: f[0])
+                at, held_for, look, then, first, _ = min(
+                    (now[n] for n in group if n in now), key=lambda f: f[0])
+                # Torn, till the last of it is gone.
+                after = max(now[n][5] for n in group if n in now)
                 out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
                                 every=held_for,
                                 looks=(flicker.hex_of(then), flicker.hex_of(look))))
-        return sorted(out, key=lambda f: f["at"]), taken, len(shots)
+                seen.append(((bx, by, bw, bh), [*range(first - 1, after)][:8] + [after]))
+        order = sorted(range(len(out)), key=lambda i: out[i]["at"])
+        if save is not None:
+            for number, i in enumerate(order, 1):
+                f = out[i]
+                path = Path(save) / f"{number:0{len(str(len(out)))}d}-{f['kind']}-{f['box']}.png"
+                # One not written leaves the rest, and what was found, to be said.
+                try:
+                    f["sheet"] = str(self._sheet(path, shots, seen[i][1], seconds, (width, height),
+                                                 seen[i][0], tile))
+                except (OSError, subprocess.CalledProcessError):
+                    f["unsaved"] = str(path)
+        return [out[i] for i in order], taken, len(shots)
+
+    def _sheet(self, out, shots, ks, end, size, box, margin):
+        """Pictures `ks` of `shots`, (seconds, compressed RGB `size`) of a
+        watch that ended at `end`, cut to `box` (x, y, width, height) and
+        `margin` round it, the box outlined, each labeled with when it
+        showed, in order, as one PNG at `out` no more than 1920 pixels each
+        way: magnified, a pixel a square, up to 8 times, so a band a pixel
+        wide is seen, or shrunk, its label not, to fit."""
+        (width, height), (bx, by, bw, bh) = size, box
+        x0, y0 = max(0, bx - margin), max(0, by - margin)
+        x1, y1 = min(width, bx + bw + margin), min(height, by + bh + margin)
+        cw, ch = x1 - x0, y1 - y0
+        # As near square as it goes: a strip down the screen side by side,
+        # one across it one above another.
+        across = max(1, min(len(ks), round((len(ks) * ch / cw) ** 0.5)))
+        down = -(-len(ks) // across)
+        # A cell's border is 2 pixels, its label 17 high.
+        fit = min((1920 // across - 2) / cw, (1920 // down - 20) / ch)
+        scale = min(8, int(fit)) or fit
+        grow = (["-scale", f"{scale * 100}%"] if scale >= 1
+                else ["-resize", f"{int(cw * scale)}x{int(ch * scale)}!"])
+        left, top = int((bx - x0) * scale) - 1, int((by - y0) * scale) - 1
+        right, bottom = int((bx - x0 + bw) * scale), int((by - y0 + bh) * scale)
+        with tempfile.TemporaryDirectory(dir=self.env["SHOTBOX_SCRATCH"]) as tmp:
+            cells = []
+            for n, k in enumerate(ks):
+                t, data = shots[k]
+                till = shots[k + 1][0] if k + 1 < len(shots) else max(end, t)
+                data = zlib.decompress(data)
+                cells.append(Path(tmp) / f"{n}.png")
+                subprocess.run([*x.CONVERT, "-size", f"{cw}x{ch}", "-depth", "8", "rgb:-", *grow,
+                                "-fill", "none", "-stroke", "magenta", "+antialias",
+                                # Two wide, so a sheet seen smaller keeps it.
+                                "-draw", f"rectangle {left},{top} {right},{bottom}",
+                                "-draw", f"rectangle {left - 1},{top - 1} {right + 1},{bottom + 1}",
+                                "-antialias", "-stroke", "none", "-fill", "white",
+                                "-background", "black", "+size", "-pointsize", "14",
+                                f"label:{t:.3f}\u2013{till:.3f}s", "-gravity", "center", "-append",
+                                "-bordercolor", "gray50", "-border", "1", str(cells[-1])],
+                               input=b"".join(data[(y * width + x0) * 3:(y * width + x1) * 3]
+                                              for y in range(y0, y1)), check=True)
+            return x.sheet(cells, out, across=across)
 
     def wait_announce(self, pattern, timeout=30):
         """Wait for a program to have announced something matching
@@ -725,7 +795,7 @@ class Screen:
         return Path(out)
 
     def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
-               park=False, sound=False, gap=0.001):
+               park=False, sound=False, gap=0.001, size=None):
         """A video of the display, or of the window named `window`, cropped
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
@@ -735,6 +805,9 @@ class Screen:
         a session with audio, on X11 or Wayland, and takes none of those.
         With `sound`, in a session with audio, an .mp4 or .webm has what
         plays in it too, heard with `gap` as `shotbox.sound.hear` takes it.
+        With `size`, it ends when the file (for a .gif, the video it's made
+        from) reaches that many bytes; a .webm's may be seconds late, as
+        its muxer holds up to about 5 seconds before writing.
         A Recording: its `path`, which it stands in for, its `heard` (with
         `sound`), and `problems()`."""
         if Path(out).suffix.lower() == ".wav":
@@ -742,7 +815,8 @@ class Screen:
                 raise SessionError("a .wav is the session's sound: no window, crop, fps, "
                                    "pointer or park")
             try:
-                return x.record(self.env, out, None, seconds=seconds, sound=sound, gap=gap)
+                return x.record(self.env, out, None, seconds=seconds, sound=sound, gap=gap,
+                                size=size)
             except (ValueError, RuntimeError) as e:
                 raise SessionError(str(e))
         if self.wayland and pointer:
@@ -771,7 +845,7 @@ class Screen:
         box = (x1 - x0, y1 - y0, x0, y0)
         try:
             return x.record(self.env, out, box, seconds=seconds, fps=fps, pointer=pointer,
-                            sound=sound, gap=gap)
+                            sound=sound, gap=gap, size=size)
         except (ValueError, RuntimeError) as e:
             raise SessionError(str(e))
 

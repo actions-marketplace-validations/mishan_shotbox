@@ -465,7 +465,20 @@ st=$?; set -e
 # faces 8% apart sweeping past, two poles alike crossing, a line missing
 # for a picture or a step of it a row lower, and a terminal's page drawn
 # anew, its caret gone with it, none; and a panel with a word in it flashing
-# white, beside a caret and a spinner, flashes.
+# white, beside a caret and a spinner, flashes. Each one's sheet is in
+# --save's directory, named in its line by what it is, of a size to see,
+# and nothing else is; the flash's three pictures, one above another, a
+# border above and below each; and without --save, none is said.
+sheets() {
+  [ -d "$1" ] || { echo "$2" | grep -q '^fl.*, from [0-9.]*s$' && ! echo "$2" | grep -q "shown in"; return; }
+  echo "$2" | sed -n 's/^\(fl[a-z]*\): \([^,]*\),.*, shown in \(.*\)/\1 \2 \3/p' > "$tmp/sheets"
+  [ "$(ls "$1" | wc -l)" = "$(wc -l < "$tmp/sheets")" ] || return 1
+  while read -r kind box sheet; do
+    case $sheet in "$1"/[1-9]-$kind-$box.png) ;; *) return 1 ;; esac
+    identify -format "%w %h" "$sheet" | awk '{ exit !($1 >= 100 && $2 >= 100 && $1 <= 1920 && $2 <= 1920) }' \
+      || return 1
+  done < "$tmp/sheets"
+}
 flickered=""
 for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
          "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
@@ -479,11 +492,15 @@ for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #
          "busy - 1 ^flicker: 16x120+176+0, " "icon - 1 ^flash: 16x16+64+48, #ffffff" \
          "dropout - 0" "redraw - 0" "stair - 0"; do
   set -- $c
+  save="--save '$tmp/fl-$1-$2'"; [ $1 != gray ] || save=
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
-    '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e
-  [ $st = "$3" ] && { [ -z "${4-}" ] || echo "$out" | grep -q "$4"; } || flickered="$flickered $1 $2 ($st: $out)"
+    '$sb' flicker --window fl --seconds 1.6 $save"); st=$?; set -e
+  [ $st = "$3" ] && { [ -z "${4-}" ] || echo "$out" | grep -q "$4"; } && sheets "$tmp/fl-$1-$2" "$out" \
+    && { [ "$1" != flash ] || [ "$(convert "$tmp"/fl-flash-40/*.png -crop 1x+1+0 -depth 8 txt:- \
+                                   | grep -c '#7F7F7F')" = 6 ]; } \
+    || flickered="$flickered $1 $2 ($st: $out)"
 done
-[ -z "$flickered" ] && ok "flicker: switching every 30 ms, not every 500; a flash; a strip; not a still window, motion, scrolling, a line or an edge" \
+[ -z "$flickered" ] && ok "flicker: switching every 30 ms, not every 500; a flash; a strip; not a still window, motion, scrolling, a line or an edge; a sheet of each" \
   || fail "flicker:$flickered"
 
 # chords LOG [SESSION OPTIONS]: Shift in a chord, into cat in a terminal:

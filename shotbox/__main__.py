@@ -771,6 +771,9 @@ def cmd_flicker(argv):
     p.add_argument("--tile", type=int, default=16, metavar="PX", help="tile size (16)")
     p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
                    help="leave out tiles in this box: a video, a caret (repeatable)")
+    p.add_argument("--save", metavar="DIR",
+                   help="a sheet of each one's pictures here, made if it isn't: its box and "
+                        "a tile round it, magnified, each labeled with its time")
     a = p.parse_args(argv)
     if not (a.seconds > 0 and a.brief > 0 and a.times >= 2 and a.tile >= 1 and a.fuzz >= 0):
         p.error("--seconds, --brief and --tile are more than 0, --times 2 or more, --fuzz 0 "
@@ -778,7 +781,7 @@ def cmd_flicker(argv):
     try:
         found, taken, changed = inside().flicker(
             a.seconds, window=a.window, crop=a.crop, tile=a.tile, brief=a.brief / 1000,
-            times=a.times, fuzz=a.fuzz, ignore=a.ignore)
+            times=a.times, fuzz=a.fuzz, ignore=a.ignore, save=a.save)
     except SessionError as e:
         sys.stderr.write(f"shotbox: {e}\n")
         return 2
@@ -790,12 +793,15 @@ def cmd_flicker(argv):
         sys.stderr.write(f"shotbox: {taken} pictures in {a.seconds:g} s, too few to hold "
                          f"{a.times} changes: flicker can't be seen\n")
     for f in found:
+        if "unsaved" in f:
+            sys.stderr.write(f"shotbox: couldn't write {f['unsaved']}\n")
+        shown = f", shown in {f['sheet']}" if "sheet" in f else ""
         if f["kind"] == "flicker":
             print(f"flicker: {f['box']}, {f['changes']} changes, every {f['every'] * 1000:.0f} "
-                  f"ms, {f['looks'][0]} and {f['looks'][1]}, from {f['at']:.3f}s")
+                  f"ms, {f['looks'][0]} and {f['looks'][1]}, from {f['at']:.3f}s{shown}")
         else:
             print(f"flash: {f['box']}, {f['looks'][1]} for {f['every'] * 1000:.0f} ms in "
-                  f"{f['looks'][0]}, at {f['at']:.3f}s")
+                  f"{f['looks'][0]}, at {f['at']:.3f}s{shown}")
     print(f"watched {a.seconds:g} s, {taken} pictures, {taken / a.seconds:.0f} a second, "
           f"{changed} changed")
     return 1 if found else 0
