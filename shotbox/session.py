@@ -34,24 +34,35 @@ The pieces, and why each one:
 - Optionally, with audio=True, a PipeWire of its own whose one sink is a
   null sink, speaking the pulse protocol too: sound goes nowhere, and a
   player has something to play to.
+- Optionally, with clock=TIME, a wall clock that starts at TIME and runs
+  on, for every program, by libfaketime.
 - Every process in its own group, and the group killed on the way out:
   signalling a wrapper script alone leaves its children running.
 """
 
+import glob
 import json
+import grp
+import math
 import os
+import pwd
 import re
 import secrets
 import select
 import shutil
 import signal
+import socket
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from . import usage, wl
+from . import pad, usage, wl
+from .x import CONVERT
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
 # Passed through from the caller unless told otherwise. Everything else is
@@ -293,10 +304,102 @@ def unfold(home, path):
             shutil.copyfile(target, p)
 
 
+# The package each tool is in, on Debian, where it isn't named for it.
+PACKAGES = {"Xvfb": "xvfb", "Xwayland": "xwayland", "pipewire": "pipewire-bin",
+            "pw-dump": "pipewire-bin", "bwrap": "bubblewrap", "gdbus": "libglib2.0-bin",
+            "nsenter": "util-linux", "xwininfo": "x11-utils", "xprop": "x11-utils",
+            "import": "imagemagick", "magick": "imagemagick", "convert": "imagemagick"}
+
+
+def lacks(*tools):
+    """Which of these tools aren't on PATH, and the package each is in;
+    nothing if they all are."""
+    missing = [t + (f" ({PACKAGES[t]})" if t in PACKAGES else "")
+               for t in tools if not shutil.which(t)]
+    return "not found: " + ", ".join(missing) if missing else None
+
+
 def need(*tools):
-    missing = [t for t in tools if not shutil.which(t)]
-    if missing:
-        raise SessionError("not found: " + ", ".join(missing))
+    why = lacks(*tools)
+    if why:
+        raise SessionError(why)
+
+
+REINSTALL = "pipx install --force --system-site-packages shotbox"
+ATSPI = ("PyGObject and AT-SPI", ("they're in python3-gi and gir1.2-atspi-2.0 on Debian, and "
+         "python3-gobject, at-spi2-core and gobject-introspection on Fedora"), ("Atspi", "2.0"))
+VTE = ("PyGObject and VTE", ("they're in python3-gi and gir1.2-vte-2.91 on Debian, and "
+       "python3-gobject and vte291 on Fedora"), ("Vte", "2.91"))
+
+
+def bindings(what, where, *libs):
+    """Why this Python can't load GObject's `libs`, (namespace, version)
+    pairs, which are `what`: `where` they are, or, from a virtualenv that
+    can't see the system's packages (as plain `pipx install` makes), how
+    to make one that can. Nothing if it can."""
+    try:
+        import gi
+    except ImportError as e:
+        cfg = Path(sys.prefix, "pyvenv.cfg")
+        if cfg.exists() and re.search(r"include-system-site-packages\s*=\s*false",
+                                      cfg.read_text()):
+            if "pipx/venvs/" in Path(sys.prefix).as_posix():
+                return (f"needs {what} from the system, which this install can't see; "
+                        f"reinstall with: {REINSTALL}")
+            return (f"needs {what} from the system, which this virtualenv can't see: "
+                    "make it with --system-site-packages")
+        return f"needs {what}, which this Python can't load ({e}): {where}"
+    try:
+        for lib, version in libs:
+            gi.require_version(lib, version)
+    except ValueError as e:
+        return f"needs {what}, which this Python can't load ({e}): {where}"
+    return None
+
+
+def a11y_needs():
+    if not any(os.access(p, os.X_OK) for p in A11Y_LAUNCHERS):
+        return "not found: at-spi-bus-launcher (at-spi2-core)"
+    return lacks("gdbus") or bindings(*ATSPI)
+
+
+def gamepad_needs():
+    try:
+        os.close(pad.uinput())
+    except pad.PadError as e:
+        return str(e)
+    return lacks("bwrap")
+
+
+# Why each part of a session, and each command that needs more, can't be
+# had here; nothing if it can. A session checks its parts before it starts
+# any, so what's missing is said at once in a line, rather than as a part
+# that dies with the reason in its log; `shotbox doctor` goes through them
+# all.
+NEEDS = {
+    "sessions": lambda: lacks("dbus-daemon"),
+    "X11": lambda: lacks("Xvfb", "xauth", "xwininfo", "xprop", "import"),
+    "--wayland": lambda: lacks("sway", "grim", CONVERT[0]),
+    "--xwayland": lambda: lacks("Xwayland", "xprop"),
+    "--desktop": lambda: lacks("gdbus"),
+    "--a11y": a11y_needs,
+    "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
+    "--gamepads": gamepad_needs,
+    "--net": lambda: lacks("bwrap", "nsenter"),
+    "term": lambda: bindings(*VTE),
+    "record": lambda: lacks("ffmpeg"),
+    "--clock": lambda: None if faketime() else ("the session's clock needs libfaketime, "
+                                                "and there's no libfaketime.so.1 here"),
+}
+
+
+def faketime():
+    """libfaketime's library, wherever the distribution put it: this
+    machine's multiarch dir, guessed where Python wasn't told it; or None."""
+    arch = sysconfig.get_config_var("MULTIARCH") or os.uname().machine + "-*"
+    for d in (f"/usr/lib/{arch}", "/usr/lib64", "/usr/lib", "/usr/local/lib"):
+        for lib in sorted(glob.glob(f"{d}/faketime/libfaketime.so.1")):
+            return lib
 
 
 def free_display(skip=()):
@@ -376,7 +479,8 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True, display=True, net=None, usage=False):
+                 sandbox=True, display=True, net=None, usage=False, identity=None,
+                 clock=None, tz=None):
         self.size = size
         self.measure = usage
         self._sampler = self._slice = None
@@ -390,7 +494,37 @@ class Session(Screen):
             raise SessionError("--net loopback and --no-sandbox don't go together: in the "
                                "session's network, setuid helpers can't work either")
         self.net = net
+        try:
+            zone = ZoneInfo(tz) if tz else timezone.utc
+        except (KeyError, ValueError):
+            raise SessionError(f"there's no time zone called {tz!r}")
+        try:
+            # Python reads a Z for UTC only from 3.11.
+            t = clock if isinstance(clock, datetime) else clock and datetime.fromisoformat(
+                re.sub(r"[Zz]$", "+00:00", clock))
+        except ValueError:
+            raise SessionError(f"the clock is an ISO 8601 time, like 2026-09-26T18:40:00, "
+                               f"not {clock!r}")
+        # In the zone, unless it names its own.
+        self.clock = (t if t.tzinfo else t.replace(tzinfo=zone)).timestamp() if t else None
+        if self.clock is not None and self.clock < 0:
+            # The session's bus, for one, takes a time before it for no time.
+            raise SessionError(f"the clock starts in 1970 or after, not {clock}")
+        self._faketime = None
+        self._time_env = {"TZ": tz} if tz else {}
         self._net_pid = None    # a process in the session's network namespace, with net
+        m = re.fullmatch(r"([A-Za-z_][\w.-]{0,31})@([A-Za-z0-9][A-Za-z0-9.-]{0,63})",
+                         identity or "", re.ASCII)
+        if identity and not m:
+            raise SessionError("identity is USER@HOST, of letters, digits, '.', '-' and '_', "
+                               f"not {identity!r}")
+        if identity and not sandbox:
+            # Only bubblewrap can fake them: going on without, as for an
+            # unsealed session, would put the real names in the very
+            # pictures this is for.
+            raise SessionError("--identity and --no-sandbox don't go together: only "
+                               "bubblewrap can fake who and where programs are")
+        self.identity = m and m.groups()   # (user, host)
         self.display = display
         if not display and (wayland or xwayland or a11y or announce_log or dark or high_contrast
                             or text_scale or gamepads):
@@ -426,18 +560,30 @@ class Session(Screen):
     # --- setup ----------------------------------------------------------------
 
     def __enter__(self):
-        if not self.display:
-            need("dbus-daemon")
-        elif self.use_wayland:
-            need("sway", "grim", "dbus-daemon", *(["Xwayland"] if self.xwayland else []))
-        else:
-            need("Xvfb", "xauth", "dbus-daemon")
-        if self.desktop:
-            need("gdbus")
-        if self.audio:
-            need("pipewire", "wireplumber", "pw-dump")
-        if self.gamepads:
-            need("bwrap")
+        parts = ["sessions"]
+        if self.display:
+            parts.append("--wayland" if self.use_wayland else "X11")
+        parts += [p for p, on in (("--xwayland", self.xwayland), ("--desktop", self.desktop),
+                                  ("--a11y", self.a11y), ("--audio", self.audio),
+                                  ("--gamepads", self.gamepads), ("--net", self.net),
+                                  ("--clock", self.clock is not None)) if on]
+        why = next(filter(None, (NEEDS[p]() for p in parts)), None)
+        if why:
+            raise SessionError(why)
+        if self.clock is not None:
+            # An offset, fixed as the session starts, so a program started
+            # later reads the clock those before it do: a start-at time
+            # (FAKETIME="@TIME") starts over in each program, and
+            # FAKETIME_DONT_RESET carries it on only to a program's own
+            # children, not to the next one the session starts. Monotonic
+            # clocks are left be, so timeouts aren't thrown out by it, and
+            # file times read as they are on disk. A fixed offset needs none
+            # of the shared memory libfaketime would leave in /dev/shm for
+            # each killed program.
+            self._faketime = faketime()
+            self._time_env.update(FAKETIME=f"{math.ceil(self.clock - time.time()):+d}",
+                                  FAKETIME_DONT_FAKE_MONOTONIC="1", NO_FAKE_STAT="1",
+                                  FAKETIME_DISABLE_SHM="1")
         # Sockets are made in the scratch dir, the longest sway's (run/
         # sway-ipc.UID.PID.sock), and Linux allows a socket path 107 bytes.
         tmp = tempfile.gettempdir()
@@ -449,6 +595,8 @@ class Session(Screen):
         try:
             if self.measure:
                 self._start_usage()
+            if self.identity:
+                self._make_identity()
             if self.sandbox or self.gamepads:
                 self._probe_sandbox()
             if self.net:
@@ -473,7 +621,6 @@ class Session(Screen):
                 # X clients take the font DPI from the X server's
                 # resources over settings.ini; only GTK 4 on Wayland reads
                 # it there.
-                need("xprop")
                 dpi = round(96 * self.text_scale)
                 subprocess.run(["xprop", "-root", "-f", "RESOURCE_MANAGER", "8s", "-set",
                                 "RESOURCE_MANAGER", f"Xft.dpi:\t{dpi}\n"],
@@ -519,6 +666,51 @@ class Session(Screen):
         return {"seconds": time.monotonic() - self._started, "programs": programs,
                 "session": self._sampler.read("session")}
 
+    def _make_identity(self):
+        """The machine's /etc/passwd and /etc/group, for programs to see,
+        with the session's uid and gid USER's, home the session's, and
+        nothing else called that, nor the real name in a group's members:
+        whoami, ls -l and getpwuid all say USER. /etc/hostname, and
+        /etc/hosts with HOST in it, so hostname -f finds it without asking
+        DNS; and no logins, which who and users would name."""
+        (user, host), uid, gid = self.identity, os.getuid(), os.getgid()
+        for kind, look, ours in (("user", pwd.getpwnam, uid), ("group", grp.getgrnam, gid)):
+            try:
+                theirs = look(user)[2]
+            except KeyError:
+                continue
+            if theirs != ours:
+                # Its line would go, and its files show as a number.
+                raise SessionError(f"identity's {user} is the machine's {kind} {theirs} "
+                                   "already: pick another name")
+        try:
+            me = pwd.getpwuid(uid)
+            real, shell = me.pw_name, me.pw_shell
+        except KeyError:
+            real, shell = None, "/bin/sh"
+        home = self.scratch / "home"
+        files = {}
+        for name, id_, ours in (("passwd", uid, f"{user}:x:{uid}:{gid}:{user}:{home}:{shell}"),
+                                ("group", gid, f"{user}:x:{gid}:")):
+            kept = [line for line in Path("/etc", name).read_text().splitlines()
+                    if line.split(":")[0] != user and line.split(":")[2:3] != [str(id_)]]
+            if name == "group":
+                kept = [":".join([*f[:3], ",".join(m for m in f[3].split(",") if m != real)])
+                        if len(f := line.split(":")) == 4 else line for line in kept]
+            files[f"/etc/{name}"] = [*kept, ours]
+        machine = socket.gethostname().split(".")[0]
+        files["/etc/hosts"] = [
+            line for line in Path("/etc/hosts").read_text().splitlines()
+            if not any(n.split(".")[0] == machine for n in line.split("#")[0].split()[1:])
+        ] + [f"127.0.1.1\t{host}"]
+        files["/etc/hostname"] = [host]
+        files["/run/utmp"] = []
+        self._faked = {}
+        for i, (where, lines) in enumerate(files.items()):
+            if Path(where).exists():
+                self._faked[where] = self.scratch / f"identity-{i}"
+                self._faked[where].write_text("".join(f"{line}\n" for line in lines))
+
     def _make_home(self):
         home = self.scratch / "home"
         if self.seed:
@@ -559,8 +751,12 @@ class Session(Screen):
         for _ in range(20):
             n = free_display(skip=taken)
             taken.add(n)
-            subprocess.run(["xauth", "-q", "-f", str(xauth), "add", f":{n}", ".", cookie],
-                           check=True)
+            # For any hostname (xauth add's is the machine's): a program
+            # with an --identity looks for its own.
+            num = str(n).encode().hex()
+            subprocess.run(["xauth", "-q", "-f", str(xauth), "nmerge", "-"], check=True, text=True,
+                           input=f"ffff 0000  {len(num) // 2:04x} {num} 0012 "
+                                 f"{b'MIT-MAGIC-COOKIE-1'.hex()} 0010 {cookie}\n")
             r, w = os.pipe()
             w_, h = self.size
             proc = subprocess.Popen(
@@ -661,7 +857,7 @@ class Session(Screen):
     def _make_env(self, graphics, bus, sysbus):
         home = self.scratch / "home"
         env = {k: os.environ[k] for k in self.passthrough if k in os.environ}
-        env.update(SEALED_ENV)
+        env.update(SEALED_ENV, **self._time_env)
         if self.desktop:
             del env["GSETTINGS_BACKEND"]
         if self.a11y:
@@ -695,11 +891,17 @@ class Session(Screen):
             # its HIDAPI drivers would read the machine's controllers from.
             env["SDL_JOYSTICK_DISABLE_UDEV"] = "1"
             env["SDL_JOYSTICK_HIDAPI"] = "0"
+        if self.identity:
+            user, host = self.identity
+            env.update(USER=user, LOGNAME=user, HOSTNAME=host)
         if bus:
             env["DBUS_SESSION_BUS_ADDRESS"] = bus
         if sysbus:
             env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
         env.update(self.extra_env)
+        if self._faketime:
+            # First, so the clock is libfaketime's whatever else is preloaded.
+            env["LD_PRELOAD"] = ":".join(filter(None, (self._faketime, env.get("LD_PRELOAD"))))
         return env
 
     def _activation_env(self):
@@ -767,10 +969,7 @@ class Session(Screen):
         the private session bus starts it, and AT_SPI_BUS_ADDRESS points
         every toolkit and reader in the session at it, on X11 and Wayland
         alike. Then a recorder of what programs announce on it."""
-        launcher = next((p for p in A11Y_LAUNCHERS if os.access(p, os.X_OK)), None)
-        if not launcher:
-            raise SessionError("not found: at-spi-bus-launcher (at-spi2-core)")
-        need("gdbus")
+        launcher = next(p for p in A11Y_LAUNCHERS if os.access(p, os.X_OK))
         log = self.scratch / "a11y-bus.log"
         proc = subprocess.Popen([launcher, "--launch-immediately"], env=self.env,
                                 stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
@@ -836,7 +1035,6 @@ class Session(Screen):
         runs to join, so they reach each other and nothing else: a process
         sleeping in it, which bwrap makes, bringing its loopback up. A
         namespace of each program's own would keep them apart too."""
-        need("bwrap", "nsenter")
         r, w = os.pipe()
         proc = subprocess.Popen(["bwrap", "--dev-bind", "/", "/", "--unshare-user",
                                  "--unshare-net", "--info-fd", str(w), "--", "sleep", "infinity"],
@@ -874,6 +1072,8 @@ class Session(Screen):
                           or f"status {probe.returncode}"))
         if why and self.gamepads:
             raise SessionError(f"gamepads need bubblewrap to make a sandbox, and {why}")
+        if why and self.identity:
+            raise SessionError(f"--identity needs bubblewrap to make a sandbox, and {why}")
         kept = [d for d in self._runtime_dirs() if self.scratch.resolve().is_relative_to(d)]
         if why:
             self.unsealed = ("programs run without a sandbox, so they can reach the "
@@ -928,6 +1128,13 @@ class Session(Screen):
                 args += ["--ro-bind", masked, str(node)]
         if (dev / "bus/usb").is_dir():
             args += ["--tmpfs", "/dev/bus/usb"]
+        if self.identity:
+            # A UTS namespace each, every one with the same name in it.
+            args += ["--unshare-uts", "--hostname", self.identity[1]]
+            for where, made in self._faked.items():
+                args += ["--ro-bind", str(made), where]
+            if Path("/run/systemd/sessions").is_dir():
+                args += ["--tmpfs", "/run/systemd/sessions"]
         # Found on shotbox's PATH, where the session checked for it: the
         # session's PATH is the program's. Not --die-with-parent: Linux
         # sends that when the thread that started bwrap ends, which can be

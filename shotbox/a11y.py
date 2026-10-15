@@ -25,6 +25,7 @@ from functools import cache
 
 from . import picture, x
 from .screen import Screen, SessionError, wait_for
+from .session import ATSPI, bindings
 
 # The states worth a line in the tree: what a screen reader says about a
 # node, not how it's laid out ("showing", "vertical"). Their AT-SPI names.
@@ -67,14 +68,10 @@ def atspi():
     """libatspi, on the session's accessibility bus and nobody else's."""
     if not os.environ.get("AT_SPI_BUS_ADDRESS") or not os.environ.get("SHOTBOX_SCRATCH"):
         raise SessionError("no accessibility bus: start the session with --a11y")
-    try:
-        import gi
-        gi.require_version("Atspi", "2.0")
-        from gi.repository import Atspi, GLib
-    except (ImportError, ValueError) as e:
-        raise SessionError(f"AT-SPI's Python bindings won't load ({e}): they're in python3-gi and "
-                           "gir1.2-atspi-2.0 on Debian, and python3-gobject, at-spi2-core and "
-                           "gobject-introspection on Fedora")
+    why = bindings(*ATSPI)
+    if why:
+        raise SessionError(why)
+    from gi.repository import Atspi, GLib
 
     # AccessKit's adapter has no cache object, which libatspi asks every
     # program for, and says so on each read of a tree with one in it.

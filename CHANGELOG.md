@@ -14,6 +14,11 @@
 - Under bubblewrap, a program can't gain privileges, its supplementary
   groups show as `nogroup`, and one killed by a signal exits with 128
   plus the signal's number. `--no-sandbox` runs it as before.
+- `compare` says where pixels differ, after how many: `N pixels differ,
+  in WxH at X,Y`, on each picture's line with directories too.
+- A session with a display wants ImageMagick, and one with X11 or
+  Xwayland `xwininfo` and `xprop` (x11-utils), before it starts, rather
+  than at its first wait or picture.
 
 ### Changed
 
@@ -38,6 +43,32 @@
   the top); a file not there yet is waited for, and one rotated or
   rewritten is followed. Also `Screen.wait_line`, and MCP's `wait_for`,
   whose file is in the `--allow` file's directory.
+- **`shoot --twice`** (and `term --shoot --twice`): the picture taken in
+  two fresh sessions, and a failure if they differ, beyond `--fuzz` and
+  `--max`, saying how many pixels and the box they're in, with
+  `OUT-diff.png` beside OUT. If they're alike, one is kept as OUT.
+- **`--identity USER@HOST`**: who and where a session's programs are,
+  for `run`, `shoot`, `term`, `start`, `exec`, `Session(identity=...)`
+  and MCP's `start_session`: `hostname`, `uname -n`, `whoami`, `id
+  -un`, `getpwuid()`, `ls -l`'s owner, `$USER`, `$LOGNAME` and
+  `$HOSTNAME` say USER and HOST, so a picture doesn't show who took it.
+  It needs bubblewrap, and not `--no-sandbox`.
+- **`--clock TIME` and `--tz ZONE`**: every program a session runs sees
+  the wall clock start at TIME (ISO 8601, in ZONE or UTC) and run on, a
+  program spawned later reading the same clock as the first, so dates in
+  pictures don't change between shoots. For `run`, `shoot`, `term`,
+  `start`, `exec`, `Session(clock=..., tz=...)` and MCP's
+  `start_session`; by libfaketime, which doesn't reach static binaries or
+  Go programs.
+- **What a command needs, checked before it starts anything.** A tool
+  not on PATH, `/dev/uinput` it can't open for `--gamepads`, or PyGObject
+  with VTE (`term`) or AT-SPI (`--a11y`) that this Python can't load is
+  said at once in a line, with the package to install, or, from a
+  virtualenv that can't see the system's packages, how to make one that
+  can (for pipx's, `pipx install --force --system-site-packages
+  shotbox`); `Session` and MCP's `start_session` say the same.
+  **`shotbox doctor`** goes through every check, a line each, and fails
+  only if what every session needs is missing.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else

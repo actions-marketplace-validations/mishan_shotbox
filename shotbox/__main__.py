@@ -22,6 +22,7 @@
     shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
+    shotbox doctor                                  what's here of what each command needs
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
     shotbox listen IN.wav                           its level, clipping and dropouts
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
@@ -39,13 +40,14 @@ import os
 import signal
 import statistics
 import sys
+import tempfile
 import time
 import wave
 from pathlib import Path
 
 from . import a11y, kept, mcp, sound, term, usage, x, xtest
 from .screen import Screen, SessionError
-from .session import Session
+from .session import NEEDS, Session
 
 
 def scale(s):
@@ -96,6 +98,14 @@ def session_options(p, display=True):
                    help="loopback: a network of the session's own, which its programs "
                         "share, with nothing on it but them; needs bubblewrap, and not "
                         "--no-sandbox")
+    g.add_argument("--identity", metavar="USER@HOST",
+                   help="who and where programs are: whoami, ls -l's owner, hostname, "
+                        "$USER and $HOSTNAME say USER and HOST, not yours; needs "
+                        "bubblewrap, and not --no-sandbox")
+    g.add_argument("--clock", metavar="TIME",
+                   help="the wall clock starts at TIME (ISO 8601, 2026-09-26T18:40:00, in "
+                        "--tz or UTC) and runs on, for every program; needs libfaketime")
+    g.add_argument("--tz", metavar="ZONE", help="the time zone (Europe/Berlin; UTC by default)")
     g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
                    help="run programs outside bubblewrap, for those that need setuid "
                         "helpers (sudo, AppImages); they can reach the machine's sound "
@@ -146,7 +156,8 @@ def make_session(a):
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
                    audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox,
-                   display=a.display, net=a.net, usage=bool(a.usage))
+                   display=a.display, net=a.net, usage=bool(a.usage),
+                   identity=a.identity, clock=a.clock, tz=a.tz)
 
 
 @contextlib.contextmanager
@@ -255,6 +266,7 @@ def cmd_shoot(argv):
     p.add_argument("--failed", metavar="FILE",
                    help="if it fails, a picture of the screen goes here "
                         "(OUT's name with -failed, beside it)")
+    twice_options(p)
     session_options(p)
     opts, cmd = split(argv)
     a = p.parse_args(opts)
@@ -264,7 +276,58 @@ def cmd_shoot(argv):
         waits.insert(0, "window:" + a.window)
     if not waits and not a.settle:
         p.error("nothing to wait for: give --window, --wait or --settle")
+    if not a.twice and (a.fuzz is not None or a.max is not None):
+        p.error("--fuzz and --max go with --twice")
+    if a.twice:
+        return twice(a, cmd, waits)
+    status = take(a, cmd, waits, a.out)
+    if not status:
+        print(a.out)
+    return status
 
+
+def twice_options(p):
+    """--twice, and how alike its two pictures must be: as `shoot` and
+    `term --shoot` take them."""
+    p.add_argument("--twice", action="store_true",
+                   help="take the picture in two fresh sessions, and fail if they "
+                        "differ, writing the difference beside OUT, as OUT-diff.png")
+    p.add_argument("--fuzz", metavar="PCT",
+                   help="with --twice: colors this close count as the same (0%%)")
+    p.add_argument("--max", type=int, metavar="N",
+                   help="with --twice: pixels allowed to differ (0)")
+
+
+def twice(a, cmd, waits):
+    """The picture taken twice, each in a session of its own, so what varies
+    from one run to the next (a cursor's blink, the clock, the order things
+    start in) shows; kept as OUT if the two are alike."""
+    out = Path(a.out)
+    fuzz = "0%" if a.fuzz is None else a.fuzz
+    diff = out.with_name(out.stem + "-diff.png")
+    # Beside OUT, so the one kept is moved there whole, on one filesystem.
+    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
+        pics = [Path(tmp) / "1.png", Path(tmp) / "2.png"]
+        for pic in pics:
+            if take(a, cmd, waits, pic):
+                return 1
+        try:
+            n, box = x.compare(*pics, fuzz=fuzz, box=True)
+        except ValueError as e:
+            sys.stderr.write(f"shotbox: taken twice, {e}\n")
+            return 1
+        if n > (a.max or 0):
+            x.compare(*pics, diff=diff, fuzz=fuzz)
+            sys.stderr.write(f"shotbox: taken twice, {differing(n, box)}; see {diff}\n")
+            return 1
+        diff.unlink(missing_ok=True)
+        os.replace(pics[0], out)
+    print(a.out)
+    return 0
+
+
+def take(a, cmd, waits, out):
+    """shoot's picture, to `out`, in a session of its own."""
     with session(a) as s:
         s.failed = a.failed or str(Path(a.out).with_name(Path(a.out).stem + "-failed.png"))
         log = a.log or str(s.scratch / "command.log")
@@ -282,11 +345,10 @@ def cmd_shoot(argv):
             crop = a.crop
             if not crop and (s.scratch / "crop").exists():
                 crop = (s.scratch / "crop").read_text().strip()
-            s.capture(a.out, window=a.window, crop=crop, park=a.park, vision=a.vision)
+            s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision)
         except SessionError as e:
             sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
             return 1
-    print(a.out)
     return 0
 
 
@@ -326,6 +388,20 @@ def cmd_stop(argv):
         if scratch:
             print(f"shotbox: kept {scratch}")
     return 0
+
+
+def cmd_doctor(argv):
+    argparse.ArgumentParser(prog="shotbox doctor",
+                            description="What's here of what sessions, each of their "
+                                        "options and `term` and `record` need, a line "
+                                        "each; fails if what every session needs "
+                                        "is missing.").parse_args(argv)
+    missing = []
+    for part, check in NEEDS.items():
+        why = check()
+        print(f"no    {part}: {why}" if why else f"ok    {part}")
+        missing += [part] * bool(why)
+    return 1 if {"sessions", "X11"} & set(missing) else 0
 
 
 def cmd_sessions(argv):
@@ -695,6 +771,12 @@ def per_name(values, name, default):
     return (named or plain or [default])[-1]
 
 
+def differing(n, box):
+    """How many pixels differ, and the box they're in: "210 pixels differ,
+    in 12x18 at 30,212", which places them without a look at the diff."""
+    return f"{n} pixels differ" + (f", in {box[0]}x{box[1]} at {box[2]},{box[3]}" if box else "")
+
+
 def cmd_compare(argv):
     p = argparse.ArgumentParser(prog="shotbox compare",
                                 description="Count the pixels that differ between two "
@@ -732,11 +814,11 @@ def cmd_compare(argv):
             sys.stderr.write(f"shotbox: no {' or '.join(missing)}\n")
             return 2
         try:
-            n = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None))
+            n, box = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None), box=True)
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
-        print(f"{n} pixels differ")
+        print(differing(n, box))
         return 0 if n <= most(None) else 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
@@ -756,7 +838,7 @@ def cmd_compare(argv):
             continue
         diff = Path(a.diff) / f"{name}-diff.png" if a.diff else None
         try:
-            n = x.compare(ref, new, fuzz=fuzz(name))
+            n, box = x.compare(ref, new, fuzz=fuzz(name), box=True)
         except ValueError as e:
             print(f"{name}: {e}")
             bad.append(name)
@@ -764,10 +846,10 @@ def cmd_compare(argv):
         if n > most(name):
             if diff:
                 x.compare(ref, new, diff=diff, fuzz=fuzz(name))
-            print(f"{name}: {n} pixels differ" + (f"; see {diff}" if diff else ""))
+            print(f"{name}: {differing(n, box)}" + (f"; see {diff}" if diff else ""))
             bad.append(name)
         else:
-            print(f"{name}: {'the same' if n == 0 else f'{n} pixels differ, allowed'}")
+            print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}; allowed'}")
     if bad:
         print(f"differ: {', '.join(bad)}")
         return 1
@@ -783,7 +865,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
-            "sessions": cmd_sessions}
+            "sessions": cmd_sessions, "doctor": cmd_doctor}
 
 # What --session puts inside a lasting session.
 INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",

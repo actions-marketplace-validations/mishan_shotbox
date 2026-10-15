@@ -34,6 +34,30 @@ long=$tmp/$(printf 'x%.0s' $(seq 45)); mkdir "$long"
 set +e; TMPDIR=$long "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
 [ $st != 0 ] && grep -q "too long a path to make the session's sockets in" "$tmp/err" && ok "a TMPDIR too long, said" \
   || fail "long TMPDIR ($st): $(cat "$tmp/err")"
+# What a command needs and isn't here, said in a line before anything
+# starts (nothing made in TMPDIR): a tool not on PATH, and the system's
+# PyGObject, from a virtualenv that can't see it: plain `pipx install
+# shotbox`'s, which can be reinstalled so it can, or another.
+mkdir "$tmp/empty" "$tmp/path"; ln -s "$(command -v python3)" "$tmp/path/python3"
+venv=$tmp/pipx/venvs/shotbox; python3 -m venv --without-pip "$venv"
+python3 -m venv --without-pip "$tmp/venv"
+at_once() { [ $1 != 0 ] && [ "$(wc -l < "$tmp/err")" = 1 ] && grep -q "$2" "$tmp/err" \
+  && [ -z "$(ls -A "$tmp/empty")" ]; }
+set +e; TMPDIR=$tmp/empty PATH=$tmp/path python3 "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
+at_once $st "^shotbox: not found: dbus-daemon" && ok "a tool not found, said before the session starts" \
+  || fail "no dbus-daemon ($st): $(cat "$tmp/err")"
+reinstall="from the system, which this install can't see; reinstall with: pipx install --force --system-site-packages shotbox"
+set +e; TMPDIR=$tmp/empty "$venv/bin/python" "$sb" term --shoot "$tmp/t.png" -- true 2> "$tmp/err"; st=$?; set -e
+at_once $st "^shotbox term: needs PyGObject and VTE $reinstall\$" \
+  && ok "term, with no PyGObject in sight: how to reinstall, before the session starts" \
+  || fail "term with no PyGObject ($st): $(cat "$tmp/err")"
+set +e; TMPDIR=$tmp/empty "$tmp/venv/bin/python" "$sb" run --a11y -- true 2> "$tmp/err"; st=$?; set -e
+at_once $st "^shotbox: needs PyGObject and AT-SPI from the system, which this virtualenv can't see: make it with --system-site-packages\$" \
+  && ok "--a11y, with no PyGObject in sight: a virtualenv that can see it, before the session starts" \
+  || fail "--a11y with no PyGObject ($st): $(cat "$tmp/err")"
+set +e; "$venv/bin/python" "$sb" doctor > "$tmp/out"; st=$?; set -e
+[ $st = 0 ] && grep -q "^ok    sessions$" "$tmp/out" && grep -q "^no    term: needs PyGObject and VTE $reinstall\$" "$tmp/out" \
+  && ok "doctor: what's here, and what isn't" || fail "doctor ($st): $(cat "$tmp/out")"
 # Under bubblewrap: none of the machine's sound devices, and none of the
 # desktop's sockets; all of them with --no-sandbox.
 look='find /dev/snd "/run/user/$(id -u)" -mindepth 1 -maxdepth 1 2>/dev/null; true'
@@ -67,6 +91,27 @@ print(urllib.request.urlopen('http://127.0.0.1:$port/').status, open('/proc/net/
     && ok "--net loopback: the session's programs share a network of their own" \
     || fail "--net loopback: $(cat "$tmp/net.log")"
   "$sb" stop "$net"
+fi
+# --identity: every way of asking who and where says USER and HOST, and no
+# group names the real user, for a program run and one spawned later in a
+# started session; a bad one, or a user the machine has, refused.
+if bwrap --dev-bind / / --unshare-uts --hostname x true 2>/dev/null; then
+  ask='echo $(hostname) $(hostname -f) $(cat /etc/hostname) $(uname -n) $(whoami) $(id -un)
+echo $(ls -ld "$HOME" | cut -d" " -f3-4) $USER $LOGNAME $HOSTNAME
+cut -d: -f4 /etc/group | tr , "\n" | grep -xF "$REAL" | wc -l'
+  want=$(printf 'neon neon neon neon doll doll\ndoll doll doll doll neon\n0')
+  real="--env REAL=$(id -un)"
+  out=$("$sb" run --identity doll@neon $real -- sh -c "$ask")
+  idn=id$$; "$sb" start --name "$idn" --identity doll@neon $real >/dev/null
+  "$sb" spawn --session "$idn" --log "$tmp/id.log" -- sh -c "$ask" >/dev/null
+  n=0; until grep -qx '[0-9]*' "$tmp/id.log" 2>/dev/null || [ $n = 50 ]; do sleep 0.1; n=$((n + 1)); done
+  "$sb" stop "$idn"
+  set +e; "$sb" run --identity 'doll@neon;x' -- true 2> "$tmp/err"; st=$?
+  "$sb" run --identity root@x -- true 2>> "$tmp/err"; st2=$?; set -e
+  [ "$out" = "$want" ] && [ "$(cat "$tmp/id.log")" = "$want" ] && [ $st != 0 ] && [ $st2 != 0 ] \
+    && grep -q "identity is USER@HOST" "$tmp/err" && grep -q "root is the machine's user 0" "$tmp/err" \
+    && ok "--identity: who and where, for every program, and bad ones refused" \
+    || fail "--identity: run [$out], spawned [$(cat "$tmp/id.log")], bad ($st $st2) $(cat "$tmp/err")"
 fi
 # --usage: what a program used, its 300 MB at once among it, and what the
 # session's own processes did, said and written as JSON.
@@ -218,6 +263,34 @@ else
   [ "${SHOTBOX_AUDIO-}" = required ] && fail "audio skipped: no PipeWire, WirePlumber or pactl" \
     || echo "skip  audio: no PipeWire, WirePlumber or pactl"
 fi
+# --clock: the wall clock starts at TIME, in --tz, and runs on, for a
+# program started later in a session as for the first. With no libfaketime,
+# said in a line, and the rest skipped, unless SHOTBOX_CLOCK=required.
+if python3 -c "import sys; sys.path.insert(0, '$root')
+from shotbox.session import faketime; faketime()" 2>/dev/null; then
+  clk=clock$$; t=$(date -d 2026-09-26T16:40:00Z +%s); s1=0 s2=0 hm=
+  "$sb" start --name "$clk" --clock 2026-09-26T18:40:00 --tz Europe/Berlin >/dev/null
+  for n in 1 2; do
+    [ $n = 1 ] || sleep 3
+    "$sb" spawn --session "$clk" --log "$tmp/clock$n" -- date '+%s %H:%M %Z' >/dev/null
+    i=0; until [ -s "$tmp/clock$n" ] || [ $i = 50 ]; do sleep 0.1; i=$((i + 1)); done
+  done
+  "$sb" stop "$clk"
+  read -r s1 hm < "$tmp/clock1" || true; read -r s2 _ < "$tmp/clock2" || true
+  [ "$hm" = "18:40 CEST" ] && [ $((s1 - t)) -ge 0 ] && [ $((s1 - t)) -le 5 ] \
+    && [ $((s2 - s1)) -ge 3 ] && [ $((s2 - s1)) -le 8 ] \
+    && ok "--clock: starts at TIME in its zone, and runs on for a program started later" \
+    || fail "--clock: $(cat "$tmp/clock1" "$tmp/clock2"), from $t"
+  "$sb" term --shoot "$tmp/berlin.png" --size 30x4 --timeout 10 --when '18:40 CEST' \
+    --clock 2026-09-26T18:40:00 --tz Europe/Berlin -- date '+%H:%M %Z' >/dev/null \
+    && ok "term --shoot --clock: the terminal's program reads it" || fail "term --shoot --clock"
+else
+  set +e; "$sb" exec --clock 2026-09-26T18:40:00 -- true 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && [ "$(cat "$tmp/err")" = "shotbox: the session's clock needs libfaketime, and there's no libfaketime.so.1 here" ] \
+    && ok "--clock with no libfaketime, said in a line" || fail "--clock, no libfaketime ($st): $(cat "$tmp/err")"
+  [ "${SHOTBOX_CLOCK-}" = required ] && fail "clock skipped: no libfaketime" \
+    || echo "skip  clock: no libfaketime"
+fi
 
 # The terminal: steps, the ready file, the log, and the same picture twice.
 cat > "$tmp/scheme.json" <<'JSON'
@@ -267,6 +340,16 @@ set +e; "$sb" shoot "$tmp/app3.png" --window app=nope --timeout 1 -- "$here/wind
 st=$?; set -e
 [ $st != 0 ] && grep -q "window with app id 'nope'" "$tmp/err" && ok "app=: a miss says what it looked for" \
   || fail "app= miss: $st"
+
+# --twice: a window drawn the same each time, kept; a clock, refused,
+# saying where it differs, with the diff beside OUT and no OUT.
+"$sb" shoot "$tmp/twice.png" --twice --window t1 -- "$here/window.py" t1 >/dev/null \
+  && [ -s "$tmp/twice.png" ] && ok "shoot --twice: the same twice, kept" || fail "shoot --twice"
+set +e; "$sb" term --shoot "$tmp/clock.png" --twice --size 30x5 --when . -- date +%N 2> "$tmp/err"
+st=$?; set -e
+[ $st = 1 ] && grep -q "pixels differ, in [0-9]*x[0-9]* at [0-9]*,[0-9]*; see .*clock-diff.png" "$tmp/err" \
+  && [ -s "$tmp/clock-diff.png" ] && [ ! -e "$tmp/clock.png" ] \
+  && ok "term --shoot --twice: a clock differs, and where" || fail "--twice, a clock: $st $(cat "$tmp/err")"
 
 # Stable: waits out a burst of output, and gives up on output that never stops.
 "$sb" run -- sh -c "
@@ -801,10 +884,10 @@ fi
 
 # Compare.
 "$sb" compare "$tmp/a.png" "$tmp/b.png" >/dev/null && ok "compare: the same" || fail "compare same"
-convert "$tmp/a.png" -fill red -draw 'point 3,3' "$tmp/d.png"
+convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
 set +e; n=$("$sb" compare "$tmp/a.png" "$tmp/d.png" --diff "$tmp/diff.png"); st=$?; set -e
-[ $st = 1 ] && [ "$n" = "1 pixels differ" ] && [ -s "$tmp/diff.png" ] \
-  && ok "compare: one pixel off, found" || fail "compare: $st $n"
+[ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ -s "$tmp/diff.png" ] \
+  && ok "compare: one pixel off, found, and where" || fail "compare: $st $n"
 
 mkdir -p "$tmp/ref" "$tmp/new"
 cp "$tmp/a.png" "$tmp/ref/same.png"; cp "$tmp/a.png" "$tmp/new/same.png"

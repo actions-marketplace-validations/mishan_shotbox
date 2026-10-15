@@ -38,6 +38,8 @@ import shlex
 import sys
 from pathlib import Path
 
+from .session import NEEDS
+
 SIZE = re.compile(r"(\d+)x(\d+)")
 
 
@@ -65,7 +67,8 @@ def parse(argv):
                         "take the picture when the steps are done")
     g.add_argument("--park", action="store_true", help="as for shoot")
     g.add_argument("--failed", metavar="FILE", help="as for shoot")
-    from .__main__ import session_options
+    from .__main__ import session_options, twice_options
+    twice_options(g)
     session_options(p)
     p.set_defaults(steps=[])
     cmd = []
@@ -83,7 +86,8 @@ def parse(argv):
     given = [k for k, v in vars(args).items()
              if k not in TERM_OPTS and k in defaults and v != defaults[k]]
     if given and not args.shoot:
-        p.error("the session options, --park and --failed go with --shoot")
+        p.error("the session options, --park, --failed, --twice, --fuzz and --max "
+                "go with --shoot")
     return args
 
 
@@ -108,15 +112,17 @@ def shoot(args):
     outer = [args.shoot, "--window", re.escape(args.title), "--wait", "ready",
              "--timeout", f"{args.timeout * max(1, whens) + sleeps + 10:g}",
              "--screen", "x".join(map(str, args.screen))]
-    outer += ["--park"] * args.park + ["--desktop"] * args.desktop
+    outer += ["--park"] * args.park + ["--twice"] * args.twice + ["--desktop"] * args.desktop
     outer += ["--system-bus"] * args.system_bus + ["--keep"] * args.keep
     outer += ["--wayland"] * args.wayland + ["--xwayland"] * args.xwayland
     outer += ["--a11y"] * args.a11y + ["--dark"] * args.dark
     outer += ["--high-contrast"] * args.high_contrast + ["--audio"] * args.audio
     for opt, value in (("--failed", args.failed), ("--seed", args.seed),
                        ("--announce-log", args.announce_log), ("--text-scale", args.text_scale),
-                       ("--gamepads", args.gamepads)):
-        if value:
+                       ("--gamepads", args.gamepads), ("--fuzz", args.fuzz),
+                       ("--max", args.max), ("--identity", args.identity),
+                       ("--clock", args.clock), ("--tz", args.tz)):
+        if value is not None:
             outer += [opt, str(value)]
     for e in args.env:
         outer += ["--env", e]
@@ -143,6 +149,11 @@ def unescape(text):
 
 def main(argv):
     args = parse(argv)
+    # Said here, before --shoot starts a session to run it in, where it
+    # would only die on its imports.
+    why = NEEDS["term"]()
+    if why:
+        raise SystemExit(f"shotbox term: {why}")
     if args.shoot:
         return shoot(args)
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):

@@ -65,15 +65,20 @@ class PadError(RuntimeError):
     pass
 
 
+def uinput():
+    """/dev/uinput, open to write, or a PadError saying why it can't be."""
+    try:
+        return os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+    except OSError as e:
+        raise PadError(f"can't open /dev/uinput ({e.strerror}): gamepads need write "
+                       "access to it, as the input group or a udev rule gives")
+
+
 class Pad:
     """One virtual pad, there for as long as this object's file is open."""
 
     def __init__(self, name):
-        try:
-            self.fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
-        except OSError as e:
-            raise PadError(f"can't open /dev/uinput ({e.strerror}): gamepads need write "
-                           "access to it, as the input group or a udev rule gives")
+        self.fd = uinput()
         fcntl.ioctl(self.fd, UI_SET_EVBIT, EV_KEY)
         for code in BUTTONS.values():
             fcntl.ioctl(self.fd, UI_SET_KEYBIT, code)
