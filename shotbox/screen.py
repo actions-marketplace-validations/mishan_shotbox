@@ -19,7 +19,6 @@ $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 
 import contextlib
 import fcntl
-import functools
 import json
 import os
 import re
@@ -362,41 +361,64 @@ class Screen:
         finally:
             Path(png).unlink(missing_ok=True)
         width, height = got[:2]
-        frames = functools.lru_cache(maxsize=4)(lambda k: zlib.decompress(shots[k][1]))
-        looks = [flicker.means(frames(k), width, height, tile) for k in range(len(shots))]
         times_ = [t for t, _ in shots]
         across = -(-width // tile)
-        found = {"flicker": {}, "flash": {}}
+        looks = [flicker.means(zlib.decompress(data), width, height, tile) for _, data in shots]
+        # A tile's states, by its mean colors, a change of a quarter of fuzz
+        # a new one, so a band a pixel or two wide is seen; the pixels decide.
+        helds, wanted = {}, {}
         for n in range(len(looks[0])):
             tx, ty = n % across * tile, n // across * tile
             if any(gx < tx + tile and tx < gx + gw and gy < ty + tile and ty < gy + gh
                    for gw, gh, gx, gy in skip):
                 continue
-            x1, y1 = min(tx + tile, width), min(ty + tile, height)
-
-            def pixels(k, tx=tx, ty=ty, x1=x1, y1=y1):
-                f = frames(k)
-                return b"".join(f[(y * width + tx) * 3:(y * width + x1) * 3] for y in range(ty, y1))
-            held = flicker.states(times_, [frame[n] for frame in looks], seconds, fuzz * 2.55)
-            flickering, flashed = flicker.find(held, brief, times, fuzz, pixels)
+            helds[n] = flicker.states(times_, [frame[n] for frame in looks], seconds,
+                                      fuzz * 2.55 / 4)
+            for k in flicker.needs(helds[n], brief):
+                wanted.setdefault(k, []).append(n)
+        # Each picture a tile is looked at in, decompressed once, for those.
+        tiles_in = {}
+        for k in sorted(wanted):
+            f = zlib.decompress(shots[k][1])
+            for n in wanted[k]:
+                tx, ty = n % across * tile, n // across * tile
+                x1, y1 = min(tx + tile, width), min(ty + tile, height)
+                tiles_in[n, k] = b"".join(f[(y * width + tx) * 3:(y * width + x1) * 3]
+                                          for y in range(ty, y1))
+        found = {"flicker": {}, "flash": {}}
+        for n, held in helds.items():
+            flickering, flashed = flicker.find(held, brief, times, fuzz,
+                                               lambda k, n=n: tiles_in[n, k])
             if flickering:
                 found["flicker"][n] = flickering
             elif flashed:
                 found["flash"][n] = flashed
         out = []
-        for kind, tiles in found.items():
-            for bx, by, bw, bh, group in flicker.boxes(tiles, across, tile):
-                bw, bh = min(bw, width - bx), min(bh, height - by)    # tiles at the edge
-                box = f"{bw}x{bh}+{bx}+{by}"
-                if kind == "flicker":
-                    # The box said as its tile that changed most does.
-                    at, changes, every, a, b = max((tiles[n] for n in group), key=lambda f: f[1])
-                    out.append(dict(kind=kind, box=box, at=at, changes=changes, every=every,
-                                    looks=(flicker.hex_of(a), flicker.hex_of(b))))
-                else:
-                    at, held_for, look, then = min((tiles[n] for n in group), key=lambda f: f[0])
-                    out.append(dict(kind=kind, box=box, at=at, changes=2, every=held_for,
-                                    looks=(flicker.hex_of(then), flicker.hex_of(look))))
+        for bx, by, bw, bh, group in flicker.boxes(found["flicker"], across, tile):
+            bw, bh = min(bw, width - bx), min(bh, height - by)    # tiles at the edge
+            # The box said as its tile that changed most does.
+            at, changes, every, a, b = max((found["flicker"][n] for n in group),
+                                           key=lambda f: f[1])
+            out.append(dict(kind="flicker", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=changes,
+                            every=every, looks=(flicker.hex_of(a), flicker.hex_of(b))))
+        flashes = found["flash"]
+        for k in sorted({f[4] for f in flashes.values()}):
+            # Tiles that flashed in the same picture make a box. A flash
+            # leaves the tiles round it as they were; something moving
+            # through changes one beside it, a picture or three before or
+            # after.
+            now = {n: f for n, f in flashes.items() if f[4] == k}
+            for bx, by, bw, bh, group in flicker.boxes(now, across, tile):
+                near = {m + dx + dy * across for m in group for dx in (-1, 0, 1)
+                        for dy in (-1, 0, 1)} - set(group)
+                if any(abs(st[3] - k) <= 3 for m in near if m in helds
+                       for st in helds[m][1:]):
+                    continue
+                bw, bh = min(bw, width - bx), min(bh, height - by)
+                at, held_for, look, then, _ = now[group[0]]
+                out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
+                                every=held_for,
+                                looks=(flicker.hex_of(then), flicker.hex_of(look))))
         return sorted(out, key=lambda f: f["at"])
 
     def wait_announce(self, pattern, timeout=30):

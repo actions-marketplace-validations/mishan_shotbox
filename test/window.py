@@ -2,7 +2,7 @@
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
-or TITLE band. With LOG, it holds an entry instead, and
+or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -110,11 +110,15 @@ elif sys.argv[2:3] == ["scene"]:
         return True
     GLib.timeout_add(30, swap)
     w.add(area)
-elif sys.argv[2:3] == ["band"]:
-    # bzflag's strip as narrow as it was: three columns at a tile's edge,
-    # black every other 30 ms, and between, a scene that's moved on; text
-    # that doesn't change beside it, in the rest of the tile.
+elif sys.argv[2:3] in (["band"], ["noisy"]):
+    # bzflag's strip as narrow as it was: WIDTH (3) columns at a tile's
+    # edge, black every other 30 ms, and between, a scene that's moved on,
+    # dimmer by DARK; text that doesn't change beside it. noisy: the whole
+    # window, its black a dark gray with noise in it, as an uncleared
+    # buffer's might be.
     area, n, black = Gtk.DrawingArea(), [0], [False]
+    wide = int(sys.argv[3]) if sys.argv[2] == "band" and len(sys.argv) > 3 else 3
+    dim = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
 
     def draw(a, cr):
         cr.set_source_rgb(0.95, 0.95, 0.95)
@@ -123,10 +127,23 @@ elif sys.argv[2:3] == ["band"]:
         for line in range(8):
             cr.move_to(4, 14 + line * 14)
             cr.show_text("still text, beside the band")
+        if sys.argv[2] == "noisy":
+            for x in range(0, 200, 4):
+                for y in range(0, 120, 4):
+                    v = ((x * 7 + y * 13 + n[0] * 29) % 97) / 97
+                    if black[0]:
+                        g = 0.12 + 0.04 * (((x * 31 + y * 17 + n[0] * 53) % 9) - 4) / 4
+                        cr.set_source_rgb(g, g, g)
+                    else:
+                        cr.set_source_rgb(0.1 * v, 0.4 + 0.5 * v, 0.1)
+                    cr.rectangle(x, y, 4, 4)
+                    cr.fill()
+            return
         for y in range(0, 120, 4):
             v = ((y * 13 + n[0] * 29) % 97) / 97
-            cr.set_source_rgb(*((0, 0, 0) if black[0] else (0.1 * v, 0.4 + 0.5 * v, 0.1)))
-            cr.rectangle(189, y, 3, 4)
+            cr.set_source_rgb(*((0, 0, 0) if black[0] else
+                                (0.1 * v * dim, (0.4 + 0.5 * v) * dim, 0.1 * dim)))
+            cr.rectangle(192 - wide, y, wide, 4)
             cr.fill()
     area.connect("draw", draw)
 
@@ -157,7 +174,7 @@ elif sys.argv[2:3] == ["strip"]:
         return True
     GLib.timeout_add(30, swap)
     w.add(area)
-elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"]):
+elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"], ["fast"]):
     # Motion, which is neither: a black square crossing white at 300
     # pixels a second, or lines of text scrolling up at 200.
     area, began = Gtk.DrawingArea(), GLib.get_monotonic_time()
@@ -167,8 +184,12 @@ elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"]):
         cr.set_source_rgb(1, 1, 1)
         cr.paint()
         cr.set_source_rgb(0, 0, 0)
-        if sys.argv[2] == "move":
-            cr.rectangle(t * 300 % 216 - 16, 50, 16, 16)
+        if sys.argv[2] in ("move", "fast"):
+            # fast: a red square of 12, through a tile in a picture or two.
+            if sys.argv[2] == "fast":
+                cr.set_source_rgb(0.8, 0, 0)
+            side, speed = (12, 1200) if sys.argv[2] == "fast" else (16, 300)
+            cr.rectangle(t * speed % 216 - 16, 50, side, side)
             cr.fill()
         else:
             # Lines 14 pixels apart, or 40, with white between.

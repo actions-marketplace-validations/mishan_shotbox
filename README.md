@@ -251,26 +251,31 @@ or a pointer of its own, as an emulator draws.
 
 `shotbox flicker [--window RE] [--crop G] [--seconds 2]` watches for a
 part of the screen that keeps switching between two looks, or flashes
-another once and comes back, and fails if one does: a strip of the
-buffer a game isn't showing, say, or a frame drawn black. It takes
-pictures as fast as they come, cuts each into 16-pixel tiles
-(`--tile`), and takes a tile's mean color as its look, so a look that
-moves within itself, a game's frame, is still one look, within `--fuzz`
-(6%). A tile's looks are timed, not counted in pictures, since a program
-draws at its own rate: going A, B, A, B... with each held no longer than
-`--brief` (100 ms), `--times` changes (4) or more, is flicker if both
-looks come back as the same pictures each time, or one does and is a
-color all over (black between frames of a scene that moves on, as
-bzflag's strip was): said with its box (whole tiles), how many changes,
-how often, and both colors. A, B, A once, from a picture that held
-still, to a color all over (a frame drawn black), and back to the same
-picture, is a flash. A caret's half-second blink is neither, nor is
-something moving through, or text scrolling past, whose looks don't
-come back as the same pictures, or come back after none that held still; `--ignore G` leaves out a box that
-flickers on purpose. Boxes are in what's watched, the window or the
-crop. It fails (1) if it finds any, and can't watch (2) is said apart.
-A busy screen, every picture different, is pictures more slowly, since
-each is kept: watch a window or a crop for flicker faster than that.
+another once and comes back, and fails (1) if one does: a strip of the
+buffer a game isn't showing, say, or a frame drawn black. Not being able
+to watch exits 2. It takes pictures as fast as they come, cuts each into
+16-pixel tiles (`--tile`), and times each tile's looks, not counted in
+pictures, since a program draws at its own rate. A tile's mean color
+finds what might be, a change in it of a quarter of `--fuzz` (6%), so a
+band a pixel wide is seen; its pixels decide:
+
+- Flicker: A, B, A, B..., each held no longer than `--brief` (100 ms),
+  `--times` changes (4) or more, both looks coming back as the same
+  pictures each time, or one of them, one color where it differs from
+  the other: black between frames of a scene that moves on, as bzflag's
+  strip was. Said with its box (whole tiles, in what's watched: the
+  window or the crop), how many changes, how often, and the colors of
+  what changed.
+- A flash: A, B, A once, from a picture that held still, to one color
+  where it differs (a frame drawn black), and back, with the tiles round
+  it unchanged about then.
+
+A caret's half-second blink is neither, nor is something moving through,
+text scrolling past, or a frozen frame that isn't one color between live
+ones. `--ignore G` leaves out a box that flickers on purpose. Pictures are
+kept as they're taken and looked at after: a busy screen, every picture
+different, is pictured more slowly, and a whole flickering screen takes
+some seconds to look at, so watch a window or a crop where you can:
 
 ```
 flicker: 64x16+1216+592, 66 changes, every 30 ms, #000000 and #009900, from 0.022s

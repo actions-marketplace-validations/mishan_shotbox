@@ -13,12 +13,15 @@ goes A, B, A once, B as brief, flashed. A caret that blinks holds each
 look half a second, and an animation doesn't come back to a look so
 quickly, so neither is either.
 
-Mean colors find what might be; the tile's pixels decide. Flicker's looks
-come back as the same pictures, near enough, A as A and B as B, which a
-line of text scrolling past, or anything moving through, doesn't; or one
-of them does, and is a color all over, a frame drawn black between frames
-of a scene that moves on. A flash is to a color, all of the tile, as a
-frame drawn black, and back to the same picture as before.
+Mean colors find what might be, a quarter of fuzz a change, so a band a
+pixel wide is seen; the tile's pixels decide. Flicker's looks come back
+as the same pictures, near enough, A as A and B as B, which a line of
+text scrolling past, or anything moving through, doesn't; or one of them
+does, and is one color where they differ, a band drawn black between
+frames of a scene that moves on. A flash is to one color where it
+differs, from a picture that held still and back to it; and the tiles
+round it don't change about then, as they do when something moves
+through.
 """
 
 from .x import differ
@@ -26,10 +29,10 @@ from .x import differ
 
 def means(pixels, width, height, tile):
     """Each tile's mean color, (r, g, b), a row of tiles at a time, of RGB
-    `pixels`: from every other row of it, which is plenty for a mean."""
+    `pixels`: every row, so a band a row high is in it."""
     across, down = -(-width // tile), -(-height // tile)
     sums = [[0, 0, 0, 0] for _ in range(across * down)]
-    for y in range(0, height, 2):
+    for y in range(height):
         row = pixels[y * width * 3:(y + 1) * width * 3]
         base = (y // tile) * across
         for tx in range(across):
@@ -60,9 +63,10 @@ def states(times, looks, end, fuzz):
 
 def alike(a, b, fuzz):
     """Whether two tiles' RGB pixels are the same picture: no more than one
-    in fifty differing by more than `fuzz` percent. Text scrolling past
-    differs by more, in its strokes."""
-    return differ(a, b, fuzz, len(a) // 150) <= len(a) // 150
+    in fifty differing by more than twice `fuzz` percent, which noise in a
+    black that isn't clean is within. Text scrolling past differs by more,
+    in its strokes."""
+    return differ(a, b, 2 * fuzz, len(a) // 150) <= len(a) // 150
 
 
 def plain(pixels, other, fuzz):
@@ -88,13 +92,10 @@ def colors(a, b, fuzz):
                  for p in (a, b))
 
 
-def find(held, brief, times, fuzz, pixels):
-    """In one tile's states, its longest flicker, as (start, changes, mean
-    seconds a brief state, look A, look B), or else a flash, as (start,
-    seconds, look, then look), or None: see the module's docstring.
-    `pixels(k)` is the tile's pixels in picture `k`, which decide what the
-    mean colors found: brief states one after another."""
-    best, flash, i = None, None, 1
+def runs(held, brief):
+    """Each stretch of brief states in a tile's, with the look either side:
+    [A, B, A, B...], as states."""
+    i = 1
     while i < len(held):
         if held[i][2] > brief:
             i += 1
@@ -102,8 +103,25 @@ def find(held, brief, times, fuzz, pixels):
         k = i
         while k < len(held) and held[k][2] <= brief:
             k += 1
-        # The brief states, and the look either side of them: A, B, A, B...
-        seq = held[i - 1:k + 1]
+        yield held[i - 1:k + 1]
+        i = k
+
+
+def needs(held, brief):
+    """The pictures, by place, `find` looks at a tile in: each state's
+    first, and the last of a flash's first look."""
+    return {k for seq in runs(held, brief) for k in [s[3] for s in seq] + [seq[1][3] - 1]}
+
+
+def find(held, brief, times, fuzz, pixels):
+    """In one tile's states, its longest flicker, as (start, changes, mean
+    seconds a brief state, look A, look B), or else a flash, as (start,
+    seconds, look, then look), or None: see the module's docstring.
+    `pixels(k)` is the tile's pixels in picture `k`, of those `needs` says,
+    which decide what the mean colors found: brief states one after
+    another. A flash is said with its picture too, to tell it from motion."""
+    best, flash = None, None
+    for seq in runs(held, brief):
         changes = len(seq) - 1
         recur = [all(alike(pixels(seq[m][3]), pixels(seq[m + 2][3]), fuzz)
                      for m in range(side, len(seq) - 2, 2)) for side in (0, 1)]
@@ -112,16 +130,15 @@ def find(held, brief, times, fuzz, pixels):
         # Both looks the same pictures each time; or one, a color all over,
         # as a frame drawn black between frames of a scene that moves on.
         if changes >= times and (all(recur) or any(r and p for r, p in zip(recur, plains))):
-            run = (seq[1][1], changes, sum(s[2] for s in held[i:k]) / (k - i),
-                   *colors(a, b, fuzz))
+            brief_ones = [s[2] for s in seq[1:] if s[2] <= brief]
+            run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *colors(a, b, fuzz))
             best = run if best is None or changes > best[1] else best
         # A flash: from a picture that held still, to a color, and back:
         # what's moving holds no picture still, though it come back.
         elif (changes == 2 and recur[0] and plains[1] and not flash
               and alike(pixels(seq[0][3]), pixels(seq[1][3] - 1), fuzz)):
             before, during = colors(a, b, fuzz)
-            flash = (seq[1][1], seq[1][2], during, before)
-        i = k
+            flash = (seq[1][1], seq[1][2], during, before, seq[1][3])
     return best, (None if best else flash)
 
 

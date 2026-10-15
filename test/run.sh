@@ -452,16 +452,19 @@ st=$?; set -e
 # that; one that blinks every half second, as a caret does, doesn't; one
 # black for 40 ms, once a second, flashed; one black between frames of a
 # scene, the same or moved on each time (bzflag's strip), or a band of
-# three columns at a tile's edge doing that beside still text, flickers,
-# said in the band's own colors; and a
-# still window, a moving square, and text scrolling past, close or spaced,
-# none.
+# three columns at a tile's edge doing that beside still text, or one,
+# flickers, said in the band's own colors, and so does a strip whose black
+# is a dark gray with noise in it; and a
+# still window, a moving square, slowly or through a tile in a picture,
+# and text scrolling past, close or spaced, none.
 flickered=""
 for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
          "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
          "move - 0" "scroll - 0" "spaced - 0" "strip - 1 ^flicker: 200x120+0+0, .* ms, #00.* and #00" \
          "scene - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
-         "band - 1 ^flicker: 16x120+176+0, .* every [1-5][0-9] ms, #000000 and #\|^flicker: 16x120+176+0, .* every [1-5][0-9] ms, #[0-9a-f]* and #000000"; do
+         "band 3 1 ^flicker: 16x120+176+0, .* every [1-5][0-9] ms, .*#000000" \
+         "band 1 1 ^flicker: 16x120+176+0, " "noisy - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
+         "fast - 0"; do
   set -- $c
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e
