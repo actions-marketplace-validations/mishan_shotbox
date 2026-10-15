@@ -317,6 +317,14 @@ set -e
   && awk '{ exit !($1 + 0 >= 0.5) }' "$tmp/out" && ok "change waits for the screen to change, and says when" \
   || fail "change: $(cat "$tmp/out")"
 
+# latency: a window that redraws 100 ms after the pointer comes or goes,
+# measured at that, and no less.
+"$sb" run -- sh -c "'$here/window.py' slow slow 100 & '$sb' wait window slow >/dev/null &&
+  '$sb' wait stable >/dev/null &&
+  '$sb' latency move 100 60 300 300 --watch 40x40+20+20 --window slow --times 4" > "$tmp/out" \
+  && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
+  && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
+
 # chords LOG [SESSION OPTIONS]: Shift in a chord, into cat in a terminal:
 # the symbol on the key's shifted level, as on a keyboard (A, !, +), and
 # Shift+Tab as the terminal's back-tab, ESC [ Z.

@@ -36,6 +36,9 @@
   slice of the session's where the user's systemd can make one, else
   read from `/proc`; as JSON to FILE. `Session(usage=True)` and MCP's
   `start_session` take it too.
+- **`shotbox latency move X1 Y1 X2 Y2 --watch G`**: how long what's
+  drawn takes to follow the pointer, a move at a time, as the median and
+  95th percentile; `Screen.latency` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
   `start`, `exec` and MCP's `start_session`: a server a test starts is

@@ -564,6 +564,62 @@ class Screen:
         """Move the pointer to X, Y on the screen, or inside `window`."""
         self.xt.move(*self._at(px, py, window))
 
+    def latency(self, a, b, watch, window=None, times=10, timeout=5.0, settle=0.25):
+        """How long what's drawn takes to follow the pointer: it's moved
+        from point `a` to `b` and back, `times` moves, and each is timed
+        from sending it to the first picture in which the `watch` box
+        (WxH+X+Y, on the screen or in `window`) differs from just before;
+        then it's let settle: before each, the box holds still for
+        `settle` seconds, or twice the longest move yet, so a redraw still
+        to come isn't taken for the next move's. The seconds each move
+        took, in order: to within half a picture's taking, a few
+        milliseconds."""
+        box = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", watch)
+        if not (box and int(box[1]) and int(box[2])):
+            self.fail(f"what to watch is WIDTHxHEIGHT+X+Y, at least 1x1, not {watch}")
+        box = tuple(int(n) for n in box.groups())
+        w = self.window(window) if window else None
+
+        def look():
+            got = self.backend.grab(self.env, w, box)
+            if not got:
+                self.fail(f"can't take a picture of {watch}"
+                          + (f" in the window {window!r}" if window else ""))
+            return got[2]
+
+        def still():
+            """Wait until the box has held still, and what it looks like."""
+            quiet = max([settle] + [2 * t for t in took])
+            last, since, end = look(), time.monotonic(), time.monotonic() + timeout + quiet
+            while time.monotonic() - since < quiet:
+                if time.monotonic() > end:
+                    self.fail(f"{watch} doesn't hold still")
+                now = look()
+                if now != last:
+                    last, since = now, time.monotonic()
+            return last
+
+        took = []
+        self.move(*a, window=window)
+        for i in range(times):
+            to = b if i % 2 == 0 else a
+            before = still()
+            sent = time.monotonic()
+            self.move(*to, window=window)
+            while True:
+                # A picture's time is the middle of its taking: X's is taken
+                # as asked, Wayland's from the frame drawn next.
+                start = time.monotonic()
+                changed = look() != before
+                t = (start + time.monotonic()) / 2
+                if changed:
+                    took.append(t - sent)
+                    break
+                if t - sent > timeout:
+                    self.fail(f"{watch} didn't change in {timeout:g}s after the pointer "
+                              f"moved to {to[0]},{to[1]}")
+        return took
+
     def click(self, px, py, window=None, button=1, double=False, hold=None, state=None):
         """Click at X, Y on the screen, or inside `window`. With `hold`,
         keep the button down that many seconds; with `state` "down" or "up",

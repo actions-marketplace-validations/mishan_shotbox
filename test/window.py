@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
-[corner], or TITLE contrast. With LOG, it holds an entry instead, and
+[corner], or TITLE contrast, or TITLE slow MS. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
-may measure short; and a label drawn see-through, which it shouldn't."""
+may measure short; and a label drawn see-through, which it shouldn't. With slow, a square that
+turns dark MS milliseconds after the pointer comes into the window, and
+light again that long after it leaves: a known latency."""
 
 import sys
 
@@ -13,7 +15,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 w = Gtk.Window(title=sys.argv[1])
 w.set_default_size(200, 120)
@@ -38,6 +40,21 @@ if sys.argv[2:] == ["contrast"]:
     for widget in (light, dim, switch, frame):
         box.add(widget)
     w.add(box)
+elif sys.argv[2:3] == ["slow"]:
+    late = int(sys.argv[3])
+    square = Gtk.DrawingArea()
+    dark = [False]
+    square.connect("draw", lambda a, cr: (cr.set_source_rgb(*[0.1 if dark[0] else 0.9] * 3),
+                                          cr.paint()))
+
+    def turn(to):
+        def now():
+            dark[0] = to
+            square.queue_draw()
+        GLib.timeout_add(late, now)
+    w.connect("enter-notify-event", lambda *_: turn(True))
+    w.connect("leave-notify-event", lambda *_: turn(False))
+    w.add(square)
 elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)
     button.connect("clicked", lambda b: open(sys.argv[2], "w").write("clicked"))
