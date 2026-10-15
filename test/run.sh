@@ -702,19 +702,21 @@ if command -v ffmpeg >/dev/null; then
   "$sb" run --env "TMPDIR=$tmp/rtmp2" -- sh -c "'$here/window.py' re & '$sb' wait window re || exit 1
     for d in 0.05 0.08 0.1 0.15 0.2 0.3 0.5; do
       '$sb' record '$tmp/rec-e.mp4' --window re 2>/dev/null & r=\$!; sleep \$d; kill \$r
-      n=0; while kill -0 \$r 2>/dev/null; do [ \$n -lt 100 ] || { kill -9 \$r; exit 1; }
+      n=0; while kill -0 \$r 2>/dev/null; do [ \$n -lt 100 ] || { echo \"hung, killed at \$d\"; kill -9 \$r; exit 1; }
         sleep 0.1; n=\$((n + 1)); done
     done
     '$sb' record '$tmp/rec-2.mp4' --window re & r=\$!; sleep 1.5; kill \$r; sleep 0.1; kill -9 \$r
     '$sb' record '$tmp/rec-9.gif' --window re & r=\$!
     n=0; until pgrep -ax python3 | grep keep_recording | grep -q rec-9.gif; do
-      [ \$n -lt 100 ] || exit 1; sleep 0.1; n=\$((n + 1)); done
+      [ \$n -lt 100 ] || { echo 'no keeper'; pgrep -ax python3; exit 1; }; sleep 0.1; n=\$((n + 1)); done
     sleep 1; kill -9 \$r
     n=0; while [ ! -s '$tmp/rec-9.gif' ] || [ -n \"\$(ls '$tmp/rtmp2')\" ]; do
-      [ \$n -lt 300 ] || exit 1; sleep 0.1; n=\$((n + 1)); done" > /dev/null \
+      [ \$n -lt 300 ] || { echo 'no GIF'; pgrep -ax python3; pgrep -ax ffmpeg; exit 1; }
+      sleep 0.1; n=\$((n + 1)); done" > "$tmp/rec-steps" 2>&1 \
     && probe "$tmp/rec-2.mp4" | grep -q "^h264,200,120 " && probe "$tmp/rec-9.gif" | grep -q "^gif,200,120 " \
     && ok "record: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
-    || fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
+    || { fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
+         cat "$tmp/rec-steps"; }
   # A lasting session stopped while it records: the recording ends with it.
   "$sb" start --name "rec$$" >/dev/null
   "$sb" --session "rec$$" record "$tmp/rec-stop.mp4" & r=$!
