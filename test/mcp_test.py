@@ -244,6 +244,10 @@ try:
         check(bad and "start a session with audio" in said, "sound: no audio, refused")
     else:
         print("skip  sound: no PipeWire, WirePlumber or paplay")
+    tool("start_session", name="u", a11y=False, usage=True)
+    said, bad, _ = tool("stop_session", session="u")
+    check(not bad and "used, over" in said and "peak memory" in said,
+          f"stop_session: what a session with usage used, said ({said})")
     said, bad, _ = tool("click", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
     said, bad, _ = tool("program_output", session="t", program="app")

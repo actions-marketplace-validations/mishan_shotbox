@@ -80,7 +80,7 @@ adds is clicks and keys on a display no one else is looking at.
 
 | | |
 |---|---|
-| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size, gamepads, a network of its own (`net: loopback`) |
+| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size, gamepads, a network of its own (`net: loopback`), and what its programs used, said when it's stopped (`usage`) |
 | `spawn`, `program_output` | a program from the list, and how it's doing |
 | `accessible_tree` | the tree, a node a line, with bounds if asked |
 | `screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |

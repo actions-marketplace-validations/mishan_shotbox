@@ -41,7 +41,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, sound
+from . import __version__, sound, usage
 from .a11y import Node, unseen
 from .screen import SessionError
 from .session import Session
@@ -208,7 +208,7 @@ class Server:
 
     def start_session(self, name=None, a11y=True, wayland=False, xwayland=False,
                       dark=False, high_contrast=False, text_scale=None, audio=False,
-                      screen="1280x800", gamepads=0, net=None):
+                      screen="1280x800", gamepads=0, net=None, usage=False):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
         if name in self.sessions:
@@ -221,7 +221,7 @@ class Server:
                     high_contrast=flag(high_contrast),
                     text_scale=number(text_scale, "text_scale"), audio=flag(audio),
                     gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0,
-                    net=text(net))
+                    net=text(net), usage=flag(usage))
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
@@ -241,7 +241,8 @@ class Server:
         finally:
             del self.sessions[session], self.spawned[session]
             self.sounds.pop(session, None)  # its keeper ends with the sound server
-        return f"Session {session!r} stopped, and everything in it."
+        used = f" It {usage.line(s.used)}." if s.used else ""
+        return f"Session {session!r} stopped, and everything in it.{used}"
 
     def spawn(self, session, program):
         session = str(session)
@@ -535,7 +536,9 @@ TOOLS = [
              "gamepads": {"type": "integer",
                           "description": "Virtual Xbox 360 pads, 0 to 4, for the gamepad tool"},
              "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"},
-             "net": {"type": "string", "enum": ["loopback"]}})),
+             "net": {"type": "string", "enum": ["loopback"]},
+             "usage": {"type": "boolean", "description": "Say, when it's stopped, what its "
+                       "programs used: peak memory and CPU time"}})),
     ("stop_session", "Stop a session and everything running in it.",
      schema({"session": SESSION}, ["session"])),
     ("spawn",

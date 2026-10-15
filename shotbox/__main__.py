@@ -31,6 +31,8 @@ session in a lasting one. `shotbox COMMAND --help` for each one's options.
 """
 
 import argparse
+import contextlib
+import json
 import math
 import os
 import signal
@@ -39,7 +41,7 @@ import time
 import wave
 from pathlib import Path
 
-from . import a11y, kept, mcp, sound, term, x, xtest
+from . import a11y, kept, mcp, sound, term, usage, x, xtest
 from .screen import Screen, SessionError
 from .session import Session
 
@@ -84,6 +86,10 @@ def session_options(p, display=True):
     g.add_argument("--audio", action="store_true",
                    help="a PipeWire of the session's own, pulse protocol too, whose "
                         "one sink plays to nowhere")
+    g.add_argument("--usage", nargs="?", const="-", metavar="FILE",
+                   help="say, when the session stops, what its programs used, and its own "
+                        "processes: peak memory and CPU time; with FILE, write it there as "
+                        "JSON too (with `start`, only there)")
     g.add_argument("--net", choices=["loopback"],
                    help="loopback: a network of the session's own, which its programs "
                         "share, with nothing on it but them; needs bubblewrap, and not "
@@ -138,7 +144,27 @@ def make_session(a):
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
                    audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox,
-                   display=a.display, net=a.net)
+                   display=a.display, net=a.net, usage=bool(a.usage))
+
+
+@contextlib.contextmanager
+def session(a):
+    """make_session's session, and what it used said when it's stopped."""
+    s = make_session(a)
+    try:
+        with s:
+            yield s
+    finally:
+        say_usage(a, s)
+
+
+def say_usage(a, s):
+    """What the session used, if --usage asked: on stderr, and to its FILE."""
+    if not s.used:
+        return
+    sys.stderr.write(f"shotbox: {usage.line(s.used)}\n")
+    if a.usage != "-":
+        Path(a.usage).write_text(json.dumps(s.used, indent=2) + "\n")
 
 
 def self_command():
@@ -170,7 +196,7 @@ def cmd_run(argv):
     opts, cmd = split(argv)
     a = p.parse_args(opts)
     cmd = command(cmd, p)
-    with make_session(a) as s:
+    with session(a) as s:
         return s.run(cmd)
 
 
@@ -184,7 +210,7 @@ def cmd_exec(argv):
     opts, cmd = split(argv)
     a = p.parse_args(opts)
     cmd = command(cmd, p)
-    with make_session(a) as s:
+    with session(a) as s:
         return s.run(cmd)
 
 
@@ -237,7 +263,7 @@ def cmd_shoot(argv):
     if not waits and not a.settle:
         p.error("nothing to wait for: give --window, --wait or --settle")
 
-    with make_session(a) as s:
+    with session(a) as s:
         s.failed = a.failed or str(Path(a.out).with_name(Path(a.out).stem + "-failed.png"))
         log = a.log or str(s.scratch / "command.log")
         proc = s.spawn(cmd, log=log)
