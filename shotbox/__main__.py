@@ -10,7 +10,7 @@
     shotbox wait window|port|file|ready|stable|announce|match|change [ARG]
                                                     (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
-    shotbox record OUT.mp4 [--seconds S] [--window RE]  (inside a session) take a video
+    shotbox record OUT.mp4|OUT.wav [--seconds S]    (inside a session) take a video, or the sound
     shotbox key CHORD...                            (inside a session) press keys
     shotbox type TEXT                               (inside a session) type text
     shotbox click X Y [--window RE]                 (inside a session) click there
@@ -385,10 +385,12 @@ def cmd_capture(argv):
 def cmd_record(argv):
     p = argparse.ArgumentParser(prog="shotbox record",
                                 description="Inside `shotbox run`: record a video of the "
-                                            "display or one window, for --seconds, or "
+                                            "display or one window, or with --audio, a "
+                                            ".wav of what plays, for --seconds, or "
                                             "until stopped (Ctrl-C, or kill, which ends "
-                                            "the file properly). X11 sessions; needs ffmpeg.")
-    p.add_argument("out", metavar="OUT", help="an .mp4, .webm or .gif")
+                                            "the file properly). Video in X11 sessions; "
+                                            "needs ffmpeg.")
+    p.add_argument("out", metavar="OUT", help="an .mp4, .webm, .gif or .wav")
     p.add_argument("--seconds", type=seconds, metavar="SECS")
     p.add_argument("--window", metavar="RE",
                    help="where this window is when it starts: what's drawn over it is "

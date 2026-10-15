@@ -165,7 +165,10 @@ pointer isn't drawn unless `--pointer`, as in a picture (`--park` moves it
 aside first). A window is recorded where it is when recording starts, as
 far as it's on the screen: it isn't followed if it moves, and what's drawn
 over it is recorded too. It needs ffmpeg, and works in X11 sessions only
-for now. A wait that gives up takes a
+for now. `shotbox record OUT.wav` records what plays in a session with
+`--audio` instead: the sink's mix, 48 kHz 16-bit stereo, so what plays in
+that format comes through bit for bit, and `--seconds` is to the sample.
+On X11 or Wayland, and it stops the same ways. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
 

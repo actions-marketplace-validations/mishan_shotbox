@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wave
 from pathlib import Path
 
 TREE_LINE = re.compile(r'^\s*(0x[0-9a-f]+) "(.*)": \((?:"(.*?)" "(.*?)")?\)'
@@ -121,28 +122,45 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
     """Record the display's box (width, height, x, y) to `out`, an .mp4,
     .webm or .gif, at `fps` (30, or 15 for a GIF), for `seconds`, or until
     interrupted (Ctrl-C, or SIGTERM as the command line turns it). A GIF
-    is recorded as a video first, then given its own palette. Needs
-    ffmpeg.
+    is recorded as a video first, then given its own palette. A .wav is
+    what plays to the session's sink (with --audio) instead, and takes no
+    box. Needs ffmpeg.
 
     A keeper process of its own (keep_recording) runs ffmpeg and finishes
     the file, so it's finished however this one goes: interrupted, killed,
-    or its session's display stopped."""
+    or its session's display, or sound server, stopped."""
     out = Path(out)
     kind = out.suffix.lower()
-    if kind not in (*VIDEO, ".gif"):
-        raise ValueError(f"a recording is .mp4, .webm or .gif, not {out.name}")
+    if kind not in (*VIDEO, ".gif", ".wav"):
+        raise ValueError(f"a recording is .mp4, .webm, .gif or .wav, not {out.name}")
+    # The session's own sound server, not one let in with --env or --pass.
+    if kind == ".wav" and not env.get("PULSE_SERVER", "").startswith(
+            f"unix:{env.get('SHOTBOX_SCRATCH')}/"):
+        raise ValueError("there's no sound to record: start the session with --audio")
+    if kind == ".wav" and seconds is not None and round(seconds * 48000) < 1:
+        raise ValueError(f"a recording lasts a sample or more, not {seconds:g} seconds")
     if not shutil.which("ffmpeg"):
         raise RuntimeError("recording needs ffmpeg")
     if seconds is not None and seconds <= 0:
         raise ValueError(f"a recording lasts more than 0 seconds, not {seconds:g}")
-    w, h, x, y = box
-    w, h = w - w % 2, h - h % 2         # the encoders' color sampling halves each side
-    fps = fps or (15 if kind == ".gif" else 30)
-    cmd = ["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-f", "x11grab",
-           "-draw_mouse", str(int(pointer)), "-framerate", str(fps), "-video_size", f"{w}x{h}",
-           "-i", f"{env['DISPLAY']}+{x},{y}"]
-    cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
-    cmd += VIDEO[".webm" if kind == ".webm" else ".mp4"]
+    cmd = ["ffmpeg", "-loglevel", "error", "-nostdin", "-y"]
+    if kind == ".wav":
+        # The sink's own format, so what plays at it comes through as is.
+        cmd += ["-f", "pulse", "-sample_rate", "48000", "-channels", "2",
+                "-i", "shotbox-sink.monitor"]
+    else:
+        w, h, x, y = box
+        w, h = w - w % 2, h - h % 2     # the encoders' color sampling halves each side
+        fps = fps or (15 if kind == ".gif" else 30)
+        cmd += ["-f", "x11grab", "-draw_mouse", str(int(pointer)), "-framerate", str(fps),
+                "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
+    if kind == ".wav":
+        # By the sample: -t goes by the input's clock, tens of ms out.
+        cmd += ["-af", f"atrim=end_sample={round(seconds * 48000)}"] if seconds is not None else []
+        cmd += ["-c:a", "pcm_s16le"]
+    else:
+        cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
+        cmd += VIDEO[".webm" if kind == ".webm" else ".mp4"]
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
     # -c puts the current directory first on the path, ahead of PYTHONPATH:
@@ -180,8 +198,8 @@ def keep_recording(cmd, out):
     record to `out`, and stop it with one signal, which it finishes the
     file on (a second makes it quit unfinished): when a line comes on stdin
     or stdin closes, as when what started this goes however it goes, or
-    when the display goes. Then make the GIF, for a .gif. Status 0, or 1
-    and why on stderr."""
+    when the display goes (the sound server, for a .wav). Then make the
+    GIF, for a .gif. Status 0, or 1 and why on stderr."""
     cmd, out = json.loads(cmd), Path(out)
     tmp = tempfile.mkdtemp() if out.suffix.lower() == ".gif" else None
     video = Path(tmp) / "recording.mp4" if tmp else out
@@ -193,19 +211,28 @@ def keep_recording(cmd, out):
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
         proc = subprocess.Popen(cmd + [str(video)], stdin=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE)
-        display = os.environ["DISPLAY"]
+        sound = out.suffix.lower() == ".wav"
+        source = os.environ["PULSE_SERVER" if sound else "DISPLAY"]
         while proc.poll() is None:
-            if select.select([sys.stdin], [], [], 0.5)[0] or not display_up(display):
+            up = socket_up(source.removeprefix("unix:")) if sound else display_up(source)
+            if select.select([sys.stdin], [], [], 0.5)[0] or not up:
                 proc.send_signal(signal.SIGTERM)
                 break
         _, err = proc.communicate()
         if proc.returncode not in (0, 255) or not video.exists():
             sys.stderr.write(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}\n")
             return 1
-        # Stopped before the first frame, ffmpeg writes a file with no video.
-        frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
-                                 "-show_entries", "stream=index", "-of", "csv=p=0", str(video)],
-                                capture_output=True, text=True).stdout.strip()
+        # Stopped before the first frame, ffmpeg writes a file with none.
+        if sound:
+            try:
+                with wave.open(str(out)) as w:
+                    frames = w.getnframes()
+            except (wave.Error, EOFError):
+                frames = 0
+        else:
+            frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
+                                     "-show_entries", "stream=index", "-of", "csv=p=0",
+                                     str(video)], capture_output=True, text=True).stdout.strip()
         if not frames:
             video.unlink()
             sys.stderr.write("nothing was recorded: it stopped before the first frame\n")
@@ -228,11 +255,14 @@ def keep_recording(cmd, out):
 def display_up(display):
     """Whether the local X display (`:N`) still takes connections."""
     m = re.fullmatch(r":(\d+)(\.\d+)?", display)
-    if not m:
-        return True
+    return socket_up(f"/tmp/.X11-unix/X{m[1]}") if m else True
+
+
+def socket_up(path):
+    """Whether the Unix socket at `path` still takes connections."""
     with socket.socket(socket.AF_UNIX) as s:
         try:
-            s.connect(f"/tmp/.X11-unix/X{m[1]}")
+            s.connect(path)
             return True
         except OSError:
             return False
