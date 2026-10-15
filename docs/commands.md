@@ -95,7 +95,8 @@ On X11 or Wayland, and it stops the same ways. `shotbox record OUT.mp4
 --sound` (or .webm), in a session with `--audio`, records the picture and
 what plays together, in one file, AAC in an MP4, Opus in a WebM: the
 sound in step with the picture from its first frame, within a frame or
-so, and both `--seconds` long. Then it says what `shotbox listen` would
+so, and both `--seconds` long (AAC to its next 21 ms frame, where an
+older ffmpeg doesn't trim it). Then it says what `shotbox listen` would
 of the sound, its level and where it clipped or dropped out, judged by
 `listen`'s `--gap`, `--clipped` and `--quiet`; a silent stretch between
 sounds is a gap there too. It doesn't fail for it unless `--strict`, which

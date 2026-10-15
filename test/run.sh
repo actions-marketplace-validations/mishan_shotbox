@@ -1074,7 +1074,8 @@ PY
     else probe "$tmp/$pre-stop.mp4" | grep -q "^h264,1280,800 " && ok "$say: ends, finished, when its lasting session stops" \
       || fail "$say, session stopped: $(probe "$tmp/$pre-stop.mp4")"; fi
     # --sound: what plays too, AAC in an MP4, Opus in a WebM, both streams
-    # --seconds long, each tone starting within 0.1 s of its flash, and
+    # --seconds long (AAC, as an older ffmpeg decodes it, to its 1024-sample
+    # frame), each tone starting within 0.1 s of its flash, and
     # what `listen` would say of it said: with --strict, its gaps fail it,
     # unless --gap is longer than they are. Stopped by kill, before its
     # --seconds or with none, or by the session's PipeWire going (said),
@@ -1097,7 +1098,8 @@ PY
         && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
         && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-sp.mp4" >> "$tmp/$pre-av" \
         && python3 "$tmp/av.py" "$tmp/$pre-st.mp4" >> "$tmp/$pre-av" \
-        && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | grep -qx "h264 3.000 aac 3.000 vp9 2.000 opus 2.000 " \
+        && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | awk '$1 == "h264" && $2 == 3 && $3 == "aac" &&
+             $4 >= 3 && $4 < 3.022 && $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
         && [ "$(sed -n '5p;7p;9p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < 0.01' | wc -l)" = 3 ] \
         && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
         && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -q "gaps of silence" "$tmp/$pre-heard" \
