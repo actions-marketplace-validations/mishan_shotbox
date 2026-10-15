@@ -355,7 +355,9 @@ def sandboxed_pid(fd, proc, timeout=5):
 
 class Session(Screen):
     """A sealed session, and its display: everything a Screen does works on
-    it once it's entered. `failed`, as for a Screen."""
+    it once it's entered. `failed`, as for a Screen. With `display` off, it
+    has none, as `shotbox exec`'s: what it runs is sealed the same, but
+    nothing a Screen does to a display works on it."""
 
     def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,

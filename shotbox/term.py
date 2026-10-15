@@ -145,6 +145,8 @@ def main(argv):
     args = parse(argv)
     if args.shoot:
         return shoot(args)
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        raise SystemExit("shotbox term: there's no display to open it on")
 
     import gi
     gi.require_version("Gtk", "3.0")

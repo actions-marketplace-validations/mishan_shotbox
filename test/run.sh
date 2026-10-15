@@ -63,8 +63,9 @@ set +e; "$sb" exec -- sh -c 'exit 5'; st=$?; "$sb" exec --wayland -- true 2>/dev
 case $out in
   "D= W= X= H=/tmp/shotbox-"*) [ $st = 5 ] && [ $st2 = 2 ] && [ $st3 != 0 ] \
     && grep -q "this session has no display" "$tmp/err" \
-    && ok "exec: sealed with no display, its command's status; display options and commands refused" \
-    || fail "exec: status $st, --wayland $st2" ;;
+    && "$sb" exec -- "$sb" wait file /etc/hostname --timeout 5 \
+    && ok "exec: sealed with no display, its command's status; display options and commands refused, a file waited for" \
+    || fail "exec: status $st, --wayland $st2, capture $st3: $(cat "$tmp/err")" ;;
   *) fail "exec: $out" ;;
 esac
 # A program that's gone, leaving a child behind: the child goes too.

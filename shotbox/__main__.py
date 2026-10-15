@@ -263,7 +263,7 @@ def inside(display=True):
         raise SystemExit("shotbox: this only works inside `shotbox run` or `exec`, or "
                          "with `shotbox --session NAME`")
     if display and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        raise SystemExit("shotbox: this session has no display: it's `shotbox exec`'s")
+        raise SystemExit("shotbox: this session has no display")
     return Screen()
 
 
