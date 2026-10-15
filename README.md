@@ -285,7 +285,8 @@ Not sealed:
   it runs shares and nothing else is on: a dev server and the browser
   testing it reach each other on `127.0.0.1`, and nothing outside, nor
   anything outside them. `wait port` looks there, from inside the
-  session or out. It needs bubblewrap, and `nsenter`, and fails without.
+  session or out. It needs bubblewrap, and `nsenter`, and fails without;
+  and not `--no-sandbox`, since setuid helpers can't work in it either.
 - The machine's system bus, unless `--system-bus`: logind,
   NetworkManager and the rest, which may let a program in your desktop's
   session suspend or power off the machine.

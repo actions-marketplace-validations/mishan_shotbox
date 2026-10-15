@@ -84,7 +84,8 @@ def session_options(p, display=True):
                         "one sink plays to nowhere")
     g.add_argument("--net", choices=["loopback"],
                    help="loopback: a network of the session's own, which its programs "
-                        "share, with nothing on it but them; needs bubblewrap")
+                        "share, with nothing on it but them; needs bubblewrap, and not "
+                        "--no-sandbox")
     g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
                    help="run programs outside bubblewrap, for those that need setuid "
                         "helpers (sudo, AppImages); they can reach the machine's sound "

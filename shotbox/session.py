@@ -380,6 +380,11 @@ class Session(Screen):
         self.size = size
         if net not in (None, "loopback"):
             raise SessionError(f"net is loopback or nothing, not {net!r}")
+        if net and not sandbox:
+            # Programs join its namespace as a user namespace's, where a
+            # setuid helper can't work: what --no-sandbox is for.
+            raise SessionError("--net loopback and --no-sandbox don't go together: in the "
+                               "session's network, setuid helpers can't work either")
         self.net = net
         self._net_pid = None    # a process in the session's network namespace, with net
         self.display = display
@@ -806,9 +811,15 @@ class Session(Screen):
         self._procs.append(proc)
         pid = sandboxed_pid(r, proc)
         if proc.poll() is not None or pid == proc.pid:
+            slow = proc.poll() is None
+            if slow:
+                proc.kill()
+                proc.wait()
+            said = proc.stderr.read().decode(errors="replace").strip()
             raise SessionError("--net loopback needs bubblewrap to make a network namespace, "
                                "and it can't here (are unprivileged user namespaces "
-                               "allowed?): " + proc.stderr.read().decode(errors="replace").strip())
+                               "allowed?): " + (said or "it didn't say it had one in 5s"
+                                                if slow else said or f"status {proc.returncode}"))
         self._net_pid = pid
 
     def _probe_sandbox(self):
@@ -935,7 +946,7 @@ class Session(Screen):
                 kw["pass_fds"] = (*kw.get("pass_fds", ()), w)
                 cmd = [*self._sandbox(), "--info-fd", str(w), "--", *cmd]
             if self._net_pid:
-                cmd = ["nsenter", "-t", str(self._net_pid), "-U", "-n",
+                cmd = [shutil.which("nsenter") or "nsenter", "-t", str(self._net_pid), "-U", "-n",
                        "--preserve-credentials", "--", *cmd]
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,
                                     start_new_session=True, **kw)
