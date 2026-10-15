@@ -42,6 +42,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
                  f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
                  f"tone = paplay {tmp / 'tone.wav'}\n"
+                 f"late_tone = /bin/sh -c 'sleep 0.5; exec paplay {tmp / 'tone.wav'}'\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -130,6 +131,30 @@ try:
     check(not bad and max(w, h) <= 1920, f"screenshot: a burst of tall pictures, shrunk to fit ({w}x{h})")
     said, bad, _ = tool("screenshot", session="t", burst=40)
     check(bad and "2 to 12" in said, "screenshot: a burst too big, refused")
+    said, bad, content = tool("record", session="t", seconds=1, window="a11y-test")
+    saved = re.match(r"Saved (.+?), ([\d.]+) seconds", said)
+    length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                   "-of", "csv=p=0", saved[1]], capture_output=True,
+                                  text=True).stdout or 0) if saved else 0
+    times = re.search(r"at (.*) seconds\.", said)
+    check(not bad and abs(length - 1) < 0.15 and float(saved[2]) == round(length, 2)
+          and saved[1].startswith(str(server.sessions["t"].scratch))
+          and [c["type"] for c in content] == ["image", "text"]
+          and len(times[1].split(", ")) == 8,
+          f"record: a clip of the length asked for, and a sheet of 8 frames ({said})")
+    said, bad, _ = tool("record", session="t", seconds=0.5, path="clips/one.mp4")
+    check(not bad and (tmp / "clips/one.mp4").stat().st_size
+          and str(tmp / "clips/one.mp4") in said,
+          "record: saved at a path in the allow file's directory")
+    refused = [tool("record", session="t", seconds=secs, path=p, sound=a)[:2]
+               for secs, p, a in ((61, None, False), (1, "/tmp/x.mp4", False),
+                                (1, "../" * 20 + "tmp/x.mp4", False), (1, "x.webm", False),
+                                (1, None, True))]
+    check(all(bad for _, bad in refused) and "0.1 to 60, not 61" in refused[0][0]
+          and all("by its path from there" in said for said, _ in refused[1:4])
+          and "start a session with audio" in refused[4][0],
+          "record: too long, a path outside the allow file's directory or not an .mp4, and "
+          "sound without audio, refused")
     said, bad, _ = tool("screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")
@@ -253,6 +278,11 @@ try:
         check(not bad and "No gaps, clipping or silence." in said
               and re.search(r"peak -12\.\d dBFS", said),
               f"sound: what a program played, heard ({said})")
+        tool("spawn", session="a", program="late_tone")
+        said, bad, content = tool("record", session="a", seconds=1.5, sound=True)
+        check(not bad and said.startswith("Saved") and "No gaps, clipping or silence." in said
+              and re.search(r"peak -12\.\d dBFS", said) and content[0]["type"] == "image",
+              f"record: with sound, what was heard said too ({said})")
         tool("stop_session", session="a")
         said, bad, _ = tool("sound", session="t", action="start")
         check(bad and "start a session with audio" in said, "sound: no audio, refused")

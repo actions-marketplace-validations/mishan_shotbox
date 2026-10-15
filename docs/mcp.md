@@ -84,6 +84,7 @@ adds is clicks and keys on a display no one else is looking at.
 | `spawn`, `program_output` | a program from the list, and how it's doing |
 | `accessible_tree` | the tree, a node a line, with bounds if asked |
 | `screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |
+| `record` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio` |
 | `click` | by a node's name (and role), or a point, the button held a while or left down if asked |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
 | `gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |

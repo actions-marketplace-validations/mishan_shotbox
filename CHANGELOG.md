@@ -145,6 +145,14 @@
   `--gap`, `--clipped` and `--quiet`, failing for them with `--strict`.
   Also `Screen.record(..., sound=True)`, whose Recording has what
   `shotbox.sound.hear` heard, and its `problems()`.
+- **MCP's `record` tool**: a clip of the screen or a window, up to 60
+  seconds and 100 MB, saved as an .mp4 in the session's scratch
+  directory or at a path in the `--allow` file's directory. It answers
+  with the path, the clip's length and a sheet of 8 frames from it with
+  their times, as an image, since a model can look at frames but not
+  play a file; with `sound`, in a session with `audio`, what was heard,
+  as the `sound` tool says it. `Screen.record(..., size=N)` ends a
+  recording at N bytes.
 
 ### Fixed
 

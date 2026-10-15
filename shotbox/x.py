@@ -159,11 +159,12 @@ class Recording:
         return cut + problems(self.heard, quiet=quiet, clipped=clipped)
 
 
-def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
+def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001,
+           size=None):
     """As `recording`, and wait for it: a Recording, or RuntimeError.
     Ctrl-C stops it, and it's finished all the same."""
     proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound,
-                     gap=gap)
+                     gap=gap, size=size)
     try:
         proc.wait()
     except KeyboardInterrupt:
@@ -174,15 +175,16 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
     return Recording(out, json.load(proc.said) if sound else None)
 
 
-def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
+def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001,
+              size=None):
     """Record the display's box (width, height, x, y) to `out`, an .mp4,
     .webm or .gif, at `fps` (30, or 15 for a GIF), for `seconds`, or until
     interrupted (Ctrl-C, or SIGTERM as the command line turns it). A GIF
     is recorded as a video first, then given its own palette. A .wav is
     what plays to the session's sink (with --audio) instead, and takes no
     box. With `sound`, an .mp4 or .webm has what plays in it too, heard
-    with `gap` as `sound.hear` takes it. Needs
-    ffmpeg, and on Wayland, wf-recorder.
+    with `gap` as `sound.hear` takes it. With `size`, it ends when the
+    file reaches that many bytes. Needs ffmpeg, and on Wayland, wf-recorder.
 
     A keeper process of its own (keep_recording) runs ffmpeg and finishes
     the file, so it's finished however this one goes: interrupted, killed,
@@ -248,6 +250,7 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
                     "-map", "0:v", "-map", "[a]", "-shortest", *SOUND[kind]]
             cmd += PROMPT[kind]
             heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le", "-f", "wav"], "gap": gap}
+    cmd += ["-fs", str(size)] if size else []
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
     # -c puts the current directory first on the path, ahead of PYTHONPATH:

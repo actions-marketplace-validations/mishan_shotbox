@@ -45,7 +45,8 @@ from . import __version__, sound, usage
 from .a11y import Node, unseen
 from .screen import SessionError
 from .session import Session
-from .x import VISION, ended, recording, stop
+from .sound import describe
+from .x import VISION, ended, recording, sheet, stop
 from .xtest import XError
 
 # Newest first: a client asking for one of these gets it; any other, the newest.
@@ -309,6 +310,52 @@ class Server:
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
 
+    def clip(self, path):
+        """Where record saves to: a file in the allow file's directory, as
+        a line wait reads one, and nowhere else an agent could have one
+        written."""
+        if self.home is None:
+            raise Refused("record saves a path in the --allow file's directory, and shotbox "
+                          "mcp was given no --allow file; without path, it saves in the "
+                          "session's scratch directory")
+        home = Path(self.home).resolve()
+        out = (home / str(path)).resolve()
+        if not out.is_relative_to(home) or out.suffix.lower() != ".mp4":
+            raise Refused(f"record saves an .mp4 in {home}, by its path from there, "
+                          f"not {path!r}")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        return out
+
+    def record(self, session, seconds, window=None, crop=None, sound=False, path=None):
+        s = self.session(session)
+        seconds = within(seconds, "seconds", 0.1, RECORD_SECONDS)
+        if flag(sound) and not s.audio:
+            raise Refused(f"{str(session)!r} has no sound: start a session with audio")
+        out = self.clip(path) if path is not None else next(
+            p for n in range(1, 10000) if not (p := s.scratch / f"record-{n}.mp4").exists())
+        rec = s.record(out, seconds=seconds, window=text(window), crop=text(crop),
+                       sound=flag(sound), size=RECORD_SIZE)
+        length = float(subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+             str(out)], capture_output=True, text=True, check=True).stdout)
+        png = s.scratch / "record.png"
+        frames = [(png.with_name(f"frame-{i + 1}.png"), i * length / FRAMES)
+                  for i in range(FRAMES)]
+        for frame, at in frames:
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-ss", f"{at:.3f}",
+                            "-i", str(out), "-frames:v", "1", str(frame)], check=True)
+        sheet([p for p, _ in frames], png, size=SHEET_SIZE)
+        what = f"the window {window!r}" if window else "the whole screen"
+        times = ", ".join(f"{at:.2f}" for _, at in frames)
+        said = [f"Saved {out}, {length:.2f} seconds of {what}. {FRAMES} frames from it in "
+                f"rows of four, left to right, at {times} seconds."]
+        if rec.heard:
+            said += (describe(rec.heard)
+                     + (rec.problems() or ["No gaps, clipping or silence."]))
+        return [{"type": "image", "data": base64.b64encode(png.read_bytes()).decode(),
+                 "mimeType": "image/png"},
+                {"type": "text", "text": "\n".join(said)}]
+
     def accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
         return tree_text(s.a11y_tree(text(window)), flag(bounds))
@@ -531,6 +578,11 @@ SESSION = {"type": "string", "description": "The session's name, as start_sessio
 # A burst's sheet is one image: shrunk to this many pixels each way, it's
 # still readable and not a dozen screens' worth, however tall its pictures.
 SHEET_SIZE = 1920
+# A clip holds the server while it records, so it's about as long as the
+# longest burst; and it stops at a size no clip of a screen comes near, so
+# the disk can't fill.
+RECORD_SECONDS, RECORD_SIZE = 60, 100_000_000
+FRAMES = 8
 HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}
@@ -609,6 +661,21 @@ TOOLS = [
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"}},
             ["session"])),
+    ("record",
+     "Record a clip of the screen, or of one window, for seconds (up to 60), and save it as "
+     "an .mp4: in the session's scratch directory, gone when the session stops, or at path, "
+     "by its path from the directory of the server's allow file. The answer is the saved "
+     "path, how long the clip is, and 8 frames from it RETURNED AS ONE IMAGE in rows of "
+     "four, with the times they show: you can't play the clip, but a person or another "
+     "tool can. A clip stops at 100 MB. sound, in a session started with audio, records "
+     "what plays too, and says what it heard, as the sound tool does. For a few moments "
+     "of motion, screenshot's burst is cheaper.",
+     schema({"session": SESSION, "seconds": {"type": "number"}, "window": WINDOW,
+             "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
+             "sound": {"type": "boolean"},
+             "path": {"type": "string", "description": "Where to save it, an .mp4, by its "
+                      "path from the allow file's directory"}},
+            ["session", "seconds"])),
     ("click",
      "Click a node by its name, as the accessible tree gives it (a regex, matched in "
      "full; role narrows it, like \"button\" or \"(push )?button\"), or a point by x and "
