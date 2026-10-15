@@ -736,7 +736,8 @@ class Screen:
         With `sound`, in a session with audio, an .mp4 or .webm has what
         plays in it too, heard with `gap` as `shotbox.sound.hear` takes it.
         With `size`, it ends when the file (for a .gif, the video it's made
-        from) reaches that many bytes.
+        from) reaches that many bytes; a .webm's may be seconds late, as
+        its muxer holds up to about 5 seconds before writing.
         A Recording: its `path`, which it stands in for, its `heard` (with
         `sound`), and `problems()`."""
         if Path(out).suffix.lower() == ".wav":

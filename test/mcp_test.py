@@ -147,6 +147,14 @@ try:
     check(not bad and (tmp / "clips/one.mp4").stat().st_size
           and str(tmp / "clips/one.mp4") in said and 1 <= len(times[1].split(", ")) < 8,
           f"record: a short clip, saved at a path in the allow file's directory ({said})")
+    mcp.RECORD_SIZE, size = 1, mcp.RECORD_SIZE
+    try:
+        said, bad, _ = tool("record", session="t", seconds=3)
+    finally:
+        mcp.RECORD_SIZE = size
+    saved = re.match(r"Saved (.+?), ([\d.]+) seconds", said)
+    check(not bad and float(saved[2]) < 2 and "it reached" in said,
+          f"record: a clip stopped at its size, said ({said})")
     (tmp / "dir.mp4").mkdir()
     refused = [tool("record", session="t", seconds=secs, path=p, sound=a)[:2]
                for secs, p, a in ((61, None, False), ("", None, False), (1, "/tmp/x.mp4", False),

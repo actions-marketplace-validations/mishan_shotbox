@@ -352,11 +352,16 @@ class Server:
             else:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 with open(rec.path, "rb") as src, open(out, "xb") as dst:
-                    shutil.copyfileobj(src, dst)
-                rec.path.unlink()
+                    try:
+                        shutil.copyfileobj(src, dst)
+                    except OSError:
+                        out.unlink()    # no part of a clip left in the person's tree
+                        raise
         except OSError as e:
             raise Refused(f"couldn't save the clip at {out}: {e.strerror}. It's at "
                           f"{rec.path} until the session stops")
+        if path is not None:
+            rec.path.unlink()
         try:
             length = float(subprocess.run(
                 ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",

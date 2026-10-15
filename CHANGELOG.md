@@ -151,8 +151,8 @@
   answers with the path, the clip's length and a sheet of up to 8
   frames from it with their times, as an image, since a model can look
   at frames but not play a file; with `sound`, in a session with
-  `audio`, what was heard, as the `sound` tool says it. `Screen.record(..., size=N)` ends a
-  recording at N bytes.
+  `audio`, what was heard, as the `sound` tool says it.
+  `Screen.record(..., size=N)` ends a recording at N bytes.
 
 ### Fixed
 
