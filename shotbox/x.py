@@ -124,10 +124,11 @@ VIDEO = {
     ".webm": ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "32",
               "-b:v", "0", "-pix_fmt", "yuv420p"],
 }
-# With sound, the picture's encoder holds back no frames: ffmpeg holds the
-# sound back as far as it does, and what's held back when it stops is lost.
-SOUND = {".mp4": ["-tune", "zerolatency", "-c:a", "aac"],
-         ".webm": ["-lag-in-frames", "0", "-c:a", "libopus"]}
+SOUND = {".mp4": ["-c:a", "aac"], ".webm": ["-c:a", "libopus"]}
+# With sound and no --seconds, the picture's encoder holds back no frames:
+# ffmpeg holds the sound back as far as it does, and what's held back when
+# a signal stops it is lost. Timed, it ends by itself, with all of it.
+PROMPT = {".mp4": ["-tune", "zerolatency"], ".webm": ["-lag-in-frames", "0"]}
 # What plays at the session's sink, in its own format, so what plays in
 # that format comes through as is.
 SINK = ["-f", "pulse", "-sample_rate", "48000", "-channels", "2", "-i", "shotbox-sink.monitor"]
@@ -143,13 +144,19 @@ class Recording:
     def __fspath__(self):
         return str(self.path)
 
+    def __str__(self):
+        return str(self.path)
+
     def __repr__(self):
         return f"Recording({str(self.path)!r})"
 
     def problems(self, quiet=-60.0, clipped=0):
         """What's wrong with its sound, as `sound.problems` says: a line each."""
         from .sound import problems
-        return problems(self.heard, quiet=quiet, clipped=clipped) if self.heard else []
+        if not self.heard:
+            return []
+        cut = ["the sound server stopped, and the recording with it"] if self.heard["cut"] else []
+        return cut + problems(self.heard, quiet=quiet, clipped=clipped)
 
 
 def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
@@ -161,7 +168,10 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
         proc.wait()
     except KeyboardInterrupt:
         stop(proc)
-    return Recording(ended(proc, out), json.loads(proc.stdout.read()) if sound else None)
+    out = ended(proc, out)
+    if sound:
+        proc.said.seek(0)
+    return Recording(out, json.load(proc.said) if sound else None)
 
 
 def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
@@ -235,22 +245,26 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
             # first, the sound's before the picture's dropped.
             end = f",atrim=end_sample={round(seconds * 48000)}" if seconds is not None else ""
             cmd += ["-filter_complex", f"[1:a]aresample=async=1:first_pts=0{end},asplit[a][heard]",
-                    "-map", "0:v", "-map", "[a]", *SOUND[kind]]
-            heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le"], "gap": gap}
+                    "-map", "0:v", "-map", "[a]", "-shortest", *SOUND[kind]]
+            cmd += PROMPT[kind] if seconds is None else []
+            heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le", "-f", "wav"], "gap": gap}
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
     # -c puts the current directory first on the path, ahead of PYTHONPATH:
     # another shotbox there would be the one run.
     keeper = ("import sys; del sys.path[0]; from shotbox.x import keep_recording; "
               "sys.exit(keep_recording(*sys.argv[1:]))")
+    # What it heard, in a file: a pipe would fill with a long list of gaps,
+    # and wait while this waits for it.
+    said = tempfile.TemporaryFile() if sound else subprocess.DEVNULL
     # Its own session: `shotbox run`, stopped, kills its command's group
     # two seconds on, which would cut the finishing short.
-    return subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out),
+    proc = subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out),
                              json.dumps(grab), json.dumps(heard)],
                             env={**env, "PYTHONPATH": path}, stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE if sound else subprocess.DEVNULL,
-                            stderr=subprocess.PIPE,
-                            start_new_session=True)
+                            stdout=said, stderr=subprocess.PIPE, start_new_session=True)
+    proc.said = said
+    return proc
 
 
 def stop(proc):
@@ -302,9 +316,13 @@ def keep_recording(cmd, out, grab, heard):
     GIF, for a .gif. Status 0, or 1 and why on stderr."""
     cmd, out, grab, heard = json.loads(cmd), Path(out), json.loads(grab), json.loads(heard)
     gif = out.suffix.lower() == ".gif"
-    tmp = tempfile.mkdtemp() if gif or heard else None
-    video = Path(tmp) / "recording.mp4" if gif else out
-    wav = Path(tmp) / "heard.wav" if heard else None
+    # Files with no names, which ffmpeg writes by their fds: nothing is left
+    # behind however this goes, even killed outright.
+    clip = tempfile.TemporaryFile() if gif else None
+    sound_file = tempfile.TemporaryFile() if heard else None
+    fds = [f.fileno() for f in (clip, sound_file) if f]
+    video = Path(f"/dev/fd/{clip.fileno()}") if gif else out
+    wav = Path(f"/dev/fd/{sound_file.fileno()}") if heard else None
     feed = None
     try:
         # What started this may have had Ctrl-C ignored (a job started with
@@ -317,21 +335,25 @@ def keep_recording(cmd, out, grab, heard):
             feed = subprocess.Popen(grab, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=grab_err, preexec_fn=tied(signal.SIGKILL))
         # SIGTERM, so ffmpeg finishes the file.
-        proc = subprocess.Popen(cmd + [str(video)] + (heard["options"] + [str(wav)] if heard else []),
-                                stderr=subprocess.PIPE,
+        proc = subprocess.Popen(cmd + (["-f", "mp4"] if gif else []) + [str(video)]
+                                + (heard["options"] + [str(wav)] if heard else []),
+                                stderr=subprocess.PIPE, pass_fds=fds,
                                 stdin=feed.stdout if feed else subprocess.DEVNULL,
                                 preexec_fn=tied(signal.SIGTERM))
         if feed:
             feed.stdout.close()
         sound = out.suffix.lower() == ".wav"
+        pulse = os.environ["PULSE_SERVER"].removeprefix("unix:") if sound or heard else None
         if sound:
-            sock = os.environ["PULSE_SERVER"].removeprefix("unix:")
+            sock = pulse
         elif feed:
             sock = str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
         else:
             sock = None
         while proc.poll() is None:
             up = socket_up(sock) if sock else display_up(os.environ["DISPLAY"])
+            # With sound, the sound server going ends the picture too.
+            up = up and (not heard or socket_up(pulse))
             if select.select([sys.stdin], [], [], 0.5)[0] or not up:
                 proc.send_signal(signal.SIGTERM)
                 break
@@ -360,22 +382,22 @@ def keep_recording(cmd, out, grab, heard):
         else:
             frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
                                      "-show_entries", "stream=index", "-of", "csv=p=0",
-                                     str(video)], capture_output=True, text=True).stdout.strip()
+                                     str(video)], capture_output=True, text=True,
+                                    pass_fds=fds).stdout.strip()
         if not frames:
-            video.unlink()
+            if not gif:
+                video.unlink()
             sys.stderr.write("nothing was recorded: it stopped before the first frame\n")
             return 1
         if heard:
             from .sound import hear
-            try:
-                print(json.dumps(hear(wav, gap=heard["gap"])), flush=True)
-            except OSError:
-                pass        # what started this is gone, with nowhere to say it
+            print(json.dumps({**hear(wav, gap=heard["gap"]), "cut": not socket_up(pulse)}),
+                  flush=True)
         if gif:
             made = subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i",
                                    str(video), "-vf",
                                    "split[a][b];[a]palettegen[p];[b][p]paletteuse", str(out)],
-                                  stderr=subprocess.PIPE)
+                                  stderr=subprocess.PIPE, pass_fds=fds)
             if made.returncode:
                 sys.stderr.write("ffmpeg couldn't make the GIF: "
                                  + made.stderr.decode(errors="replace").strip() + "\n")
@@ -385,8 +407,6 @@ def keep_recording(cmd, out, grab, heard):
         if feed:
             feed.kill()
             feed.wait()
-        if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 def display_up(display):

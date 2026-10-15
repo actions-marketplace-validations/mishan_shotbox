@@ -99,8 +99,11 @@ so, and both `--seconds` long. Then it says what `shotbox listen` would
 of the sound, its level and where it clipped or dropped out, judged by
 `listen`'s `--gap`, `--clipped` and `--quiet`; a silent stretch between
 sounds is a gap there too. It doesn't fail for it unless `--strict`, which
-fails as `listen` does, keeping the file.
-Without `--audio`, or as a GIF, it's refused. A wait that gives up takes a
+fails as `listen` does, keeping the file. If the session's sound server
+stops, the recording stops with it, and says so. The sound is heard from
+a WAV copy, unnamed in TMPDIR, read before `record` returns: 11.5 MB a
+minute, on disk and then in memory. Without `--audio`, or as a GIF or
+WAV, it's refused. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
 

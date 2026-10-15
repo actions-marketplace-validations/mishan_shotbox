@@ -21,7 +21,8 @@
   than at its first wait or picture.
 - `Screen.record` returns a Recording, not the path: its `path`, and
   with sound what was heard. It stands in for the path where one is
-  opened (`os.fspath`); `str()` of it isn't the path, `.path` is.
+  opened (`os.fspath`) and in `str()`, but `.suffix` and the rest of a
+  Path's are on `.path`.
 
 ### Changed
 

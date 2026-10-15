@@ -535,8 +535,9 @@ def cmd_record(argv):
     a = listening(p).parse_args(argv)
     if a.seconds == 0:
         p.error("--seconds is more than 0")
-    if not 0 < a.gap < math.inf:
-        p.error("--gap is a number of milliseconds, more than 0")
+    if not a.sound and (a.strict or {a.gap, a.clipped, a.quiet} != {None}):
+        p.error("--strict, --gap, --clipped and --quiet go with --sound")
+    judgement(p, a)
     start = time.monotonic()
     out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
                           pointer=a.pointer, park=a.park, sound=a.sound, gap=a.gap / 1000)
@@ -557,15 +558,25 @@ def vision_option(p):
 
 
 def listening(p):
-    """`p`, with what `listen` judges a sound by."""
-    p.add_argument("--gap", type=float, default=1, metavar="MS",
+    """`p`, with what `listen` judges a sound by; `judgement` checks them."""
+    p.add_argument("--gap", type=float, metavar="MS",
                    help="silence this long between sounds is a dropout: every channel at "
                         "exactly zero, as a player that falls behind leaves it (1)")
-    p.add_argument("--clipped", type=int, default=0, metavar="N",
+    p.add_argument("--clipped", type=int, metavar="N",
                    help="samples that may be at full scale (0)")
-    p.add_argument("--quiet", type=float, default=-60, metavar="DB",
+    p.add_argument("--quiet", type=float, metavar="DB",
                    help="a peak below this is silence (-60 dBFS)")
     return p
+
+
+def judgement(p, a):
+    """The options `listening` gave `p`, as parsed into `a`: checked, and
+    those not given their defaults."""
+    a.gap = 1 if a.gap is None else a.gap
+    a.clipped = 0 if a.clipped is None else a.clipped
+    a.quiet = -60 if a.quiet is None else a.quiet
+    if not 0 < a.gap < math.inf:
+        p.error("--gap is a number of milliseconds, more than 0")
 
 
 def cmd_listen(argv):
@@ -576,8 +587,7 @@ def cmd_listen(argv):
                                             "did, or is silent.")
     p.add_argument("wav", metavar="IN.wav", help="a 16-bit PCM WAV")
     a = listening(p).parse_args(argv)
-    if not 0 < a.gap < math.inf:
-        p.error("--gap is a number of milliseconds, more than 0")
+    judgement(p, a)
     try:
         heard = sound.hear(a.wav, gap=a.gap / 1000)
     except (OSError, EOFError, ValueError, wave.Error) as e:

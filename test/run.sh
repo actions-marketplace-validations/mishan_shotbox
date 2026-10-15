@@ -1007,7 +1007,8 @@ PY
       { '$sb' record '$tmp/$pre-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
       ! '$sb' record '$tmp/$pre.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/${pre}0.mp4' --seconds 0 2>> '$tmp/err' &&
       ! '$sb' record '$tmp/${pre}s.mp4' --sound --seconds 1 2>> '$tmp/err' &&
-      ! '$sb' record '$tmp/${pre}s.gif' --sound --seconds 1 2>> '$tmp/err'" > /dev/null \
+      ! '$sb' record '$tmp/${pre}s.gif' --sound --seconds 1 2>> '$tmp/err' &&
+      ! '$sb' record '$tmp/${pre}s.mp4' --strict --seconds 1 2>> '$tmp/err'" > /dev/null \
       && [ "$(probe "$tmp/$pre.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/$pre.mp4")" -ge 50 ] \
       && ffmpeg -loglevel error -y -ss 1 -i "$tmp/$pre.mp4" -frames:v 1 "$tmp/$pre-frame.png" \
       && "$sb" compare "$tmp/$pre-win.png" "$tmp/$pre-frame.png" --fuzz 20% > /dev/null \
@@ -1016,6 +1017,7 @@ PY
       && probe "$tmp/$pre-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/$pre-k.mp4")" -ge 15 ] \
       && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/${pre}0.mp4" ] \
       && grep -q "start the session with --audio" "$tmp/err" && grep -q "with sound is an .mp4 or .webm" "$tmp/err" \
+      && grep -q "go with --sound" "$tmp/err" \
       && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
       || fail "$say: $(probe "$tmp/$pre.mp4"); $(probe "$tmp/$pre.webm"); $(probe "$tmp/$pre.gif"); $(probe "$tmp/$pre-k.mp4")"
     # A GIF whose session is stopped (run killed) is finished all the same,
@@ -1024,7 +1026,8 @@ PY
     "$sb" run $opt --env "TMPDIR=$tmp/$pre-tmp" -- sh -c "'$here/window.py' rg & '$sb' wait window rg &&
       '$sb' record '$tmp/$pre-run.gif'" > /dev/null & r=$!
     sleep 6; kill $r; wait $r || true
-    n=0; while [ -n "$(ls "$tmp/$pre-tmp")" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    n=0; while { pgrep -f "keep_recording.*$tmp/$pre-run.gif" || ls -A "$tmp/$pre-tmp" | grep -q .; } >/dev/null &&
+      [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
     [ "$(probe "$tmp/$pre-run.gif" | cut -d' ' -f1)" = gif,1280,800 ] && [ -z "$(ls "$tmp/$pre-tmp")" ] \
       && ok "$say: a GIF in a session that's stopped, finished, nothing left behind" \
       || fail "$say, stopped run: $(probe "$tmp/$pre-run.gif"); $(ls "$tmp/$pre-tmp")"
@@ -1073,23 +1076,31 @@ PY
     # --sound: what plays too, AAC in an MP4, Opus in a WebM, both streams
     # --seconds long, each tone starting within 0.1 s of its flash, and
     # what `listen` would say of it said: with --strict, its gaps fail it,
-    # unless --gap is longer than they are. Stopped by kill, the sound as
-    # long as the picture, near enough.
+    # unless --gap is longer than they are. Stopped by kill, or by the
+    # session's PipeWire going (said), the sound as long as the picture.
     if audio; then
-      "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
+      rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
+      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
         { '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound --strict > '$tmp/$pre-heard'
           [ \$? = 1 ]; } &&
         '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
-        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; }" > /dev/null \
+        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; } &&
+        : > '$tmp/$pre-go' && '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound > '$tmp/$pre-heard3'" \
+        > /dev/null 2>&1 & r=$!
+      n=0; until [ -e "$tmp/$pre-go" ] || [ $n -ge 600 ]; do sleep 0.1; n=$((n + 1)); done; sleep 2
+      for p in $(pgrep -u "$(id -u)" -x pipewire); do
+        { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/$pre-pw/" && kill "$p"
+      done
+      wait $r \
         && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" \
+        && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-sp.mp4" >> "$tmp/$pre-av" \
         && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | grep -qx "h264 3.000 aac 3.000 vp9 2.000 opus 2.000 " \
-        && sed -n 5p "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && ($2 - $4) ^ 2 < 0.01' | grep -q . \
+        && [ "$(sed -n '5p;7p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && ($2 - $4) ^ 2 < 0.01' | wc -l)" = 2 ] \
         && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
         && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -q "gaps of silence" "$tmp/$pre-heard" \
-        && ! grep -q gap "$tmp/$pre-heard2" \
+        && ! grep -q gap "$tmp/$pre-heard2" && grep -q "^the sound server stopped" "$tmp/$pre-heard3" \
         && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
-        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2"; }
+        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2" "$tmp/$pre-heard3"; }
     fi
   }
   records "" rec record
