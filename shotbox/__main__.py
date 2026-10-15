@@ -18,6 +18,7 @@
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
+    shotbox latency move X1 Y1 X2 Y2 --watch G      (inside a session) how fast it follows
     shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
@@ -36,6 +37,7 @@ import json
 import math
 import os
 import signal
+import statistics
 import sys
 import time
 import wave
@@ -592,6 +594,40 @@ def cmd_park(argv):
     return 0
 
 
+def cmd_latency(argv):
+    p = argparse.ArgumentParser(prog="shotbox latency",
+                                description="Inside `shotbox run`: how long what's drawn takes "
+                                            "to follow the pointer. It's moved between two "
+                                            "points, and each move timed from sending it to "
+                                            "the first picture in which the --watch box "
+                                            "changed; then the median and the 95th "
+                                            "percentile.")
+    p.add_argument("action", choices=["move"])
+    p.add_argument("points", nargs=4, type=int, metavar=("X1", "Y1", "X2", "Y2"))
+    p.add_argument("--watch", required=True, metavar="WxH+X+Y",
+                   help="the box that shows the pointer's move, on the screen or in --window")
+    p.add_argument("--window", metavar="RE", help="points and box inside this window")
+    p.add_argument("--times", type=int, default=10, metavar="N", help="moves to time (10)")
+    p.add_argument("--timeout", type=float, default=5, metavar="SECS",
+                   help="give up on a move that changes nothing after this long (5)")
+    p.add_argument("--settle", type=float, default=0.25, metavar="SECS",
+                   help="before each move, the box holds still this long, or twice the "
+                        "longest move yet, more than its latency (0.25)")
+    a = p.parse_args(argv)
+    if a.times < 1:
+        p.error("--times is 1 or more")
+    took = sorted(inside().latency(tuple(a.points[:2]), tuple(a.points[2:]), a.watch,
+                                   window=a.window, times=a.times, timeout=a.timeout,
+                                   settle=a.settle))
+    median = statistics.median(took)
+    # Below 20 moves, the 95th percentile is the slowest: said as that.
+    high = (f"95th percentile {took[math.ceil(0.95 * len(took)) - 1] * 1000:.1f} ms"
+            if len(took) >= 20 else f"slowest {took[-1] * 1000:.1f} ms")
+    print(f"median {median * 1000:.1f} ms, {high}, of {len(took)} moves, "
+          f"fastest {took[0] * 1000:.1f} ms")
+    return 0
+
+
 def cmd_focus(argv):
     p = argparse.ArgumentParser(prog="shotbox focus",
                                 description="Inside `shotbox run`: give a window the "
@@ -730,7 +766,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "vision": cmd_vision, "listen": cmd_listen, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "pad": cmd_pad,
+            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "latency": cmd_latency, "pad": cmd_pad,
             "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
@@ -738,7 +774,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
 
 # What --session puts inside a lasting session.
 INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",
-          "pad", "a11y")
+          "pad", "a11y", "latency")
 
 
 def main(argv=None):
