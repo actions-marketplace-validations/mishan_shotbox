@@ -120,6 +120,20 @@ checkout: `ln -s "$PWD/bin/shotbox" ~/.local/bin/shotbox`.
 No Python packages: it's the standard library and those tools. Wayland
 sessions need more; see [Wayland](#wayland).
 
+In a GitHub Actions job on Ubuntu, the Action installs it and what it
+runs, as of the release (or branch) it's used at, with what each
+feature needs asked for by name (all off unless set), and lets
+bubblewrap make its sandbox, which Ubuntu's AppArmor holds back:
+
+```yaml
+- uses: mishan/shotbox@v0.6.0
+  with:
+    a11y: true        # --a11y and `shotbox a11y`
+    term: true        # `shotbox term`
+    # wayland, audio, record and gamepads too
+- run: shotbox shoot app.png --window 'My App' -- ./my-app
+```
+
 ## Commands
 
 **`shotbox shoot OUT.png [options] -- COMMAND...`** starts the command in a

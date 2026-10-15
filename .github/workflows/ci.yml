@@ -71,6 +71,35 @@ jobs:
           SHOTBOX_AUDIO: required
           SHOTBOX_GAMEPAD: required
 
+  # The Action, as another project's job would use it: from a runner with
+  # nothing of shotbox's on it, each feature it installs for, sandboxed.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          a11y: true
+          wayland: true
+          audio: true
+          record: true
+          term: true
+          gamepads: true
+      - name: Use it
+        working-directory: /tmp
+        run: |
+          # A line each: bash -e passes over a failure before && or after !.
+          shotbox run -- true 2> err
+          if grep "without a sandbox" err; then exit 1; fi
+          shotbox term --shoot term.png --size 30x4 --when hi -- echo hi
+          test -s term.png
+          shotbox shoot way.png --wayland --wait stable -- sleep 30
+          test -s way.png
+          shotbox run --a11y -- shotbox a11y tree > /dev/null
+          shotbox exec --audio -- shotbox record quiet.wav --seconds 1 > /dev/null
+          test -s quiet.wav
+          shotbox run --gamepads 1 -- sh -c 'ls /dev/input | grep -q event'
+
   # What gets published, built and used the way someone who installs it
   # would: the wheel in a fresh venv (with the system's PyGObject, as the
   # README says, so `term --shoot` can start itself again from an install

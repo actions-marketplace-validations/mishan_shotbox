@@ -1,0 +1,77 @@
+# shotbox, for a GitHub Actions job: what it runs, from apt, and the
+# shotbox command, from this checkout of it, so the version is the ref
+# the job asked for. Ubuntu runners: apt, sudo, and pipx, as they have.
+
+# Not "shotbox": the Marketplace takes no name of a GitHub user or
+# organization, and there's one.
+name: shotbox sealed sessions
+description: Sealed X11 or Wayland sessions for screenshots, accessibility checks and tests of real graphical programs
+author: Misha Nasledov
+branding:
+  icon: camera
+  color: purple
+
+inputs:
+  a11y:
+    description: For --a11y and `shotbox a11y`, an accessibility bus and its checks
+    default: "false"
+  wayland:
+    description: For --wayland and --xwayland, a headless sway
+    default: "false"
+  audio:
+    description: For --audio, PipeWire and WirePlumber
+    default: "false"
+  record:
+    description: For `shotbox record`, ffmpeg
+    default: "false"
+  term:
+    description: For `shotbox term`, VTE
+    default: "false"
+  gamepads:
+    description: For --gamepads, uinput, and its devices for this user
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        A11Y: ${{ inputs.a11y }}
+        WAYLAND: ${{ inputs.wayland }}
+        AUDIO: ${{ inputs.audio }}
+        RECORD: ${{ inputs.record }}
+        TERM_: ${{ inputs.term }}
+        GAMEPADS: ${{ inputs.gamepads }}
+      run: |
+        set -euo pipefail
+        pkgs="xvfb xauth dbus-daemon imagemagick x11-utils bubblewrap libglib2.0-bin fonts-dejavu-core"
+        [ "$A11Y" != true ] || pkgs="$pkgs at-spi2-core gir1.2-atspi-2.0 python3-gi"
+        [ "$WAYLAND" != true ] || pkgs="$pkgs sway grim xwayland"
+        [ "$AUDIO" != true ] || pkgs="$pkgs pipewire pipewire-bin wireplumber"
+        [ "$RECORD" != true ] || pkgs="$pkgs ffmpeg"
+        [ "$TERM_" != true ] || pkgs="$pkgs gir1.2-vte-2.91 python3-gi"
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends $pkgs
+        # Programs in a session run under bubblewrap, whose user namespaces
+        # Ubuntu's AppArmor holds back: a runner is the job's own to allow.
+        if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+          sudo sysctl -q -w kernel.apparmor_restrict_unprivileged_userns=0
+        fi
+        if [ "$GAMEPADS" = true ]; then
+          # A desktop's udev gives uinput and its devices to the seat's
+          # user; a runner has no seat.
+          sudo modprobe uinput
+          printf '%s\n' 'KERNEL=="uinput", MODE="0666"' \
+            'SUBSYSTEM=="input", ATTRS{name}=="shotbox virtual pad*", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/70-shotbox.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --action=change /dev/uinput
+        fi
+        # The system's PyGObject, for `shotbox term` and the a11y checks.
+        # Built from a copy, which pip leaves its build in, not the
+        # checkout (with `uses: ./`, the job's own); --force, so a second
+        # use at another ref installs that one.
+        src=$(mktemp -d)
+        cp -r "$GITHUB_ACTION_PATH"/. "$src"
+        pipx install --force --system-site-packages "$src"
+        shotbox --help > /dev/null

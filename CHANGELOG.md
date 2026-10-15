@@ -35,6 +35,10 @@
   silent; it fails on any, or on silence. `shotbox.sound.hear` from
   Python, and MCP's `sound` tool, which records a session's sound
   between `start` and `stop` and says the same of it.
+- **A GitHub Action**, `uses: mishan/shotbox@vX.Y.Z`: installs shotbox
+  at that version and what it runs on an Ubuntu runner, with each
+  feature (`a11y`, `wayland`, `audio`, `record`, `term`, `gamepads`)
+  asked for by name, and lets bubblewrap make its sandbox.
 - **`shotbox exec -- COMMAND`**: the session's seal with no display, for
   a headless browser or a test suite: its own environment, home and bus,
   under bubblewrap, and `--audio` if it's wanted.
