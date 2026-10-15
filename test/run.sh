@@ -74,7 +74,7 @@ fi
 time.sleep(0.5)" 2> "$tmp/err"
 python3 -c "import json, sys; u = json.load(open('$tmp/used.json'))
 sys.exit(not (u['programs']['peak'] > 300 * 2**20 and u['session']['peak'] > 0
-              and u['programs']['how'] in ('cgroup', 'sampled')))" \
+              and u['programs']['how'].split(',')[0] in ('cgroup', 'sampled')))" \
   && grep -q "^shotbox: used, over " "$tmp/err" && ok "--usage: a program's peak memory, and the session's own" \
   || fail "--usage: $(cat "$tmp/err" "$tmp/used.json")"
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')

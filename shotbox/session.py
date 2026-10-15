@@ -381,6 +381,7 @@ class Session(Screen):
         self.measure = usage
         self._sampler = self._slice = None
         self.used = None        # what usage() said as the session stopped
+        self._up = False
         if net not in (None, "loopback"):
             raise SessionError(f"net is loopback or nothing, not {net!r}")
         if net and not sandbox:
@@ -486,6 +487,7 @@ class Session(Screen):
             if self._sampler:
                 for proc in self._procs:
                     self._sampler.add("session", proc.pid)
+            self._up = True
         except BaseException:
             self.__exit__(None, None, None)
             raise
@@ -1011,7 +1013,7 @@ class Session(Screen):
 
     def __exit__(self, *exc):
         self.close()
-        if self._sampler:
+        if self._sampler and self._up:
             self.used = self.usage()
         for proc in reversed(self._procs):
             kill_group(proc)

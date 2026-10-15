@@ -277,17 +277,22 @@ them together, and, apart, what its own processes did (its display,
 buses and sound server): peak memory and CPU time, over how long:
 
 ```
-shotbox: used, over 41.0s: its programs peak memory 1412 MB, CPU 12.3s (cgroup); the session's own peak memory 81 MB, CPU 0.4s (sampled)
+shotbox: used, over 41.0s: its programs peak memory 1412 MB, CPU 12.3s (cgroup, with page cache); the session's own peak memory 81 MB, CPU 0.4s (sampled, resident)
 ```
 
 `--usage FILE` writes it as JSON too, for comparing runs; with `start`,
 it's written there when the session stops. Where the user's systemd can
 make scopes (`systemd-run --user`), each program runs in one, in a slice
 of the session's, which counts every process it ever had, a spike that
-lasts a moment included: `cgroup`. Elsewhere, and for the session's own
-processes, `/proc` is read ten times a second, and a peak between reads
-is missed: `sampled`. From Python, `Session(usage=True)` and its
-`usage()`; over MCP, `start_session`'s `usage`, said when it's stopped.
+lasts a moment included, and the memory charged to it: what its
+processes hold, and the page cache and tmpfs files they made too. That's
+`cgroup, with page cache`. Elsewhere, and for the session's own
+processes, `/proc` is read five times a second for what the processes
+hold in memory, theirs and their children's: a peak between reads is
+missed, and so is the CPU time of a process that comes and goes between
+them. That's `sampled, resident`. Compare runs measured the same way.
+From Python, `Session(usage=True)` and its `usage()`; over MCP,
+`start_session`'s `usage`, said when it's stopped.
 
 ### What's sealed
 
