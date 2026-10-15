@@ -277,6 +277,42 @@ class Screen:
             x.vision(out, out, vision)
         return Path(out)
 
+    def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
+               park=False):
+        """A video of the display, or of the window named `window`, cropped
+        (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
+        `seconds`, or until interrupted. Without `pointer`, the pointer
+        isn't drawn, as in a picture; with `park`, it goes out of the way
+        first. X11 only, for now; it needs ffmpeg."""
+        if self.wayland:
+            raise SessionError("recording works in X11 sessions only, for now")
+        if park:
+            self.park()
+        try:
+            screen_w, screen_h = x.root_size(self.env)
+        except RuntimeError as e:
+            raise SessionError(str(e))
+        box = self.window(window)[2:6] if window else (screen_w, screen_h, 0, 0)
+        if crop:
+            m = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
+            if not m:
+                raise SessionError(f"a crop is WIDTHxHEIGHT+X+Y, not {crop}")
+            cw, ch, cx, cy = map(int, m.groups())
+            if cx + cw > box[0] or cy + ch > box[1] or cw < 2 or ch < 2:
+                raise SessionError(f"the crop {crop} isn't inside the {box[0]}x{box[1]} taken")
+            box = (cw, ch, box[2] + cx, box[3] + cy)
+        # Only what's on the screen can be recorded: a window partly off it
+        # is recorded as far as it shows.
+        x0, y0 = max(box[2], 0), max(box[3], 0)
+        x1, y1 = min(box[2] + box[0], screen_w), min(box[3] + box[1], screen_h)
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            raise SessionError("nothing of that is on the screen to record")
+        box = (x1 - x0, y1 - y0, x0, y0)
+        try:
+            return x.record(self.env, out, box, seconds=seconds, fps=fps, pointer=pointer)
+        except (ValueError, RuntimeError) as e:
+            raise SessionError(str(e))
+
     def burst(self, out, count, every=0.0, window=None, crop=None, park=False, vision=None,
               sheet=None, sheet_size=None):
         """`count` pictures, as `capture` takes them, each starting `every`

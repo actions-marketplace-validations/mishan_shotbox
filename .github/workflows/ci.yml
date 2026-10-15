@@ -30,7 +30,8 @@ jobs:
 
       # The README's list, and what the tests use besides: GTK 3 for the
       # Python API's button, gdbus to ask the bus what it would activate,
-      # ffmpeg for the gif, a monospace font for the terminal, and GTK 4
+      # ffmpeg for the gif and record, xdotool to move a window off the
+      # screen, a monospace font for the terminal, and GTK 4
       # and libadwaita for the accessibility checks' window, and PipeWire,
       # WirePlumber and pactl for --audio.
       - name: Install what shotbox runs
@@ -42,7 +43,7 @@ jobs:
             libglib2.0-bin ffmpeg fonts-dejavu-core \
             sway grim xwayland \
             at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1 \
-            pipewire wireplumber pulseaudio-utils bubblewrap
+            pipewire wireplumber pulseaudio-utils bubblewrap xdotool
 
       # For --gamepads: uinput, and its pads, for this user (a desktop's
       # udev gives them to the seat's user; a runner has no seat), and

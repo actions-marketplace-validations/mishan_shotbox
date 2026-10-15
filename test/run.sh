@@ -611,6 +611,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
       '$sb' wait announce 'notes\.md' --timeout 10" \
       && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
   fi
+  set +e; "$sb" run --wayland -- "$sb" record "$tmp/wl.mp4" --seconds 1 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && grep -q "X11 sessions only" "$tmp/err" \
+    && ok "wayland: record, X11's for now, refused saying so" || fail "wayland: record ($st)"
   pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
     || ok "wayland: sway stops with the session"
   [ -z "$(ours_xwayland)" ] \
@@ -650,6 +653,102 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
   && [ "$(identify -format %wx%h "$tmp/sheet.png")" = 800x240 ] \
   && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
   && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
+
+# Recording: a window for two seconds as an MP4; the screen as a WebM at
+# 10 frames a second; a crop as a GIF, its odd sides evened; and one with
+# no length, stopped by kill, finished properly.
+if command -v ffmpeg >/dev/null; then
+  probe() { ffprobe -v error -select_streams v -show_entries stream=codec_name,width,height \
+    -show_entries format=duration -of csv=p=0 "$1" | tr '\n' ' '; }
+  frames() { ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames \
+    -of csv=p=0 "$1"; }
+  "$sb" run -- sh -c "'$here/window.py' rec & '$sb' wait window rec &&
+    '$sb' record '$tmp/rec.mp4' --window rec --seconds 2 && '$sb' record '$tmp/rec.webm' --fps 10 --seconds 1 &&
+    '$sb' record '$tmp/rec.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
+    { '$sb' record '$tmp/rec-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
+    ! '$sb' record '$tmp/rec.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/rec0.mp4' --seconds 0 2>> '$tmp/err'" > /dev/null \
+    && [ "$(probe "$tmp/rec.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/rec.mp4")" -ge 50 ] \
+    && [ "$(probe "$tmp/rec.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/rec.webm")" = 10 ] \
+    && [ "$(probe "$tmp/rec.gif")" = "gif,100,50 1.000000 " ] \
+    && probe "$tmp/rec-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/rec-k.mp4")" -ge 15 ] \
+    && grep -q "mp4, .webm or .gif" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/rec0.mp4" ] \
+    && ok "record: a window, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
+    || fail "record: $(probe "$tmp/rec.mp4"); $(probe "$tmp/rec.webm"); $(probe "$tmp/rec.gif"); $(probe "$tmp/rec-k.mp4")"
+  # A GIF whose session is stopped (run killed) is finished all the same,
+  # leaving nothing behind in the temp dir.
+  rm -rf "$tmp/rtmp"; mkdir "$tmp/rtmp"
+  "$sb" run --env "TMPDIR=$tmp/rtmp" -- sh -c "'$here/window.py' rg & '$sb' wait window rg &&
+    '$sb' record '$tmp/rec-run.gif'" > /dev/null & r=$!
+  sleep 6; kill $r; wait $r || true
+  n=0; while [ -n "$(ls "$tmp/rtmp")" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+  [ "$(probe "$tmp/rec-run.gif" | cut -d' ' -f1)" = gif,1280,800 ] && [ -z "$(ls "$tmp/rtmp")" ] \
+    && ok "record: a GIF in a session that's stopped, finished, nothing left behind" \
+    || fail "record, stopped run: $(probe "$tmp/rec-run.gif"); $(ls "$tmp/rtmp")"
+  # Killed outright, record takes its ffmpeg with it, which otherwise goes
+  # on recording a display that's gone; the file is finished all the same.
+  "$sb" run -- sh -c "'$here/window.py' rk & '$sb' wait window rk &&
+    { '$sb' record '$tmp/rec-9.mp4' --window rk & r=\$!; sleep 1.5; kill -9 \$r; }
+    n=0; while pgrep -ax ffmpeg | grep -q rec-9 && [ \$n -lt 50 ]; do sleep 0.1; n=\$((n + 1)); done
+    ! pgrep -ax ffmpeg | grep -q rec-9" > /dev/null \
+    && probe "$tmp/rec-9.mp4" | grep -q "^h264,200,120 " \
+    && ok "record: killed outright, its ffmpeg stops and finishes the file" \
+    || { fail "record, killed: $(probe "$tmp/rec-9.mp4")"
+         pgrep -ax ffmpeg | grep rec-9 | cut -d' ' -f1 | xargs -r kill; }
+  # Stopped a moment after it starts, in the background, where a job's
+  # Ctrl-C is ignored: it ends rather than recording for good. Killed, then
+  # killed outright while it finishes: the file is still whole. A GIF
+  # killed outright, once it has frames (ffmpeg can take a second or more
+  # to start), is made all the same, and nothing left in TMPDIR.
+  rm -rf "$tmp/rtmp2"; mkdir "$tmp/rtmp2"
+  "$sb" run --env "TMPDIR=$tmp/rtmp2" -- sh -c "'$here/window.py' re & '$sb' wait window re || exit 1
+    for d in 0.05 0.08 0.1 0.15 0.2 0.3 0.5; do
+      '$sb' record '$tmp/rec-e.mp4' --window re 2>/dev/null & r=\$!; sleep \$d; kill \$r
+      n=0; while kill -0 \$r 2>/dev/null; do [ \$n -lt 100 ] || { echo \"hung, killed at \$d\"; kill -9 \$r; exit 1; }
+        sleep 0.1; n=\$((n + 1)); done
+    done
+    '$sb' record '$tmp/rec-2.mp4' --window re & r=\$!; sleep 1.5; kill \$r; sleep 0.1; kill -9 \$r
+    '$sb' record '$tmp/rec-9.gif' --window re & r=\$!
+    n=0; until pgrep -ax python3 | grep keep_recording | grep -q rec-9.gif; do
+      [ \$n -lt 100 ] || { echo 'no keeper'; pgrep -ax python3; exit 1; }; sleep 0.1; n=\$((n + 1)); done
+    sleep 3; kill -9 \$r
+    n=0; while [ ! -s '$tmp/rec-9.gif' ] || [ -n \"\$(ls '$tmp/rtmp2')\" ]; do
+      [ \$n -lt 300 ] || { echo 'no GIF'; pgrep -ax python3; pgrep -ax ffmpeg; exit 1; }
+      sleep 0.1; n=\$((n + 1)); done" > "$tmp/rec-steps" 2>&1 \
+    && probe "$tmp/rec-2.mp4" | grep -q "^h264,200,120 " && probe "$tmp/rec-9.gif" | grep -q "^gif,200,120 " \
+    && ok "record: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
+    || { fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
+         cat "$tmp/rec-steps"; }
+  # Run from where another shotbox is, the keeper is still this one.
+  mkdir -p "$tmp/other/shotbox"; : > "$tmp/other/shotbox/__init__.py"
+  echo 'raise ImportError("the other shotbox")' > "$tmp/other/shotbox/x.py"
+  (cd "$tmp/other" && "$sb" run -- "$sb" record "$tmp/rec-cwd.mp4" --seconds 1 > /dev/null) \
+    && probe "$tmp/rec-cwd.mp4" | grep -q "^h264,1280,800 " \
+    && ok "record: from where another shotbox is, still this one's" || fail "record, from another shotbox's dir"
+  # A lasting session stopped while it records: the recording ends with it.
+  "$sb" start --name "rec$$" >/dev/null
+  "$sb" --session "rec$$" record "$tmp/rec-stop.mp4" & r=$!
+  sleep 2; "$sb" stop "rec$$" >/dev/null
+  n=0; while kill -0 $r 2>/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+  if kill -0 $r 2>/dev/null; then kill -9 $r; fail "record: outlived its session's stop"
+  else probe "$tmp/rec-stop.mp4" | grep -q "^h264,1280,800 " && ok "record: ends, finished, when its lasting session stops" \
+    || fail "record, session stopped: $(probe "$tmp/rec-stop.mp4")"; fi
+  # A window partly off the screen is recorded as far as it shows; one
+  # entirely off it is refused.
+  if command -v xdotool >/dev/null; then
+    "$sb" run -- sh -c "'$here/window.py' off & '$sb' wait window off &&
+      xdotool search --name '^off\$' windowmove -- -50 -30 && sleep 0.3 &&
+      '$sb' record '$tmp/rec-off.mp4' --window off --seconds 0.5 &&
+      xdotool search --name '^off\$' windowmove -- -500 -500 && sleep 0.3 &&
+      ! '$sb' record '$tmp/rec-gone.mp4' --window off --seconds 0.5 2> '$tmp/err'" > /dev/null \
+      && [ "$(probe "$tmp/rec-off.mp4" | cut -d' ' -f1)" = h264,150,90 ] && grep -q "nothing of that" "$tmp/err" \
+      && ok "record: a window partly off the screen, as far as it shows; one off it, refused" \
+      || fail "record off screen: $(probe "$tmp/rec-off.mp4"); $(cat "$tmp/err")"
+  else
+    echo "skip  record off the screen: no xdotool"
+  fi
+else
+  echo "skip  record: no ffmpeg"
+fi
 
 # Gamepads: only the session's in its /dev/input, read as a game reads
 # them; what's left down stays down between commands; and gone with the
