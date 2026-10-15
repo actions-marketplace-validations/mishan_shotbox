@@ -12,7 +12,7 @@ is driving it look and act: read the accessible tree, take screenshots,
 click by a button's name, type, hold keys and gamepad buttons, and wait
 until the program is actually ready. Then measure what it finds: names a
 screen reader can't say, contrast, the Tab order, and pixels changed
-against a reference. Nothing it runs can reach your desktop.
+against a reference. Nothing it runs reaches your desktop by accident.
 
 ```
 claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
@@ -45,6 +45,31 @@ when the server does.
 
 What it's for, the tools, and how it's built: [docs/mcp.md](docs/mcp.md).
 
+An agent that runs a program itself, from its shell, runs it on your
+desktop: a window opens on your screen, a sound plays through your
+speakers, a browser run under `xvfb-run` finds your Wayland display all
+the same. To keep it in a session, put this in the project's `CLAUDE.md`
+or `AGENTS.md`, or your own:
+
+```markdown
+## Graphical programs, browsers and sound
+
+Never run a graphical program, a browser (headless too) or anything that
+makes sound straight on this machine: it reaches my desktop and speakers.
+Run it in a shotbox session:
+
+- a picture: `shotbox shoot OUT.png --window RE -- COMMAND`
+- a script or a test suite: `shotbox run [--audio] -- COMMAND`
+- a browser from Node: the script under `shotbox run`; the shotbox
+  package's `sealed()` seals a browser's environment, but not the
+  speakers
+- a session to come back to: `shotbox start --name NAME`, then
+  `shotbox spawn --session NAME -- COMMAND`, and `shotbox stop NAME`
+
+Not `xvfb-run`: it lets `WAYLAND_DISPLAY` and the session bus through. A
+server started for a test listens on 127.0.0.1, not 0.0.0.0.
+```
+
 ## Why
 
 An agent checking its change, a screenshot for a README, and a test in CI
@@ -55,7 +80,9 @@ all want the same things, and every project was growing its own copy:
   and your session bus are gone; `HOME` and every XDG directory are a scratch
   dir. The bus has nothing activatable on it, so no gvfs, dconf or portals
   start behind your back. Settings are in-memory, so apps come up with their
-  own defaults, not yours.
+  own defaults, not yours. Programs run under bubblewrap, with no sound
+  devices and none of your desktop's sockets. What that does and doesn't
+  cover: [What's sealed](#whats-sealed).
 - **Ready, not slept.** Waits are for things: a window mapped, a port open, a
   file written, text on a terminal's screen, or the picture holding still.
   No `sleep 6` and hope.
@@ -72,8 +99,9 @@ Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
-`--gamepads`, bubblewrap and write access to `/dev/uinput`; for `record`,
-ffmpeg. On Debian:
+`--gamepads`, write access to `/dev/uinput`; for `record`, ffmpeg; and
+bubblewrap, which `--gamepads` needs, and which [seals](#whats-sealed)
+more where it's there. On Debian:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
@@ -194,7 +222,8 @@ for a [Wayland](#wayland) session; `--a11y` for an
 session's own, speaking the pulse protocol too, whose one sink plays to
 nowhere, so a program that makes sound has somewhere to play it (without
 it there's no sound server at all); `--gamepads N` for
-[gamepads](#gamepads); and the display presets:
+[gamepads](#gamepads); `--no-sandbox` for a program that needs a setuid
+helper (see [What's sealed](#whats-sealed)); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
 - `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
@@ -204,6 +233,53 @@ it there's no sound server at all); `--gamepads N` for
 
 Each is off unless asked for, so pictures without them don't change.
 Reduced motion needs no preset: GTK's animations are always off.
+
+### What's sealed
+
+A session keeps a program from reaching your desktop by accident: from
+opening a window on it, playing through your speakers, or picking up your
+settings. It isn't a security boundary against a program that sets out to.
+
+Sealed:
+- The environment, rebuilt from an allowlist: no `DISPLAY`,
+  `WAYLAND_DISPLAY`, session bus, SSH agent or anything else of yours but
+  what `--pass` lets through (a socket it names in `/run/user/UID` isn't
+  there under bubblewrap). `HOME` and every XDG directory are a scratch
+  dir.
+- A display, a session bus (nothing activatable on it), an accessibility
+  bus with `--a11y`, and a sound server with `--audio` (its sink plays to
+  nowhere), all the session's own.
+- Under bubblewrap, which every program the session spawns runs in where it
+  can: `/dev/snd` is empty, so nothing plays to the machine's sound
+  devices, and `/run/user/UID` is, so your desktop's Wayland, PulseAudio,
+  PipeWire and bus sockets aren't there to find. With `--gamepads`, only
+  the session's pads (see [Gamepads](#gamepads)).
+
+Not sealed:
+- The files: the filesystem is the machine's, readable and writable as
+  you, outside the scratch home.
+- The network: a server bound to `0.0.0.0` is on your network.
+- Your X server: its sockets, in `/tmp/.X11-unix` and the abstract one,
+  are reachable by a program that sets `DISPLAY` and finds your cookie
+  itself.
+- Other processes: a program can see them, and signal yours.
+- What the session starts for itself, the display server, the buses and
+  what they activate, and PipeWire, runs outside bubblewrap; and so does
+  what a program in a Wayland session has sway start for it.
+
+Without bubblewrap, or where it can't make a sandbox (user namespaces held
+back, as Ubuntu's AppArmor does), the session says so and runs programs
+without one: they can reach the sound devices and your desktop's sockets.
+With a `TMPDIR` in `/run/user/UID`, which the session's scratch dir is
+made in, your desktop's sockets there stay reachable; it says that too.
+`--gamepads` needs it, and fails instead, and has it with `--no-sandbox`
+too; and since `/dev/uinput` can't be opened under it, a session with
+gamepads can't be started from inside another. Under bubblewrap a program can't
+gain privileges (no setuid helpers: sudo, `fusermount`, so no AppImages),
+its supplementary groups show as `nogroup`, and one killed by a signal
+exits with 128 plus the signal's number; `--no-sandbox` runs programs
+without it, for one that needs those. The pid `spawn` reports is the
+program's own.
 
 ### Gamepads
 
@@ -230,11 +306,6 @@ open its overlay for `guide`): close it, or use another machine. It needs
 write access to `/dev/uinput` (which many desktops give the logged-in user,
 and the `input` group has) and `bwrap` with user namespaces, which the
 session checks for at the start.
-
-Under bubblewrap a program can't gain privileges (no setuid helpers: sudo,
-`fusermount`, so no AppImages), its supplementary groups show as
-`nogroup`, and one killed by a signal exits with 128 plus the signal's
-number. The pid `spawn` reports is the program's own.
 
 Inside, `shotbox pad` works them. What's left down stays down between
 commands, on X11 and Wayland alike, since a server in the session holds

@@ -22,6 +22,7 @@ import signal
 import socket
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 from .screen import SessionError, wait_for
@@ -132,7 +133,13 @@ def start(name, argv):
         proc = subprocess.Popen([*self_command(), "start", "--serve", try_name, *argv],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 stdin=subprocess.DEVNULL, start_new_session=True, text=True)
-        if proc.stdout.readline().strip() == "ready":
+        # Until it's ready, or gone: a line that's neither is read past.
+        line = proc.stdout.readline()
+        while line and line.strip() != "ready":
+            if line.startswith("warning "):
+                sys.stderr.write(f"shotbox: {line.removeprefix('warning ')}")
+            line = proc.stdout.readline()
+        if line.strip() == "ready":
             proc.stdout.close()
             proc.stderr.close()
             return try_name
@@ -184,6 +191,8 @@ def serve(name, session, keep=False):
         with socket.socket(socket.AF_UNIX) as server:
             server.bind(str(control))
             server.listen()
+            if session.unsealed:
+                print(f"warning {session.unsealed}")
             print("ready", flush=True)
             # Nothing more is written there, and the starter stops reading.
             devnull = os.open(os.devnull, os.O_WRONLY)
