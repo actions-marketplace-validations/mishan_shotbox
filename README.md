@@ -15,8 +15,9 @@ and lets whatever is driving it look, listen and act: read the accessible
 tree, take screenshots, record what it plays, click by a button's name,
 type, hold keys and gamepad buttons, and wait until the program is
 actually ready. Then measure what it finds: names a screen reader can't
-say, contrast, the Tab order, pixels changed against a reference, how
-fast it follows the pointer, where its sound drops out, and what it used.
+say, contrast, the Tab order, pixels changed against a reference, where
+it flickers, how fast it follows the pointer, where its sound drops out,
+and what it used.
 Nothing it runs reaches your desktop or speakers by accident, and with
 `--net loopback`, not your network either.
 
