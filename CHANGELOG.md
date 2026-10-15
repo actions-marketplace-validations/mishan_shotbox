@@ -92,7 +92,8 @@
   as fast as they come, a tile at a time, by its mean color and in time:
   its box, how many changes, how often, and both colors; and how many
   pictures it took and how many changed, on stdout whatever's found, a
-  rate too slow said.
+  rate too slow said. With `--save DIR`, a sheet of each one's pictures,
+  its box and a tile round it magnified, each labeled with its time.
   `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,

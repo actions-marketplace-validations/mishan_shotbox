@@ -306,7 +306,7 @@ class Screen:
         return at
 
     def flicker(self, seconds=2.0, window=None, crop=None, tile=16, brief=0.1, times=8,
-                fuzz=6.0, ignore=()):
+                fuzz=6.0, ignore=(), save=None):
         """Watch the display, or the window named `window`, cropped, for
         `seconds`, as fast as pictures come, for flicker and flashes (see
         flicker.py): tiles `tile` pixels square, a state no longer than
@@ -314,7 +314,9 @@ class Screen:
         within `fuzz` percent the same, and boxes (WxH+X+Y) in `ignore`
         left out. [dict(kind="flicker" or "flash", box, at, changes,
         every, looks)], a box of tiles each, in order, how many pictures
-        were taken, and how many of them changed."""
+        were taken, and how many of them changed. With `save`, a directory,
+        each one's pictures there as a sheet (see `_sheet`), its path its
+        "sheet" key."""
         from . import flicker
         w = self.window(window) if window else None
         geometry = r"(\d+)x(\d+)\+(\d+)\+(\d+)"
@@ -330,6 +332,11 @@ class Screen:
             if not m:
                 self.fail(f"what to ignore is WIDTHxHEIGHT+X+Y, not {g}")
             skip.append(tuple(int(n) for n in m.groups()))
+        if save:
+            try:
+                Path(save).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                self.fail(f"can't save to {save}: {e.strerror}")
         fd, png = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
         os.close(fd)
 
@@ -442,14 +449,16 @@ class Screen:
         found["flicker"] = {n: f for n, f in found["flicker"].items() if not scrolling(n, f[5])}
         found["flash"] = {n: [f for f in fs if not scrolling(n, f[4:])]
                           for n, fs in found["flash"].items()}
-        out = []
+        out, seen = [], []
         for bx, by, bw, bh, group in flicker.boxes(found["flicker"], across, tile):
             bw, bh = min(bw, width - bx), min(bh, height - by)    # tiles at the edge
             # The box said as its tile that changed most does.
-            at, changes, every, a, b, _ = max((found["flicker"][n] for n in group),
-                                              key=lambda f: f[1])
+            at, changes, every, a, b, ks = max((found["flicker"][n] for n in group),
+                                               key=lambda f: f[1])
             out.append(dict(kind="flicker", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=changes,
                             every=every, looks=(flicker.hex_of(a), flicker.hex_of(b))))
+            # A first look and eight changes: both looks, coming back.
+            seen.append(((bx, by, bw, bh), [ks[0] - 1, *ks[:8]]))
         flashes = found["flash"]
         down = len(looks[0]) // across
 
@@ -578,12 +587,51 @@ class Screen:
                        and still(m, i, st[1]) and brings(m, i, shown)):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
-                at, held_for, look, then, *_ = min((now[n] for n in group if n in now),
-                                                   key=lambda f: f[0])
+                at, held_for, look, then, first, back = min(
+                    (now[n] for n in group if n in now), key=lambda f: f[0])
                 out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
                                 every=held_for,
                                 looks=(flicker.hex_of(then), flicker.hex_of(look))))
-        return sorted(out, key=lambda f: f["at"]), taken, len(shots)
+                seen.append(((bx, by, bw, bh), [*range(first - 1, back)][:8] + [back]))
+        order = sorted(range(len(out)), key=lambda i: out[i]["at"])
+        if save:
+            for number, i in enumerate(order, 1):
+                f = out[i]
+                f["sheet"] = str(self._sheet(
+                    Path(save) / f"{number:0{len(str(len(out)))}d}-{f['kind']}-{f['box']}.png",
+                    [zlib.decompress(shots[k][1]) for k in seen[i][1]],
+                    [times_[k] for k in seen[i][1]], width, seen[i][0], tile))
+        return [out[i] for i in order], taken, len(shots)
+
+    def _sheet(self, out, pictures, times, width, box, margin):
+        """Pictures, RGB `width` wide, cut to `box` (x, y, width, height)
+        and `margin` round it, each labeled with its time, in order, as one
+        PNG at `out`: magnified, a pixel a square, up to 8 times, so a
+        band a pixel wide is seen."""
+        bx, by, bw, bh = box
+        height = len(pictures[0]) // 3 // width
+        x0, y0 = max(0, bx - margin), max(0, by - margin)
+        x1, y1 = min(width, bx + bw + margin), min(height, by + bh + margin)
+        scale = max(1, min(8, 384 // max(x1 - x0, y1 - y0)))
+        # As near square as it goes: a strip down the screen side by side,
+        # one across it one above another.
+        across = max(1, min(len(pictures), round((len(pictures) * (y1 - y0) / (x1 - x0)) ** 0.5)))
+        cells = []
+        try:
+            for n, (data, t) in enumerate(zip(pictures, times)):
+                cell = Path(self.env["SHOTBOX_SCRATCH"]) / f"{Path(out).stem}-{n}.png"
+                cells.append(cell)
+                subprocess.run([*x.CONVERT, "-background", "black", "-fill", "white",
+                                "-size", f"{x1 - x0}x{y1 - y0}", "-depth", "8", "rgb:-",
+                                "-scale", f"{scale * 100}%", "+size", "-pointsize", "14",
+                                f"label:{t:.3f}s", "-gravity", "center", "-append",
+                                "-bordercolor", "gray50", "-border", "1", str(cell)],
+                               input=b"".join(data[(y * width + x0) * 3:(y * width + x1) * 3]
+                                              for y in range(y0, y1)), check=True)
+            return x.sheet(cells, out, across=across, size=1920)
+        finally:
+            for cell in cells:
+                cell.unlink(missing_ok=True)
 
     def wait_announce(self, pattern, timeout=30):
         """Wait for a program to have announced something matching
