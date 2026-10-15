@@ -40,6 +40,7 @@ The pieces, and why each one:
   signalling a wrapper script alone leaves its children running.
 """
 
+import glob
 import json
 import grp
 import math
@@ -309,12 +310,12 @@ def need(*tools):
 
 
 def faketime():
-    """libfaketime's library, wherever the distribution put it."""
-    for d in (f"/usr/lib/{sysconfig.get_config_var('MULTIARCH') or ''}", "/usr/lib64",
-              "/usr/lib", "/usr/local/lib"):
-        lib = Path(d, "faketime", "libfaketime.so.1")
-        if lib.exists():
-            return str(lib)
+    """libfaketime's library, wherever the distribution put it: this
+    machine's multiarch dir, guessed where Python wasn't told it."""
+    arch = sysconfig.get_config_var("MULTIARCH") or os.uname().machine + "-*"
+    for d in (f"/usr/lib/{arch}", "/usr/lib64", "/usr/lib", "/usr/local/lib"):
+        for lib in sorted(glob.glob(f"{d}/faketime/libfaketime.so.1")):
+            return lib
     raise SessionError("the session's clock needs libfaketime, and there's no "
                        "libfaketime.so.1 here")
 
@@ -416,12 +417,18 @@ class Session(Screen):
         except (KeyError, ValueError):
             raise SessionError(f"there's no time zone called {tz!r}")
         try:
-            t = clock and datetime.fromisoformat(clock)
+            # Python reads a Z for UTC only from 3.11.
+            t = clock if isinstance(clock, datetime) else clock and datetime.fromisoformat(
+                re.sub(r"[Zz]$", "+00:00", clock))
         except ValueError:
             raise SessionError(f"the clock is an ISO 8601 time, like 2026-09-26T18:40:00, "
                                f"not {clock!r}")
         # In the zone, unless it names its own.
         self.clock = (t if t.tzinfo else t.replace(tzinfo=zone)).timestamp() if t else None
+        if self.clock is not None and self.clock < 0:
+            # The session's bus, for one, takes a time before it for no time.
+            raise SessionError(f"the clock starts in 1970 or after, not {clock}")
+        self._faketime = None
         self._time_env = {"TZ": tz} if tz else {}
         self._net_pid = None    # a process in the session's network namespace, with net
         m = re.fullmatch(r"([A-Za-z_][\w.-]{0,31})@([A-Za-z0-9][A-Za-z0-9.-]{0,63})",
@@ -490,10 +497,13 @@ class Session(Screen):
             # FAKETIME_DONT_RESET carries it on only to a program's own
             # children, not to the next one the session starts. Monotonic
             # clocks are left be, so timeouts aren't thrown out by it, and
-            # file times read as they are on disk.
-            self._time_env.update(LD_PRELOAD=faketime(),
-                                  FAKETIME=f"{math.ceil(self.clock - time.time()):+d}",
-                                  FAKETIME_DONT_FAKE_MONOTONIC="1", NO_FAKE_STAT="1")
+            # file times read as they are on disk. A fixed offset needs none
+            # of the shared memory libfaketime would leave in /dev/shm for
+            # each killed program.
+            self._faketime = faketime()
+            self._time_env.update(FAKETIME=f"{math.ceil(self.clock - time.time()):+d}",
+                                  FAKETIME_DONT_FAKE_MONOTONIC="1", NO_FAKE_STAT="1",
+                                  FAKETIME_DISABLE_SHM="1")
         # Sockets are made in the scratch dir, the longest sway's (run/
         # sway-ipc.UID.PID.sock), and Linux allows a socket path 107 bytes.
         tmp = tempfile.gettempdir()
@@ -810,6 +820,9 @@ class Session(Screen):
         if sysbus:
             env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
         env.update(self.extra_env)
+        if self._faketime:
+            # First, so the clock is libfaketime's whatever else is preloaded.
+            env["LD_PRELOAD"] = ":".join(filter(None, (self._faketime, env.get("LD_PRELOAD"))))
         return env
 
     def _activation_env(self):

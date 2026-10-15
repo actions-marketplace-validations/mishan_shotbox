@@ -257,6 +257,9 @@ from shotbox.session import faketime; faketime()" 2>/dev/null; then
     && [ $((s2 - s1)) -ge 3 ] && [ $((s2 - s1)) -le 8 ] \
     && ok "--clock: starts at TIME in its zone, and runs on for a program started later" \
     || fail "--clock: $(cat "$tmp/clock1" "$tmp/clock2"), from $t"
+  "$sb" term --shoot "$tmp/berlin.png" --size 30x4 --timeout 10 --when '18:40 CEST' \
+    --clock 2026-09-26T18:40:00 --tz Europe/Berlin -- date '+%H:%M %Z' >/dev/null \
+    && ok "term --shoot --clock: the terminal's program reads it" || fail "term --shoot --clock"
 else
   set +e; "$sb" exec --clock 2026-09-26T18:40:00 -- true 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && [ "$(cat "$tmp/err")" = "shotbox: the session's clock needs libfaketime, and there's no libfaketime.so.1 here" ] \

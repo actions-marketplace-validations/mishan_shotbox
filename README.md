@@ -340,8 +340,10 @@ a mail list, a `git log`'s dates. So that a reshoot only differs where the
 program does, `--clock TIME` starts the clock at TIME, ISO 8601
 (`2026-09-26T18:40:00`), as the session starts, and lets it run on, so
 animations and timeouts work as ever. TIME is in `--tz ZONE`
-(`Europe/Berlin`) if it's given, else UTC; and `--tz` is every program's
-`TZ`, so `date` and a panel clock read the same. It's the session's clock,
+(`Europe/Berlin`) if it's given, else UTC, unless it has an offset of its
+own (`+02:00`, `Z`), which it keeps, `--tz` then only the zone it's shown
+in; and `--tz` is every program's `TZ`, so `date` and a panel clock read
+the same. It's the session's clock,
 not each program's: one spawned a minute in reads a minute past TIME, as
 the first does by then.
 
