@@ -313,7 +313,8 @@ def cmd_wait(argv):
     if not looks:
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
         return 0
-    how = dict(window=a.window, crop=a.crop, fuzz=a.fuzz or "0%", most=a.max or 0,
+    how = dict(window=a.window, crop=a.crop, fuzz="0%" if a.fuzz is None else a.fuzz,
+               most=a.max or 0,
                timeout=a.timeout)
     at = screen.wait_match(a.arg, **how) if a.kind == "match" else screen.wait_change(**how)
     print(f"{at:.3f}s")

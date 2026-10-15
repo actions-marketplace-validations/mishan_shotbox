@@ -206,14 +206,18 @@ st=$?
 "$sb" run -- sh -c "'$here/window.py' t1 &
   '$sb' wait match '$tmp/app1.png' --window t1 --crop 10x10+0+0 --timeout 1" 2> "$tmp/err2"
 st2=$?
-bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--max -1' '--crop 10x10' '--crop 10x10+5000+0'; do
+"$sb" run -- sh -c "'$here/window.py' t1 &
+  '$sb' wait change --window t1 --crop 300x10+0+0 --timeout 1" 2> "$tmp/err3"
+st3=$?
+bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--fuzz 150%' '--max -1' '--crop 10x10' '--crop 10x10+5000+0'; do
   '$sb' wait change \$o --timeout 1 2>&1 && echo took; done")
 set -e
-[ $st != 0 ] && grep -q "window 't1' to match" "$tmp/err" && [ $st2 != 0 ] \
-  && grep -q "app1.png is 200x120, the picture taken 10x10" "$tmp/err2" \
-  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 4 ] \
+[ $st != 0 ] && grep -q "window 't1' to match" "$tmp/err" && ! grep -q "picture taken" "$tmp/err" \
+  && [ $st2 != 0 ] && grep -q "app1.png is 200x120, the picture taken 10x10" "$tmp/err2" \
+  && [ $st3 != 0 ] && grep -q "the crop isn't inside the window, 200x120" "$tmp/err3" \
+  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 5 ] \
   && ok "match gives up on a picture it doesn't look like, saying sizes that differ; bad options refused" \
-  || fail "match miss: $st $(cat "$tmp/err") $st2 $(cat "$tmp/err2") $bad"
+  || fail "match miss: $st $(cat "$tmp/err") $st2 $(cat "$tmp/err2") $st3 $(cat "$tmp/err3") $bad"
 "$sb" run -- sh -c "
   '$sb' term --size 30x5 -- bash --norc -c 'until [ -e $tmp/go ]; do sleep 0.1; done; echo go; sleep 60' &
   '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term || exit 1

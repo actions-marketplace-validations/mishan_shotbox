@@ -166,10 +166,12 @@ class Screen:
         """wait_match against `ref` (`name` to say), or with None,
         wait_change: the seconds from the start of the wait to the picture
         it passed on."""
-        if crop and not re.fullmatch(r"\d+x\d+\+\d+\+\d+", crop):
-            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, not {crop}")
-        if not re.fullmatch(r"(\d+\.?\d*|\.\d+)%", fuzz):
-            self.fail(f"fuzz is a percentage, like 2%, not {fuzz}")
+        box = crop and re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
+        if crop and not (box and int(box[1]) and int(box[2])):
+            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+        box = box and [int(n) for n in box.groups()]
+        if not (re.fullmatch(r"(\d+\.?\d*|\.\d+)%", fuzz) and float(fuzz[:-1]) <= 100):
+            self.fail(f"fuzz is a percentage, 0% to 100%, not {fuzz!r}")
         if most < 0:
             self.fail(f"the pixels that may differ are 0 or more, not {most}")
         match = ref is not None
@@ -177,23 +179,31 @@ class Screen:
         os.close(fd)
         now = Path(now)
         was = now.with_suffix(".was.png")
-        start, at, sizes = time.monotonic(), None, None
+        start, at, sizes, small = time.monotonic(), None, None, None
+        # The display's size doesn't change: a crop off it never fits. A
+        # window's may, still coming up, so one it doesn't fit is waited on.
+        if box and not window:
+            self.backend.capture(self.env, now)
+            wide, high = map(int, x.size_of(now).split("x"))
+            if box[0] + box[2] > wide or box[1] + box[3] > high:
+                now.unlink()
+                self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
 
         def looks():
-            nonlocal ref, at, sizes
+            nonlocal ref, at, sizes, small
             w = None
             if window:
                 w = self.backend.find_window(self.env, window)
                 if not w:
+                    return False
+                if box and (box[0] + box[2] > w[2] or box[1] + box[3] > w[3]):
+                    small = f"{w[2]}x{w[3]}"
                     return False
             t = time.monotonic()
             try:
                 self.backend.capture(self.env, now, window=w, crop=crop)
             except subprocess.CalledProcessError:
                 return False        # a window gone between finding it and taking it
-            if crop and x.size_of(now) != crop.split("+")[0]:
-                self.fail(f"the crop {crop} isn't inside the "
-                          + (f"window {window!r}" if window else "display"))
             if ref is None:
                 ref = now.rename(was)
                 return False
@@ -212,7 +222,9 @@ class Screen:
         try:
             wait_for(what, looks, timeout)
         except SessionError as e:
-            if match and sizes:
+            if small:
+                e = f"{e}; the crop isn't inside the window, {small}"
+            elif match and sizes:
                 e = f"{e}; {name} is {sizes[0]}, the picture taken {sizes[1]}"
             self.fail(str(e))
         finally:
