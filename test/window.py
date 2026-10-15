@@ -2,7 +2,7 @@
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
-or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy. With LOG, it holds an entry instead, and
+or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -153,6 +153,45 @@ elif sys.argv[2:3] in (["band"], ["noisy"]):
         area.queue_draw()
         return True
     GLib.timeout_add(30, swap)
+    w.add(area)
+elif sys.argv[2:3] == ["panel"]:
+    # A gray panel with a word in it, white for 40 ms every second, beside
+    # a caret that blinks every half second and a spinner that turns: a
+    # flash, with what changes beside it something else.
+    area, n, white = Gtk.DrawingArea(), [0], [False]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.5, 0.5, 0.5)
+        cr.paint()
+        cr.set_source_rgb(1, 1, 1) if white[0] else cr.set_source_rgb(0.3, 0.3, 0.3)
+        cr.rectangle(32, 32, 64, 64)
+        cr.fill()
+        cr.set_source_rgb(0, 0, 0)
+        cr.move_to(36, 46)
+        cr.show_text("Hi")
+        if n[0] // 17 % 2:
+            cr.rectangle(98, 40, 2, 14)
+            cr.fill()
+        cr.arc(124, 64, 8, n[0] * 0.5, n[0] * 0.5 + 4)
+        cr.stroke()
+    area.connect("draw", draw)
+
+    def tick():
+        n[0] += 1
+        area.queue_draw()
+        return True
+
+    def turn(to):
+        white[0] = to
+        area.queue_draw()
+        return False
+
+    def flash():
+        turn(True)
+        GLib.timeout_add(40, turn, False)
+        return True
+    GLib.timeout_add(30, tick)
+    GLib.timeout_add(1000, flash)
     w.add(area)
 elif sys.argv[2:3] == ["strip"]:
     # As bzflag's strip: black every other 30 ms, and between, a green

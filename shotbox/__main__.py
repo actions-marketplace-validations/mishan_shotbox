@@ -738,7 +738,9 @@ def cmd_flicker(argv):
     p.add_argument("--times", type=int, default=4, metavar="N",
                    help="brief changes between two looks, in a row, that are flicker (4)")
     p.add_argument("--fuzz", type=float, default=6, metavar="PCT",
-                   help="tiles' mean colors this close are one look (6)")
+                   help="how near two colors are to count as one (6): a tile's mean "
+                        "color moving a quarter of this is a new look, and its pixels "
+                        "within twice this the same picture")
     p.add_argument("--tile", type=int, default=16, metavar="PX", help="tile size (16)")
     p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
                    help="leave out tiles in this box: a video, a caret (repeatable)")

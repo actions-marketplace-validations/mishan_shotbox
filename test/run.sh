@@ -456,7 +456,8 @@ st=$?; set -e
 # flickers, said in the band's own colors, and so does a strip whose black
 # is a dark gray with noise in it; and a
 # still window, a moving square, slowly or through a tile in a picture,
-# and text scrolling past, close or spaced, none.
+# and text scrolling past, close or spaced, none; and a panel with a word
+# in it flashing white, beside a caret and a spinner, flashes.
 flickered=""
 for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
          "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
@@ -464,7 +465,7 @@ for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #
          "scene - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
          "band 3 1 ^flicker: 16x120+176+0, .* every [1-5][0-9] ms, .*#000000" \
          "band 1 1 ^flicker: 16x120+176+0, " "noisy - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
-         "fast - 0"; do
+         "fast - 0" "panel - 1 ^flash: .*, #ffffff for [2-6][0-9] ms in "; do
   set -- $c
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e

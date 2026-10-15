@@ -116,11 +116,12 @@ def needs(held, brief):
 def find(held, brief, times, fuzz, pixels):
     """In one tile's states, its longest flicker, as (start, changes, mean
     seconds a brief state, look A, look B), or else a flash, as (start,
-    seconds, look, then look), or None: see the module's docstring.
+    seconds, look, then look, picture), each, or None and []: see the
+    module's docstring.
     `pixels(k)` is the tile's pixels in picture `k`, of those `needs` says,
     which decide what the mean colors found: brief states one after
     another. A flash is said with its picture too, to tell it from motion."""
-    best, flash = None, None
+    best, flashes = None, []
     for seq in runs(held, brief):
         changes = len(seq) - 1
         recur = [all(alike(pixels(seq[m][3]), pixels(seq[m + 2][3]), fuzz)
@@ -135,11 +136,11 @@ def find(held, brief, times, fuzz, pixels):
             best = run if best is None or changes > best[1] else best
         # A flash: from a picture that held still, to a color, and back:
         # what's moving holds no picture still, though it come back.
-        elif (changes == 2 and recur[0] and plains[1] and not flash
+        elif (changes == 2 and recur[0] and plains[1]
               and alike(pixels(seq[0][3]), pixels(seq[1][3] - 1), fuzz)):
             before, during = colors(a, b, fuzz)
-            flash = (seq[1][1], seq[1][2], during, before, seq[1][3])
-    return best, (None if best else flash)
+            flashes.append((seq[1][1], seq[1][2], during, before, seq[1][3]))
+    return best, ([] if best else flashes)
 
 
 def boxes(tiles, across, tile):

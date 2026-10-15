@@ -402,17 +402,34 @@ class Screen:
             out.append(dict(kind="flicker", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=changes,
                             every=every, looks=(flicker.hex_of(a), flicker.hex_of(b))))
         flashes = found["flash"]
-        for k in sorted({f[4] for f in flashes.values()}):
-            # Tiles that flashed in the same picture make a box. A flash
-            # leaves the tiles round it as they were; something moving
-            # through changes one beside it, a picture or three before or
-            # after.
-            now = {n: f for n, f in flashes.items() if f[4] == k}
+        down = len(looks[0]) // across
+
+        def beside(group):
+            """The tiles round a group of tiles, not in it."""
+            at = ((m % across, m // across) for m in group)
+            return {(y + dy) * across + x + dx for x, y in at
+                    for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                    if 0 <= x + dx < across and 0 <= y + dy < down} - set(group)
+
+        def toward(k, n):
+            """How tile n's mean color moved in picture k."""
+            return [a - b for a, b in zip(looks[k][n], looks[k - 1][n])]
+
+        for k in sorted({f[4] for fs in flashes.values() for f in fs}):
+            # Tiles that flashed in the same picture make a box. Something
+            # moving through turns a tile beside it the same way a picture
+            # or three before or after; a flash doesn't, and what changes
+            # beside it in the same picture, or another way, is something
+            # else: a caret, a spinner, a word in the flash.
+            now = {n: f for n, fs in flashes.items() for f in fs if f[4] == k}
             for bx, by, bw, bh, group in flicker.boxes(now, across, tile):
-                near = {m + dx + dy * across for m in group for dx in (-1, 0, 1)
-                        for dy in (-1, 0, 1)} - set(group)
-                if any(abs(st[3] - k) <= 3 for m in near if m in helds
-                       for st in helds[m][1:]):
+                way = [sum(c) / len(group) for c in zip(*(toward(k, n) for n in group))]
+                size = sum(c * c for c in way) ** 0.5
+                if size and any(
+                        sum(a * b for a, b in zip(way, d)) > 0.8 * size * sum(c * c for c in d) ** 0.5
+                        for m in beside(group) if m in helds
+                        for st in helds[m][1:] if 0 < abs(st[3] - k) <= 3
+                        for d in [toward(st[3], m)]):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
                 at, held_for, look, then, _ = now[group[0]]
