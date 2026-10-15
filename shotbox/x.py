@@ -4,7 +4,9 @@ Uses the X tools every distro has (xwininfo, ImageMagick's import and
 convert) rather than a Python X binding, so there's nothing to install.
 """
 
+import ctypes
 import hashlib
+import os
 import re
 import shutil
 import signal
@@ -153,6 +155,18 @@ def record(env, out, box, seconds=None, fps=30, pointer=False):
     return out
 
 
+def stop_with(parent):
+    """For preexec_fn: a SIGTERM for the child when `parent` (this process)
+    goes. Linux sends it when the thread that started the child ends, and
+    record() waits on that thread for as long as the child runs."""
+    def prctl():
+        PR_SET_PDEATHSIG = 1
+        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0)
+        if os.getppid() != parent:      # it went before the line above took
+            os._exit(1)
+    return prctl
+
+
 def _record(env, video, box, seconds, fps, pointer):
     w, h, x, y = box
     w, h = w - w % 2, h - h % 2         # the encoders' color sampling halves each side
@@ -160,14 +174,21 @@ def _record(env, video, box, seconds, fps, pointer):
            "-framerate", str(fps), "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
     cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
     cmd += VIDEO[".webm" if video.suffix.lower() == ".webm" else ".mp4"] + [str(video)]
-    # Its own session, so a Ctrl-C reaches it only as passed on here.
+    # Its own session, so a Ctrl-C reaches it only as passed on here; and
+    # stopped (finishing the file) if this process goes without passing
+    # one on, killed: in its own session, nothing else would stop it.
     proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            start_new_session=True)
+                            start_new_session=True, preexec_fn=stop_with(os.getpid()))
     try:
         _, err = proc.communicate()
     except KeyboardInterrupt:
         proc.send_signal(signal.SIGINT)     # ffmpeg finishes the file and stops
-        _, err = proc.communicate()
+        while True:
+            try:
+                _, err = proc.communicate()
+                break
+            except KeyboardInterrupt:
+                pass        # it's finishing the file the first stop asked for
     if proc.returncode not in (0, 255) or not video.exists():
         raise RuntimeError(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}")
     # Stopped before the first frame, ffmpeg writes a file with no video in it.

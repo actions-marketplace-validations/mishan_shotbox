@@ -332,7 +332,9 @@ def cmd_record(argv):
                                             "the file properly). X11 sessions; needs ffmpeg.")
     p.add_argument("out", metavar="OUT", help="an .mp4, .webm or .gif")
     p.add_argument("--seconds", type=seconds, metavar="SECS")
-    p.add_argument("--window", metavar="RE")
+    p.add_argument("--window", metavar="RE",
+                   help="where this window is when it starts: what's drawn over it is "
+                        "recorded too, and it isn't followed if it moves")
     p.add_argument("--crop", metavar="WxH+X+Y", help="inside the display or the window")
     p.add_argument("--fps", type=int, default=30, choices=range(1, 61), metavar="N",
                    help="frames a second, 1 to 60 (30)")
@@ -602,7 +604,8 @@ def cmd_compare(argv):
 
 
 COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_wait,
-            "capture": cmd_capture, "record": cmd_record, "compare": cmd_compare, "vision": cmd_vision, "key": cmd_key,
+            "capture": cmd_capture, "record": cmd_record, "compare": cmd_compare,
+            "vision": cmd_vision, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "pad": cmd_pad,
@@ -612,8 +615,8 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "sessions": cmd_sessions}
 
 # What --session puts inside a lasting session.
-INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus", "pad",
-          "a11y")
+INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",
+          "pad", "a11y")
 
 
 def main(argv=None):

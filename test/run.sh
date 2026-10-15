@@ -684,6 +684,16 @@ if command -v ffmpeg >/dev/null; then
   [ "$(probe "$tmp/rec-run.gif" | cut -d' ' -f1)" = gif,1280,800 ] && [ -z "$(ls "$tmp/rtmp")" ] \
     && ok "record: a GIF in a session that's stopped, finished, nothing left behind" \
     || fail "record, stopped run: $(probe "$tmp/rec-run.gif"); $(ls "$tmp/rtmp")"
+  # Killed outright, record takes its ffmpeg with it, which otherwise goes
+  # on recording a display that's gone; the file is finished all the same.
+  "$sb" run -- sh -c "'$here/window.py' rk & '$sb' wait window rk &&
+    { '$sb' record '$tmp/rec-9.mp4' --window rk & r=\$!; sleep 1.5; kill -9 \$r; }
+    n=0; while pgrep -ax ffmpeg | grep -q rec-9 && [ \$n -lt 50 ]; do sleep 0.1; n=\$((n + 1)); done
+    ! pgrep -ax ffmpeg | grep -q rec-9" > /dev/null \
+    && probe "$tmp/rec-9.mp4" | grep -q "^h264,200,120 " \
+    && ok "record: killed outright, its ffmpeg stops and finishes the file" \
+    || { fail "record, killed: $(probe "$tmp/rec-9.mp4")"
+         pgrep -ax ffmpeg | grep rec-9 | cut -d' ' -f1 | xargs -r kill; }
   # A window partly off the screen is recorded as far as it shows; one
   # entirely off it is refused.
   if command -v xdotool >/dev/null; then

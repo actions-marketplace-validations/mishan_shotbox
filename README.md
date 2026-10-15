@@ -125,9 +125,10 @@ an animation, a transition, something moving. `shotbox record OUT.mp4
 .mp4, .webm or .gif, for SECS, or until it's stopped (Ctrl-C, or `kill` when
 it runs in the background with `&`), which finishes the file properly. The
 pointer isn't drawn unless `--pointer`, as in a picture (`--park` moves it
-aside first), and a window partly off the screen is recorded as far as it
-shows. It needs ffmpeg,
-and works in X11 sessions only for now. A wait that gives up takes a
+aside first). A window is recorded where it is when recording starts, as
+far as it's on the screen: it isn't followed if it moves, and what's drawn
+over it is recorded too. It needs ffmpeg, and works in X11 sessions only
+for now. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
 
