@@ -62,6 +62,16 @@ def pointer(on, **session):
         s.capture(d / "parked.png", window="shotbox-button", park=True)
         check(x.compare(d / "rest.png", d / "parked.png") == 0,
               f"{on}: capture(park=True) takes it as if never hovered")
+        (d / "script").write_text(f"click {w[2] // 2} {w[3] // 2} --window shotbox-button\n"
+                                  "+0.5 park --settle 0\n")
+        s.play(d / "script")
+        check((d / "clicks").read_text() == "clicked\n" * 2, f"{on}: play() a script's file")
+        try:
+            s.play("park\nclick 1 1 --window ${NOPE}")
+            check(False, f"{on}: play() text, an unset name raising")
+        except shotbox.SessionError as e:
+            check(str(e) == "line 2: ${NOPE} isn't set",
+                  f"{on}: play() text, an unset name raising, by its line ({e})")
         s.failed = str(d / "failed.png")
         try:
             s.wait_window("never", timeout=0.5)

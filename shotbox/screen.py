@@ -51,6 +51,15 @@ def wait_for(what, test, timeout, interval=0.1, alive=None):
         time.sleep(interval)
 
 
+def rest(seconds):
+    """Sleep, a twentieth of a second at a time: a thread (a step of
+    `shotbox play` in the background) is stopped between one line of
+    Python and the next, so a long hold is stopped soon, not at its end."""
+    end = time.monotonic() + seconds
+    while (left := end - time.monotonic()) > 0:
+        time.sleep(min(left, 0.05))
+
+
 class Screen:
     """The display in `env` (DISPLAY, XAUTHORITY and SHOTBOX_SCRATCH; the
     process's own environment by default)."""
@@ -937,7 +946,7 @@ class Screen:
                     self.xt.chord(c, "down", keep=held)
                     held.append(c)
             if hold is not None:
-                time.sleep(hold)
+                rest(hold)
             done = True
         finally:
             # After a hold, or if anything went wrong: nothing it pressed
@@ -1069,7 +1078,7 @@ class Screen:
         if hold is not None:
             self.xt.button(*at, button=button, state="down")
             try:
-                time.sleep(hold)
+                rest(hold)
             finally:
                 self.xt.button(*at, button=button, state="up")
             return
@@ -1110,7 +1119,7 @@ class Screen:
             return
         token = self._pad({"op": "buttons", "pad": n, "names": names, "state": "press"})["token"]
         try:
-            time.sleep(self.TAP if hold is None else hold)
+            rest(self.TAP if hold is None else hold)
         finally:
             self._pad({"op": "buttons", "pad": n, "names": names, "state": "release",
                        "token": token})
@@ -1122,7 +1131,7 @@ class Screen:
         token = self._pad({"op": "stick", "pad": n, "which": which, "x": px, "y": py})["token"]
         if hold is not None:
             try:
-                time.sleep(hold)
+                rest(hold)
             finally:
                 self._pad({"op": "stick", "pad": n, "which": which, "x": 0, "y": 0,
                            "token": token})
@@ -1134,7 +1143,7 @@ class Screen:
         token = self._pad({"op": "trigger", "pad": n, "which": which, "value": value})["token"]
         if hold is not None:
             try:
-                time.sleep(hold)
+                rest(hold)
             finally:
                 self._pad({"op": "trigger", "pad": n, "which": which, "value": 0,
                            "token": token})
@@ -1154,6 +1163,16 @@ class Screen:
                 wait_for("", x.Still(self.env, quiet=0.3, backend=self.backend), settle)
             except SessionError:
                 pass
+
+    # --- scripts --------------------------------------------------------------
+
+    def play(self, script, verbose=False):
+        """Play a script of timed steps, as `shotbox play` does: its text,
+        or with a Path, the file's. Every step is checked before the first
+        starts; SessionError, naming the line, if one is wrong or fails, once
+        what runs in the background is stopped."""
+        from .__main__ import play
+        play(script, self, verbose)
 
     def close(self):
         if self._x is not None:

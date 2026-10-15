@@ -35,6 +35,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   ..., sound=False)` takes a video, or a `.wav` of the sound, and returns
   a Recording: its `path` and, with `sound`, `heard` (as
   `shotbox.sound.hear` says) and `problems()`.
+- Scripts: `play(script, verbose=False)` plays one as `shotbox play`
+  does: a string is its text, a `Path` its file. An error names the line.
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
   screen there first, and says where.

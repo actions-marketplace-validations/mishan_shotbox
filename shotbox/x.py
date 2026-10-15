@@ -166,7 +166,10 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
     proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound,
                      gap=gap, size=size)
     try:
-        proc.wait()
+        # Polled: a thread (a step of `shotbox play` in the background) is
+        # stopped between one line of Python and the next, never in a wait.
+        while proc.poll() is None:
+            time.sleep(0.05)
     except KeyboardInterrupt:
         stop(proc)
     out = ended(proc, out)

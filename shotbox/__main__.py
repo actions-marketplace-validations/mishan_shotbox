@@ -18,6 +18,7 @@
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
+    shotbox play SCRIPT                             (inside a session) timed steps, on one clock
     shotbox latency move X1 Y1 X2 Y2 --watch G      (inside a session) how fast it follows
     shotbox flicker [--window RE] [--crop G]        (inside a session) find what flickers
     shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
@@ -35,13 +36,18 @@ session in a lasting one. `shotbox COMMAND --help` for each one's options.
 
 import argparse
 import contextlib
+import ctypes
+import io
 import json
 import math
 import os
+import re
+import shlex
 import signal
 import statistics
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -354,15 +360,27 @@ def take(a, cmd, waits, out):
     return 0
 
 
+class Checked(Exception):
+    """A step of a script, its arguments taken, stopped where it would start."""
+
+
+# What a step of `shotbox play` runs on, in the thread it runs in, and
+# whether it's only being checked.
+playing = threading.local()
+
+
 def inside(display=True):
     """The display of the session this runs in, or with `display` off, the
     session, which may have none."""
-    if not os.environ.get("SHOTBOX_SCRATCH"):
+    screen = getattr(playing, "screen", None) or Screen()
+    if not screen.env.get("SHOTBOX_SCRATCH"):
         raise SystemExit("shotbox: this only works inside `shotbox run` or `exec`, or "
                          "with `shotbox --session NAME`")
-    if display and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+    if display and not (screen.env.get("DISPLAY") or screen.env.get("WAYLAND_DISPLAY")):
         raise SystemExit("shotbox: this session has no display")
-    return Screen()
+    if getattr(playing, "checking", False):
+        raise Checked
+    return screen
 
 
 def cmd_spawn(argv):
@@ -853,6 +871,156 @@ def cmd_pad(argv):
     return 0
 
 
+def cmd_play(argv):
+    p = argparse.ArgumentParser(prog="shotbox play",
+                                description="Inside `shotbox run`: play a script, a step a "
+                                            "line, all on one clock in this one process. "
+                                            "A step is an optional time, then a command "
+                                            "for inside a session as it's given after "
+                                            "`shotbox`. A time is seconds from the start, "
+                                            "or +SECS after the step before ended; with "
+                                            "none, right after it. A step ending in & "
+                                            "runs on behind those after it, and the "
+                                            "script waits for it at its end. ${NAME} is "
+                                            "the session's variable; # starts a comment.")
+    p.add_argument("script", metavar="SCRIPT", help="the file, or - to read it from stdin")
+    p.add_argument("--verbose", action="store_true",
+                   help="say each step on stderr as it starts, and when")
+    a = p.parse_args(argv)
+    stdin = a.script == "-"
+    play(sys.stdin.read() if stdin else Path(a.script), inside(display=False), a.verbose,
+         source="stdin" if stdin else None)
+    return 0
+
+
+def play(script, screen, verbose=False, source=None):
+    """Play `script`, its text, or with a path, the file, on `screen`. Every
+    step is checked before the first starts; SessionError, naming the line,
+    if one is wrong or fails, once what runs in the background is stopped."""
+    if isinstance(script, os.PathLike):
+        source = str(script)
+        try:
+            script = Path(script).read_text()
+        except OSError as e:
+            raise SessionError(f"can't read {source}: {e.strerror}") from None
+    # a11y isn't one: it starts before it can be stopped to be checked.
+    played = [c for c in INSIDE if c not in ("a11y", "play")]
+    steps = []
+    for n, line in enumerate(script.splitlines(), 1):
+        where = f"{source}:{n}" if source else f"line {n}"
+        try:
+            words = shlex.split(line, comments=True)
+            at = words.pop(0) if words and re.fullmatch(r"\+?(\d+\.?\d*|\.\d+)", words[0]) else None
+            back = words[-1:] == ["&"]
+            words = [re.sub(r"\$\{(\w+)\}", lambda m: screen.env[m[1]], w)
+                     for w in words[:len(words) - back]]
+        except ValueError as e:
+            raise SessionError(f"{where}: {e}") from None
+        except KeyError as e:
+            raise SessionError(f"{where}: ${{{e.args[0]}}} isn't set") from None
+        if words and words[0] not in played:
+            raise SessionError(f"{where}: {words[0]} isn't a step: {', '.join(played)}")
+        if back and not words:
+            raise SessionError(f"{where}: & with nothing to run")
+        if at or words:
+            steps.append((where, at, words, back))
+
+    def said(where, why):
+        return f"{where}: {str(why).removeprefix('shotbox: ')}"
+
+    playing.screen, playing.checking = screen, True
+    try:
+        for where, _, words, _ in steps:
+            heard = io.StringIO()
+            try:
+                if words:
+                    with contextlib.redirect_stderr(heard):
+                        COMMANDS[words[0]](words[1:])
+            except Checked:
+                pass
+            except SystemExit as e:
+                raise SessionError(said(where, heard.getvalue().strip().rpartition("\n")[2]
+                                        or e.code)) from None
+            except (SessionError, xtest.XError) as e:
+                raise SessionError(said(where, e)) from None
+    finally:
+        playing.checking = False
+
+    errors, threads, lock = [], [], threading.Lock()
+
+    def run(where, words):
+        """The step, on this thread's screen: what went wrong, or None."""
+        failed = playing.screen.failed      # a wait's --failed is its own
+        try:
+            if COMMANDS[words[0]](words[1:]):
+                return f"{where}: {words[0]} failed"
+        except (SessionError, xtest.XError) as e:
+            return said(where, e)
+        except SystemExit as e:
+            return said(where, e.code)
+        finally:
+            playing.screen.failed = failed
+        return None
+
+    def behind(where, words):
+        # A screen of its own: one input connection isn't for two threads.
+        playing.screen = Screen(screen.env, screen.failed)
+        try:
+            try:
+                why = run(where, words)
+            finally:
+                with lock:
+                    threading.current_thread().live = False
+        except KeyboardInterrupt:
+            why = None
+        playing.screen.close()
+        if why:
+            errors.append(why)
+
+    def stop():
+        """Stop what runs in the background as Ctrl-C stops a command, and
+        wait while it finishes: a recording, its file; a hold, letting go."""
+        with lock:
+            for t in threads:
+                if t.live:
+                    ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                        ctypes.c_ulong(t.ident), ctypes.py_object(KeyboardInterrupt))
+        for t in threads:
+            t.join()
+
+    start = last = time.monotonic()
+    try:
+        for where, at, words, back in steps:
+            if errors:
+                break
+            if at:
+                due = (last if at[0] == "+" else start) + float(at)
+                if at[0] != "+" and time.monotonic() - due > 0.1:
+                    sys.stderr.write(f"shotbox: {where}: {time.monotonic() - due:.2f}s late\n")
+                time.sleep(max(due - time.monotonic(), 0))
+            if verbose and words:
+                sys.stderr.write(f"{time.monotonic() - start:.3f}s  {shlex.join(words)}"
+                                 f"{' &' * back}\n")
+            if back:
+                threads.append(threading.Thread(target=behind, args=(where, words)))
+                threads[-1].live = True
+                threads[-1].start()
+            elif words and (why := run(where, words)):
+                errors.append(why)
+            last = time.monotonic()
+        if errors:
+            stop()
+        for t in threads:
+            t.join()
+    except KeyboardInterrupt:
+        stop()
+        raise
+    finally:
+        playing.screen = None
+    if errors:
+        raise SessionError("; ".join(errors))
+
+
 def per_name(values, name, default):
     """--fuzz and --max: the last NAME=VALUE for this picture, else the last
     plain VALUE, else the default."""
@@ -952,7 +1120,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "latency": cmd_latency,
-            "flicker": cmd_flicker, "pad": cmd_pad,
+            "flicker": cmd_flicker, "pad": cmd_pad, "play": cmd_play,
             "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
@@ -960,7 +1128,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
 
 # What --session puts inside a lasting session.
 INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",
-          "pad", "a11y", "latency", "flicker")
+          "pad", "a11y", "latency", "flicker", "play")
 
 
 def main(argv=None):
@@ -977,7 +1145,7 @@ def main(argv=None):
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
-        if argv[0] in ("key", "click", "pad", "record"):
+        if argv[0] in ("key", "click", "pad", "record", "play"):
             # Stopped mid-hold (by kill, timeout(1) or a closed terminal),
             # let go on the way out; a recording finishes its file.
             for sig in (signal.SIGTERM, signal.SIGHUP):

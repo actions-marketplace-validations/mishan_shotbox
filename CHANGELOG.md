@@ -46,6 +46,14 @@
 
 ### Added
 
+- **`shotbox play SCRIPT`**: a script of timed input, played in a
+  session on one clock in one process, so a demo plays out the same way
+  each time it's recorded. A line is a time (seconds from the start, or
+  `+SECS` after the step before) and a command for inside a session; one
+  ending in `&` runs on in the background, a recording say, and
+  `${NAME}` is the session's variable. Every line is checked before the
+  first runs, and a failure says its file and line. Also `Screen.play`,
+  which takes the text, or a Path to the file.
 - **`wait line RE FILE`**: wait for a line matching RE to be written to
   a file, and print it, for a script that follows a program's log of
   what happens rather than sleeping by a clock the program may not
