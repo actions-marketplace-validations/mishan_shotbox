@@ -166,9 +166,12 @@ try:
         said, bad, _ = tool("wait_for", session="h", what="line", value="beacon_claimed",
                             file="game.log")
     refused = [tool("wait_for", session="h", what="line", value="x", file=f)[:2]
-               for f in ("/etc/hostname", "../" * 20 + "etc/hostname")]
+               for f in ("/etc/hostname", "../" * 20 + "etc/hostname", ".")]
+    threading.Timer(0.5, (tmp / "later.log").symlink_to, ["/etc/hostname"]).start()
+    later, later_bad, _ = tool("wait_for", session="h", what="line", value="", file="later.log")
     check(not bad and said == "beacon_claimed 2"
-          and all(bad and "by its path from there" in said for said, bad in refused),
+          and all(bad and "by its path from there" in said for said, bad in refused)
+          and later_bad and "outside" in later,
           f"wait_for: line, a new one, in a file in the allow file's directory only ({said})")
     steps = [("click", dict(x=50, y=50, window="held")),
              ("press_keys", dict(keys="w", state="down")),

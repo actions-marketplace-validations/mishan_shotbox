@@ -7,8 +7,8 @@
     shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
-    shotbox wait window|port|file|ready|stable|announce|match|change|line [ARG]
-                                                    (inside a session) wait for it
+    shotbox wait window|port|file|ready|stable|announce|match|change [ARG]
+    shotbox wait line RE FILE                       (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox record OUT.mp4|OUT.wav [--seconds S]    (inside a session) take a video, or the sound
     shotbox key CHORD...                            (inside a session) press keys

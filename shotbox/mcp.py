@@ -413,7 +413,7 @@ class Server:
                           "and shotbox mcp was given no --allow file")
         home = Path(self.home).resolve()
         path = (home / str(file)).resolve()
-        if not path.is_relative_to(home):
+        if not path.is_relative_to(home) or path.is_dir():
             raise Refused(f"wait_for line reads a file in {home}, by its path from there, "
                           f"not {file!r}")
         return path
@@ -449,7 +449,8 @@ class Server:
                                                       window=text(window))
             return f"The focus is on {n.line()}."
         if what == "line":
-            return s.wait_line(str(value), self.log(file), flag(from_start), timeout)
+            return s.wait_line(str(value), self.log(file), flag(from_start), timeout,
+                               within=Path(self.home).resolve())
         raise Refused(f"wait_for waits for a window, stable, an announcement, focus, match, "
                       f"change or a line, not {what!r}")
 

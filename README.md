@@ -178,7 +178,8 @@ what happens, a line an event, where a sleep would go by the wall's clock
 and a game's can stop. Lines written before the wait starts don't count
 (`--from-start` for those too), nor one not yet ended; a file not there yet
 is waited for, and one rotated or written again from the top is read from
-its start. `capture --burst N [--every SECS] [--sheet
+its start (lines written to a rotated one just before it went may be
+missed). `capture --burst N [--every SECS] [--sheet
 FILE]` takes N pictures, to OUT-1.png, OUT-2.png..., one starting every SECS
 (or as fast as they come), and prints when each was taken; `--sheet` puts
 them in rows of four in one picture too. For what one picture can't show:

@@ -319,8 +319,8 @@ set -e
 
 # line: one written after the wait starts, not one begun before, and only
 # once it ends; from the top with --from-start; in a file that comes later,
-# one rotated, and one written again from the top. Given up on, with a
-# picture.
+# one rotated, and one written again from the top, shorter or longer. Given
+# up on, with a picture; a directory, said.
 printf 'beacon_claimed 0\nold ' > "$tmp/game.log"
 set +e
 out=$("$sb" exec -- sh -c "
@@ -332,12 +332,15 @@ out=$("$sb" exec -- sh -c "
   { sleep 1; mv '$tmp/new.log' '$tmp/old.log'; echo defense_ended > '$tmp/new.log'; } &
   '$sb' wait line defense '$tmp/new.log'
   { sleep 1; echo wave_1 > '$tmp/new.log'; } &
-  '$sb' wait line wave '$tmp/new.log'")
+  '$sb' wait line wave '$tmp/new.log'
+  { sleep 1; printf 'wave_2\nlonger than what was there before\n' > '$tmp/new.log'; } &
+  '$sb' wait line wave '$tmp/new.log'
+  '$sb' wait line x '$tmp' --timeout 1 2>&1")
 "$sb" run -- "$sb" wait line nothing "$tmp/game.log" --timeout 1 --failed "$tmp/line.png" 2> "$tmp/err"
 st=$?; set -e
-[ "$(echo $out)" = "beacon_claimed 1 beacon_claimed 0 defense_started defense_ended wave_1" ] \
+[ "$(echo $out)" = "beacon_claimed 1 beacon_claimed 0 defense_started defense_ended wave_1 wave_2 shotbox: can't read $tmp: Is a directory" ] \
   && [ $st != 0 ] && grep -q "a line matching 'nothing'" "$tmp/err" && [ -s "$tmp/line.png" ] \
-  && ok "line: a new one, whole, in a file that comes later or is replaced; given up on, with a picture" \
+  && ok "line: a new one, whole, in a file that comes later or is replaced; given up on, with a picture; a directory, said" \
   || fail "line: $out; $st $(cat "$tmp/err")"
 
 # latency: a window that redraws 100 ms after the pointer comes or goes,

@@ -33,7 +33,7 @@
 
 - **`wait line RE FILE`**: wait for a line matching RE to be written to
   a file, and print it, for a script that follows a program's log of
-  what happens rather than sleeping by a clock the program's may not
+  what happens rather than sleeping by a clock the program may not
   keep to. From the file's end when the wait starts (`--from-start` for
   the top); a file not there yet is waited for, and one rotated or
   rewritten is followed. Also `Screen.wait_line`, and MCP's `wait_for`,
