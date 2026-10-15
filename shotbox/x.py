@@ -474,10 +474,11 @@ def size_of(path):
     return out.strip()
 
 
-def compare(a, b, diff=None, fuzz="0%"):
+def compare(a, b, diff=None, fuzz="0%", box=False):
     """How many pixels differ between two images (0 means the same): pixels
     where any channel differs by more than `fuzz`. With `diff`, also writes
-    an image with the differences marked in red."""
+    an image with the differences marked in red. With `box`, the count and
+    the box they're in, (width, height, x, y), or None."""
     if size_of(a) != size_of(b):
         raise ValueError(f"not the same size: {size_of(a)} and {size_of(b)}")
     # The per-pixel difference, its largest channel, then on or off. Counted
@@ -489,9 +490,15 @@ def compare(a, b, diff=None, fuzz="0%"):
         [*CONVERT, str(a), str(b), "-colorspace", "sRGB", "-alpha", "off",
          "-compose", "difference",
          "-composite", "-separate", "-evaluate-sequence", "max",
-         "-threshold", fuzz, "-format", "%[fx:round(mean*w*h)]", "info:"],
-        capture_output=True, text=True, check=True).stdout
+         # A black border so the box (%@, what -trim would keep) is found
+         # around what differs even when a corner does; -quiet, since with
+         # nothing in the box it warns, and fails.
+         "-threshold", fuzz, "-bordercolor", "black", "-border", "1", "-quiet",
+         "-format", "%[fx:round(mean*w*h)] %@", "info:"],
+        capture_output=True, text=True, check=True).stdout.split()
     if diff:
         subprocess.run(["compare", "-fuzz", fuzz, "-define", "png:exclude-chunks=date,time",
                         str(a), str(b), str(diff)], capture_output=True)
-    return int(out.strip())
+    n = int(out[0])
+    w, h, x, y = map(int, re.split("[x+]", out[1]))
+    return (n, (w, h, x - 1, y - 1) if n else None) if box else n

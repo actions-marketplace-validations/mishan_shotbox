@@ -38,6 +38,11 @@
   the top); a file not there yet is waited for, and one rotated or
   rewritten is followed. Also `Screen.wait_line`, and MCP's `wait_for`,
   whose file is in the `--allow` file's directory.
+- **`shoot --twice`** (and `term --shoot --twice`): the picture taken in
+  two fresh sessions, and a failure if they differ, beyond `--fuzz` and
+  `--max`, saying how many pixels and the box they're in, with
+  `OUT-diff.png` beside OUT; one is kept as OUT if they don't. `compare`
+  says the box too, after the count.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else

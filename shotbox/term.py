@@ -65,7 +65,8 @@ def parse(argv):
                         "take the picture when the steps are done")
     g.add_argument("--park", action="store_true", help="as for shoot")
     g.add_argument("--failed", metavar="FILE", help="as for shoot")
-    from .__main__ import session_options
+    from .__main__ import session_options, twice_options
+    twice_options(g)
     session_options(p)
     p.set_defaults(steps=[])
     cmd = []
@@ -108,14 +109,15 @@ def shoot(args):
     outer = [args.shoot, "--window", re.escape(args.title), "--wait", "ready",
              "--timeout", f"{args.timeout * max(1, whens) + sleeps + 10:g}",
              "--screen", "x".join(map(str, args.screen))]
-    outer += ["--park"] * args.park + ["--desktop"] * args.desktop
+    outer += ["--park"] * args.park + ["--twice"] * args.twice + ["--desktop"] * args.desktop
     outer += ["--system-bus"] * args.system_bus + ["--keep"] * args.keep
     outer += ["--wayland"] * args.wayland + ["--xwayland"] * args.xwayland
     outer += ["--a11y"] * args.a11y + ["--dark"] * args.dark
     outer += ["--high-contrast"] * args.high_contrast + ["--audio"] * args.audio
     for opt, value in (("--failed", args.failed), ("--seed", args.seed),
                        ("--announce-log", args.announce_log), ("--text-scale", args.text_scale),
-                       ("--gamepads", args.gamepads)):
+                       ("--gamepads", args.gamepads), ("--fuzz", args.fuzz),
+                       ("--max", args.max)):
         if value:
             outer += [opt, str(value)]
     for e in args.env:

@@ -160,6 +160,15 @@ sealed session, waits, takes the picture and stops everything.
   dies, it says which, shows the program's last output, and leaves a
   picture of the screen as it was beside OUT, as `OUT-failed.png`
   (`--failed FILE` for elsewhere).
+- `--twice` takes the picture in two fresh sessions, one after the other,
+  and fails if they differ, saying how many pixels and the box they're in
+  (`210 pixels differ, in 12x18 at 30,212`: a blinking cursor), with the
+  difference marked in red beside OUT, as `OUT-diff.png`; if they're
+  alike, one is kept as OUT. A picture is only worth committing if it
+  comes out the same every time, and this proves it does. `--fuzz` and
+  `--max` as `compare` takes them, for a program that dithers. It doubles
+  the time, so it's for now and then: a new picture, or before a release.
+  `term --shoot` takes it too.
 
 **`shotbox run [options] -- COMMAND...`** runs a command in a sealed session
 and exits with its status. For scripts that take several pictures: inside,
@@ -454,8 +463,9 @@ which is short for `shotbox shoot irssi.png --window shotbox-term --wait
 ready -- shotbox term ...`.
 
 **`shotbox compare A.png B.png [--diff D.png] [--fuzz 1%] [--max N]`**
-counts the pixels that differ and fails if more than `--max` (0) do. With a
-committed picture, that's a visual regression test.
+counts the pixels that differ, and says the box they're in, and fails if
+more than `--max` (0) do. With a committed picture, that's a visual
+regression test.
 
 **`shotbox vision IN.png OUT.png --as KIND`** writes a picture as someone
 with another kind of color vision sees it: `protanopia` (no red cones),

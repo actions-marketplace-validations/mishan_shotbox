@@ -268,6 +268,16 @@ st=$?; set -e
 [ $st != 0 ] && grep -q "window with app id 'nope'" "$tmp/err" && ok "app=: a miss says what it looked for" \
   || fail "app= miss: $st"
 
+# --twice: a window drawn the same each time, kept; a clock, refused,
+# saying where it differs, with the diff beside OUT and no OUT.
+"$sb" shoot "$tmp/twice.png" --twice --window t1 -- "$here/window.py" t1 >/dev/null \
+  && [ -s "$tmp/twice.png" ] && ok "shoot --twice: the same twice, kept" || fail "shoot --twice"
+set +e; "$sb" term --shoot "$tmp/clock.png" --twice --size 30x5 --when . -- date +%N 2> "$tmp/err"
+st=$?; set -e
+[ $st = 1 ] && grep -q "pixels differ, in [0-9]*x[0-9]* at [0-9]*,[0-9]*; see .*clock-diff.png" "$tmp/err" \
+  && [ -s "$tmp/clock-diff.png" ] && [ ! -e "$tmp/clock.png" ] \
+  && ok "term --shoot --twice: a clock differs, and where" || fail "--twice, a clock: $st $(cat "$tmp/err")"
+
 # Stable: waits out a burst of output, and gives up on output that never stops.
 "$sb" run -- sh -c "
   '$sb' term --size 30x5 --log '$tmp/burst.log' -- \
@@ -803,8 +813,8 @@ fi
 "$sb" compare "$tmp/a.png" "$tmp/b.png" >/dev/null && ok "compare: the same" || fail "compare same"
 convert "$tmp/a.png" -fill red -draw 'point 3,3' "$tmp/d.png"
 set +e; n=$("$sb" compare "$tmp/a.png" "$tmp/d.png" --diff "$tmp/diff.png"); st=$?; set -e
-[ $st = 1 ] && [ "$n" = "1 pixels differ" ] && [ -s "$tmp/diff.png" ] \
-  && ok "compare: one pixel off, found" || fail "compare: $st $n"
+[ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 3,3" ] && [ -s "$tmp/diff.png" ] \
+  && ok "compare: one pixel off, found, and where" || fail "compare: $st $n"
 
 mkdir -p "$tmp/ref" "$tmp/new"
 cp "$tmp/a.png" "$tmp/ref/same.png"; cp "$tmp/a.png" "$tmp/new/same.png"

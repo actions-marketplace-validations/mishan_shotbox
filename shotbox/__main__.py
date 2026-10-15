@@ -39,6 +39,7 @@ import os
 import signal
 import statistics
 import sys
+import tempfile
 import time
 import wave
 from pathlib import Path
@@ -255,6 +256,7 @@ def cmd_shoot(argv):
     p.add_argument("--failed", metavar="FILE",
                    help="if it fails, a picture of the screen goes here "
                         "(OUT's name with -failed, beside it)")
+    twice_options(p)
     session_options(p)
     opts, cmd = split(argv)
     a = p.parse_args(opts)
@@ -264,7 +266,56 @@ def cmd_shoot(argv):
         waits.insert(0, "window:" + a.window)
     if not waits and not a.settle:
         p.error("nothing to wait for: give --window, --wait or --settle")
+    if not a.twice and (a.fuzz is not None or a.max is not None):
+        p.error("--fuzz and --max go with --twice")
+    if a.twice:
+        return twice(a, cmd, waits)
+    status = take(a, cmd, waits, a.out)
+    if not status:
+        print(a.out)
+    return status
 
+
+def twice_options(p):
+    """--twice, and how alike its two pictures must be: as `shoot` and
+    `term --shoot` take them."""
+    p.add_argument("--twice", action="store_true",
+                   help="take the picture in two fresh sessions, and fail if they "
+                        "differ, writing the difference beside OUT, as OUT-diff.png")
+    p.add_argument("--fuzz", metavar="PCT",
+                   help="with --twice: colors this close count as the same (0%%)")
+    p.add_argument("--max", type=int, metavar="N",
+                   help="with --twice: pixels allowed to differ (0)")
+
+
+def twice(a, cmd, waits):
+    """The picture taken twice, each in a session of its own, so what varies
+    from one run to the next (a cursor's blink, the clock, the order things
+    start in) shows; kept as OUT if the two are alike."""
+    out = Path(a.out)
+    fuzz = "0%" if a.fuzz is None else a.fuzz
+    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
+        pics = [Path(tmp) / "1.png", Path(tmp) / "2.png"]
+        for pic in pics:
+            if take(a, cmd, waits, pic):
+                return 1
+        try:
+            n, box = x.compare(*pics, fuzz=fuzz, box=True)
+        except ValueError as e:
+            sys.stderr.write(f"shotbox: taken twice, {e}\n")
+            return 1
+        if n > (a.max or 0):
+            diff = out.with_name(out.stem + "-diff.png")
+            x.compare(*pics, diff=diff, fuzz=fuzz)
+            sys.stderr.write(f"shotbox: taken twice, {differing(n, box)}; see {diff}\n")
+            return 1
+        os.replace(pics[0], out)
+    print(a.out)
+    return 0
+
+
+def take(a, cmd, waits, out):
+    """shoot's picture, to `out`, in a session of its own."""
     with session(a) as s:
         s.failed = a.failed or str(Path(a.out).with_name(Path(a.out).stem + "-failed.png"))
         log = a.log or str(s.scratch / "command.log")
@@ -282,11 +333,10 @@ def cmd_shoot(argv):
             crop = a.crop
             if not crop and (s.scratch / "crop").exists():
                 crop = (s.scratch / "crop").read_text().strip()
-            s.capture(a.out, window=a.window, crop=crop, park=a.park, vision=a.vision)
+            s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision)
         except SessionError as e:
             sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
             return 1
-    print(a.out)
     return 0
 
 
@@ -695,6 +745,12 @@ def per_name(values, name, default):
     return (named or plain or [default])[-1]
 
 
+def differing(n, box):
+    """How many pixels differ, and the box they're in: "210 pixels differ,
+    in 12x18 at 30,212", which places them without a look at the diff."""
+    return f"{n} pixels differ" + (f", in {box[0]}x{box[1]} at {box[2]},{box[3]}" if box else "")
+
+
 def cmd_compare(argv):
     p = argparse.ArgumentParser(prog="shotbox compare",
                                 description="Count the pixels that differ between two "
@@ -732,11 +788,11 @@ def cmd_compare(argv):
             sys.stderr.write(f"shotbox: no {' or '.join(missing)}\n")
             return 2
         try:
-            n = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None))
+            n, box = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None), box=True)
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
-        print(f"{n} pixels differ")
+        print(differing(n, box))
         return 0 if n <= most(None) else 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
@@ -756,7 +812,7 @@ def cmd_compare(argv):
             continue
         diff = Path(a.diff) / f"{name}-diff.png" if a.diff else None
         try:
-            n = x.compare(ref, new, fuzz=fuzz(name))
+            n, box = x.compare(ref, new, fuzz=fuzz(name), box=True)
         except ValueError as e:
             print(f"{name}: {e}")
             bad.append(name)
@@ -764,10 +820,10 @@ def cmd_compare(argv):
         if n > most(name):
             if diff:
                 x.compare(ref, new, diff=diff, fuzz=fuzz(name))
-            print(f"{name}: {n} pixels differ" + (f"; see {diff}" if diff else ""))
+            print(f"{name}: {differing(n, box)}" + (f"; see {diff}" if diff else ""))
             bad.append(name)
         else:
-            print(f"{name}: {'the same' if n == 0 else f'{n} pixels differ, allowed'}")
+            print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}, allowed'}")
     if bad:
         print(f"differ: {', '.join(bad)}")
         return 1
