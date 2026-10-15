@@ -145,11 +145,13 @@ w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
   python3 -c "import random, wave; w = wave.open('$tmp/noise.wav', 'wb')
 w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
 w.writeframes(random.Random(1).randbytes(4 * 24000)); w.close()"
-  "$sb" run --audio -- sh -c "'$sb' record '$tmp/heard.wav' --seconds 2 >/dev/null &
-    sleep 0.5; timeout 10 paplay '$tmp/noise.wav'; wait" \
+  # Played a second in, half a second long: well inside the three, however
+  # slow the recording is to start.
+  "$sb" run --audio -- sh -c "'$sb' record '$tmp/heard.wav' --seconds 3 >/dev/null & r=\$!
+    sleep 1; timeout 10 paplay '$tmp/noise.wav'; wait \$r" \
     && got=$(python3 -c "import wave; w, n = wave.open('$tmp/heard.wav'), wave.open('$tmp/noise.wav')
 print(w.getnframes(), n.readframes(24000) in w.readframes(w.getnframes()))") \
-    && [ "$got" = "96000 True" ] \
+    && [ "$got" = "144000 True" ] \
     && ok "record OUT.wav: the session's sound, bit for bit, for --seconds" || fail "record wav: ${got-}"
   set +e; "$sb" run -- "$sb" record "$tmp/none.wav" --seconds 1 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q "start the session with --audio" "$tmp/err" \

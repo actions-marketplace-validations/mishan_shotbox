@@ -137,6 +137,8 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
     if kind == ".wav" and not env.get("PULSE_SERVER", "").startswith(
             f"unix:{env.get('SHOTBOX_SCRATCH')}/"):
         raise ValueError("there's no sound to record: start the session with --audio")
+    if kind == ".wav" and seconds is not None and round(seconds * 48000) < 1:
+        raise ValueError(f"a recording lasts a sample or more, not {seconds:g} seconds")
     if not shutil.which("ffmpeg"):
         raise RuntimeError("recording needs ffmpeg")
     if seconds is not None and seconds <= 0:
@@ -222,8 +224,11 @@ def keep_recording(cmd, out):
             return 1
         # Stopped before the first frame, ffmpeg writes a file with none.
         if sound:
-            with wave.open(str(out)) as w:
-                frames = w.getnframes()
+            try:
+                with wave.open(str(out)) as w:
+                    frames = w.getnframes()
+            except (wave.Error, EOFError):
+                frames = 0
         else:
             frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
                                      "-show_entries", "stream=index", "-of", "csv=p=0",
