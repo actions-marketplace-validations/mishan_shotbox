@@ -158,36 +158,54 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 255; `--tile 8` halves that); its pixels decide:
 
 - Flicker: A, B, A, B..., each held no longer than `--brief` (100 ms),
-  `--times` changes (4) or more, in one place: the pixels every change
-  changes, most of what each does, and at least a line across the tile.
-  Both looks come back as the same pictures most times, nearer than A is
-  to B, or one of them does, one color where it differs from the other:
-  black between frames of a scene that moves on, as bzflag's strip was.
-  Said with its box (whole tiles, in what's watched: the window or the
-  crop), how many changes, how often, and the colors of what changed.
+  `--times` changes (8) or more, kept up, in one place: the pixels most
+  changes change, by a quarter of `--fuzz` or more, are most of what
+  most of them do, and at least a line across the tile, its shorter
+  side, so something passing through the rest of it, or a scene moving
+  on in a column or two beside, doesn't hide it. Both looks come back as
+  the same pictures most times, nearer than A is to B, or one of them
+  does, one color where it differs from the other: black between frames
+  of a scene that moves on, as bzflag's strip was, the scene not one
+  color, or a shape of it, as pages of text between blanks aren't. Said
+  with its box (whole tiles, in what's watched: the window or the crop),
+  how many changes, how often, and the colors of what changed.
 - A flash: A, B, A, from a picture that held still, to one color where
-  it differs (a frame drawn black), and back; each said. Something moving
-  through isn't, which turns the tiles beside it the same way, briefly,
-  within `--brief`, or a picture, before or after: beside all that showed
-  only while the flash did, one color or not.
+  it differs (a frame drawn black), a shape of it, a band, a line, an
+  icon, as scattered strokes of text drawn once aren't, and back; each
+  said. A line no more than two pixels wide, apart from what's either
+  side of it, gone for a picture to the color of one side isn't one, nor
+  is something moving through, which turns the tiles beside it that
+  held still the same way, briefly, with its colors, within `--brief`,
+  or a picture, before or after: beside all that showed only while the
+  flash did. Nor is one in a box most of which went other ways, a region
+  drawn anew, as a terminal scrolling a page at a time is, or one a thin
+  thing stepped out of into a tile beside, a line's step. A flash drawn
+  torn, part of it a picture later, is one. A frame drawn black between
+  two different views, A, black, C, isn't found.
+
+Nor is a burst of fewer changes than `--times`: a double or triple
+flash, or a strip flickering only an eighth of a second. `--times 4`
+finds those, and with them some things passing through: a ground line's
+step going back and forth, something crossing a tile in a fifth of a
+second. A watch too short, at the rate pictures came, to hold `--times`
+changes is said.
 
 A caret's half-second blink is neither, nor is something moving through,
 a thin line's steps crawling, an edge between two faces a little apart
-sweeping past, text scrolling past (a look that's in the picture before
-or after, up or down), or a frozen frame that isn't one color between
-live ones. What's found can change with where the tiles fall, so a box
-at the edge of what's seen may come and go between runs. `--ignore G`
-leaves out a box that flickers on purpose. Pictures are kept as they're
-taken and looked at after, a tile again only where it changed: a busy
-screen, every picture different, is pictured more slowly, kept at about
-150 MB a second of watching, and takes some seconds to look at, so watch
-a window or a crop where you can:
+sweeping past, text scrolling past (as many of its looks as not in the
+picture before or after, up or down), or a frozen frame that isn't one
+color between live ones. `--ignore G` leaves out a box that flickers on
+purpose. Pictures are kept as they're taken and looked at after, a tile
+again only where it changed: a busy screen, every picture different, is
+pictured more slowly, kept at about 150 MB a second of watching, and
+takes some seconds to look at, so watch a window or a crop where you can:
 
 ```
 flicker: 64x16+1216+592, 66 changes, every 30 ms, #000000 and #009900, from 0.022s
-watched 2 s, 104 pictures, 52 a second
+watched 2 s, 104 pictures, 52 a second, 104 changed
 ```
 
+The last line, how many pictures were taken, is printed whatever's found.
 Pictures that came fewer than two to a `--brief` are said: a look that
 brief may be missed, and something moving through taken for a flash.
 
