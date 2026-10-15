@@ -381,10 +381,35 @@ class Server:
         self.session(session).type(str(text))
         return f"Typed {len(str(text))} characters."
 
-    def wait_for(self, session, what, value=None, window=None, timeout=10):
+    def reference(self, value):
+        """The picture a match wait names: a file in the allow file's
+        directory, and nowhere else an agent could have it read."""
+        if value is None:
+            raise Refused("wait_for match needs a value: the picture (a PNG) to look like")
+        if self.home is None:
+            raise Refused("wait_for match takes a picture in the --allow file's directory, "
+                          "and shotbox mcp was given no --allow file")
+        home = Path(self.home).resolve()
+        path = (home / str(value)).resolve()
+        if not (path.is_relative_to(home) and path.is_file()):
+            raise Refused(f"wait_for match takes a picture in {home}, by its path from "
+                          f"there; there's no file {value!r} in it")
+        return path
+
+    def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
+                 fuzz=None, most=None):
         s = self.session(session)
         # Each call holds the server till it's done: not for long.
         timeout = number(timeout, "timeout", 0, 300) or 10
+        if what in ("match", "change"):
+            fuzz = f"{number(fuzz, 'fuzz', 0, 100) or 0:.6f}".rstrip("0").rstrip(".") + "%"
+            most = int(number(most, "most", 0) or 0)
+            if what == "match":
+                at = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
+                                  timeout)
+                return f"It matches {value}, after {at:.3f} s."
+            at = s.wait_change(text(window), text(crop), fuzz, most, timeout)
+            return f"It changed, after {at:.3f} s."
         if value is None and what != "stable":
             raise Refused(f"wait_for {what} needs a value: what to wait for")
         if what == "window":
@@ -401,8 +426,8 @@ class Server:
             n = self.a11y_session(session).wait_focus(str(value), timeout=timeout,
                                                       window=text(window))
             return f"The focus is on {n.line()}."
-        raise Refused(f"wait_for waits for a window, stable, an announcement or focus, "
-                      f"not {what!r}")
+        raise Refused(f"wait_for waits for a window, stable, an announcement, focus, match "
+                      f"or change, not {what!r}")
 
     # --- checking ------------------------------------------------------------
 
@@ -562,11 +587,17 @@ TOOLS = [
      "Wait, instead of sleeping, for: a window (value: its title, a regex, or app=RE), "
      "stable (the screen, or the window, unchanged for value seconds, 0.5: after a click, "
      "for the repaint), an announcement (value: a regex in what was announced to a screen "
-     "reader), or focus (value: a regex for the name of the node with the keyboard focus). "
-     "Fails after timeout seconds (10), saying so.",
+     "reader), focus (value: a regex for the name of the node with the keyboard focus), "
+     "match (value: a PNG in the directory of the server's allow file, by its path from "
+     "there, that the screen, or the window, cropped to crop, should look like: no more than most pixels, 0, differing by more than fuzz percent, 0), or "
+     "change (from how it looked when the wait started, by more than that). match and "
+     "change say how long they took. Fails after timeout seconds (10), saying so.",
      schema({"session": SESSION,
-             "what": {"type": "string", "enum": ["window", "stable", "announcement", "focus"]},
-             "value": {"type": "string"}, "window": WINDOW, "timeout": {"type": "number"}},
+             "what": {"type": "string", "enum": ["window", "stable", "announcement", "focus",
+                                                 "match", "change"]},
+             "value": {"type": "string"}, "window": WINDOW, "timeout": {"type": "number"},
+             "crop": {"type": "string", "description": "WxH+X+Y"},
+             "fuzz": {"type": "number"}, "most": {"type": "integer"}},
             ["session", "what"])),
     ("lint",
      "Nodes a screen reader has no name to say for: controls, images (not inside a named "

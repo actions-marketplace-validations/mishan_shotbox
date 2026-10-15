@@ -23,6 +23,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -142,6 +143,82 @@ class Screen:
         the same for `seconds`: for the paint after a click, a panel sliding
         in, a toast going away."""
         self.until(*self.test("stable", seconds, window), timeout)
+
+    def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30):
+        """Wait until the display, or the window named `window`, cropped
+        (WxH+X+Y), looks like the picture `ref`: `most` pixels or fewer
+        differ by more than `fuzz`, as `shotbox compare` counts. For a screen with
+        no other sign it's up: a boot, a login screen. The seconds it took."""
+        # png: so a name like msl:FILE is a file, not ImageMagick's coder.
+        try:
+            x.size_of(f"png:{ref}")
+        except subprocess.CalledProcessError:
+            self.fail(f"can't read {ref} as a PNG")
+        return self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout)
+
+    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30):
+        """Wait until the display, or the window named `window`, cropped,
+        looks different from the first picture the wait takes: more than
+        `most` pixels differ by more than `fuzz`. The seconds it took."""
+        return self._wait_looks(None, None, window, crop, fuzz, most, timeout)
+
+    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout):
+        """wait_match against `ref` (`name` to say), or with None,
+        wait_change: the seconds from the start of the wait to the picture
+        it passed on."""
+        if crop and not re.fullmatch(r"\d+x\d+\+\d+\+\d+", crop):
+            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, not {crop}")
+        if not re.fullmatch(r"(\d+\.?\d*|\.\d+)%", fuzz):
+            self.fail(f"fuzz is a percentage, like 2%, not {fuzz}")
+        if most < 0:
+            self.fail(f"the pixels that may differ are 0 or more, not {most}")
+        match = ref is not None
+        fd, now = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
+        os.close(fd)
+        now = Path(now)
+        was = now.with_suffix(".was.png")
+        start, at, sizes = time.monotonic(), None, None
+
+        def looks():
+            nonlocal ref, at, sizes
+            w = None
+            if window:
+                w = self.backend.find_window(self.env, window)
+                if not w:
+                    return False
+            t = time.monotonic()
+            try:
+                self.backend.capture(self.env, now, window=w, crop=crop)
+            except subprocess.CalledProcessError:
+                return False        # a window gone between finding it and taking it
+            if crop and x.size_of(now) != crop.split("+")[0]:
+                self.fail(f"the crop {crop} isn't inside the "
+                          + (f"window {window!r}" if window else "display"))
+            if ref is None:
+                ref = now.rename(was)
+                return False
+            try:
+                n = x.compare(ref, now, fuzz=fuzz)
+            except ValueError:
+                n, sizes = None, (x.size_of(ref), x.size_of(now))
+            if (n is not None and n <= most) == match:
+                at = t - start
+                return True
+            return False
+
+        where = f"the window {window!r}" if window else "the display"
+        where += f", cropped to {crop}," if crop else ""
+        what = f"{where} to match {name}" if match else f"{where} to change"
+        try:
+            wait_for(what, looks, timeout)
+        except SessionError as e:
+            if match and sizes:
+                e = f"{e}; {name} is {sizes[0]}, the picture taken {sizes[1]}"
+            self.fail(str(e))
+        finally:
+            now.unlink(missing_ok=True)
+            was.unlink(missing_ok=True)
+        return at
 
     def wait_announce(self, pattern, timeout=30):
         """Wait for a program to have announced something matching
