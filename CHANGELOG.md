@@ -33,6 +33,8 @@
   for it, so it can't play through the machine's speakers or find the
   desktop's Wayland, PulseAudio, PipeWire or bus sockets. Without
   bubblewrap, the session says so and runs it as before.
+- A window asked for and not there is said with the windows that are,
+  and that its title is matched in full.
 
 ### Added
 

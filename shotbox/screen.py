@@ -588,7 +588,9 @@ class Screen:
         """The window `name` asks for (a title regex, or app=RE), or fail."""
         w = self.backend.find_window(self.env, name)
         if not w:
-            self.fail(f"no {x.matcher(name)[1]}")
+            names = sorted({v[1] for v in self.backend.windows(self.env) if v[1]})
+            self.fail(f"no {x.matcher(name)[1]}, matched in full; there are "
+                      + (", ".join(map(repr, names)) or "none"))
         return w
 
     def focus_window(self, name):
