@@ -205,12 +205,13 @@ display directly, so there's still nothing to install.
 `shotbox latency move X1 Y1 X2 Y2 --watch WxH+X+Y [--window RE]` measures
 how long what's drawn takes to follow the pointer: it moves it from one
 point to the other and back, `--times N` (10), and times each move from
-sending it to the first picture in which the `--watch` box changed, to
-within half a picture's taking (a few milliseconds on X11, about six on
-Wayland), then prints the median and the 95th percentile. Before each
-move the box holds still for `--settle SECS` (0.25), or twice the
-longest move yet: a program slower than that would have its last
-redraw taken for the next move's. The pointer itself isn't in the
+sending it to the first picture in which the `--watch` box changed,
+then prints the median and the 95th percentile. On X11 that's to within
+a millisecond or so; on Wayland, grim takes its picture late in its run,
+and moves read a few milliseconds long. Before each move the box holds
+still for `--settle SECS` (0.25), or twice the longest move yet, and the
+first move's own redraw is waited out: a program whose redraws come
+later than that would have one taken for the next move's. The pointer itself isn't in the
 pictures, so what's measured is what the program draws for it: a hover,
 or a pointer of its own, as an emulator draws.
 

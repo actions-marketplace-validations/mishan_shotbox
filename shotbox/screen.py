@@ -579,6 +579,12 @@ class Screen:
             self.fail(f"what to watch is WIDTHxHEIGHT+X+Y, at least 1x1, not {watch}")
         box = tuple(int(n) for n in box.groups())
         w = self.window(window) if window else None
+        wide, high = (w[2], w[3]) if w else self.backend.grab(self.env)[:2]
+        if box[0] + box[2] > wide or box[1] + box[3] > high:
+            self.fail(f"{watch} isn't inside the {wide}x{high} "
+                      + ("window" if window else "display"))
+        # Where to, found now: finding a window is milliseconds of its own.
+        a, b = self._at(*a, window), self._at(*b, window)
 
         def look():
             got = self.backend.grab(self.env, w, box)
@@ -600,12 +606,18 @@ class Screen:
             return last
 
         took = []
-        self.move(*a, window=window)
+        # The first move's own redraw, waited out, however late, so it
+        # isn't taken for the next's.
+        before = look()
+        self.xt.move(*a)
+        end = time.monotonic() + timeout
+        while look() == before and time.monotonic() < end:
+            pass
         for i in range(times):
             to = b if i % 2 == 0 else a
             before = still()
             sent = time.monotonic()
-            self.move(*to, window=window)
+            self.xt.move(*to)
             while True:
                 # A picture's time is the middle of its taking: X's is taken
                 # as asked, Wayland's from the frame drawn next.

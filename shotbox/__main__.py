@@ -603,7 +603,7 @@ def cmd_latency(argv):
                                             "changed; then the median and the 95th "
                                             "percentile.")
     p.add_argument("action", choices=["move"])
-    p.add_argument("points", nargs=4, type=int, metavar="X1 Y1 X2 Y2")
+    p.add_argument("points", nargs=4, type=int, metavar=("X1", "Y1", "X2", "Y2"))
     p.add_argument("--watch", required=True, metavar="WxH+X+Y",
                    help="the box that shows the pointer's move, on the screen or in --window")
     p.add_argument("--window", metavar="RE", help="points and box inside this window")
