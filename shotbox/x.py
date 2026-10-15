@@ -102,7 +102,10 @@ def capture(env, out, window=None, crop=None):
 def root_size(env):
     """The display's width and height."""
     out = subprocess.run(["xwininfo", "-root"], env=env, capture_output=True, text=True).stdout
-    return (int(re.search(r"Width: (\d+)", out)[1]), int(re.search(r"Height: (\d+)", out)[1]))
+    w, h = re.search(r"Width: (\d+)", out), re.search(r"Height: (\d+)", out)
+    if not (w and h):
+        raise RuntimeError(f"can't reach the display {env.get('DISPLAY')}: is the session still up?")
+    return int(w[1]), int(h[1])
 
 
 # How each kind of video is encoded: fast enough to keep up as it records.
@@ -142,7 +145,9 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
     cmd += VIDEO[".webm" if kind == ".webm" else ".mp4"]
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
-    keeper = ("import sys; from shotbox.x import keep_recording; "
+    # -c puts the current directory first on the path, ahead of PYTHONPATH:
+    # another shotbox there would be the one run.
+    keeper = ("import sys; del sys.path[0]; from shotbox.x import keep_recording; "
               "sys.exit(keep_recording(*sys.argv[1:]))")
     # Its own session: `shotbox run`, stopped, kills its command's group
     # two seconds on, which would cut the finishing short.

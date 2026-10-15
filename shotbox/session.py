@@ -730,7 +730,9 @@ class Session(Screen):
         ready = self.scratch / "pads.json"
         here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
         path = os.pathsep.join(filter(None, (here, os.environ.get("PYTHONPATH"))))
-        serve = "import sys; from shotbox.pad import serve; sys.exit(serve(*sys.argv[1:]))"
+        # del: -c puts the current directory first, ahead of PYTHONPATH.
+        serve = ("import sys; del sys.path[0]; from shotbox.pad import serve; "
+                 "sys.exit(serve(*sys.argv[1:]))")
         proc = subprocess.Popen([sys.executable, "-c", serve, str(self.scratch / "pads.sock"),
                                  str(self.gamepads), str(ready), str(os.getpid())],
                                 env={**os.environ, "PYTHONPATH": path},

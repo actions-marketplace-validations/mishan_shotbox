@@ -718,6 +718,12 @@ if command -v ffmpeg >/dev/null; then
     && ok "record: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
     || { fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
          cat "$tmp/rec-steps"; }
+  # Run from where another shotbox is, the keeper is still this one.
+  mkdir -p "$tmp/other/shotbox"; : > "$tmp/other/shotbox/__init__.py"
+  echo 'raise ImportError("the other shotbox")' > "$tmp/other/shotbox/x.py"
+  (cd "$tmp/other" && "$sb" run -- "$sb" record "$tmp/rec-cwd.mp4" --seconds 1 > /dev/null) \
+    && probe "$tmp/rec-cwd.mp4" | grep -q "^h264,1280,800 " \
+    && ok "record: from where another shotbox is, still this one's" || fail "record, from another shotbox's dir"
   # A lasting session stopped while it records: the recording ends with it.
   "$sb" start --name "rec$$" >/dev/null
   "$sb" --session "rec$$" record "$tmp/rec-stop.mp4" & r=$!

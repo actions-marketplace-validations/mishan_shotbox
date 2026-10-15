@@ -288,7 +288,10 @@ class Screen:
             raise SessionError("recording works in X11 sessions only, for now")
         if park:
             self.park()
-        screen_w, screen_h = x.root_size(self.env)
+        try:
+            screen_w, screen_h = x.root_size(self.env)
+        except RuntimeError as e:
+            raise SessionError(str(e))
         box = self.window(window)[2:6] if window else (screen_w, screen_h, 0, 0)
         if crop:
             m = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
