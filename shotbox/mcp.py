@@ -41,11 +41,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__
+from . import __version__, sound
 from .a11y import Node, unseen
 from .screen import SessionError
 from .session import Session
-from .x import VISION
+from .x import VISION, ended, recording, stop
 from .xtest import XError
 
 # Newest first: a client asking for one of these gets it; any other, the newest.
@@ -195,6 +195,7 @@ class Server:
         self.allowed, self.home = allowed or {}, home
         self.sessions = {}
         self.spawned = {}   # session name -> [(program, process, log)]
+        self.sounds = {}    # session name -> (its recording's keeper, its file)
 
     # --- sessions ------------------------------------------------------------
 
@@ -239,6 +240,7 @@ class Server:
             s.__exit__(None, None, None)
         finally:
             del self.sessions[session], self.spawned[session]
+            self.sounds.pop(session, None)  # its keeper ends with the sound server
         return f"Session {session!r} stopped, and everything in it."
 
     def spawn(self, session, program):
@@ -465,6 +467,31 @@ class Server:
         said = log.read_text().strip() if log.exists() else ""
         return said or "Nothing announced yet."
 
+    def sound(self, session, action, gap=None):
+        s = self.session(session)
+        name = str(session)
+        if action == "start":
+            if not s.audio:
+                raise Refused(f"{name!r} has no sound: start a session with audio")
+            if name in self.sounds:
+                raise Refused(f"{name!r}'s sound is being recorded already")
+            wav = s.scratch / "sound.wav"
+            self.sounds[name] = recording(s.env, wav, None), wav
+            return f"Recording {name!r}'s sound; action stop ends it and says what it heard."
+        if action == "stop":
+            if name not in self.sounds:
+                raise Refused(f"{name!r}'s sound isn't being recorded: action start first")
+            keeper, wav = self.sounds.pop(name)
+            stop(keeper)
+            gap = number(gap, "gap", 0.01, 60000) or 1
+            try:
+                heard = sound.hear(ended(keeper, wav), gap=gap / 1000)
+            except RuntimeError as e:
+                raise Refused(str(e))
+            return "\n".join(sound.describe(heard)
+                             + (sound.problems(heard) or ["No gaps, clipping or silence."]))
+        raise Refused(f"action is start or stop, not {action!r}")
+
     def close(self):
         for name in list(self.sessions):
             try:
@@ -631,6 +658,15 @@ TOOLS = [
      "Everything programs have announced to a screen reader in the session, a line each, "
      "\"polite: Saved\": GTK's announcements, a browser's live regions.",
      schema({"session": SESSION}, ["session"])),
+    ("sound",
+     "Record what plays in a session started with audio: action start, then do what makes "
+     "the sound, then action stop, which says what it heard: its length, peak and RMS "
+     "(dBFS), samples clipped, and each gap, exact silence gap milliseconds (1) or longer "
+     "between the first sound and the last, as a program that falls behind leaves; then "
+     "what's wrong, if anything (gaps, clipping, silence). Sounds meant to be apart, two "
+     "beeps say, need a gap longer than the silence between them.",
+     schema({"session": SESSION, "action": {"type": "string", "enum": ["start", "stop"]},
+             "gap": {"type": "number"}}, ["session", "action"])),
 ]
 
 # Not screenshot (park moves the pointer) or contrast (it raises the window).

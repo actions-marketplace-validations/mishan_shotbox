@@ -127,6 +127,17 @@ VIDEO = {
 
 
 def record(env, out, box, seconds=None, fps=None, pointer=False):
+    """As `recording`, and wait for it: its file, or RuntimeError. Ctrl-C
+    stops it, and it's finished all the same."""
+    proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer)
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        stop(proc)
+    return ended(proc, out)
+
+
+def recording(env, out, box, seconds=None, fps=None, pointer=False):
     """Record the display's box (width, height, x, y) to `out`, an .mp4,
     .webm or .gif, at `fps` (30, or 15 for a GIF), for `seconds`, or until
     interrupted (Ctrl-C, or SIGTERM as the command line turns it). A GIF
@@ -136,7 +147,8 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
 
     A keeper process of its own (keep_recording) runs ffmpeg and finishes
     the file, so it's finished however this one goes: interrupted, killed,
-    or its session's display, or sound server, stopped."""
+    or its session's display, or sound server, stopped. Its process, for
+    `stop` and `ended`."""
     out = Path(out)
     kind = out.suffix.lower()
     if kind not in (*VIDEO, ".gif", ".wav"):
@@ -177,24 +189,29 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
               "sys.exit(keep_recording(*sys.argv[1:]))")
     # Its own session: `shotbox run`, stopped, kills its command's group
     # two seconds on, which would cut the finishing short.
-    proc = subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out)],
+    return subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out)],
                             env={**env, "PYTHONPATH": path}, stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             start_new_session=True)
+
+
+def stop(proc):
+    """Stop the recording `proc`, and wait while it finishes its file."""
     try:
-        proc.wait()
-    except KeyboardInterrupt:
+        proc.stdin.write(b"stop\n")
+        proc.stdin.close()
+    except OSError:
+        pass                # gone already
+    while True:
         try:
-            proc.stdin.write(b"stop\n")
-            proc.stdin.flush()
-        except OSError:
-            pass
-        while True:
-            try:
-                proc.wait()
-                break
-            except KeyboardInterrupt:
-                pass        # it's finishing the file the first stop asked for
+            proc.wait()
+            break
+        except KeyboardInterrupt:
+            pass        # it's finishing the file the first stop asked for
+
+
+def ended(proc, out):
+    """`out`, the file the ended recording `proc` made, or RuntimeError."""
     if proc.returncode:
         raise RuntimeError(proc.stderr.read().decode(errors="replace").strip()
                            or f"the recording failed (status {proc.returncode})")
@@ -228,7 +245,8 @@ def keep_recording(cmd, out):
                 break
         _, err = proc.communicate()
         if proc.returncode not in (0, 255) or not video.exists():
-            sys.stderr.write(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}\n")
+            said = err.decode(errors="replace").strip() or "it was stopped before it began"
+            sys.stderr.write(f"ffmpeg couldn't record: {said}\n")
             return 1
         # Stopped before the first frame, ffmpeg writes a file with none.
         if sound:

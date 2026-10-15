@@ -90,6 +90,7 @@ adds is clicks and keys on a display no one else is looking at.
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, or a change |
 | `lint`, `contrast`, `tab_walk` | the checks `shotbox a11y` makes |
 | `announcements` | what's been announced to a screen reader |
+| `sound` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
 
 Each description says what the tool is for, what to read in its answer,
 and what to use instead when it's the wrong one: an agent knows a tool

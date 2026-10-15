@@ -22,6 +22,7 @@
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
+    shotbox listen IN.wav                           its level, clipping and dropouts
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
     shotbox compare REFDIR NEWDIR [NAME...]         the same, picture by picture
 
@@ -35,9 +36,10 @@ import os
 import signal
 import sys
 import time
+import wave
 from pathlib import Path
 
-from . import a11y, kept, mcp, term, x, xtest
+from . import a11y, kept, mcp, sound, term, x, xtest
 from .screen import Screen, SessionError
 from .session import Session
 
@@ -424,6 +426,33 @@ def vision_option(p):
                         "deuteranopia, tritanopia, or gray (none)")
 
 
+def cmd_listen(argv):
+    p = argparse.ArgumentParser(prog="shotbox listen",
+                                description="Say how loud a recording of a session's "
+                                            "sound is (`shotbox record OUT.wav`), and "
+                                            "where it clipped or dropped out; fail if it "
+                                            "did, or is silent.")
+    p.add_argument("wav", metavar="IN.wav", help="a 16-bit PCM WAV")
+    p.add_argument("--gap", type=float, default=1, metavar="MS",
+                   help="silence this long between sounds is a dropout: every channel at "
+                        "exactly zero, as a player that falls behind leaves it (1)")
+    p.add_argument("--clipped", type=int, default=0, metavar="N",
+                   help="samples that may be at full scale (0)")
+    p.add_argument("--quiet", type=float, default=-60, metavar="DB",
+                   help="a peak below this is silence (-60 dBFS)")
+    a = p.parse_args(argv)
+    if not 0 < a.gap < math.inf:
+        p.error("--gap is a number of milliseconds, more than 0")
+    try:
+        heard = sound.hear(a.wav, gap=a.gap / 1000)
+    except (OSError, EOFError, ValueError, wave.Error) as e:
+        sys.stderr.write(f"shotbox: {a.wav}: {e}\n")
+        return 2
+    bad = sound.problems(heard, quiet=a.quiet, clipped=a.clipped)
+    print("\n".join(sound.describe(heard) + bad))
+    return 1 if bad else 0
+
+
 def cmd_vision(argv):
     p = argparse.ArgumentParser(prog="shotbox vision",
                                 description="Write a picture as someone with another "
@@ -672,7 +701,7 @@ def cmd_compare(argv):
 
 COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.main, "wait": cmd_wait,
             "capture": cmd_capture, "record": cmd_record, "compare": cmd_compare,
-            "vision": cmd_vision, "key": cmd_key,
+            "vision": cmd_vision, "listen": cmd_listen, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "pad": cmd_pad,
