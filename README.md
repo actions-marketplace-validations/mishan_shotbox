@@ -275,14 +275,17 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 - A flash: A, B, A, from a picture that held still, to one color where
   it differs (a frame drawn black), a shape of it, a band, a line, an
   icon, as scattered strokes of text drawn once aren't, and back; each
-  said. A thin line gone for a picture to the color beside it isn't one,
-  nor is something moving through, which turns the tiles beside it that
+  said. A line no more than two pixels wide, apart from what's either
+  side of it, gone for a picture to the color of one side isn't one, nor
+  is something moving through, which turns the tiles beside it that
   held still the same way, briefly, with its colors, within `--brief`,
   or a picture, before or after: beside all that showed only while the
   flash did. Nor is one in a box most of which went other ways, a region
   drawn anew, as a terminal scrolling a page at a time is, or one a thin
-  thing stepped out of into the tile beside. A flash drawn torn, part of
-  it a picture later, is one.
+  thing stepped out of into a tile beside, a line's step. A flash drawn
+  torn, part of it a picture later, is one. A flash comes from a look
+  held longer than `--brief`, or since watching began: a frame drawn
+  black between two different views, A, black, C, isn't found.
 
 A caret's half-second blink is neither, nor is something moving through,
 a thin line's steps crawling, an edge between two faces a little apart

@@ -473,7 +473,7 @@ class Screen:
             ab = [y - x for x, y in zip(a, b)]
             t = max(0, min(1, sum((q - x) * d for q, x, d in zip(p, a, ab))
                            / (sum(d * d for d in ab) or 1)))
-            return sum((q - x - t * d) ** 2 for q, x, d in zip(p, a, ab)) ** 0.5 <= 2 * fuzz * 2.55
+            return near(p, [x + t * d for x, d in zip(a, ab)])
 
         def turned(m, i):
             """Tile m's colors where it changed in its state i, before and
@@ -481,29 +481,47 @@ class Screen:
             old, new = tiles_in.get((m, helds[m][i - 1][3])), tiles_in.get((m, helds[m][i][3]))
             return old and new and flicker.colors(old, new, flicker.changed(old, new, fuzz / 4))
 
+        def near(p, q):
+            """Whether two colors are within twice fuzz of each other."""
+            return sum((x - y) ** 2 for x, y in zip(p, q)) ** 0.5 <= 2 * fuzz * 2.55
+
         def brings(m, i, flashed):
             """Whether tile m's state i took the colors of a flash's, each
-            (look, then) in `flashed`, or a part of them, or they its."""
+            (look, then) in `flashed`, or a part of them, or they its. One
+            whose pictures weren't kept, as no run of its own needed them,
+            can't say, and is taken to, so motion isn't missed."""
             if not turned(m, i):
                 return True
             was, took = turned(m, i)
             return any(between(look, then, took) or between(took, was, look)
                        for look, then in flashed)
 
-        def swapped(n, m, k):
-            """Whether tile m took, in picture k, what flashing tile n gave
-            up there: a thin thing stepping from one into the other, as an
-            aliased line's step does, not a flash."""
+        def swapped(n, m):
+            """Whether tile m, as flashing tile n changed, went the other
+            way, from n's flash look to the look n had: something thin
+            stepping from one into the other, as an aliased line's step
+            does, or a square leaving a tile as it enters the next."""
+            k, look, then = now[n][4], now[n][2], now[n][3]
             i = next((i for i, st in enumerate(helds[m]) if i and st[3] == k), None)
-            return bool(i and turned(m, i)) and between(turned(m, i)[1], now[n][3], now[n][3])
+            return (bool(i and turned(m, i)) and along([-c for c in toward(k, n)], toward(k, m))
+                    and near(turned(m, i)[0], look) and near(turned(m, i)[1], then))
+
+        def took(m, i):
+            """Whether tile m's state i is the color of one of the flash's
+            looks, being under it."""
+            return bool(turned(m, i)) and any(near(turned(m, i)[1], f[2]) for f in now.values())
 
         def still(n, i, t):
             """Whether tile n, before its state i, held a look longer than
-            `brief`, or since watching began, ending within `brief` of `t`:
+            `brief`, or since watching began, up to within `brief` of `t`:
             one busy all along, a scene animating, a terminal scrolling,
             didn't."""
-            return any(st[2] > brief or j == 0 for j, st in enumerate(helds[n][:i])
-                       if j >= i - 3 and st[1] + st[2] >= t - brief)
+            for st in reversed(helds[n][:i]):
+                if st[1] + st[2] < t - brief:
+                    return False
+                if st[2] > brief or st is helds[n][0]:
+                    return True
+            return False
 
         done = set()
         for k in sorted({f[4] for fs in flashes.values() for f in fs}):
@@ -526,9 +544,12 @@ class Screen:
             # flashed before it was gone is with it, not something moving.
             now.update({n: f for n, fs in flashes.items() for f in fs if k < f[4] < gone})
             done |= {(n, f[4]) for n, f in now.items()}
+            # Of what changed with it, a tile busy before isn't with it,
+            # unless the flash covered it, taking its color.
             with_it = {m for m, held in helds.items()
                        for i, (st, after) in enumerate(zip(held, held[1:]))
-                       if st[3] == k and after[3] <= gone and still(m, i, times_[k])}
+                       if st[3] == k and after[3] <= gone
+                       and (still(m, i, times_[k]) or took(m, i))}
             for bx, by, bw, bh, group in flicker.boxes(now.keys() | with_it, across, tile):
                 if not now.keys() & set(group):
                     continue
@@ -539,9 +560,9 @@ class Screen:
                 if 2 * sum(not along(went, toward(k, n)) for n in group if n not in now) > len(group):
                     continue
                 # Nor is it where a thin thing stepped out of, into a tile of
-                # the box, for that picture.
-                if any(swapped(n, m, now[n][4])
-                       for n in group if n in now for m in group if m != n):
+                # the box or beside it, for that picture.
+                if any(swapped(n, m) for n in group if n in now
+                       for m in set(group) | beside(group) if m != n and m in helds):
                     continue
                 # And it passes through what held still, with its colors: a
                 # tile beside busy all along, a scene animating, or going

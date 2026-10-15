@@ -461,8 +461,9 @@ st=$?; set -e
 # a tile in a picture or stepping past tiles to a sliver of it at the
 # edge, text scrolling past, close or spaced, a listing's lines, or pages
 # of them between blanks, a line's steps crawling, an edge between two
-# faces 8% apart sweeping past, two poles alike crossing, and a line
-# missing for a picture, none; and a panel with a word in it flashing
+# faces 8% apart sweeping past, two poles alike crossing, a line missing
+# for a picture or a step of it a row lower, and a terminal's page drawn
+# anew, its caret gone with it, none; and a panel with a word in it flashing
 # white, beside a caret and a spinner, flashes.
 flickered=""
 for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
@@ -475,7 +476,7 @@ for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #
          "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120+176+0, " "skip - 0" \
          "edge - 1 ^flicker: 16x120+176+0, " "gray - 1 ^flicker: 200x120+0+0, " "poles - 0" \
          "busy - 1 ^flicker: 16x120+176+0, " "icon - 1 ^flash: 16x16+64+48, #ffffff" \
-         "dropout - 0"; do
+         "dropout - 0" "redraw - 0" "stair - 0"; do
   set -- $c
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e

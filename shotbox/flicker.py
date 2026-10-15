@@ -146,22 +146,30 @@ def filled(where, wide, high):
     return len(piece) == len(at)
 
 
-def dropped(pixels, where, wide, fuzz):
-    """Whether a tile's pixels at `where`, a line no more than two wide,
-    took the color of the pixels beside them on one side: something thin
-    missing for a picture, as a line at a wall's foot in a turning view
-    is, not a part of the screen drawn over."""
+def dropped(before, after, where, wide, fuzz):
+    """Whether a tile's pixels at `where`, a line no more than two wide
+    that stood apart from what was either side of it in `before`, took
+    the color of one side in `after`: something thin missing for a
+    picture, as a line at a wall's foot in a turning view is, not a part
+    of the screen drawn over, nor the edge of a region grown."""
     xs, ys = [k // 3 % wide for k in where], [k // 3 // wide for k in where]
     if min(max(xs) - min(xs), max(ys) - min(ys)) > 1:
         return False
-    here = colors(pixels, pixels, where)[0]
-    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0), (0, -2), (0, 2), (-2, 0), (2, 0)):
-        side = {(y + dy) * wide + x + dx for x, y in zip(xs, ys)
-                if 0 <= x + dx < wide and 0 <= (y + dy) * wide * 3 < len(pixels)}
-        side = {3 * k for k in side} - where
-        if side and max(abs(x - y) for x, y in
-                        zip(here, colors(pixels, pixels, side)[0])) <= 2 * fuzz * 2.55:
-            return True
+
+    def side(dx, dy):
+        return {3 * ((y + dy) * wide + x + dx) for x, y in zip(xs, ys)
+                if 0 <= x + dx < wide and 0 <= (y + dy) * wide * 3 < len(after)} - where
+
+    def near(p, at, q, there):
+        return max(abs(x - y) for x, y in
+                   zip(colors(p, p, at)[0], colors(q, q, there)[0])) <= 2 * fuzz * 2.55
+
+    for dx, dy in ((0, 1), (1, 0), (0, 2), (2, 0)):
+        for one, other in ((side(dx, dy), side(-dx, -dy)), (side(-dx, -dy), side(dx, dy))):
+            if (one and other and near(after, where, after, one)
+                    and not near(before, where, before, one)
+                    and not near(before, where, before, other)):
+                return True
     return False
 
 
@@ -212,14 +220,11 @@ def find(held, brief, times, fuzz, pixels, wide):
         shown = [pixels(st[3]) for st in seq]
         a, b = shown[0], shown[1]
         high = len(a) // 3 // wide
-        # A look comes back nearer, in mean color, than the other look is:
-        # neither, most times, is something moving, every picture new,
-        # and its pixels needn't be looked at further.
-        def nearer(m):
-            return (sum((x - y) ** 2 for x, y in zip(seq[m][0], seq[m + 2][0]))
-                    < sum((x - y) ** 2 for x, y in zip(seq[m][0], seq[m + 1][0])))
-        if not any(2 * sum(map(nearer, pairs)) > len(pairs)
-                   for pairs in (range(0, changes - 1, 2), range(1, changes - 1, 2))):
+        # Neither look coming back, even with half the tile moving on, is
+        # something moving, every picture new: no need to count its pixels.
+        most = len(a) // 150 + len(a) // 6
+        if not any(2 * sum(len(changed(shown[m], shown[m + 2], 2 * fuzz)) <= most for m in pairs)
+                   > len(pairs) for pairs in (range(0, changes - 1, 2), range(1, changes - 1, 2))):
             continue
         # Where it keeps switching: the pixels most changes change, each by
         # as much as a new look's mean moves, which must be most of what
@@ -256,14 +261,14 @@ def find(held, brief, times, fuzz, pixels, wide):
             run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *looks,
                    [st[3] for st in seq[1:]])
             best = run if best is None or changes > best[1] else best
-        # A flash: from a look that held still, longer than `brief`, not
-        # one just met as watching began, to a color, and back:
+        # A flash: from a look that held still, longer than `brief` or
+        # since watching began, to a color, and back:
         # what's moving holds no picture still, though it come back. And
         # it's a shape gone to that color, a band, a line, an icon, not
         # the scattered strokes of text drawn once, nor a line gone.
-        elif (changes == 2 and seq[0][2] > brief and back[0] and plains[1]
+        elif (changes == 2 and (seq[0][2] > brief or seq[0] is held[0]) and back[0] and plains[1]
               and alike(a, pixels(seq[1][3] - 1), fuzz) and filled(where, wide, high)
-              and not dropped(b, where, wide, fuzz)):
+              and not dropped(a, b, where, wide, fuzz)):
             flashes.append((seq[1][1], seq[1][2], looks[1], looks[0], seq[1][3], seq[2][3]))
     return best, ([] if best else flashes)
 

@@ -3,10 +3,10 @@
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, pages, poles, line, gradient, passer, skip, edge, gray, busy,
-icon or dropout. With LOG, it holds an entry instead, and writes what's
-typed in it there; with corner too, a button in its top left corner, and
-writes "clicked" there when it's clicked. With contrast,
+or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
+edge, gray, busy, icon or dropout. With LOG, it holds an entry instead,
+and writes what's typed in it there; with corner too, a button in its top
+left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
 may measure short; and a label drawn see-through, which it shouldn't. With slow, a square that
@@ -236,6 +236,47 @@ elif sys.argv[2:3] == ["pages"]:
                                  for _ in range(r.choice((0, 3, 8, 20, 32)))))
     area.connect("draw", draw)
     GLib.timeout_add(40, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] in (["redraw"], ["stair"]):
+    # redraw: a terminal's page of text held 200 ms, then drawn anew, a
+    # blank between for 40 ms, its green caret gone with it. stair: a
+    # line a pixel high on a tile's last row, above a wall's edge, part of
+    # it a row lower for 30 ms once a second, as an aliased line's step in
+    # a turning view.
+    import random
+    import cairo
+    area, n, sharp = Gtk.DrawingArea(), [0], cairo.FontOptions()
+    sharp.set_antialias(cairo.ANTIALIAS_NONE)
+
+    def draw(a, cr):
+        if sys.argv[2] == "stair":
+            cr.set_source_rgb(0, 0.3, 0)
+            cr.paint()
+            cr.set_source_rgb(0.85, 0.45, 0.45)
+            cr.rectangle(0, 70, 200, 3)
+            cr.fill()
+            cr.set_source_rgb(0.67, 0.85, 0)
+            cr.rectangle(100, 63, 100, 1)
+            cr.rectangle(0, 64 if n[0] % 33 == 0 else 63, 100, 1)
+            cr.fill()
+            return
+        cr.set_font_options(sharp)
+        cr.set_source_rgb(0, 0, 0.44)
+        cr.paint()
+        if n[0] % 6 == 5:
+            return
+        cr.set_source_rgb(0.9, 0.9, 0.9)
+        r = random.Random(n[0] // 6)
+        for line in range(7):
+            cr.move_to(4, 12 + line * 14)
+            cr.show_text("".join(r.choice("abcdefghijklmnopqrstuvwxyz-./ ")
+                                 for _ in range(r.choice((0, 3, 8, 20, 32)))))
+        cr.set_source_rgb(0, 1, 0)
+        cr.rectangle(4, 102, 8, 12)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30 if sys.argv[2] == "stair" else 40,
+                     lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)
 elif sys.argv[2:3] == ["poles"]:
     # Two yellow poles alike on a horizon, as bzflag's are while the tank
