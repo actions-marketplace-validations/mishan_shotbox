@@ -77,7 +77,7 @@ ffmpeg. On Debian:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg
+  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap
 pipx install --system-site-packages shotbox
 ```
 
