@@ -72,11 +72,12 @@ Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
-`--gamepads`, bubblewrap and write access to `/dev/uinput`. On Debian:
+`--gamepads`, bubblewrap and write access to `/dev/uinput`; for `record`,
+ffmpeg. On Debian:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber
+  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg
 pipx install --system-site-packages shotbox
 ```
 
@@ -119,7 +120,12 @@ click, in place of a sleep. `capture --burst N [--every SECS] [--sheet
 FILE]` takes N pictures, to OUT-1.png, OUT-2.png..., one starting every SECS
 (or as fast as they come), and prints when each was taken; `--sheet` puts
 them in rows of four in one picture too. For what one picture can't show:
-an animation, a transition, something moving. A wait that gives up takes a
+an animation, a transition, something moving. `shotbox record OUT.mp4
+[--seconds SECS] [--window RE] [--crop G] [--fps N]` records a video, as an
+.mp4, .webm or .gif, for SECS, or until it's stopped (Ctrl-C, or `kill` when
+it runs in the background with `&`), which finishes the file properly. The
+pointer isn't drawn unless `--pointer`, as in a picture. It needs ffmpeg,
+and works in X11 sessions only for now. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
 

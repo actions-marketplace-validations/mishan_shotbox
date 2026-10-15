@@ -7,6 +7,7 @@ convert) rather than a Python X binding, so there's nothing to install.
 import hashlib
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -92,6 +93,60 @@ def capture(env, out, window=None, crop=None):
     cmd += QUIET_PNG + [str(out)]
     subprocess.run(cmd, env=env, check=True)
     return Path(out)
+
+
+def root_size(env):
+    """The display's width and height."""
+    out = subprocess.run(["xwininfo", "-root"], env=env, capture_output=True, text=True).stdout
+    return (int(re.search(r"Width: (\d+)", out)[1]), int(re.search(r"Height: (\d+)", out)[1]))
+
+
+# How each kind of video is encoded: fast enough to keep up as it records.
+VIDEO = {
+    ".mp4": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+             "-movflags", "+faststart"],
+    ".webm": ["-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "32",
+              "-b:v", "0", "-pix_fmt", "yuv420p"],
+}
+
+
+def record(env, out, box, seconds=None, fps=30, pointer=False):
+    """Record the display's box (width, height, x, y) to `out`, an .mp4,
+    .webm or .gif, for `seconds`, or until interrupted (Ctrl-C, or SIGTERM
+    as the command line turns it), which finishes the file properly. A
+    GIF is recorded as a video first, then given its own palette. Needs
+    ffmpeg."""
+    out = Path(out)
+    kind = out.suffix.lower()
+    if kind not in (*VIDEO, ".gif"):
+        raise ValueError(f"a recording is .mp4, .webm or .gif, not {out.name}")
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("recording needs ffmpeg")
+    w, h, x, y = box
+    w, h = w - w % 2, h - h % 2         # the encoders' color sampling halves each side
+    video = out.with_name(out.stem + ".recording.mp4") if kind == ".gif" else out
+    cmd = ["ffmpeg", "-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", str(int(pointer)),
+           "-framerate", str(fps), "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
+    cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
+    cmd += VIDEO[".mp4" if kind == ".gif" else kind] + [str(video)]
+    # Its own session, so a Ctrl-C reaches it only as passed on here.
+    proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                            start_new_session=True)
+    try:
+        _, err = proc.communicate()
+    except KeyboardInterrupt:
+        proc.send_signal(signal.SIGINT)     # ffmpeg finishes the file and stops
+        _, err = proc.communicate()
+    if proc.returncode not in (0, 255) or not video.exists():
+        raise RuntimeError(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}")
+    if kind == ".gif":
+        try:
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(video), "-vf",
+                            "split[a][b];[a]palettegen[p];[b][p]paletteuse", str(out)],
+                           check=True, capture_output=True)
+        finally:
+            video.unlink()
+    return out
 
 
 # How colors look without one kind of cone, as Machado, Oliveira and

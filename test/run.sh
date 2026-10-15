@@ -611,6 +611,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
       '$sb' wait announce 'notes\.md' --timeout 10" \
       && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
   fi
+  set +e; "$sb" run --wayland -- "$sb" record "$tmp/wl.mp4" --seconds 1 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && grep -q "X11 sessions only" "$tmp/err" \
+    && ok "wayland: record, X11's for now, refused saying so" || fail "wayland: record ($st)"
   pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
     || ok "wayland: sway stops with the session"
   [ -z "$(ours_xwayland)" ] \
@@ -650,6 +653,29 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
   && [ "$(identify -format %wx%h "$tmp/sheet.png")" = 800x240 ] \
   && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
   && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
+
+# Recording: a window for two seconds as an MP4; the screen as a WebM at
+# 10 frames a second; a crop as a GIF, its odd sides evened; and one with
+# no length, stopped by kill, finished properly.
+if command -v ffmpeg >/dev/null; then
+  probe() { ffprobe -v error -select_streams v -show_entries stream=codec_name,width,height \
+    -show_entries format=duration -of csv=p=0 "$1" | tr '\n' ' '; }
+  "$sb" run -- sh -c "'$here/window.py' rec & '$sb' wait window rec &&
+    '$sb' record '$tmp/rec.mp4' --window rec --seconds 2 && '$sb' record '$tmp/rec.webm' --fps 10 --seconds 1 &&
+    '$sb' record '$tmp/rec.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
+    { '$sb' record '$tmp/rec-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
+    ! '$sb' record '$tmp/rec.avi' --seconds 1 2> '$tmp/err'" > /dev/null \
+    && [ "$(probe "$tmp/rec.mp4")" = "h264,200,120 2.000000 " ] \
+    && [ "$(probe "$tmp/rec.webm")" = "vp9,1280,800 1.000000 " ] \
+    && [ "$(probe "$tmp/rec.gif")" = "gif,100,50 1.000000 " ] \
+    && [ "$(ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames \
+         -of csv=p=0 "$tmp/rec.webm")" = 10 ] \
+    && probe "$tmp/rec-k.mp4" | grep -q "^h264,200,120 1\." && grep -q "mp4, .webm or .gif" "$tmp/err" \
+    && ok "record: a window, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
+    || fail "record: $(probe "$tmp/rec.mp4"); $(probe "$tmp/rec.webm"); $(probe "$tmp/rec.gif"); $(probe "$tmp/rec-k.mp4")"
+else
+  echo "skip  record: no ffmpeg"
+fi
 
 # Gamepads: only the session's in its /dev/input, read as a game reads
 # them; what's left down stays down between commands; and gone with the

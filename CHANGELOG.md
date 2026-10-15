@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Holding keys and buttons, pictures as colorblind eyes see them, bursts, and gamepads.
+Holding keys and buttons, pictures as colorblind eyes see them, bursts, videos, and gamepads.
 
 ### Added
 
@@ -17,6 +17,10 @@ Holding keys and buttons, pictures as colorblind eyes see them, bursts, and game
 - **`shotbox vision IN OUT --as KIND`**, and `--vision KIND` on `capture`
   and `shoot`: a picture as someone with protanopia, deuteranopia or
   tritanopia sees it (Machado et al., 2009, at full severity), or in gray.
+- **`shotbox record OUT`**: a video of the display or a window, as an MP4,
+  WebM or GIF, for `--seconds` or until stopped (Ctrl-C or `kill`, which
+  finish the file). `--crop`, `--fps` and `--pointer`; X11 sessions only for
+  now, and it needs ffmpeg.
 - **`capture --burst N`**, with `--every SECS` and `--sheet FILE`: several
   pictures, numbered and timed, and a sheet of them, for motion.
 - **`--gamepads N`** and **`shotbox pad`**: virtual Xbox 360 controllers,

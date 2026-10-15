@@ -9,6 +9,7 @@
     shotbox wait window|port|file|ready|stable|announce ARG
                                                     (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
+    shotbox record OUT.mp4 [--seconds S] [--window RE]  (inside a session) take a video
     shotbox key CHORD...                            (inside a session) press keys
     shotbox type TEXT                               (inside a session) type text
     shotbox click X Y [--window RE]                 (inside a session) click there
@@ -323,6 +324,29 @@ def cmd_capture(argv):
     return 0
 
 
+def cmd_record(argv):
+    p = argparse.ArgumentParser(prog="shotbox record",
+                                description="Inside `shotbox run`: record a video of the "
+                                            "display or one window, for --seconds, or "
+                                            "until stopped (Ctrl-C, or kill, which ends "
+                                            "the file properly). X11 sessions; needs ffmpeg.")
+    p.add_argument("out", metavar="OUT", help="an .mp4, .webm or .gif")
+    p.add_argument("--seconds", type=seconds, metavar="SECS")
+    p.add_argument("--window", metavar="RE")
+    p.add_argument("--crop", metavar="WxH+X+Y", help="inside the display or the window")
+    p.add_argument("--fps", type=int, default=30, choices=range(1, 61), metavar="N",
+                   help="frames a second, 1 to 60 (30)")
+    p.add_argument("--pointer", action="store_true", help="draw the pointer too")
+    p.add_argument("--park", action="store_true",
+                   help="move the pointer out of the way first, as `shotbox park`")
+    a = p.parse_args(argv)
+    start = time.monotonic()
+    out = inside().record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
+                          pointer=a.pointer, park=a.park)
+    print(f"{out}  {time.monotonic() - start:.1f}s")
+    return 0
+
+
 def vision_option(p):
     p.add_argument("--vision", choices=sorted(x.VISION), metavar="KIND",
                    help="take it as someone with this color vision sees it: protanopia, "
@@ -576,7 +600,7 @@ def cmd_compare(argv):
 
 
 COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_wait,
-            "capture": cmd_capture, "compare": cmd_compare, "vision": cmd_vision, "key": cmd_key,
+            "capture": cmd_capture, "record": cmd_record, "compare": cmd_compare, "vision": cmd_vision, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "pad": cmd_pad,
@@ -586,7 +610,7 @@ COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_w
             "sessions": cmd_sessions}
 
 # What --session puts inside a lasting session.
-INSIDE = ("wait", "capture", "key", "type", "click", "move", "drag", "park", "focus", "pad",
+INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus", "pad",
           "a11y")
 
 
@@ -604,9 +628,9 @@ def main(argv=None):
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2
     try:
-        if argv[0] in ("key", "click", "pad"):
+        if argv[0] in ("key", "click", "pad", "record"):
             # Stopped mid-hold (by kill, timeout(1) or a closed terminal),
-            # let go on the way out.
+            # let go on the way out; a recording finishes its file.
             for sig in (signal.SIGTERM, signal.SIGHUP):
                 signal.signal(sig, stop_once)
         if session:
