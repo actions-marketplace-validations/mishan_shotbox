@@ -20,7 +20,7 @@
   "bin": { "shotbox-serve": "node/serve.mjs" },
   "files": ["node"],
   "repository": { "type": "git", "url": "git+https://github.com/mishan/shotbox.git" },
-  "homepage": "https://github.com/mishan/shotbox#node",
+  "homepage": "https://github.com/mishan/shotbox/blob/main/docs/node.md",
   "bugs": "https://github.com/mishan/shotbox/issues",
   "license": "MIT",
   "author": "Misha Nasledov <misha@nasledov.com>",

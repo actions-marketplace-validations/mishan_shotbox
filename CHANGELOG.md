@@ -35,6 +35,9 @@
   bubblewrap, the session says so and runs it as before.
 - A window asked for and not there is said with the titles, or app ids,
   there are, and that it's matched in full.
+- **The README is a front page**, the reference moved to docs/commands.md,
+  sealed.md, gamepads.md, python.md and node.md, and the tests to
+  CONTRIBUTING.md.
 
 ### Added
 
@@ -105,7 +108,7 @@
   under bubblewrap, and `--audio` if it's wanted.
 - **`--no-sandbox`**, for a program that needs a setuid helper (sudo, an
   AppImage), which can't run under bubblewrap.
-- **What's sealed**, in the README: what a session keeps from a program,
+- **What's sealed**, in docs/sealed.md: what a session keeps from a program,
   and what it doesn't. And instructions to give an agent so it runs
   graphical programs, browsers and sound in a session.
 - **`wait match REF.png` and `wait change`**, with `--window`, `--crop`,

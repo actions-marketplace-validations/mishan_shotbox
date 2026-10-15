@@ -6,6 +6,72 @@ program does reaches your desktop's screen reader. `--a11y` gives the
 session a bus of its own instead, so what a screen reader would hear can
 be read, linted and walked, headless, in CI.
 
+## Commands
+
+Inside `shotbox run --a11y`:
+
+- **`shotbox a11y tree [--window RE]`** prints the tree, a node a line,
+  indented: role, name, description if any, and the states a screen
+  reader would say (focusable, focused, selected, checked, pressed,
+  expanded or collapsed, editable, disabled, ...). Hidden nodes are left
+  out. It comes out the same each run, to commit and diff.
+- **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each, for what has
+  no name to say: a button, toggle, check box, radio button, menu item,
+  link, entry, slider, combo box or tab; an image not inside a named
+  control (a decorative one should be role presentation, which leaves it
+  out of the tree); and anything else that takes the focus, but for
+  what has a named node inside it, which is said by that, and a
+  container (a scrolled window, a list, a notebook) that passes the
+  focus on to something inside it. Each line is
+  the node's path, its roles and their places from the window down, then
+  what's wrong; `--ignore RE` (repeatable) leaves out a line it's found in,
+  for what can't be fixed yet.
+- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--window RE]`** presses
+  the key until the focus lands somewhere it has been, printing where it
+  lands each time. It fails if a press leaves the focus where it was (a
+  trap: a text view keeps Tab), unless nothing else could take it, or
+  after `--max`. With `--visible`, it also fails where the focus doesn't
+  show: fewer pixels in and round a node changed as it took the focus
+  than half a one-pixel outline round it has (a caret alone, or nothing).
+- **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
+  middle of the node whose name matches NAME (a regex, matched in full),
+  waiting for it to show: a button by its label rather than where it is.
+  A match inside another (a button's label) is the outer one; two that
+  aren't fail, saying which.
+- **`shotbox a11y contrast [--window RE]`** measures, on a picture of the
+  screen, with the `--window` raised, the contrast of what each node
+  draws in its bounds: text, and buttons, links and tabs, which may draw
+  text or an icon, against their background, at least 4.5:1 (`--text`),
+  and images at least 3:1 (`--graphics`). `--edges 3` also measures a
+  button's or field's edge against what's round it. It fails, a line
+  each: `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
+  Disabled nodes, switches, sliders and check boxes, and what's scrolled
+  out of view are left out; `--ignore RE` leaves out a line, as for lint.
+- **`shotbox wait announce RE`** waits for a program to announce
+  something matching RE (found anywhere in it) to a screen reader:
+  GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
+  live region (`aria-live`, `role="status"`). Each wait takes the first
+  match no wait has taken yet, so the same thing said twice is waited
+  for twice. Everything announced goes to
+  `$SHOTBOX_SCRATCH/announcements`, or `--announce-log FILE` (which
+  implies `--a11y`), a line each (a line break as `\n`): `polite: Saved
+  to notes.md`.
+
+```
+shotbox run --a11y -- sh -c 'gnome-text-editor &
+  shotbox a11y lint --window ".*Text Editor"'
+```
+
+finds that the editor's text area has no name.
+
+`--window` picks a window by title, or `app=RE`, as everywhere, and
+waits up to `--timeout` (10s) for it to appear in the tree. Without it,
+every program's windows are there. It works on X11, Wayland and
+Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
+Bevy, GTK built with it), and for Chromium, headed, given
+`--force-renderer-accessibility` (the Node package's `accessible`), on
+X11.
+
 ## The bus
 
 With `--a11y`, the session:

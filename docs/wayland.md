@@ -6,6 +6,14 @@ it, for X clients running on a Wayland desktop the way they do on a real
 one. Everything else stays: the scratch home, the private bus, the waits,
 the pictures, the cleanup.
 
+```
+shotbox shoot editor.png --wayland --window app=org.gnome.TextEditor -- gnome-text-editor
+```
+
+Everything else is the same: windows by title or `app=`, pictures, waits,
+failure pictures, keys, text, the pointer, `park`, `term`, `record` and
+the Python API (`shotbox.Session(wayland=True)`, or `here()` inside).
+
 This is the plan for it, and where it has got to.
 
 ## Why sway
