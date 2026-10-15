@@ -359,15 +359,23 @@ def grab(env, window=None, box=None):
     (width, height, RGB bytes): a few milliseconds where `import` takes
     tens. None where it can't be had that way, some of it off the screen
     say, for the slower way."""
-    from .xtest import Display, XError
+    from .xtest import Closed, Display, XError
     key = env.get("DISPLAY"), env.get("XAUTHORITY")
     try:
         d = _grabbers.get(key) or _grabbers.setdefault(key, Display(env))
+        # import takes what of a window is on the screen; GetImage would
+        # take a backing store's all, or fail, so a window partly off it
+        # is import's.
+        if window and not (0 <= window[4] and 0 <= window[5] and window[4] + window[2] <= d.width
+                           and window[5] + window[3] <= d.height):
+            return None
         drawable = int(window[0], 16) if window else d.root
         w, h, x, y = box or ((*window[2:4], 0, 0) if window else (d.width, d.height, 0, 0))
         return w, h, d.image(drawable, x, y, w, h)
-    except (XError, OSError):
+    except (Closed, OSError):
         _grabbers.pop(key, None)
+        return None
+    except XError:          # a window gone, say: the connection's fine
         return None
 
 

@@ -34,6 +34,10 @@ class XError(RuntimeError):
     pass
 
 
+class Closed(XError):
+    """The connection's gone: the X server stopped, or closed it."""
+
+
 def parse_chord(spec):
     """A chord's (keysym, modifier keysyms): `ctrl+comma`, `Return`,
     `alt+shift+Tab`. A lone `+` is the plus key."""
@@ -85,6 +89,7 @@ class Display:
             raise XError(f"the X server refused the connection: {reason}")
         vendor_len, = struct.unpack_from("<H", more, 16)
         screens, formats = more[20], more[21]
+        self.lsb_first = more[22] == 0      # images' byte order
         self.min_keycode, self.max_keycode = more[26], more[27]
         at = 32 + vendor_len + _pad(vendor_len) + 8 * formats
         self.root, = struct.unpack_from("<I", more, at) if screens else (0,)
@@ -101,7 +106,7 @@ class Display:
         while got < n:
             k = self.sock.recv_into(view[got:])
             if not k:
-                raise XError("the X server closed the connection")
+                raise Closed("the X server closed the connection")
             got += k
         return bytes(buf)
 
@@ -127,12 +132,12 @@ class Display:
         """The pixels of a rectangle of `drawable` (a window's id, or the
         root's), as red, green, blue bytes, a row at a time from the top:
         or XError if some of it isn't on the screen, or it isn't 24-bit
-        color four bytes a pixel, as Xvfb's is."""
+        color four bytes a pixel, least significant first, as Xvfb's is."""
         self._request(struct.pack("<BBHIhhHHI", 73, 2, 5, drawable, x, y, width, height,
                                   0xFFFFFFFF))     # GetImage, as a ZPixmap
         reply = self._reply()
         data = bytearray(reply[32:])
-        if reply[1] != 24 or len(data) != width * height * 4:
+        if not self.lsb_first or reply[1] != 24 or len(data) != width * height * 4:
             raise XError(f"a {reply[1]}-bit picture, {len(data)} bytes for {width}x{height}")
         del data[3::4]      # each pixel's fourth byte, unused
         data[0::3], data[2::3] = data[2::3], data[0::3]    # blue, green, red on the wire
