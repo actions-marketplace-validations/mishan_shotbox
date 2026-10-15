@@ -28,6 +28,8 @@
   looks different from when the wait started, and say how long it took.
   Also `Screen.wait_match` and `wait_change`, and MCP's `wait_for`,
   whose picture to match is a file in the `--allow` file's directory.
+- **`shotbox record OUT.wav`**: what plays in a session with `--audio`,
+  sample for sample, on X11 or Wayland, for `--seconds` or until stopped.
 
 ## 0.5.0 — 2026-10-14
 
