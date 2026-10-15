@@ -394,13 +394,14 @@ def cmd_doctor(argv):
     argparse.ArgumentParser(prog="shotbox doctor",
                             description="What's here of what sessions, each of their "
                                         "options and `term` and `record` need, a line "
-                                        "each; fails if any is missing.").parse_args(argv)
-    missing = 0
+                                        "each; fails if what every session needs "
+                                        "is missing.").parse_args(argv)
+    missing = []
     for part, check in NEEDS.items():
         why = check()
         print(f"no    {part}: {why}" if why else f"ok    {part}")
-        missing += bool(why)
-    return 1 if missing else 0
+        missing += [part] * bool(why)
+    return 1 if {"sessions", "X11"} & set(missing) else 0
 
 
 def cmd_sessions(argv):

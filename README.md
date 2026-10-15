@@ -103,7 +103,7 @@ all want the same things, and every project was growing its own copy:
 
 ## Install
 
-Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
+Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick, `xwininfo` and `xprop`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
@@ -113,20 +113,21 @@ bubblewrap, which `--gamepads` needs, and which [seals](#whats-sealed)
 more where it's there. On Debian:
 
 ```
-sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
+sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils python3-gi gir1.2-vte-2.91 \
   at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap \
   libfaketime
 pipx install --system-site-packages shotbox
 ```
 
 `--system-site-packages` lets it see the system's PyGObject, which
-`shotbox term` and `--a11y` use; `pip install shotbox` works too. Or run it from a
-checkout: `ln -s "$PWD/bin/shotbox" ~/.local/bin/shotbox`.
+`shotbox term` and `--a11y` use; `pip install shotbox` works too. Or run
+it from a checkout: `ln -s "$PWD/bin/shotbox" ~/.local/bin/shotbox`.
 
 `shotbox doctor` says which of these are here, a line each: what
 sessions need, and each of their options, `term` and `record`. A command
 missing one fails before it starts anything, in a line saying what's
 missing and how to get it, as `Session` and MCP's `start_session` do.
+`doctor` fails only if what every session needs is missing.
 
 No Python packages: it's the standard library and those tools. Wayland
 sessions need more; see [Wayland](#wayland).

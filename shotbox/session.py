@@ -62,6 +62,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import pad, usage, wl
+from .x import CONVERT
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
 # Passed through from the caller unless told otherwise. Everything else is
@@ -307,7 +308,7 @@ def unfold(home, path):
 PACKAGES = {"Xvfb": "xvfb", "Xwayland": "xwayland", "pipewire": "pipewire-bin",
             "pw-dump": "pipewire-bin", "bwrap": "bubblewrap", "gdbus": "libglib2.0-bin",
             "nsenter": "util-linux", "xwininfo": "x11-utils", "xprop": "x11-utils",
-            "import": "imagemagick"}
+            "import": "imagemagick", "magick": "imagemagick", "convert": "imagemagick"}
 
 
 def lacks(*tools):
@@ -338,16 +339,22 @@ def bindings(what, where, *libs):
     to make one that can. Nothing if it can."""
     try:
         import gi
-        for lib, version in libs:
-            gi.require_version(lib, version)
-        return None
-    except (ImportError, ValueError) as e:
+    except ImportError as e:
         cfg = Path(sys.prefix, "pyvenv.cfg")
         if cfg.exists() and re.search(r"include-system-site-packages\s*=\s*false",
                                       cfg.read_text()):
-            return (f"needs {what} from the system, which this install can't see; "
-                    f"reinstall with: {REINSTALL}")
+            if "pipx/venvs/" in Path(sys.prefix).as_posix():
+                return (f"needs {what} from the system, which this install can't see; "
+                        f"reinstall with: {REINSTALL}")
+            return (f"needs {what} from the system, which this virtualenv can't see: "
+                    "make it with --system-site-packages")
         return f"needs {what}, which this Python can't load ({e}): {where}"
+    try:
+        for lib, version in libs:
+            gi.require_version(lib, version)
+    except ValueError as e:
+        return f"needs {what}, which this Python can't load ({e}): {where}"
+    return None
 
 
 def a11y_needs():
@@ -371,9 +378,9 @@ def gamepad_needs():
 # all.
 NEEDS = {
     "sessions": lambda: lacks("dbus-daemon"),
-    "X11": lambda: lacks("Xvfb", "xauth", "xwininfo", "import"),
-    "--wayland": lambda: lacks("sway", "grim", "import"),
-    "--xwayland": lambda: lacks("Xwayland"),
+    "X11": lambda: lacks("Xvfb", "xauth", "xwininfo", "xprop", "import"),
+    "--wayland": lambda: lacks("sway", "grim", CONVERT[0]),
+    "--xwayland": lambda: lacks("Xwayland", "xprop"),
     "--desktop": lambda: lacks("gdbus"),
     "--a11y": a11y_needs,
     "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
@@ -613,7 +620,6 @@ class Session(Screen):
                 # X clients take the font DPI from the X server's
                 # resources over settings.ini; only GTK 4 on Wayland reads
                 # it there.
-                need("xprop")
                 dpi = round(96 * self.text_scale)
                 subprocess.run(["xprop", "-root", "-f", "RESOURCE_MANAGER", "8s", "-set",
                                 "RESOURCE_MANAGER", f"Xft.dpi:\t{dpi}\n"],

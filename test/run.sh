@@ -36,9 +36,10 @@ set +e; TMPDIR=$long "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
   || fail "long TMPDIR ($st): $(cat "$tmp/err")"
 # What a command needs and isn't here, said in a line before anything
 # starts (nothing made in TMPDIR): a tool not on PATH, and the system's
-# PyGObject, from a virtualenv that can't see it, as plain `pipx install
-# shotbox` makes.
+# PyGObject, from a virtualenv that can't see it: plain `pipx install
+# shotbox`'s, which can be reinstalled so it can, or another.
 mkdir "$tmp/empty" "$tmp/path"; ln -s "$(command -v python3)" "$tmp/path/python3"
+venv=$tmp/pipx/venvs/shotbox; python3 -m venv --without-pip "$venv"
 python3 -m venv --without-pip "$tmp/venv"
 at_once() { [ $1 != 0 ] && [ "$(wc -l < "$tmp/err")" = 1 ] && grep -q "$2" "$tmp/err" \
   && [ -z "$(ls -A "$tmp/empty")" ]; }
@@ -46,16 +47,16 @@ set +e; TMPDIR=$tmp/empty PATH=$tmp/path python3 "$sb" run -- true 2> "$tmp/err"
 at_once $st "^shotbox: not found: dbus-daemon" && ok "a tool not found, said before the session starts" \
   || fail "no dbus-daemon ($st): $(cat "$tmp/err")"
 reinstall="from the system, which this install can't see; reinstall with: pipx install --force --system-site-packages shotbox"
-set +e; TMPDIR=$tmp/empty "$tmp/venv/bin/python" "$sb" term --shoot "$tmp/t.png" -- true 2> "$tmp/err"; st=$?; set -e
+set +e; TMPDIR=$tmp/empty "$venv/bin/python" "$sb" term --shoot "$tmp/t.png" -- true 2> "$tmp/err"; st=$?; set -e
 at_once $st "^shotbox term: needs PyGObject and VTE $reinstall\$" \
   && ok "term, with no PyGObject in sight: how to reinstall, before the session starts" \
   || fail "term with no PyGObject ($st): $(cat "$tmp/err")"
 set +e; TMPDIR=$tmp/empty "$tmp/venv/bin/python" "$sb" run --a11y -- true 2> "$tmp/err"; st=$?; set -e
-at_once $st "^shotbox: needs PyGObject and AT-SPI $reinstall\$" \
-  && ok "--a11y, with no PyGObject in sight: how to reinstall, before the session starts" \
+at_once $st "^shotbox: needs PyGObject and AT-SPI from the system, which this virtualenv can't see: make it with --system-site-packages\$" \
+  && ok "--a11y, with no PyGObject in sight: a virtualenv that can see it, before the session starts" \
   || fail "--a11y with no PyGObject ($st): $(cat "$tmp/err")"
-set +e; "$tmp/venv/bin/python" "$sb" doctor > "$tmp/out"; st=$?; set -e
-[ $st = 1 ] && grep -q "^ok    sessions$" "$tmp/out" && grep -q "^no    term: needs PyGObject and VTE $reinstall\$" "$tmp/out" \
+set +e; "$venv/bin/python" "$sb" doctor > "$tmp/out"; st=$?; set -e
+[ $st = 0 ] && grep -q "^ok    sessions$" "$tmp/out" && grep -q "^no    term: needs PyGObject and VTE $reinstall\$" "$tmp/out" \
   && ok "doctor: what's here, and what isn't" || fail "doctor ($st): $(cat "$tmp/out")"
 # Under bubblewrap: none of the machine's sound devices, and none of the
 # desktop's sockets; all of them with --no-sandbox.
