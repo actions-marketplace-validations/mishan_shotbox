@@ -694,6 +694,32 @@ if command -v ffmpeg >/dev/null; then
     && ok "record: killed outright, its ffmpeg stops and finishes the file" \
     || { fail "record, killed: $(probe "$tmp/rec-9.mp4")"
          pgrep -ax ffmpeg | grep rec-9 | cut -d' ' -f1 | xargs -r kill; }
+  # Stopped a moment after it starts, in the background, where a job's
+  # Ctrl-C is ignored: it ends rather than recording for good. Killed, then
+  # killed outright while it finishes: the file is still whole. A GIF
+  # killed outright is made all the same, and nothing left in TMPDIR.
+  rm -rf "$tmp/rtmp2"; mkdir "$tmp/rtmp2"
+  "$sb" run --env "TMPDIR=$tmp/rtmp2" -- sh -c "'$here/window.py' re & '$sb' wait window re || exit 1
+    for d in 0.05 0.08 0.1 0.15 0.2 0.3 0.5; do
+      '$sb' record '$tmp/rec-e.mp4' --window re 2>/dev/null & r=\$!; sleep \$d; kill \$r
+      n=0; while kill -0 \$r 2>/dev/null; do [ \$n -lt 100 ] || { kill -9 \$r; exit 1; }
+        sleep 0.1; n=\$((n + 1)); done
+    done
+    '$sb' record '$tmp/rec-2.mp4' --window re & r=\$!; sleep 1.5; kill \$r; sleep 0.1; kill -9 \$r
+    '$sb' record '$tmp/rec-9.gif' --window re & r=\$!; sleep 1.5; kill -9 \$r
+    n=0; while [ ! -s '$tmp/rec-9.gif' ] || [ -n \"\$(ls '$tmp/rtmp2')\" ]; do
+      [ \$n -lt 100 ] || exit 1; sleep 0.1; n=\$((n + 1)); done" > /dev/null \
+    && probe "$tmp/rec-2.mp4" | grep -q "^h264,200,120 " && probe "$tmp/rec-9.gif" | grep -q "^gif,200,120 " \
+    && ok "record: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
+    || fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
+  # A lasting session stopped while it records: the recording ends with it.
+  "$sb" start --name "rec$$" >/dev/null
+  "$sb" --session "rec$$" record "$tmp/rec-stop.mp4" & r=$!
+  sleep 2; "$sb" stop "rec$$" >/dev/null
+  n=0; while kill -0 $r 2>/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+  if kill -0 $r 2>/dev/null; then kill -9 $r; fail "record: outlived its session's stop"
+  else probe "$tmp/rec-stop.mp4" | grep -q "^h264,1280,800 " && ok "record: ends, finished, when its lasting session stops" \
+    || fail "record, session stopped: $(probe "$tmp/rec-stop.mp4")"; fi
   # A window partly off the screen is recorded as far as it shows; one
   # entirely off it is refused.
   if command -v xdotool >/dev/null; then

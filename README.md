@@ -122,8 +122,11 @@ FILE]` takes N pictures, to OUT-1.png, OUT-2.png..., one starting every SECS
 them in rows of four in one picture too. For what one picture can't show:
 an animation, a transition, something moving. `shotbox record OUT.mp4
 [--seconds SECS] [--window RE] [--crop G] [--fps N]` records a video, as an
-.mp4, .webm or .gif, for SECS, or until it's stopped (Ctrl-C, or `kill` when
-it runs in the background with `&`), which finishes the file properly. The
+.mp4, .webm or .gif (30 frames a second, a GIF 15), for SECS, or until it's
+stopped: Ctrl-C, `kill` when it runs in the background with `&`, its
+session's display stopping. However it stops, even killed outright, the
+file is finished, by a process of its own, which can still be making a
+GIF after `shotbox run` returns. The
 pointer isn't drawn unless `--pointer`, as in a picture (`--park` moves it
 aside first). A window is recorded where it is when recording starts, as
 far as it's on the screen: it isn't followed if it moves, and what's drawn

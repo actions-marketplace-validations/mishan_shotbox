@@ -336,8 +336,8 @@ def cmd_record(argv):
                    help="where this window is when it starts: what's drawn over it is "
                         "recorded too, and it isn't followed if it moves")
     p.add_argument("--crop", metavar="WxH+X+Y", help="inside the display or the window")
-    p.add_argument("--fps", type=int, default=30, choices=range(1, 61), metavar="N",
-                   help="frames a second, 1 to 60 (30)")
+    p.add_argument("--fps", type=int, choices=range(1, 61), metavar="N",
+                   help="frames a second, 1 to 60 (30, or 15 for a GIF)")
     p.add_argument("--pointer", action="store_true", help="draw the pointer too")
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
@@ -347,7 +347,10 @@ def cmd_record(argv):
     start = time.monotonic()
     out = inside().record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
                           pointer=a.pointer, park=a.park)
-    print(f"{out}  {time.monotonic() - start:.1f}s")
+    try:
+        print(f"{out}  {time.monotonic() - start:.1f}s", flush=True)
+    except OSError:     # stopped by its terminal closing, with nowhere to say so
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
     return 0
 
 

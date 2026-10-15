@@ -277,7 +277,8 @@ class Screen:
             x.vision(out, out, vision)
         return Path(out)
 
-    def record(self, out, seconds=None, window=None, crop=None, fps=30, pointer=False, park=False):
+    def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
+               park=False):
         """A video of the display, or of the window named `window`, cropped
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer

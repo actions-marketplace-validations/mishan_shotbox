@@ -4,10 +4,11 @@ Uses the X tools every distro has (xwininfo, ImageMagick's import and
 convert) rather than a Python X binding, so there's nothing to install.
 """
 
-import ctypes
 import hashlib
+import json
 import os
 import re
+import select
 import shutil
 import signal
 import socket
@@ -113,12 +114,16 @@ VIDEO = {
 }
 
 
-def record(env, out, box, seconds=None, fps=30, pointer=False):
+def record(env, out, box, seconds=None, fps=None, pointer=False):
     """Record the display's box (width, height, x, y) to `out`, an .mp4,
-    .webm or .gif, for `seconds`, or until interrupted (Ctrl-C, or SIGTERM
-    as the command line turns it), which finishes the file properly. A
-    GIF is recorded as a video first, then given its own palette. Needs
-    ffmpeg."""
+    .webm or .gif, at `fps` (30, or 15 for a GIF), for `seconds`, or until
+    interrupted (Ctrl-C, or SIGTERM as the command line turns it). A GIF
+    is recorded as a video first, then given its own palette. Needs
+    ffmpeg.
+
+    A keeper process of its own (keep_recording) runs ffmpeg and finishes
+    the file, so it's finished however this one goes: interrupted, killed,
+    or its session's display stopped."""
     out = Path(out)
     kind = out.suffix.lower()
     if kind not in (*VIDEO, ".gif"):
@@ -127,77 +132,105 @@ def record(env, out, box, seconds=None, fps=30, pointer=False):
         raise RuntimeError("recording needs ffmpeg")
     if seconds is not None and seconds <= 0:
         raise ValueError(f"a recording lasts more than 0 seconds, not {seconds:g}")
-    tmp = tempfile.mkdtemp() if kind == ".gif" else None
-    video = Path(tmp) / "recording.mp4" if tmp else out
-    try:
-        _record(env, video, box, seconds, fps, pointer)
-    except BaseException:
-        if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
-        raise
-    if tmp:
-        # The GIF is made, and the recording removed, in a session of its
-        # own: `shotbox run`, stopped, kills what's left of its command two
-        # seconds on, which would cut both short.
-        proc = subprocess.Popen(["sh", "-c", 'ffmpeg -loglevel error -y -i "$1" -vf '
-                                 '"split[a][b];[a]palettegen[p];[b][p]paletteuse" "$2"; '
-                                 's=$?; rm -rf "$3"; exit $s', "sh", str(video), str(out), tmp],
-                                stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                start_new_session=True)
-        while True:
-            try:
-                _, err = proc.communicate()
-                break
-            except KeyboardInterrupt:
-                pass        # it's the file the first stop asked for
-        if proc.returncode:
-            raise RuntimeError(f"ffmpeg couldn't make the GIF: {err.decode(errors='replace').strip()}")
-    return out
-
-
-def stop_with(parent):
-    """For preexec_fn: a SIGTERM for the child when `parent` (this process)
-    goes. Linux sends it when the thread that started the child ends, and
-    record() waits on that thread for as long as the child runs."""
-    def prctl():
-        PR_SET_PDEATHSIG = 1
-        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0)
-        if os.getppid() != parent:      # it went before the line above took
-            os._exit(1)
-    return prctl
-
-
-def _record(env, video, box, seconds, fps, pointer):
     w, h, x, y = box
     w, h = w - w % 2, h - h % 2         # the encoders' color sampling halves each side
-    cmd = ["ffmpeg", "-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", str(int(pointer)),
-           "-framerate", str(fps), "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
+    fps = fps or (15 if kind == ".gif" else 30)
+    cmd = ["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-f", "x11grab",
+           "-draw_mouse", str(int(pointer)), "-framerate", str(fps), "-video_size", f"{w}x{h}",
+           "-i", f"{env['DISPLAY']}+{x},{y}"]
     cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
-    cmd += VIDEO[".webm" if video.suffix.lower() == ".webm" else ".mp4"] + [str(video)]
-    # Its own session, so a Ctrl-C reaches it only as passed on here; and
-    # stopped (finishing the file) if this process goes without passing
-    # one on, killed: in its own session, nothing else would stop it.
-    proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                            start_new_session=True, preexec_fn=stop_with(os.getpid()))
+    cmd += VIDEO[".webm" if kind == ".webm" else ".mp4"]
+    here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
+    path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
+    keeper = ("import sys; from shotbox.x import keep_recording; "
+              "sys.exit(keep_recording(*sys.argv[1:]))")
+    # Its own session: `shotbox run`, stopped, kills its command's group
+    # two seconds on, which would cut the finishing short.
+    proc = subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out)],
+                            env={**env, "PYTHONPATH": path}, stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                            start_new_session=True)
     try:
-        _, err = proc.communicate()
+        proc.wait()
     except KeyboardInterrupt:
-        proc.send_signal(signal.SIGINT)     # ffmpeg finishes the file and stops
+        try:
+            proc.stdin.write(b"stop\n")
+            proc.stdin.flush()
+        except OSError:
+            pass
         while True:
             try:
-                _, err = proc.communicate()
+                proc.wait()
                 break
             except KeyboardInterrupt:
                 pass        # it's finishing the file the first stop asked for
-    if proc.returncode not in (0, 255) or not video.exists():
-        raise RuntimeError(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}")
-    # Stopped before the first frame, ffmpeg writes a file with no video in it.
-    frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
-                             "stream=index", "-of", "csv=p=0", str(video)],
-                            capture_output=True, text=True).stdout.strip()
-    if not frames:
-        video.unlink()
-        raise RuntimeError("nothing was recorded: it stopped before the first frame")
+    if proc.returncode:
+        raise RuntimeError(proc.stderr.read().decode(errors="replace").strip()
+                           or f"the recording failed (status {proc.returncode})")
+    return out
+
+
+def keep_recording(cmd, out):
+    """Run the ffmpeg command `cmd` (JSON, without its output file) to
+    record to `out`, and stop it with one signal, which it finishes the
+    file on (a second makes it quit unfinished): when a line comes on stdin
+    or stdin closes, as when what started this goes however it goes, or
+    when the display goes. Then make the GIF, for a .gif. Status 0, or 1
+    and why on stderr."""
+    cmd, out = json.loads(cmd), Path(out)
+    tmp = tempfile.mkdtemp() if out.suffix.lower() == ".gif" else None
+    video = Path(tmp) / "recording.mp4" if tmp else out
+    try:
+        # What started this may have had Ctrl-C ignored (a job started with
+        # &): ffmpeg's own handlers mustn't start out that way.
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, signal.SIG_DFL)
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        proc = subprocess.Popen(cmd + [str(video)], stdin=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE)
+        display = os.environ["DISPLAY"]
+        while proc.poll() is None:
+            if select.select([sys.stdin], [], [], 0.5)[0] or not display_up(display):
+                proc.send_signal(signal.SIGTERM)
+                break
+        _, err = proc.communicate()
+        if proc.returncode not in (0, 255) or not video.exists():
+            sys.stderr.write(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}\n")
+            return 1
+        # Stopped before the first frame, ffmpeg writes a file with no video.
+        frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
+                                 "-show_entries", "stream=index", "-of", "csv=p=0", str(video)],
+                                capture_output=True, text=True).stdout.strip()
+        if not frames:
+            video.unlink()
+            sys.stderr.write("nothing was recorded: it stopped before the first frame\n")
+            return 1
+        if tmp:
+            gif = subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i",
+                                  str(video), "-vf",
+                                  "split[a][b];[a]palettegen[p];[b][p]paletteuse", str(out)],
+                                 stderr=subprocess.PIPE)
+            if gif.returncode:
+                sys.stderr.write("ffmpeg couldn't make the GIF: "
+                                 + gif.stderr.decode(errors="replace").strip() + "\n")
+                return 1
+        return 0
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def display_up(display):
+    """Whether the local X display (`:N`) still takes connections."""
+    m = re.fullmatch(r":(\d+)(\.\d+)?", display)
+    if not m:
+        return True
+    with socket.socket(socket.AF_UNIX) as s:
+        try:
+            s.connect(f"/tmp/.X11-unix/X{m[1]}")
+            return True
+        except OSError:
+            return False
 
 
 # How colors look without one kind of cone, as Machado, Oliveira and
