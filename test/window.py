@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
-TITLE move, or TITLE scroll, or TITLE strip. With LOG, it holds an entry instead, and
+TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -85,6 +85,30 @@ elif sys.argv[2:3] == ["flash"]:
         return True
     GLib.timeout_add(1000, flash)
     w.add(square)
+elif sys.argv[2:3] == ["scene"]:
+    # bzflag's strip, as it was: black every other 30 ms, and between, a
+    # scene that's moved on everywhere, as a turning tank's view has.
+    area, n, black = Gtk.DrawingArea(), [0], [False]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0, 0, 0)
+        cr.paint()
+        if not black[0]:
+            for x in range(0, 200, 8):
+                for y in range(0, 120, 8):
+                    v = ((x * 7 + y * 13 + n[0] * 29) % 97) / 97
+                    cr.set_source_rgb(0.1 * v, 0.4 + 0.5 * v, 0.1)
+                    cr.rectangle(x, y, 8, 8)
+                    cr.fill()
+    area.connect("draw", draw)
+
+    def swap():
+        black[0] = not black[0]
+        n[0] += 1
+        area.queue_draw()
+        return True
+    GLib.timeout_add(30, swap)
+    w.add(area)
 elif sys.argv[2:3] == ["strip"]:
     # As bzflag's strip: black every other 30 ms, and between, a green
     # scene with a square crossing it, a little further on each time.
@@ -105,7 +129,7 @@ elif sys.argv[2:3] == ["strip"]:
         return True
     GLib.timeout_add(30, swap)
     w.add(area)
-elif sys.argv[2:3] in (["move"], ["scroll"]):
+elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"]):
     # Motion, which is neither: a black square crossing white at 300
     # pixels a second, or lines of text scrolling up at 200.
     area, began = Gtk.DrawingArea(), GLib.get_monotonic_time()
@@ -119,9 +143,11 @@ elif sys.argv[2:3] in (["move"], ["scroll"]):
             cr.rectangle(t * 300 % 216 - 16, 50, 16, 16)
             cr.fill()
         else:
-            for line in range(12):
-                cr.move_to(4, 14 + line * 14 - t * 200 % 14)
-                cr.show_text(f"line {line + int(t * 200 / 14)}: the quick brown fox")
+            # Lines 14 pixels apart, or 40, with white between.
+            gap = 14 if sys.argv[2] == "scroll" else 40
+            for line in range(120 // gap + 2):
+                cr.move_to(4, 14 + line * gap - t * 200 % gap)
+                cr.show_text(f"line {line + int(t * 200 / gap)}: the quick brown fox")
     area.connect("draw", draw)
     GLib.timeout_add(16, lambda: area.queue_draw() or True)
     w.add(area)

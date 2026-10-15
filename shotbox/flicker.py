@@ -15,9 +15,10 @@ quickly, so neither is either.
 
 Mean colors find what might be; the tile's pixels decide. Flicker's looks
 come back as the same pictures, near enough, A as A and B as B, which a
-line of text scrolling past, or anything moving through, doesn't; a flash
-is to a color, all of the tile, as a frame drawn black, and back to the
-same picture as before.
+line of text scrolling past, or anything moving through, doesn't; or one
+of them does, and is a color all over, a frame drawn black between frames
+of a scene that moves on. A flash is to a color, all of the tile, as a
+frame drawn black, and back to the same picture as before.
 """
 
 from .x import differ
@@ -58,9 +59,10 @@ def states(times, looks, end, fuzz):
 
 
 def alike(a, b, fuzz):
-    """Whether two tiles' RGB pixels are the same picture, near enough: no
-    more than a tenth of them differing by more than `fuzz` percent."""
-    return differ(a, b, fuzz, len(a) // 30) <= len(a) // 30
+    """Whether two tiles' RGB pixels are the same picture: no more than one
+    in fifty differing by more than `fuzz` percent. Text scrolling past
+    differs by more, in its strokes."""
+    return differ(a, b, fuzz, len(a) // 150) <= len(a) // 150
 
 
 def plain(pixels, fuzz):
@@ -73,36 +75,34 @@ def find(held, brief, times, fuzz, pixels):
     """In one tile's states, its longest flicker, as (start, changes, mean
     seconds a brief state, look A, look B), or else a flash, as (start,
     seconds, look, then look), or None: see the module's docstring.
-    `pixels(state)` is the tile's pixels in a state's first picture, for
-    what mean colors can't tell: that the looks come back as the same
-    pictures, which a line of text scrolling past, or anything else moving,
-    doesn't."""
-    near = fuzz * 2.55
-
-    def same(a, b):
-        return all(abs(x - y) <= near for x, y in zip(a, b))
-
+    `pixels(k)` is the tile's pixels in picture `k`, which decide what the
+    mean colors found: brief states one after another."""
     best, flash, i = None, None, 1
-    while i + 1 < len(held):
-        j = i
-        # A run: each state held briefly, and the same look as two before.
-        while (j + 1 < len(held) and held[j][2] <= brief and same(held[j - 1][0], held[j + 1][0])
-               and not same(held[j][0], held[j + 1][0])):
-            j += 1
-        changes = j - i + 1
-        if changes < 2:
+    while i < len(held):
+        if held[i][2] > brief:
             i += 1
             continue
-        # Each look the same picture as two states before.
-        recurs = all(alike(pixels(held[k]), pixels(held[k + 2]), fuzz) for k in range(i - 1, j - 1))
-        if recurs and changes >= times:
-            brief_ones = [st[2] for st in held[i:j + 1] if st[2] <= brief]
-            run = (held[i][1], changes, sum(brief_ones) / len(brief_ones), held[i - 1][0],
-                   held[i][0])
+        k = i
+        while k < len(held) and held[k][2] <= brief:
+            k += 1
+        # The brief states, and the look either side of them: A, B, A, B...
+        seq = held[i - 1:k + 1]
+        changes = len(seq) - 1
+        recur = [all(alike(pixels(seq[m][3]), pixels(seq[m + 2][3]), fuzz)
+                     for m in range(side, len(seq) - 2, 2)) for side in (0, 1)]
+        plains = [plain(pixels(seq[side][3]), fuzz) for side in (0, 1)]
+        # Both looks the same pictures each time; or one, a color all over,
+        # as a frame drawn black between frames of a scene that moves on.
+        if changes >= times and (all(recur) or any(r and p for r, p in zip(recur, plains))):
+            run = (seq[1][1], changes, sum(s[2] for s in held[i:k]) / (k - i), seq[0][0],
+                   seq[1][0])
             best = run if best is None or changes > best[1] else best
-        elif recurs and not flash and plain(pixels(held[i]), fuzz):
-            flash = (held[i][1], held[i][2], held[i][0], held[i - 1][0])
-        i = j + 1
+        # A flash: from a picture that held still, to a color, and back:
+        # what's moving holds no picture still, though it come back.
+        elif (changes == 2 and recur[0] and plains[1] and not flash
+              and alike(pixels(seq[0][3]), pixels(seq[1][3] - 1), fuzz)):
+            flash = (seq[1][1], seq[1][2], seq[1][0], seq[0][0])
+        i = k
     return best, (None if best else flash)
 
 

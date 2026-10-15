@@ -258,13 +258,15 @@ pictures as fast as they come, cuts each into 16-pixel tiles
 moves within itself, a game's frame, is still one look, within `--fuzz`
 (6%). A tile's looks are timed, not counted in pictures, since a program
 draws at its own rate: going A, B, A, B... with each held no longer than
-`--brief` (100 ms), `--times` changes (4) or more, and each look coming
-back as the same picture, near enough, is flicker, said with its box
-(whole tiles), how many changes, how often, and both colors. A, B, A
-once, B a color all over (a frame drawn black) and A the same picture
-after as before, is a flash. A caret's half-second blink is neither, nor
-is something moving through, or text scrolling past, whose looks don't
-come back as the same pictures; `--ignore G` leaves out a box that
+`--brief` (100 ms), `--times` changes (4) or more, is flicker if both
+looks come back as the same pictures each time, or one does and is a
+color all over (black between frames of a scene that moves on, as
+bzflag's strip was): said with its box (whole tiles), how many changes,
+how often, and both colors. A, B, A once, from a picture that held
+still, to a color all over (a frame drawn black), and back to the same
+picture, is a flash. A caret's half-second blink is neither, nor is
+something moving through, or text scrolling past, whose looks don't
+come back as the same pictures, or come back after none that held still; `--ignore G` leaves out a box that
 flickers on purpose. Boxes are in what's watched, the window or the
 crop. It fails (1) if it finds any, and can't watch (2) is said apart.
 A busy screen, every picture different, is pictures more slowly, since

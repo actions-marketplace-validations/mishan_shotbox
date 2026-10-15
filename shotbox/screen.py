@@ -374,8 +374,8 @@ class Screen:
                 continue
             x1, y1 = min(tx + tile, width), min(ty + tile, height)
 
-            def pixels(state, tx=tx, ty=ty, x1=x1, y1=y1):
-                f = frames(state[3])
+            def pixels(k, tx=tx, ty=ty, x1=x1, y1=y1):
+                f = frames(k)
                 return b"".join(f[(y * width + tx) * 3:(y * width + x1) * 3] for y in range(ty, y1))
             held = flicker.states(times_, [frame[n] for frame in looks], seconds, fuzz * 2.55)
             flickering, flashed = flicker.find(held, brief, times, fuzz, pixels)
