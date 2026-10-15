@@ -3,7 +3,8 @@
 Several tools give an agent or a test a Linux GUI to drive. Most are
 about control: start a program, see it, click and type. shotbox does
 that too, but what it's for is checking: a session sealed the same way
-each time, so a picture of it is reproducible; measurements of what it
+each time, so a picture of it comes out the same each run on the same
+machine, with `--clock` and `--identity` for what moves; measurements of what it
 finds (contrast, the Tab order, names a screen reader can't say, pixels
 changed, latency, dropouts in its sound, what it used); and waits for
 things rather than sleeps. Where a tool below does something shotbox
@@ -31,7 +32,7 @@ person who wants to watch and step in, it's the better fit.
 
 [agent-sh/agent-workspace-linux](https://github.com/agent-sh/agent-workspace-linux)
 (MIT; Rust) is a hidden Xvfb desktop with a window manager, driven with
-xdotool, with about 86 MCP tools, and a Chrome of the workspace's own,
+XTest and xdotool, with about 86 MCP tools, and a Chrome of the workspace's own,
 driven over DevTools. Under bubblewrap it confines files as well as the
 network (`disabled`, `local_only` or `inherit_host`), and an agent's
 permissions can be capped.
@@ -46,7 +47,8 @@ choice.
 
 [isac322/kwin-mcp](https://github.com/isac322/kwin-mcp) (MIT; Python)
 runs a virtual KWin (`kwin_wayland --virtual`) with its own D-Bus for
-each session, sends input over KWin's EIS interface, reads the AT-SPI
+each session, with a fresh home and XDG directories if asked
+(`home="isolated"`), or attaches to a running KWin session; it sends input over KWin's EIS interface, reads the AT-SPI
 tree, and takes pictures with KWin's own screenshot interface. It has
 touch gestures and D-Bus calls as tools, and runs unprivileged in a
 container for CI. It says itself that it isn't a sandbox: programs run
@@ -58,7 +60,7 @@ under the compositor it ships with, or with touch, it's the better
 choice. It has no checks of its own (pixels are compared only in its
 own tests), no sound, and nothing to keep pictures the same.
 [Samthesurf/kwin-mcp](https://github.com/Samthesurf/kwin-mcp), of the
-same name, drives your real Plasma desktop.
+same name, drives only your real Plasma desktop.
 
 ## agent-desktop
 
@@ -73,7 +75,7 @@ not a session apart. On a Mac, it's what to use; on Linux, not yet.
 
 [dogtail](https://gitlab.com/dogtail/dogtail) (GPL-2.0; Python) is the
 long-standing AT-SPI test library for GNOME and GTK programs, used with
-behave and qecore for Red Hat's GNOME QA, on Xorg and on GNOME's Wayland
+behave and qecore, and maintained at Red Hat, on Xorg and on GNOME's Wayland
 (with gnome-ponytail-daemon). Its newer hermetic sessions start a private
 D-Bus, accessibility bus and a bare mutter with a virtual monitor, for CI
 with no desktop.
@@ -101,7 +103,7 @@ distribution: a VM per job isolates far more than a session does. It's
 much more to run than one command, and a VM is the wrong size for
 checking one program. It has no accessibility tree and no MCP server.
 shotbox's `wait match` and `compare` are its needles in small: a whole
-picture or a box of one, a count of pixels that may differ, and a
+picture, or a box at a fixed place in one (`--crop`), a count of pixels that may differ, and a
 `--fuzz` for colors.
 
 ## Others
@@ -116,15 +118,17 @@ picture or a box of one, a count of pixels that may differ, and a
 - [Anthropic's computer-use demo](https://github.com/anthropics/claude-quickstarts/tree/main/computer-use-demo):
   a container with Xvfb, a window manager, xdotool and VNC, a reference
   for an agent that works from screenshots, one session at a time.
-- [SikuliX](https://github.com/RaiMan/SikuliX1), archived in 2026 and
-  carried on as [Oculix](https://github.com/oculix-org/Oculix): finds
+- [SikuliX](https://github.com/oculix-org/SikuliX1), archived by its
+  author in March 2026 and carried on as
+  [Oculix](https://github.com/oculix-org/Oculix): finds
   what to click by matching pictures (OpenCV) and OCR, on any desktop.
 
 ## In short
 
-None of these seals a program's environment, settings and home the same
-way each run, holds its clock and its user and host names still for a
-picture, proves a picture is reproducible (`--twice`), or measures
+None of these seals a program's environment and settings the same way
+each run (kwin-mcp's isolated home comes closest), holds its clock and
+its user and host names still for a picture, checks a picture comes out
+the same twice (`--twice`), or measures
 contrast, the Tab order, pointer latency or sound dropouts; openQA alone
 listens to sound. shotbox doesn't confine files, run a VM, read text by
 OCR, offer a live view to take over, drive KDE's compositor, or run on

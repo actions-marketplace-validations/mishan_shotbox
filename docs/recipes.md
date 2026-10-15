@@ -1,8 +1,8 @@
 # Recipes
 
-Worked examples, each run as written on Debian with the programs named.
-Where a recipe needs a program of your own, it's `./my-app`, a window
-called `My App`, or `./game`.
+Worked examples, each run on Debian with the programs named. Where a
+recipe needs a program of your own, it's `./my-app`, a window called
+`My App`, or `./game`, whose window is `Game`.
 
 ## Checking a change in a GUI
 
@@ -66,12 +66,12 @@ Without `--clock`, the calendar marks today, and the month it opens on
 is this one; without `--identity`, `ls -l` and `hostname` say yours. File
 times are what's on disk, so the script sets the one it shows.
 
-A new picture, or one that's been flaky, is worth taking `--twice` before
-it's committed: two fresh sessions, failing where they differ, with
-`OUT-diff.png` saying where.
+A new picture, or one that's been flaky, is worth taking `--twice`, to
+check it comes out the same: two fresh sessions, failing where they
+differ, with `OUT-diff.png` saying where.
 
 ```
-shotbox shoot docs/pictures/month.png --twice --clock 2026-03-02T09:00:00 \
+shotbox shoot /tmp/month.png --twice --clock 2026-03-02T09:00:00 \
   --identity dev@example --window '.*Calendar.*' --wait stable -- gnome-calendar
 ```
 
@@ -91,7 +91,7 @@ jobs:
           clock: true
       - run: sudo apt-get install -y -qq gnome-calendar
       - run: tools/shoot.sh fresh
-      - run: shotbox compare docs/pictures fresh --diff fresh
+      - run: mkdir -p docs/pictures && shotbox compare docs/pictures fresh --diff fresh
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -194,7 +194,7 @@ access to `/dev/uinput`; see [Gamepads](../README.md#gamepads).
 
 ## An agent over MCP
 
-The programs the agent may start, a line each, in a file beside the
+The programs the agent may start, a line each, in a file in the
 project:
 
 ```

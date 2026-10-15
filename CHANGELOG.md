@@ -109,7 +109,7 @@
   or Wayland, for `--seconds` (to the sample) or until stopped.
 - **Recipes**, in docs/recipes.md: checking a change in a GUI, visual
   regression in CI, an accessibility audit, a game smoke test and an
-  agent over MCP, each run as written.
+  agent over MCP.
 - **How shotbox compares**, in docs/comparison.md, with
   linux-x11-harness, agent-workspace-linux, kwin-mcp, agent-desktop,
   dogtail, openQA and others.
