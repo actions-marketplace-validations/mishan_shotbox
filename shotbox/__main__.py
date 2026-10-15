@@ -278,6 +278,7 @@ def cmd_shoot(argv):
         p.error("nothing to wait for: give --window, --wait or --settle")
     if not a.twice and (a.fuzz is not None or a.max is not None):
         p.error("--fuzz and --max go with --twice")
+    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     if a.twice:
         return twice(a, cmd, waits)
     status = take(a, cmd, waits, a.out)

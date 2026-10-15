@@ -1,0 +1,223 @@
+# Recipes
+
+Worked examples, each run on Debian with the programs named. Where a
+recipe needs a program of your own, it's `./my-app`, a window called
+`My App`, or `./game`, whose window is `Game`.
+
+## Checking a change in a GUI
+
+Build what's committed beside your change, a `git worktree` of `main`
+say, and take the same picture of each:
+
+```
+shotbox shoot before.png --window 'My App' -- ../app-main/my-app
+shotbox shoot after.png --window 'My App' -- ./my-app
+shotbox compare before.png after.png --diff diff.png
+```
+
+`compare` says how many pixels changed and the box they're in
+(`23829 pixels differ, in 200x120 at 0,0`), and `diff.png` marks them in
+red: a change that reaches further than it should shows there. Pictures
+of different sizes aren't compared; it says both sizes.
+
+Then the looks a user may have, each off unless asked for:
+
+```
+for look in dark high-contrast; do
+  shotbox shoot "after-$look.png" --$look --window 'My App' -- ./my-app
+done
+shotbox shoot after-big.png --text-scale 1.5 --window 'My App' -- ./my-app
+```
+
+To click through it rather than look at one screen, keep a session and
+work it by name, from the accessible tree:
+
+```
+shotbox start --name ed --a11y
+shotbox spawn --session ed -- gnome-text-editor
+shotbox --session ed wait window '.*Text Editor'
+shotbox --session ed a11y tree --window '.*Text Editor' | grep button
+shotbox --session ed a11y click 'Main Menu'
+shotbox --session ed wait stable
+shotbox --session ed capture menu.png
+shotbox stop ed
+```
+
+## Visual regression in CI
+
+A script takes every picture the project keeps, into a directory it's
+given. `--clock` and `--identity` keep the date and who took it out of
+them, so a picture changes when the program's look does, and not
+because a day went by or someone else shot it:
+
+```sh
+#!/bin/sh -e
+# tools/shoot.sh DIR: the pictures the docs show, taken into DIR
+dir=${1:-docs/pictures}
+mkdir -p "$dir"
+set -- --clock 2026-03-02T09:00:00 --identity dev@example
+shotbox shoot "$dir/month.png" "$@" --window '.*Calendar.*' --wait stable -- gnome-calendar
+shotbox shoot "$dir/month-dark.png" "$@" --dark --window '.*Calendar.*' --wait stable -- gnome-calendar
+shotbox term --shoot "$dir/files.png" "$@" --size 60x5 --when 'example' -- \
+  sh -c 'cd && touch -d 2026-03-01T17:00 notes.md && ls -l && hostname'
+```
+
+Without `--clock`, the calendar marks today, and the month it opens on
+is this one; without `--identity`, `ls -l` and `hostname` say yours. File
+times are what's on disk, so the script sets the one it shows.
+
+A new picture, or one that's been flaky, is worth taking `--twice`, to
+check it comes out the same: two fresh sessions, failing where they
+differ, with `OUT-diff.png` saying where.
+
+```
+shotbox shoot /tmp/month.png --twice --clock 2026-03-02T09:00:00 \
+  --identity dev@example --window '.*Calendar.*' --wait stable -- gnome-calendar
+```
+
+In CI, take them again and compare:
+
+```yaml
+name: pictures
+on: [push, pull_request]
+jobs:
+  pictures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: mishan/shotbox@v0.6.0
+        with:
+          term: true
+          clock: true
+      - run: sudo apt-get install -y -qq gnome-calendar
+      - run: tools/shoot.sh fresh
+      - run: mkdir -p docs/pictures && shotbox compare docs/pictures fresh --diff fresh
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pictures
+          path: fresh
+```
+
+A picture belongs to the machine it was taken on: its fonts, its GTK, its
+theme. Commit the runner's, not your desktop's: the first run fails
+(`no pictures in docs/pictures`), and the `pictures` artifact it uploads
+is what to commit. When a change is meant to change a picture, commit
+the new one from that run's artifact the same way; each failing one has
+`NAME-diff.png` beside it there. A picture that differs by a few pixels
+of dithering or antialiasing every run can be given room by name,
+`--fuzz month=1%` or `--max files=20`, leaving the rest exact.
+
+## An accessibility audit
+
+What a screen reader hears, what can't be read, and where Tab goes:
+
+```sh
+#!/bin/sh
+# audit.sh: shotbox run --a11y -- ./audit.sh
+w='Calculator'
+gnome-calculator 2> /dev/null &
+shotbox wait window "$w"
+shotbox a11y lint --window "$w"; lint=$?
+shotbox a11y contrast --window "$w"; contrast=$?
+shotbox a11y tabwalk --visible --window "$w"; tabs=$?
+[ $lint = 0 ] && [ $contrast = 0 ] && [ $tabs = 0 ]
+```
+
+Each check runs whether the last failed or not, so one run says
+everything. On GNOME Calculator 51, `lint` finds a list and two text
+fields with no name, `contrast` text it measures under 4.5:1, and
+`tabwalk --visible` a field whose focus doesn't show. Where a check is
+wrong about one node, or it can't be fixed yet, `--ignore RE` leaves its
+line out. What each check measures, and what it can't tell:
+[accessibility.md](accessibility.md).
+
+The looks a user may pick change contrast too. From Python, each in a
+session of its own:
+
+```python
+import shotbox
+
+for preset in ({}, {"dark": True}, {"high_contrast": True}, {"text_scale": 1.5}):
+    with shotbox.Session(a11y=True, **preset) as s:
+        s.spawn(["gnome-calculator"], log="calculator.log")
+        s.wait_window("Calculator")
+        for node in s.contrast(window="Calculator"):
+            print(preset, node.name or node.role, node.problem)
+```
+
+And to see it as someone with other color vision does:
+`shotbox shoot calc-gray.png --vision gray --window Calculator --
+gnome-calculator`.
+
+## A game smoke test
+
+Start it, press start, walk, jump, and check it got each and played
+sound without dropping out. A game that logs what happens is waited on
+by its log, not by a clock it may not keep to. This one writes `ready`,
+`level 1`, `walk right` and `jump` to the file it's given:
+
+```sh
+#!/bin/sh -e
+# smoke.sh: shotbox run --gamepads 1 --audio -- ./smoke.sh
+rm -f game.log
+./game --log game.log &
+shotbox wait line ready game.log --from-start
+shotbox wait window Game
+shotbox record play.wav --seconds 5 & rec=$!
+
+shotbox pad press start
+shotbox wait line 'level 1' game.log --from-start
+shotbox pad stick left 1 0 --hold 1
+shotbox wait line 'walk right' game.log --from-start
+shotbox pad press a
+shotbox wait line jump game.log --from-start
+shotbox capture play.png --window Game
+
+wait $rec
+shotbox listen play.wav
+```
+
+`wait line` counts only lines written after it starts, unless
+`--from-start`; a game can log a line before a wait started after the
+press does, so each wait here reads the whole log, which is new each run
+and has each line once. `listen` fails if the sound dropped out, clipped
+or was silent:
+
+```
+5.000s, 48000 Hz, 2 channels: peak -12.2 dBFS, rms -17.5 dBFS, 0 clipped
+```
+
+The pad is a virtual Xbox 360 controller, which SDL names that; your
+desktop's controllers aren't in the session. `--gamepads` needs write
+access to `/dev/uinput`; see [Gamepads](../README.md#gamepads).
+
+## An agent over MCP
+
+The programs the agent may start, a line each, in a file in the
+project:
+
+```
+# shotbox-programs
+editor = gnome-text-editor
+calendar = gnome-calendar
+```
+
+```
+claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
+```
+
+Then ask it for what you'd check yourself: "Start a session with the
+clock at 2026-03-02 09:00, open the calendar, open its main menu, show
+me, and lint it." It calls:
+
+- `start_session` with `clock: "2026-03-02T09:00:00"`;
+- `spawn` with `program: "calendar"`, and `wait_for` the window;
+- `click` with `name: "Main Menu"`, then `wait_for` `stable`;
+- `screenshot` of the window, which comes back as an image;
+- `lint`, which finds the menu's items have no names;
+- `stop_session`.
+
+The tree (`accessible_tree`) is the cheap way for it to look, and a
+screenshot is for what only pixels say. Each tool and what it takes:
+[mcp.md](mcp.md).

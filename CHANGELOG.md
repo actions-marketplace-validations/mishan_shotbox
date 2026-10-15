@@ -107,6 +107,21 @@
 - **`shotbox record OUT.wav`**: what plays in a session with `--audio`,
   48 kHz 16-bit stereo, bit for bit for what plays in that format, on X11
   or Wayland, for `--seconds` (to the sample) or until stopped.
+- **Recipes**, in docs/recipes.md: checking a change in a GUI, visual
+  regression in CI, an accessibility audit, a game smoke test and an
+  agent over MCP.
+- **How shotbox compares**, in docs/comparison.md, with
+  linux-x11-harness, agent-workspace-linux, kwin-mcp, agent-desktop,
+  dogtail, openQA and others.
+
+### Fixed
+
+- **`term --shoot` passes on `--net`, `--usage` and `--no-sandbox`,**
+  which it took and then left out. It now gives shoot every session
+  option as it was given, read back through its own options, so one
+  added later reaches shoot too.
+- **`shoot` makes OUT's directory** if it isn't there, where it failed
+  with a traceback.
 
 ## 0.5.0 — 2026-10-14
 

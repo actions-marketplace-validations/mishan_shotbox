@@ -88,6 +88,19 @@ def parse(argv):
     if given and not args.shoot:
         p.error("the session options, --park, --failed, --twice, --fuzz and --max "
                 "go with --shoot")
+    # Given again to shoot as they were given here, read back through the
+    # parser's own options, so every session option shoot takes reaches it,
+    # one added later too, unless its value doesn't print back as it was
+    # typed, as --screen's doesn't; OPT=VALUE, so a VALUE starting with -
+    # stays one.
+    args.outer = []
+    for a in p._actions:
+        if a.dest in given:
+            v, opt = getattr(args, a.dest), a.option_strings[0]
+            if a.dest == "screen":
+                v = "x".join(map(str, v))
+            for x in v if isinstance(v, list) else [v]:
+                args.outer.append(opt if a.nargs == 0 else f"{opt}={x}")
     return args
 
 
@@ -111,23 +124,7 @@ def shoot(args):
     sleeps = sum(float(v) for kind, v in args.steps if kind == "sleep")
     outer = [args.shoot, "--window", re.escape(args.title), "--wait", "ready",
              "--timeout", f"{args.timeout * max(1, whens) + sleeps + 10:g}",
-             "--screen", "x".join(map(str, args.screen))]
-    outer += ["--park"] * args.park + ["--twice"] * args.twice + ["--desktop"] * args.desktop
-    outer += ["--system-bus"] * args.system_bus + ["--keep"] * args.keep
-    outer += ["--wayland"] * args.wayland + ["--xwayland"] * args.xwayland
-    outer += ["--a11y"] * args.a11y + ["--dark"] * args.dark
-    outer += ["--high-contrast"] * args.high_contrast + ["--audio"] * args.audio
-    for opt, value in (("--failed", args.failed), ("--seed", args.seed),
-                       ("--announce-log", args.announce_log), ("--text-scale", args.text_scale),
-                       ("--gamepads", args.gamepads), ("--fuzz", args.fuzz),
-                       ("--max", args.max), ("--identity", args.identity),
-                       ("--clock", args.clock), ("--tz", args.tz)):
-        if value is not None:
-            outer += [opt, str(value)]
-    for e in args.env:
-        outer += ["--env", e]
-    for n in args.passthrough:
-        outer += ["--pass", n]
+             *args.outer]
     return cmd_shoot(outer + ["--", *self_command(), "term", *inner, "--", *args.cmd])
 
 
