@@ -83,7 +83,8 @@
   between two looks, or flashes another once, found from pictures taken
   as fast as they come, a tile at a time, by its mean color and in time:
   its box, how many changes, how often, and both colors; and how many
-  pictures it took, on stdout whatever's found, a rate too slow said.
+  pictures it took and how many changed, on stdout whatever's found, a
+  rate too slow said.
   `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,

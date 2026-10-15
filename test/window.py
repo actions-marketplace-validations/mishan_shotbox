@@ -3,7 +3,7 @@
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, line, gradient, passer, skip, edge or gray. With LOG, it
+or TITLE text, pages, poles, line, gradient, passer, skip, edge or gray. With LOG, it
 holds an entry instead, and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -211,6 +211,47 @@ elif sys.argv[2:3] == ["text"]:
             cr.move_to(4, 12 + line * 14)
             cr.show_text("".join(r.choice("abcdefghijklmnopqrstuvwxyz-./ ")
                                  for _ in range(r.choice((0, 3, 8, 20, 32)))))
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["pages"]:
+    # A terminal jump-scrolling, as winterm's `ls -lR` does: a page of new
+    # lines, long and short, in a font not smoothed, every other 40 ms, a
+    # blank between.
+    import random
+    import cairo
+    area, n, sharp = Gtk.DrawingArea(), [0], cairo.FontOptions()
+    sharp.set_antialias(cairo.ANTIALIAS_NONE)
+
+    def draw(a, cr):
+        cr.set_font_options(sharp)
+        cr.set_source_rgb(0, 0, 0.44)
+        cr.paint()
+        cr.set_source_rgb(0.9, 0.9, 0.9)
+        for line in range(7 if n[0] % 2 else 0):
+            r = random.Random(n[0] * 7 + line)
+            cr.move_to(4, 12 + line * 14)
+            cr.show_text("".join(r.choice("abcdefghijklmnopqrstuvwxyz-./ ")
+                                 for _ in range(r.choice((0, 3, 8, 20, 32)))))
+    area.connect("draw", draw)
+    GLib.timeout_add(40, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["poles"]:
+    # Two yellow poles alike on a horizon, as bzflag's are while the tank
+    # turns, a step of 8 a frame toward each other from either side,
+    # crossing, and out the other.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.4, 0.6, 0.9)
+        cr.paint()
+        cr.set_source_rgb(0, 0.4, 0)
+        cr.rectangle(0, 60, 200, 60)
+        cr.fill()
+        cr.set_source_rgb(0.9, 0.9, 0)
+        for x in (n[0] % 30 * 8 - 16, 208 - n[0] % 30 * 8):
+            cr.rectangle(x, 20, 2, 40)
+            cr.fill()
     area.connect("draw", draw)
     GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)

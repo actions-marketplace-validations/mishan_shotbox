@@ -271,11 +271,14 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
   Said with its box (whole tiles, in what's watched: the window or the
   crop), how many changes, how often, and the colors of what changed.
 - A flash: A, B, A, from a picture that held still, to one color where
-  it differs (a frame drawn black), and back; each said. Something moving
+  it differs (a frame drawn black), filling most of the box round that,
+  as scattered strokes of text drawn once don't, and back; each said. Something moving
   through isn't, which turns the tiles beside it the same way, briefly,
   within `--brief`, or a picture, before or after: beside all that showed
-  only while the flash did, one color or not. A flash drawn torn, part of
-  it a picture later, is one.
+  only while the flash did, one color or not; nor is one in a box most of
+  which went other ways, a region drawn anew, as a terminal scrolling a
+  page at a time is. A flash drawn torn, part of it a picture later, is
+  one.
 
 A caret's half-second blink is neither, nor is something moving through,
 a thin line's steps crawling, an edge between two faces a little apart
@@ -290,7 +293,7 @@ look at, so watch a window or a crop where you can:
 
 ```
 flicker: 64x16+1216+592, 66 changes, every 30 ms, #000000 and #009900, from 0.022s
-watched 2 s, 104 pictures, 52 a second
+watched 2 s, 104 pictures, 52 a second, 104 changed
 ```
 
 The last line, how many pictures were taken, is printed whatever's found.

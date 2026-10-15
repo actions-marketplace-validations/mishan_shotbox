@@ -751,9 +751,9 @@ def cmd_flicker(argv):
         p.error("--seconds, --brief and --tile are more than 0, --times 2 or more, --fuzz 0 "
                 "or more")
     try:
-        found, taken = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
-                                        brief=a.brief / 1000, times=a.times, fuzz=a.fuzz,
-                                        ignore=a.ignore)
+        found, taken, changed = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
+                                                 brief=a.brief / 1000, times=a.times,
+                                                 fuzz=a.fuzz, ignore=a.ignore)
     except SessionError as e:
         sys.stderr.write(f"shotbox: {e}\n")
         return 2
@@ -768,7 +768,8 @@ def cmd_flicker(argv):
         else:
             print(f"flash: {f['box']}, {f['looks'][1]} for {f['every'] * 1000:.0f} ms in "
                   f"{f['looks'][0]}, at {f['at']:.3f}s")
-    print(f"watched {a.seconds:g} s, {taken} pictures, {taken / a.seconds:.0f} a second")
+    print(f"watched {a.seconds:g} s, {taken} pictures, {taken / a.seconds:.0f} a second, "
+          f"{changed} changed")
     return 1 if found else 0
 
 

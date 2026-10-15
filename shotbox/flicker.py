@@ -15,15 +15,16 @@ quickly, so neither is either.
 
 Mean colors find what might be, a quarter of fuzz a change, so a band a
 pixel wide is seen; the tile's pixels decide. Flicker keeps its place:
-the pixels every change changes are most of what each does, and no
+the pixels most changes change are most of what most of them do, and no
 fewer than a line across the tile, which text, or a line's steps,
 moving through aren't. Its looks come back as the same pictures most
 times, nearer than A is to B, A as A and B as B, which anything moving
 through doesn't; or one of them does, and is one color where they
-differ, a band drawn black between frames of a scene that moves on. A
-flash is to one color where it differs, from a picture that held still
-and back to it; and the tiles round it don't change about then, as they
-do when something moves through. A look that's in the picture before or
+differ, a band drawn black between frames of a scene that moves on,
+not one color as pages of text over their background are. A flash is
+to one color where it differs, a part of the tile filled with it, from
+a picture that held still and back to it; and the tiles round it don't
+change about then, as they do when something moves through. A look that's in the picture before or
 after, up or down the screen, is text scrolling, and neither.
 """
 
@@ -111,6 +112,13 @@ def plain(pixels, where, fuzz):
                for c in range(3))
 
 
+def filled(where, wide):
+    """Whether pixels, by offset in a tile `wide` pixels across, fill at
+    least half the box round them."""
+    xs, ys = [k // 3 % wide for k in where], [k // 3 // wide for k in where]
+    return 2 * len(where) >= (max(xs) - min(xs) + 1) * (max(ys) - min(ys) + 1)
+
+
 def colors(a, b, where):
     """Two tiles' looks, as the mean color of each at `where`, where they
     differ: a narrow band's own colors, not the tile's, most of which held
@@ -140,7 +148,7 @@ def needs(held, brief):
     return {k for seq in runs(held, brief) for k in [s[3] for s in seq] + [seq[1][3] - 1]}
 
 
-def find(held, brief, times, fuzz, pixels, line):
+def find(held, brief, times, fuzz, pixels, wide):
     """In one tile's states, its longest flicker, as (start, changes, mean
     seconds a brief state, look A, look B, the pictures it changed in), or
     else a flash, as (start, seconds, look, then look, picture, the
@@ -149,7 +157,7 @@ def find(held, brief, times, fuzz, pixels, line):
     `pixels(k)` is the tile's pixels in picture `k`, of those `needs` says,
     which decide what the mean colors found: brief states one after
     another. A flash is said with its picture too, to tell it from motion.
-    `line` is the tile's shorter side."""
+    `wide` is the tile's width in pixels."""
     best, flashes = None, []
     for seq in runs(held, brief):
         changes = len(seq) - 1
@@ -172,7 +180,7 @@ def find(held, brief, times, fuzz, pixels, line):
         for c, m in each.items():
             often.update(dict.fromkeys(c, m))
         where = {k for k, m in often.items() if 2 * m > changes}
-        if len(where) < line or 2 * sum(m for c, m in each.items()
+        if len(where) < min(wide, len(a) // 3 // wide) or 2 * sum(m for c, m in each.items()
                                         if 2 * len(where & c) >= len(c)) <= changes:
             continue
         looks = colors(a, b, where)
@@ -181,18 +189,26 @@ def find(held, brief, times, fuzz, pixels, line):
         # would come back at any wider.
         near = min(fuzz, max(abs(x - y) for x, y in zip(*looks)) / 2.55 / 4)
         back = recur(shown, near)
-        plains = [plain(a, where, fuzz), plain(b, where, fuzz)]
+        # One color where the first two looks differ there, as a page of
+        # text, missing a stroke the others have, isn't at all of it.
+        first = where & changed(a, b, fuzz / 4) or where
+        plains = [plain(a, first, fuzz), plain(b, first, fuzz)]
         # Both looks coming back as the same pictures; or one, a color all over,
-        # as a frame drawn black between frames of a scene that moves on.
-        if changes >= times and (all(back) or any(r and p for r, p in zip(back, plains))):
+        # as a frame drawn black between frames of a scene that moves on,
+        # which isn't one color: pages of text over their background are.
+        if changes >= times and (all(back) or any(r and p and not q for r, p, q
+                                                  in zip(back, plains, plains[::-1]))):
             brief_ones = [s[2] for s in seq[1:] if s[2] <= brief]
             run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *looks,
                    [st[3] for st in seq[1:]])
             best = run if best is None or changes > best[1] else best
         # A flash: from a picture that held still, to a color, and back:
-        # what's moving holds no picture still, though it come back.
+        # what's moving holds no picture still, though it come back. And
+        # it's a part of the tile gone to that color, filling most of the
+        # box round it, as a band a pixel wide does and the scattered
+        # strokes of text drawn once don't.
         elif (changes == 2 and back[0] and plains[1]
-              and alike(a, pixels(seq[1][3] - 1), fuzz)):
+              and alike(a, pixels(seq[1][3] - 1), fuzz) and filled(where, wide)):
             flashes.append((seq[1][1], seq[1][2], looks[1], looks[0], seq[1][3], seq[2][3]))
     return best, ([] if best else flashes)
 
