@@ -935,17 +935,19 @@ if command -v ffmpeg >/dev/null; then
   # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
   records() {
     opt=$1 pre=$2 say=$3
-    "$sb" run $opt -- sh -c "'$here/window.py' rec & '$sb' wait window rec &&
+    "$sb" run $opt -- sh -c "'$here/window.py' rec & '$sb' wait window rec && '$sb' capture '$tmp/$pre-win.png' --window rec &&
       '$sb' record '$tmp/$pre.mp4' --window rec --seconds 2 && '$sb' record '$tmp/$pre.webm' --fps 10 --seconds 1 &&
       '$sb' record '$tmp/$pre.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
       { '$sb' record '$tmp/$pre-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
       ! '$sb' record '$tmp/$pre.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/${pre}0.mp4' --seconds 0 2>> '$tmp/err'" > /dev/null \
       && [ "$(probe "$tmp/$pre.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/$pre.mp4")" -ge 50 ] \
+      && ffmpeg -loglevel error -y -ss 1 -i "$tmp/$pre.mp4" -frames:v 1 "$tmp/$pre-frame.png" \
+      && "$sb" compare "$tmp/$pre-win.png" "$tmp/$pre-frame.png" --fuzz 20% > /dev/null \
       && [ "$(probe "$tmp/$pre.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/$pre.webm")" = 10 ] \
       && [ "$(probe "$tmp/$pre.gif")" = "gif,100,50 1.000000 " ] \
       && probe "$tmp/$pre-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/$pre-k.mp4")" -ge 15 ] \
       && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/${pre}0.mp4" ] \
-      && ok "$say: a window, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
+      && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
       || fail "$say: $(probe "$tmp/$pre.mp4"); $(probe "$tmp/$pre.webm"); $(probe "$tmp/$pre.gif"); $(probe "$tmp/$pre-k.mp4")"
     # A GIF whose session is stopped (run killed) is finished all the same,
     # leaving nothing behind in the temp dir.
@@ -1023,6 +1025,9 @@ if command -v ffmpeg >/dev/null; then
   fi
   if command -v sway >/dev/null && command -v grim >/dev/null && command -v wf-recorder >/dev/null; then
     records --wayland wrec "wayland: record"
+    set +e; "$sb" run --wayland -- "$sb" record "$tmp/wrec-p.mp4" --pointer --seconds 1 2> "$tmp/err"; st=$?; set -e
+    [ $st != 0 ] && grep -q "no pointer" "$tmp/err" \
+      && ok "wayland: record --pointer, refused saying why" || fail "wayland: record --pointer ($st)"
   else
     [ "${SHOTBOX_WAYLAND-}" = required ] && fail "wayland: record skipped: no sway, grim or wf-recorder" \
       || echo "skip  wayland: record: no sway, grim or wf-recorder"

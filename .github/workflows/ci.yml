@@ -98,6 +98,8 @@ jobs:
           test -s term.png
           shotbox shoot way.png --wayland --wait stable -- sleep 30
           test -s way.png
+          shotbox run --wayland -- shotbox record way.mp4 --seconds 1 > /dev/null
+          test -s way.mp4
           shotbox run --a11y -- shotbox a11y tree > /dev/null
           shotbox exec --audio -- shotbox record quiet.wav --seconds 1 > /dev/null
           test -s quiet.wav

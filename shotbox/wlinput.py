@@ -136,7 +136,7 @@ class Display:
         self._key(self.blank)
         self.sync()
         time.sleep(0.05)
-        self.width, self.height = self._size(env)
+        self.width, self.height = wl.root_size(env)
         self.held = {}          # keysym: its modifier bits, while `down`
 
     # --- the wire -------------------------------------------------------------
@@ -193,10 +193,6 @@ class Display:
         while callback not in self.done:
             self._event()
         self.done.discard(callback)
-
-    def _size(self, env):
-        out = wl.ipc(env, wl.GET_OUTPUTS)[0]["rect"]
-        return out["width"], out["height"]
 
     # --- the keyboard ---------------------------------------------------------
 
