@@ -142,19 +142,25 @@ try:
           and [c["type"] for c in content] == ["image", "text"]
           and len(times[1].split(", ")) == 8,
           f"record: a clip of the length asked for, and a sheet of 8 frames ({said})")
-    said, bad, _ = tool("record", session="t", seconds=0.5, path="clips/one.mp4")
+    said, bad, _ = tool("record", session="t", seconds=0.1, path="clips/one.mp4")
+    times = re.search(r"at (.*) seconds\.", said)
     check(not bad and (tmp / "clips/one.mp4").stat().st_size
-          and str(tmp / "clips/one.mp4") in said,
-          "record: saved at a path in the allow file's directory")
+          and str(tmp / "clips/one.mp4") in said and 1 <= len(times[1].split(", ")) < 8,
+          f"record: a short clip, saved at a path in the allow file's directory ({said})")
+    (tmp / "dir.mp4").mkdir()
     refused = [tool("record", session="t", seconds=secs, path=p, sound=a)[:2]
-               for secs, p, a in ((61, None, False), (1, "/tmp/x.mp4", False),
-                                (1, "../" * 20 + "tmp/x.mp4", False), (1, "x.webm", False),
-                                (1, None, True))]
+               for secs, p, a in ((61, None, False), ("", None, False), (1, "/tmp/x.mp4", False),
+                                  (1, "../" * 20 + "tmp/x.mp4", False), (1, "x.webm", False),
+                                  (1, None, True), (1, "clips/one.mp4", False),
+                                  (1, "dir.mp4", False), (1, "clips/one.mp4/x.mp4", False))]
     check(all(bad for _, bad in refused) and "0.1 to 60, not 61" in refused[0][0]
-          and all("by its path from there" in said for said, _ in refused[1:4])
-          and "start a session with audio" in refused[4][0],
-          "record: too long, a path outside the allow file's directory or not an .mp4, and "
-          "sound without audio, refused")
+          and "needs seconds" in refused[1][0]
+          and all("by its path from there" in said for said, _ in refused[2:5])
+          and "start a session with audio" in refused[5][0]
+          and "a file at" in refused[6][0] and "a directory at" in refused[7][0]
+          and "is a file, not a directory" in refused[8][0],
+          "record: too long or no length, a path outside the allow file's directory, not an "
+          ".mp4 or there already, and sound without audio, refused")
     said, bad, _ = tool("screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")

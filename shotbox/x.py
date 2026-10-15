@@ -250,7 +250,6 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
                     "-map", "0:v", "-map", "[a]", "-shortest", *SOUND[kind]]
             cmd += PROMPT[kind]
             heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le", "-f", "wav"], "gap": gap}
-    cmd += ["-fs", str(size)] if size else []
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
     # -c puts the current directory first on the path, ahead of PYTHONPATH:
@@ -263,7 +262,7 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
     # Its own session: `shotbox run`, stopped, kills its command's group
     # two seconds on, which would cut the finishing short.
     proc = subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out),
-                             json.dumps(grab), json.dumps(heard)],
+                             json.dumps(grab), json.dumps(heard), str(size or 0)],
                             env={**env, "PYTHONPATH": path}, stdin=subprocess.PIPE,
                             stdout=said, stderr=subprocess.PIPE, start_new_session=True)
     proc.said = said
@@ -307,7 +306,7 @@ def tied(sig):
     return tie
 
 
-def keep_recording(cmd, out, grab, heard):
+def keep_recording(cmd, out, grab, heard, size="0"):
     """Run the ffmpeg command `cmd` (JSON, without its output file) to
     record to `out`, reading what the command `grab` (JSON, or null)
     writes, and with `heard` (JSON: output options and a gap, or null), the
@@ -315,8 +314,9 @@ def keep_recording(cmd, out, grab, heard):
     and stop it with one signal, which it finishes the file on (a second
     makes it quit unfinished): when a line comes on stdin or stdin closes,
     as when what started this goes however it goes, or when the display
-    goes (the sound server, for a .wav; sway, on Wayland). Then make the
-    GIF, for a .gif. Status 0, or 1 and why on stderr."""
+    goes (the sound server, for a .wav; sway, on Wayland), or when what
+    it writes reaches `size` bytes (0 for no end). Then make the GIF, for a
+    .gif. Status 0, or 1 and why on stderr."""
     cmd, out, grab, heard = json.loads(cmd), Path(out), json.loads(grab), json.loads(heard)
     gif = out.suffix.lower() == ".gif"
     # Files with no names, which ffmpeg writes by their fds: nothing is left
@@ -357,7 +357,10 @@ def keep_recording(cmd, out, grab, heard):
             up = socket_up(sock) if sock else display_up(os.environ["DISPLAY"])
             # With sound, the sound server going ends the picture too.
             up = up and (not heard or socket_up(pulse))
-            if select.select([sys.stdin], [], [], 0.5)[0] or not up:
+            # Stopped, not cut off as ffmpeg's -fs would: the sound heard
+            # ends with the picture.
+            full = int(size) and video.exists() and video.stat().st_size >= int(size)
+            if select.select([sys.stdin], [], [], 0.5)[0] or not up or full:
                 proc.send_signal(signal.SIGTERM)
                 break
         # Whether the sound server had gone when it ended, not later.

@@ -74,7 +74,9 @@ never came up.
 server runs on: not its display, its session bus, its home, its settings,
 its sound, or its screen reader. The program is the person's, from their
 list, and what it can reach of the machine is up to it. What the agent
-adds is clicks and keys on a display no one else is looking at.
+adds is clicks and keys on a display no one else is looking at. The one
+thing it writes outside a session is `record`'s clips, new .mp4 files
+in the `--allow` file's directory, never over a file that's there.
 
 ## The tools
 

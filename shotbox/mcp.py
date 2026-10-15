@@ -28,6 +28,7 @@ at once and leaves the sessions to the watchdog.
 
 import argparse
 import base64
+import itertools
 import json
 import math
 import os
@@ -311,9 +312,9 @@ class Server:
                 {"type": "text", "text": said}]
 
     def clip(self, path):
-        """Where record saves to: a file in the allow file's directory, as
-        a line wait reads one, and nowhere else an agent could have one
-        written."""
+        """Where record saves to: a new file in the allow file's directory,
+        as a line wait reads one, and nowhere else an agent could have one
+        written. Nothing of the person's is written over."""
         if self.home is None:
             raise Refused("record saves a path in the --allow file's directory, and shotbox "
                           "mcp was given no --allow file; without path, it saves in the "
@@ -323,32 +324,68 @@ class Server:
         if not out.is_relative_to(home) or out.suffix.lower() != ".mp4":
             raise Refused(f"record saves an .mp4 in {home}, by its path from there, "
                           f"not {path!r}")
-        out.parent.mkdir(parents=True, exist_ok=True)
+        if out.exists():
+            raise Refused(f"there's a {'directory' if out.is_dir() else 'file'} at {out} "
+                          "already: record saves only a new file")
+        above = next(p for p in out.parents if p.exists())
+        if not above.is_dir():
+            raise Refused(f"{above} is a file, not a directory to save in")
         return out
 
     def record(self, session, seconds, window=None, crop=None, sound=False, path=None):
         s = self.session(session)
         seconds = within(seconds, "seconds", 0.1, RECORD_SECONDS)
+        if seconds is None:
+            raise Refused(f"record needs seconds: how long to record, 0.1 to {RECORD_SECONDS}")
         if flag(sound) and not s.audio:
             raise Refused(f"{str(session)!r} has no sound: start a session with audio")
         out = self.clip(path) if path is not None else next(
-            p for n in range(1, 10000) if not (p := s.scratch / f"record-{n}.mp4").exists())
-        rec = s.record(out, seconds=seconds, window=text(window), crop=text(crop),
-                       sound=flag(sound), size=RECORD_SIZE)
-        length = float(subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-             str(out)], capture_output=True, text=True, check=True).stdout)
-        png = s.scratch / "record.png"
-        frames = [(png.with_name(f"frame-{i + 1}.png"), i * length / FRAMES)
-                  for i in range(FRAMES)]
-        for frame, at in frames:
-            subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-ss", f"{at:.3f}",
-                            "-i", str(out), "-frames:v", "1", str(frame)], check=True)
-        sheet([p for p, _ in frames], png, size=SHEET_SIZE)
+            p for n in itertools.count(1)
+            if not (p := s.scratch / f"record-{n}.mp4").exists())
+        # Recorded in the scratch dir, and only a whole clip saved at path.
+        took = Path(tempfile.mkdtemp(prefix="record-", dir=s.scratch))
+        rec = s.record(took / "clip.mp4", seconds=seconds, window=text(window),
+                       crop=text(crop), sound=flag(sound), size=RECORD_SIZE)
+        try:
+            if path is None:
+                rec.path.rename(out)
+            else:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                with open(rec.path, "rb") as src, open(out, "xb") as dst:
+                    shutil.copyfileobj(src, dst)
+                rec.path.unlink()
+        except OSError as e:
+            raise Refused(f"couldn't save the clip at {out}: {e.strerror}. It's at "
+                          f"{rec.path} until the session stops")
+        try:
+            length = float(subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                 "csv=p=0", str(out)], capture_output=True, text=True, check=True).stdout)
+            packets = sorted(float(t) for t in subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
+                 "packet=pts_time", "-of", "csv=p=0", str(out)],
+                capture_output=True, text=True, check=True).stdout.split())
+            # Up to FRAMES of them, evenly by number: a short clip has fewer.
+            picked = sorted({i * len(packets) // FRAMES for i in range(FRAMES)})
+            # Numbered from 1 as they come, one a second: no frame repeated.
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-i", str(out), "-vf",
+                            "select=" + "+".join(f"eq(n\\,{i})" for i in picked)
+                            + ",setpts=N/TB", "-r", "1", str(took / "frame-%d.png")],
+                           capture_output=True, text=True, check=True)
+            png = sheet([took / f"frame-{k + 1}.png" for k in range(len(picked))],
+                        took / "sheet.png", size=SHEET_SIZE)
+        except (subprocess.CalledProcessError, ValueError) as e:
+            why = getattr(e, "stderr", None)
+            raise Refused(f"{out} is saved, but its frames couldn't be taken: "
+                          f"{why.strip() if why else e}")
         what = f"the window {window!r}" if window else "the whole screen"
-        times = ", ".join(f"{at:.2f}" for _, at in frames)
-        said = [f"Saved {out}, {length:.2f} seconds of {what}. {FRAMES} frames from it in "
+        times = ", ".join(f"{packets[i]:.2f}" for i in picked)
+        said = [f"Saved {out}, {length:.2f} seconds of {what}. {len(picked)} frames from it in "
                 f"rows of four, left to right, at {times} seconds."]
+        if length < seconds - 0.2:
+            said.append(f"It stopped short of the {seconds:g} seconds asked for: "
+                        + ("it reached 100 MB." if out.stat().st_size >= RECORD_SIZE
+                           else "the session's display or sound server went."))
         if rec.heard:
             said += (describe(rec.heard)
                      + (rec.problems() or ["No gaps, clipping or silence."]))
@@ -579,13 +616,14 @@ SESSION = {"type": "string", "description": "The session's name, as start_sessio
 # still readable and not a dozen screens' worth, however tall its pictures.
 SHEET_SIZE = 1920
 # A clip holds the server while it records, so it's about as long as the
-# longest burst; and it stops at a size no clip of a screen comes near, so
-# the disk can't fill.
+# longest burst; and it stops at a size few clips of a screen reach, so the
+# disk can't fill.
 RECORD_SECONDS, RECORD_SIZE = 60, 100_000_000
 FRAMES = 8
 HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}
+CROP = {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"}
 WINDOW = {"type": "string", "description":
           "A window by its title (a regex, matched in full), or app=RE for its app id"}
 
@@ -653,7 +691,7 @@ TOOLS = [
      "told apart by color alone. burst takes several, every seconds apart, as one image "
      "in rows of four: for motion, an animation or a transition.",
      schema({"session": SESSION, "window": WINDOW,
-             "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
+             "crop": CROP,
              "park": {"type": "boolean"},
              "burst": {"type": "integer", "description": "Pictures to take, 2 to 12"},
              "every": {"type": "number", "description": "With burst, seconds between them"},
@@ -665,14 +703,17 @@ TOOLS = [
      "Record a clip of the screen, or of one window, for seconds (up to 60), and save it as "
      "an .mp4: in the session's scratch directory, gone when the session stops, or at path, "
      "by its path from the directory of the server's allow file. The answer is the saved "
-     "path, how long the clip is, and 8 frames from it RETURNED AS ONE IMAGE in rows of "
+     "path, how long the clip is, and up to 8 frames from it RETURNED AS ONE IMAGE in rows of "
      "four, with the times they show: you can't play the clip, but a person or another "
      "tool can. A clip stops at 100 MB. sound, in a session started with audio, records "
      "what plays too, and says what it heard, as the sound tool does. For a few moments "
      "of motion, screenshot's burst is cheaper.",
-     schema({"session": SESSION, "seconds": {"type": "number"}, "window": WINDOW,
-             "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"},
-             "sound": {"type": "boolean"},
+     schema({"session": SESSION,
+             "seconds": {"type": "number", "description": "How long, 0.1 to 60"},
+             "window": WINDOW,
+             "crop": CROP,
+             "sound": {"type": "boolean", "description": "What plays too, and what was "
+                       "heard in it, in a session started with audio"},
              "path": {"type": "string", "description": "Where to save it, an .mp4, by its "
                       "path from the allow file's directory"}},
             ["session", "seconds"])),

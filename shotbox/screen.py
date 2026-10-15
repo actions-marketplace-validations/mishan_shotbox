@@ -735,7 +735,8 @@ class Screen:
         a session with audio, on X11 or Wayland, and takes none of those.
         With `sound`, in a session with audio, an .mp4 or .webm has what
         plays in it too, heard with `gap` as `shotbox.sound.hear` takes it.
-        With `size`, it ends when the file reaches that many bytes.
+        With `size`, it ends when the file (for a .gif, the video it's made
+        from) reaches that many bytes.
         A Recording: its `path`, which it stands in for, its `heard` (with
         `sound`), and `problems()`."""
         if Path(out).suffix.lower() == ".wav":
