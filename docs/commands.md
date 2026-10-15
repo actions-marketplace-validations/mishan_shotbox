@@ -5,7 +5,7 @@ says each one's options.
 
 ## Needs
 
-Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick, `xwininfo` and `xprop`; for
+Every session needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick, `xwininfo` and `xprop`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
@@ -107,7 +107,26 @@ bottom-right corner, off whatever it was hovering, and waits (up to
 is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
 there's no window manager to do that for a window that comes up after
 another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
-display directly, so there's still nothing to install.
+display directly, or on Wayland sway's virtual keyboard and pointer, so
+they need nothing installed.
+
+## Holding keys and buttons
+
+Keys and buttons can be held, for games and for anything that reacts to
+how long they're down. `shotbox key --hold SECS CHORD...` presses the
+chords together, keeps them down that long, and lets go, last first;
+`shotbox click X Y --hold SECS` does that with a button. To hold one while
+doing something else, run it in the background: `shotbox key --hold 2 w &
+shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
+down, across commands, until the same command with `--up`; on Wayland a
+virtual keyboard's keys go up when the command ends, so `--down` is refused
+there, saying to use `--hold` (a hold killed outright, which can't let go,
+is cleared with `--up`). A chord already held isn't pressed again, or let
+go by pressing it, and keys pressed or typed while one is held leave its
+keys down. As
+on a real keyboard, a shifted symbol held
+with other keys shifts them too, and a key held past the repeat delay
+(about half a second) repeats.
 
 ## latency
 
@@ -172,24 +191,6 @@ watched 2 s, 104 pictures, 52 a second
 Pictures that came fewer than two to a `--brief` are said: a look that
 brief may be missed, and something moving through taken for a flash.
 
-## Holding keys and buttons
-
-Keys and buttons can be held, for games and for anything that reacts to
-how long they're down. `shotbox key --hold SECS CHORD...` presses the
-chords together, keeps them down that long, and lets go, last first;
-`shotbox click X Y --hold SECS` does that with a button. To hold one while
-doing something else, run it in the background: `shotbox key --hold 2 w &
-shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
-down, across commands, until the same command with `--up`; on Wayland a
-virtual keyboard's keys go up when the command ends, so `--down` is refused
-there, saying to use `--hold` (a hold killed outright, which can't let go,
-is cleared with `--up`). A chord already held isn't pressed again, or let
-go by pressing it, and keys pressed or typed while one is held leave its
-keys down. As
-on a real keyboard, a shifted symbol held
-with other keys shifts them too, and a key held past the repeat delay
-(about half a second) repeats.
-
 ## exec
 
 **`shotbox exec [options] -- COMMAND...`** runs a command sealed the same
@@ -219,84 +220,6 @@ shotbox --session ed a11y click "Open"
 shotbox --session ed capture open.png
 shotbox stop ed
 ```
-
-## Session options
-
-`shoot`, `run` and `start` take the session options: `--screen WxH`
-(1280x800); `--env NAME=VALUE` and `--pass NAME` to set or let through
-variables; `--seed DIR` to start the home as a copy of a directory (a
-config, a profile, sample files);
-`--desktop` for real GSettings and the system's D-Bus services, which a
-desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
-keep the scratch dir and say where it is; `--wayland` and `--xwayland`
-for a [Wayland](wayland.md) session; `--a11y` for an
-[accessibility bus](accessibility.md); `--audio` for a PipeWire of the
-session's own, speaking the pulse protocol too, whose one sink plays to
-nowhere, so a program that makes sound has somewhere to play it (without
-it there's no sound server at all); `--gamepads N` for
-[gamepads](gamepads.md); `--usage [FILE]` to say, when it stops, what its programs used, and
-its own processes (see below); `--net loopback` for a network of the session's own
-(see [What's sealed](sealed.md)); `--identity USER@HOST` for a user and host name
-that aren't yours (see [What's sealed](sealed.md)); `--clock TIME` and `--tz ZONE` for
-a wall clock that starts at TIME (see [The clock](#the-clock)); `--no-sandbox` for a program
-that needs a setuid helper (see [What's sealed](sealed.md)); and the display presets:
-
-- `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
-- `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
-  and later, and GTK 3.
-- `--text-scale N`: text N times the size (`1.25`), as the desktop's
-  text scaling does: GTK 3 and 4 on X11 and Xwayland, GTK 4 on Wayland.
-
-Each is off unless asked for, so pictures without them don't change.
-Reduced motion needs no preset: GTK's animations are always off.
-
-## Resource use
-
-`--usage` says, when the session stops, what its programs used, all of
-them together, and, apart, what its own processes did (its display,
-buses and sound server): peak memory and CPU time, over how long:
-
-```
-shotbox: used, over 41.0s: its programs peak memory 1412 MB, CPU 12.3s (cgroup, with page cache); the session's own peak memory 81 MB, CPU 0.4s (sampled, resident)
-```
-
-`--usage FILE` writes it as JSON too, for comparing runs; with `start`,
-it's written there when the session stops. Where the user's systemd can
-make scopes (`systemd-run --user`), each program runs in one, in a slice
-of the session's, which counts every process it ever had, a spike that
-lasts a moment included, and the memory charged to it: what its
-processes hold, and the page cache and tmpfs files they made too. That's
-`cgroup, with page cache`. Elsewhere, and for the session's own
-processes, `/proc` is read five times a second for what the processes
-hold in memory, theirs and their children's: a peak between reads is
-missed, and so is the CPU time of a process that comes and goes between
-them, or one left behind by a parent that's gone, which the user's
-systemd takes in. That's `sampled, resident`. Compare runs measured the same way.
-From Python, `Session(usage=True)` and its `usage()`; over MCP,
-`start_session`'s `usage`, said when it's stopped.
-
-## The clock
-
-Pictures carry the wall clock: a panel's, a chat's timestamps, "Today" in
-a mail list, a `git log`'s dates. So that a reshoot only differs where the
-program does, `--clock TIME` starts the clock at TIME, ISO 8601
-(`2026-09-26T18:40:00`), as the session starts, and lets it run on, so
-animations and timeouts work as ever. TIME is in `--tz ZONE`
-(`Europe/Berlin`) if it's given, else UTC, unless it has an offset of its
-own (`+02:00`, `Z`), which it keeps, `--tz` then only the zone it's shown
-in; and `--tz` is every program's `TZ`, so `date` and a panel clock read
-the same. It's the session's clock,
-not each program's: one spawned a minute in reads a minute past TIME, as
-the first does by then.
-
-It's libfaketime, preloaded into every program the session starts, and a
-session with `--clock` fails without it. It covers what's dynamically
-linked and asks the C library: GTK, Qt, Emacs, irssi, Python, git. Static
-binaries and Go programs read the clock themselves, and setuid ones (with
-`--no-sandbox`) drop the preload: they see the real time. Monotonic clocks
-aren't moved, and file times are what's on disk: the dates of files a test
-makes are its own to set (`touch -d`). From Python, `Session(clock=...,
-tz=...)`; over MCP, `start_session`'s `clock` and `tz`.
 
 ## term
 
@@ -389,3 +312,81 @@ In a session with `--gamepads N`: [Gamepads](gamepads.md).
 ## mcp
 
 Sessions for an agent, over MCP: [mcp.md](mcp.md).
+
+## Session options
+
+`shoot`, `run` and `start` take the session options: `--screen WxH`
+(1280x800); `--env NAME=VALUE` and `--pass NAME` to set or let through
+variables; `--seed DIR` to start the home as a copy of a directory (a
+config, a profile, sample files);
+`--desktop` for real GSettings and the system's D-Bus services, which a
+desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
+keep the scratch dir and say where it is; `--wayland` and `--xwayland`
+for a [Wayland](wayland.md) session; `--a11y` for an
+[accessibility bus](accessibility.md); `--audio` for a PipeWire of the
+session's own, speaking the pulse protocol too, whose one sink plays to
+nowhere, so a program that makes sound has somewhere to play it (without
+it there's no sound server at all); `--gamepads N` for
+[gamepads](gamepads.md); `--usage [FILE]` to say, when it stops, what its programs used, and
+its own processes (see below); `--net loopback` for a network of the session's own
+(see [What's sealed](sealed.md)); `--identity USER@HOST` for a user and host name
+that aren't yours (see [What's sealed](sealed.md)); `--clock TIME` and `--tz ZONE` for
+a wall clock that starts at TIME (see [The clock](#the-clock)); `--no-sandbox` for a program
+that needs a setuid helper (see [What's sealed](sealed.md)); and the display presets:
+
+- `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
+- `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
+  and later, and GTK 3.
+- `--text-scale N`: text N times the size (`1.25`), as the desktop's
+  text scaling does: GTK 3 and 4 on X11 and Xwayland, GTK 4 on Wayland.
+
+Each is off unless asked for, so pictures without them don't change.
+Reduced motion needs no preset: GTK's animations are always off.
+
+## Resource use
+
+`--usage` says, when the session stops, what its programs used, all of
+them together, and, apart, what its own processes did (its display,
+buses and sound server): peak memory and CPU time, over how long:
+
+```
+shotbox: used, over 41.0s: its programs peak memory 1412 MB, CPU 12.3s (cgroup, with page cache); the session's own peak memory 81 MB, CPU 0.4s (sampled, resident)
+```
+
+`--usage FILE` writes it as JSON too, for comparing runs; with `start`,
+it's written there when the session stops. Where the user's systemd can
+make scopes (`systemd-run --user`), each program runs in one, in a slice
+of the session's, which counts every process it ever had, a spike that
+lasts a moment included, and the memory charged to it: what its
+processes hold, and the page cache and tmpfs files they made too. That's
+`cgroup, with page cache`. Elsewhere, and for the session's own
+processes, `/proc` is read five times a second for what the processes
+hold in memory, theirs and their children's: a peak between reads is
+missed, and so is the CPU time of a process that comes and goes between
+them, or one left behind by a parent that's gone, which the user's
+systemd takes in. That's `sampled, resident`. Compare runs measured the same way.
+From Python, `Session(usage=True)` and its `usage()`; over MCP,
+`start_session`'s `usage`, said when it's stopped.
+
+## The clock
+
+Pictures carry the wall clock: a panel's, a chat's timestamps, "Today" in
+a mail list, a `git log`'s dates. So that a reshoot only differs where the
+program does, `--clock TIME` starts the clock at TIME, ISO 8601
+(`2026-09-26T18:40:00`), as the session starts, and lets it run on, so
+animations and timeouts work as ever. TIME is in `--tz ZONE`
+(`Europe/Berlin`) if it's given, else UTC, unless it has an offset of its
+own (`+02:00`, `Z`), which it keeps, `--tz` then only the zone it's shown
+in; and `--tz` is every program's `TZ`, so `date` and a panel clock read
+the same. It's the session's clock,
+not each program's: one spawned a minute in reads a minute past TIME, as
+the first does by then.
+
+It's libfaketime, preloaded into every program the session starts, and a
+session with `--clock` fails without it. It covers what's dynamically
+linked and asks the C library: GTK, Qt, Emacs, irssi, Python, git. Static
+binaries and Go programs read the clock themselves, and setuid ones (with
+`--no-sandbox`) drop the preload: they see the real time. Monotonic clocks
+aren't moved, and file times are what's on disk: the dates of files a test
+makes are its own to set (`touch -d`). From Python, `Session(clock=...,
+tz=...)`; over MCP, `start_session`'s `clock` and `tz`.

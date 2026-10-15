@@ -10,9 +10,11 @@ Sealed:
   what `--pass` lets through (a socket it names in `/run/user/UID` isn't
   there under bubblewrap). `HOME` and every XDG directory are a scratch
   dir.
-- A display, a session bus (nothing activatable on it), an accessibility
-  bus with `--a11y`, and a sound server with `--audio` (its sink plays to
-  nowhere), all the session's own.
+- A display, a session bus (nothing activatable on it, so no gvfs, dconf
+  or portals start behind your back), an accessibility bus with `--a11y`,
+  and a sound server with `--audio` (its sink plays to nowhere), all the
+  session's own. Settings are in-memory, so apps come up with their own
+  defaults, not yours.
 - Under bubblewrap, which every program the session spawns runs in where it
   can: `/dev/snd` is empty, so nothing plays to the machine's sound
   devices, and `/run/user/UID` is (and `XDG_RUNTIME_DIR`, if that's

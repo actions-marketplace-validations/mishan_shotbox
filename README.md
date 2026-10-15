@@ -86,14 +86,9 @@ server started for a test listens on 127.0.0.1, not 0.0.0.0.
 An agent checking its change, a screenshot for a README, and a test in CI
 all want the same things, and every project was growing its own copy:
 
-- **Sealed.** The environment is rebuilt from an allowlist, not scrubbed from
-  a denylist, so nothing leaks in by accident. `DISPLAY`, `WAYLAND_DISPLAY`
-  and your session bus are gone; `HOME` and every XDG directory are a scratch
-  dir. The bus has nothing activatable on it, so no gvfs, dconf or portals
-  start behind your back. Settings are in-memory, so apps come up with their
-  own defaults, not yours. Programs run under bubblewrap, with no sound
-  devices and none of your desktop's sockets. What that does and doesn't
-  cover: [What's sealed](https://github.com/mishan/shotbox/blob/main/docs/sealed.md).
+- **Sealed.** Nothing of yours leaks in by accident, and nothing the
+  program does reaches your desktop or speakers, where bubblewrap can make
+  a sandbox (it says when it can't): [What's sealed](https://github.com/mishan/shotbox/blob/main/docs/sealed.md).
 - **Ready, not slept.** Waits are for things: a window mapped, a port open, a
   file written, text on a terminal's screen, or the picture holding still.
   No `sleep 6` and hope.
@@ -127,7 +122,7 @@ how to get it. What each command and option needs:
 [Needs](https://github.com/mishan/shotbox/blob/main/docs/commands.md#needs).
 
 No Python packages: it's the standard library and those tools. Wayland
-sessions need more; see [Wayland](#wayland).
+sessions need more; see [Wayland](https://github.com/mishan/shotbox#wayland).
 
 In a GitHub Actions job on Ubuntu, the Action installs it and what it
 runs, as of the release (or branch) it's used at, with what each
@@ -193,10 +188,12 @@ that sets out to:
 
 - Its environment is rebuilt from an allowlist; `HOME` and every XDG
   directory are a scratch dir.
-- Its display, session bus, accessibility bus and sound server are its
-  own; the sound server plays to nowhere.
-- Under bubblewrap, nothing reaches the machine's sound devices or your
-  desktop's Wayland, PulseAudio, PipeWire and bus sockets.
+- Its display and session bus, and with `--a11y` and `--audio` its
+  accessibility bus and sound server, are its own; the sound server plays
+  to nowhere.
+- Where bubblewrap can make a sandbox (it says when it can't), nothing
+  reaches the machine's sound devices or your desktop's Wayland,
+  PulseAudio, PipeWire and bus sockets.
 - Your network is reachable unless `--net loopback`, your user and host
   name show unless `--identity`, and the real time unless `--clock`.
 - Not sealed: the files outside the scratch home, your X server, other

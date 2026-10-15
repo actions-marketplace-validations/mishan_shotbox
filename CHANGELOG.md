@@ -36,8 +36,9 @@
 - A window asked for and not there is said with the titles, or app ids,
   there are, and that it's matched in full.
 - **The README is a front page**, the reference moved to docs/commands.md,
-  sealed.md, gamepads.md, python.md and node.md, and the tests to
-  CONTRIBUTING.md.
+  sealed.md, gamepads.md, python.md and node.md, the a11y commands to
+  docs/accessibility.md, the Wayland example to docs/wayland.md, and the
+  tests to CONTRIBUTING.md.
 
 ### Added
 
@@ -109,8 +110,8 @@
 - **`--no-sandbox`**, for a program that needs a setuid helper (sudo, an
   AppImage), which can't run under bubblewrap.
 - **What's sealed**, in docs/sealed.md: what a session keeps from a program,
-  and what it doesn't. And instructions to give an agent so it runs
-  graphical programs, browsers and sound in a session.
+  and what it doesn't. And, in the README, instructions to give an agent
+  so it runs graphical programs, browsers and sound in a session.
 - **`wait match REF.png` and `wait change`**, with `--window`, `--crop`,
   `--fuzz` and `--max`: wait until the screen looks like a picture, or
   looks different from when the wait started, and say how long it took.
