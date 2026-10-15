@@ -725,7 +725,7 @@ class Screen:
         return Path(out)
 
     def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
-               park=False, sound=False):
+               park=False, sound=False, gap=0.001):
         """A video of the display, or of the window named `window`, cropped
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
@@ -734,14 +734,15 @@ class Screen:
         pointer there, so `pointer` is refused. A .wav is what plays in
         a session with audio, on X11 or Wayland, and takes none of those.
         With `sound`, in a session with audio, an .mp4 or .webm has what
-        plays in it too, and this returns its path and what
-        `shotbox.sound.hear` heard in its sound."""
+        plays in it too, heard with `gap` as `shotbox.sound.hear` takes it.
+        A Recording: its `path`, which it stands in for, its `heard` (with
+        `sound`), and `problems()`."""
         if Path(out).suffix.lower() == ".wav":
             if window or crop or fps or pointer or park:
                 raise SessionError("a .wav is the session's sound: no window, crop, fps, "
                                    "pointer or park")
             try:
-                return x.record(self.env, out, None, seconds=seconds, sound=sound)
+                return x.record(self.env, out, None, seconds=seconds, sound=sound, gap=gap)
             except (ValueError, RuntimeError) as e:
                 raise SessionError(str(e))
         if self.wayland and pointer:
@@ -770,7 +771,7 @@ class Screen:
         box = (x1 - x0, y1 - y0, x0, y0)
         try:
             return x.record(self.env, out, box, seconds=seconds, fps=fps, pointer=pointer,
-                            sound=sound)
+                            sound=sound, gap=gap)
         except (ValueError, RuntimeError) as e:
             raise SessionError(str(e))
 

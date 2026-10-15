@@ -1072,12 +1072,14 @@ PY
       || fail "$say, session stopped: $(probe "$tmp/$pre-stop.mp4")"; fi
     # --sound: what plays too, AAC in an MP4, Opus in a WebM, both streams
     # --seconds long, each tone starting within 0.1 s of its flash, and
-    # what `listen` would say of it said; stopped by kill, the sound as
+    # what `listen` would say of it said: with --strict, its gaps fail it,
+    # unless --gap is longer than they are. Stopped by kill, the sound as
     # long as the picture, near enough.
     if audio; then
       "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
-        '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound > '$tmp/$pre-heard' &&
-        '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound > /dev/null &&
+        { '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound --strict > '$tmp/$pre-heard'
+          [ \$? = 1 ]; } &&
+        '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
         { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; }" > /dev/null \
         && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
         && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" \
@@ -1085,8 +1087,9 @@ PY
         && sed -n 5p "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && ($2 - $4) ^ 2 < 0.01' | grep -q . \
         && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
         && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -q "gaps of silence" "$tmp/$pre-heard" \
+        && ! grep -q gap "$tmp/$pre-heard2" \
         && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
-        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard"; }
+        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2"; }
     fi
   }
   records "" rec record

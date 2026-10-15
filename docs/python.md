@@ -31,7 +31,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `pad_neutral(n=1)`.
 - Pictures: `capture(out, window=None, crop=None, park=False,
   vision=None)`, `burst(out, count, every=0, ..., sheet=None)`, and
-  `window(re)` for where one is.
+  `window(re)` for where one is. `record(out, seconds=None, window=None,
+  ..., sound=False)` takes a video, or a `.wav` of the sound, and returns
+  a Recording: its `path` and, with `sound`, `heard` (as
+  `shotbox.sound.hear` says) and `problems()`.
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
   screen there first, and says where.

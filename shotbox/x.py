@@ -133,26 +133,45 @@ SOUND = {".mp4": ["-tune", "zerolatency", "-c:a", "aac"],
 SINK = ["-f", "pulse", "-sample_rate", "48000", "-channels", "2", "-i", "shotbox-sink.monitor"]
 
 
-def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False):
-    """As `recording`, and wait for it: its file, or RuntimeError; with
-    `sound`, its file and what `sound.hear` heard in its sound. Ctrl-C
-    stops it, and it's finished all the same."""
-    proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound)
+class Recording:
+    """What `record` made: its `path`, which it stands in for, and with
+    sound, `heard`, what `sound.hear` heard in its sound (else None)."""
+
+    def __init__(self, path, heard=None):
+        self.path, self.heard = Path(path), heard
+
+    def __fspath__(self):
+        return str(self.path)
+
+    def __repr__(self):
+        return f"Recording({str(self.path)!r})"
+
+    def problems(self, quiet=-60.0, clipped=0):
+        """What's wrong with its sound, as `sound.problems` says: a line each."""
+        from .sound import problems
+        return problems(self.heard, quiet=quiet, clipped=clipped) if self.heard else []
+
+
+def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
+    """As `recording`, and wait for it: a Recording, or RuntimeError.
+    Ctrl-C stops it, and it's finished all the same."""
+    proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound,
+                     gap=gap)
     try:
         proc.wait()
     except KeyboardInterrupt:
         stop(proc)
-    out = ended(proc, out)
-    return (out, json.loads(proc.stdout.read())) if sound else out
+    return Recording(ended(proc, out), json.loads(proc.stdout.read()) if sound else None)
 
 
-def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False):
+def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001):
     """Record the display's box (width, height, x, y) to `out`, an .mp4,
     .webm or .gif, at `fps` (30, or 15 for a GIF), for `seconds`, or until
     interrupted (Ctrl-C, or SIGTERM as the command line turns it). A GIF
     is recorded as a video first, then given its own palette. A .wav is
     what plays to the session's sink (with --audio) instead, and takes no
-    box. With `sound`, an .mp4 or .webm has what plays in it too. Needs
+    box. With `sound`, an .mp4 or .webm has what plays in it too, heard
+    with `gap` as `sound.hear` takes it. Needs
     ffmpeg, and on Wayland, wf-recorder.
 
     A keeper process of its own (keep_recording) runs ffmpeg and finishes
@@ -217,7 +236,7 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False)
             end = f",atrim=end_sample={round(seconds * 48000)}" if seconds is not None else ""
             cmd += ["-filter_complex", f"[1:a]aresample=async=1:first_pts=0{end},asplit[a][heard]",
                     "-map", "0:v", "-map", "[a]", *SOUND[kind]]
-            heard = ["-map", "[heard]", "-c:a", "pcm_s16le"]
+            heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le"], "gap": gap}
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
     # -c puts the current directory first on the path, ahead of PYTHONPATH:
@@ -274,13 +293,13 @@ def tied(sig):
 def keep_recording(cmd, out, grab, heard):
     """Run the ffmpeg command `cmd` (JSON, without its output file) to
     record to `out`, reading what the command `grab` (JSON, or null)
-    writes, and with `heard` (JSON: output options, or null), the sound to
-    a WAV too, saying what `sound.hear` heard in it on stdout; and stop it
-    with one signal, which it finishes the file on (a second makes it quit
-    unfinished): when a line comes on stdin or stdin closes, as when what
-    started this goes however it goes, or when the display goes (the
-    sound server, for a .wav; sway, on Wayland). Then make the GIF, for a
-    .gif. Status 0, or 1 and why on stderr."""
+    writes, and with `heard` (JSON: output options and a gap, or null), the
+    sound to a WAV too, saying what `sound.hear` heard in it on stdout;
+    and stop it with one signal, which it finishes the file on (a second
+    makes it quit unfinished): when a line comes on stdin or stdin closes,
+    as when what started this goes however it goes, or when the display
+    goes (the sound server, for a .wav; sway, on Wayland). Then make the
+    GIF, for a .gif. Status 0, or 1 and why on stderr."""
     cmd, out, grab, heard = json.loads(cmd), Path(out), json.loads(grab), json.loads(heard)
     gif = out.suffix.lower() == ".gif"
     tmp = tempfile.mkdtemp() if gif or heard else None
@@ -298,7 +317,7 @@ def keep_recording(cmd, out, grab, heard):
             feed = subprocess.Popen(grab, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=grab_err, preexec_fn=tied(signal.SIGKILL))
         # SIGTERM, so ffmpeg finishes the file.
-        proc = subprocess.Popen(cmd + [str(video)] + (heard + [str(wav)] if heard else []),
+        proc = subprocess.Popen(cmd + [str(video)] + (heard["options"] + [str(wav)] if heard else []),
                                 stderr=subprocess.PIPE,
                                 stdin=feed.stdout if feed else subprocess.DEVNULL,
                                 preexec_fn=tied(signal.SIGTERM))
@@ -349,7 +368,7 @@ def keep_recording(cmd, out, grab, heard):
         if heard:
             from .sound import hear
             try:
-                print(json.dumps(hear(wav)), flush=True)
+                print(json.dumps(hear(wav, gap=heard["gap"])), flush=True)
             except OSError:
                 pass        # what started this is gone, with nowhere to say it
         if gif:

@@ -530,26 +530,42 @@ def cmd_record(argv):
     p.add_argument("--sound", action="store_true",
                    help="with --audio, what plays too, in the same file (AAC in an MP4, "
                         "Opus in a WebM), and say what `shotbox listen` would of it")
-    a = p.parse_args(argv)
+    p.add_argument("--strict", action="store_true",
+                   help="with --sound, fail if `listen` would (the file is kept)")
+    a = listening(p).parse_args(argv)
     if a.seconds == 0:
         p.error("--seconds is more than 0")
+    if not 0 < a.gap < math.inf:
+        p.error("--gap is a number of milliseconds, more than 0")
     start = time.monotonic()
     out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
-                          pointer=a.pointer, park=a.park, sound=a.sound)
-    out, heard = out if a.sound else (out, None)
+                          pointer=a.pointer, park=a.park, sound=a.sound, gap=a.gap / 1000)
+    bad = out.problems(quiet=a.quiet, clipped=a.clipped)
     try:
-        print(f"{out}  {time.monotonic() - start:.1f}s", flush=True)
-        if heard:
-            print("\n".join(sound.describe(heard) + sound.problems(heard)), flush=True)
+        print(f"{out.path}  {time.monotonic() - start:.1f}s", flush=True)
+        if out.heard:
+            print("\n".join(sound.describe(out.heard) + bad), flush=True)
     except OSError:     # stopped by its terminal closing, with nowhere to say so
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-    return 0
+    return 1 if a.strict and bad else 0
 
 
 def vision_option(p):
     p.add_argument("--vision", choices=sorted(x.VISION), metavar="KIND",
                    help="take it as someone with this color vision sees it: protanopia, "
                         "deuteranopia, tritanopia, or gray (none)")
+
+
+def listening(p):
+    """`p`, with what `listen` judges a sound by."""
+    p.add_argument("--gap", type=float, default=1, metavar="MS",
+                   help="silence this long between sounds is a dropout: every channel at "
+                        "exactly zero, as a player that falls behind leaves it (1)")
+    p.add_argument("--clipped", type=int, default=0, metavar="N",
+                   help="samples that may be at full scale (0)")
+    p.add_argument("--quiet", type=float, default=-60, metavar="DB",
+                   help="a peak below this is silence (-60 dBFS)")
+    return p
 
 
 def cmd_listen(argv):
@@ -559,14 +575,7 @@ def cmd_listen(argv):
                                             "where it clipped or dropped out; fail if it "
                                             "did, or is silent.")
     p.add_argument("wav", metavar="IN.wav", help="a 16-bit PCM WAV")
-    p.add_argument("--gap", type=float, default=1, metavar="MS",
-                   help="silence this long between sounds is a dropout: every channel at "
-                        "exactly zero, as a player that falls behind leaves it (1)")
-    p.add_argument("--clipped", type=int, default=0, metavar="N",
-                   help="samples that may be at full scale (0)")
-    p.add_argument("--quiet", type=float, default=-60, metavar="DB",
-                   help="a peak below this is silence (-60 dBFS)")
-    a = p.parse_args(argv)
+    a = listening(p).parse_args(argv)
     if not 0 < a.gap < math.inf:
         p.error("--gap is a number of milliseconds, more than 0")
     try:

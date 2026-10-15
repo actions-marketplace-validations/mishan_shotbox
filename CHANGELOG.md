@@ -19,6 +19,9 @@
 - A session with a display wants ImageMagick, and one with X11 or
   Xwayland `xwininfo` and `xprop` (x11-utils), before it starts, rather
   than at its first wait or picture.
+- `Screen.record` returns a Recording, not the path: its `path`, and
+  with sound what was heard. It stands in for the path where one is
+  opened (`os.fspath`); `str()` of it isn't the path, `.path` is.
 
 ### Changed
 
@@ -137,9 +140,10 @@
   WebM, by one ffmpeg, the sound in step with the picture from its first
   frame, within a frame or so. Both are `--seconds` long, and it stops
   the ways `record` does, the file finished. Then it says what `listen`
-  would of the sound: its level, clipping and dropouts. Also
-  `Screen.record(..., sound=True)`, which returns the file and what
-  `shotbox.sound.hear` heard.
+  would of the sound: its level, clipping and dropouts, by `listen`'s
+  `--gap`, `--clipped` and `--quiet`, failing for them with `--strict`.
+  Also `Screen.record(..., sound=True)`, whose Recording has what
+  `shotbox.sound.hear` heard, and its `problems()`.
 
 ### Fixed
 
