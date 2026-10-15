@@ -16,6 +16,8 @@
   plus the signal's number. `--no-sandbox` runs it as before.
 - `compare` says where pixels differ, after how many: `N pixels differ,
   in WxH at X,Y`, on each picture's line with directories too.
+- A session with a display wants ImageMagick, and an X11 one `xwininfo`,
+  before it starts, rather than at its first wait or picture.
 
 ### Changed
 
@@ -57,6 +59,14 @@
   `start`, `exec`, `Session(clock=..., tz=...)` and MCP's
   `start_session`; by libfaketime, which doesn't reach static binaries or
   Go programs.
+- **What a command needs, checked before it starts anything.** A tool
+  not on PATH, `/dev/uinput` it can't open for `--gamepads`, or PyGObject
+  with VTE (`term`) or AT-SPI (`--a11y`) that this Python can't load is
+  said at once in a line, with the package to install, or, from a pipx
+  install that can't see the system's packages, `pipx install --force
+  --system-site-packages shotbox`; `Session` and MCP's `start_session`
+  say the same. **`shotbox doctor`** goes through every check, a line
+  each.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else

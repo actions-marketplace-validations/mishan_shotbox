@@ -61,7 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import usage, wl
+from . import pad, usage, wl
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
 # Passed through from the caller unless told otherwise. Everything else is
@@ -303,10 +303,85 @@ def unfold(home, path):
             shutil.copyfile(target, p)
 
 
+# The package each tool is in, on Debian, where it isn't named for it.
+PACKAGES = {"Xvfb": "xvfb", "Xwayland": "xwayland", "pipewire": "pipewire-bin",
+            "pw-dump": "pipewire-bin", "bwrap": "bubblewrap", "gdbus": "libglib2.0-bin",
+            "nsenter": "util-linux", "xwininfo": "x11-utils", "xprop": "x11-utils",
+            "import": "imagemagick"}
+
+
+def lacks(*tools):
+    """Which of these tools aren't on PATH, and the package each is in;
+    nothing if they all are."""
+    missing = [t + (f" ({PACKAGES[t]})" if t in PACKAGES else "")
+               for t in tools if not shutil.which(t)]
+    return "not found: " + ", ".join(missing) if missing else None
+
+
 def need(*tools):
-    missing = [t for t in tools if not shutil.which(t)]
-    if missing:
-        raise SessionError("not found: " + ", ".join(missing))
+    why = lacks(*tools)
+    if why:
+        raise SessionError(why)
+
+
+REINSTALL = "pipx install --force --system-site-packages shotbox"
+ATSPI = ("PyGObject and AT-SPI", ("they're in python3-gi and gir1.2-atspi-2.0 on Debian, and "
+         "python3-gobject, at-spi2-core and gobject-introspection on Fedora"), ("Atspi", "2.0"))
+VTE = ("PyGObject and VTE", ("they're in python3-gi and gir1.2-vte-2.91 on Debian, and "
+       "python3-gobject and vte291 on Fedora"), ("Vte", "2.91"))
+
+
+def bindings(what, where, *libs):
+    """Why this Python can't load GObject's `libs`, (namespace, version)
+    pairs, which are `what`: `where` they are, or, from a virtualenv that
+    can't see the system's packages (as plain `pipx install` makes), how
+    to make one that can. Nothing if it can."""
+    try:
+        import gi
+        for lib, version in libs:
+            gi.require_version(lib, version)
+        return None
+    except (ImportError, ValueError) as e:
+        cfg = Path(sys.prefix, "pyvenv.cfg")
+        if cfg.exists() and re.search(r"include-system-site-packages\s*=\s*false",
+                                      cfg.read_text()):
+            return (f"needs {what} from the system, which this install can't see; "
+                    f"reinstall with: {REINSTALL}")
+        return f"needs {what}, which this Python can't load ({e}): {where}"
+
+
+def a11y_needs():
+    if not any(os.access(p, os.X_OK) for p in A11Y_LAUNCHERS):
+        return "not found: at-spi-bus-launcher (at-spi2-core)"
+    return lacks("gdbus") or bindings(*ATSPI)
+
+
+def gamepad_needs():
+    try:
+        os.close(pad.uinput())
+    except pad.PadError as e:
+        return str(e)
+    return lacks("bwrap")
+
+
+# Why each part of a session, and each command that needs more, can't be
+# had here; nothing if it can. A session checks its parts before it starts
+# any, so what's missing is said at once in a line, rather than as a part
+# that dies with the reason in its log; `shotbox doctor` goes through them
+# all.
+NEEDS = {
+    "sessions": lambda: lacks("dbus-daemon"),
+    "X11": lambda: lacks("Xvfb", "xauth", "xwininfo", "import"),
+    "--wayland": lambda: lacks("sway", "grim", "import"),
+    "--xwayland": lambda: lacks("Xwayland"),
+    "--desktop": lambda: lacks("gdbus"),
+    "--a11y": a11y_needs,
+    "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
+    "--gamepads": gamepad_needs,
+    "--net": lambda: lacks("bwrap", "nsenter"),
+    "term": lambda: bindings(*VTE),
+    "record": lambda: lacks("ffmpeg"),
+}
 
 
 def faketime():
@@ -478,18 +553,15 @@ class Session(Screen):
     # --- setup ----------------------------------------------------------------
 
     def __enter__(self):
-        if not self.display:
-            need("dbus-daemon")
-        elif self.use_wayland:
-            need("sway", "grim", "dbus-daemon", *(["Xwayland"] if self.xwayland else []))
-        else:
-            need("Xvfb", "xauth", "dbus-daemon")
-        if self.desktop:
-            need("gdbus")
-        if self.audio:
-            need("pipewire", "wireplumber", "pw-dump")
-        if self.gamepads:
-            need("bwrap")
+        parts = ["sessions"]
+        if self.display:
+            parts.append("--wayland" if self.use_wayland else "X11")
+        parts += [p for p, on in (("--xwayland", self.xwayland), ("--desktop", self.desktop),
+                                  ("--a11y", self.a11y), ("--audio", self.audio),
+                                  ("--gamepads", self.gamepads), ("--net", self.net)) if on]
+        why = next(filter(None, (NEEDS[p]() for p in parts)), None)
+        if why:
+            raise SessionError(why)
         if self.clock is not None:
             # An offset, fixed as the session starts, so a program started
             # later reads the clock those before it do: a start-at time
@@ -890,10 +962,7 @@ class Session(Screen):
         the private session bus starts it, and AT_SPI_BUS_ADDRESS points
         every toolkit and reader in the session at it, on X11 and Wayland
         alike. Then a recorder of what programs announce on it."""
-        launcher = next((p for p in A11Y_LAUNCHERS if os.access(p, os.X_OK)), None)
-        if not launcher:
-            raise SessionError("not found: at-spi-bus-launcher (at-spi2-core)")
-        need("gdbus")
+        launcher = next(p for p in A11Y_LAUNCHERS if os.access(p, os.X_OK))
         log = self.scratch / "a11y-bus.log"
         proc = subprocess.Popen([launcher, "--launch-immediately"], env=self.env,
                                 stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
@@ -959,7 +1028,6 @@ class Session(Screen):
         runs to join, so they reach each other and nothing else: a process
         sleeping in it, which bwrap makes, bringing its loopback up. A
         namespace of each program's own would keep them apart too."""
-        need("bwrap", "nsenter")
         r, w = os.pipe()
         proc = subprocess.Popen(["bwrap", "--dev-bind", "/", "/", "--unshare-user",
                                  "--unshare-net", "--info-fd", str(w), "--", "sleep", "infinity"],

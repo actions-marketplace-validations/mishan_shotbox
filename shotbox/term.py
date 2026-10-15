@@ -38,6 +38,8 @@ import shlex
 import sys
 from pathlib import Path
 
+from .session import NEEDS
+
 SIZE = re.compile(r"(\d+)x(\d+)")
 
 
@@ -147,6 +149,11 @@ def unescape(text):
 
 def main(argv):
     args = parse(argv)
+    # Said here, before --shoot starts a session to run it in, where it
+    # would only die on its imports.
+    why = NEEDS["term"]()
+    if why:
+        raise SystemExit(f"shotbox term: {why}")
     if args.shoot:
         return shoot(args)
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):

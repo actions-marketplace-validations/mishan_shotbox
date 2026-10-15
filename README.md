@@ -120,8 +120,13 @@ pipx install --system-site-packages shotbox
 ```
 
 `--system-site-packages` lets it see the system's PyGObject, which
-`shotbox term` uses; `pip install shotbox` works too. Or run it from a
+`shotbox term` and `--a11y` use; `pip install shotbox` works too. Or run it from a
 checkout: `ln -s "$PWD/bin/shotbox" ~/.local/bin/shotbox`.
+
+`shotbox doctor` says which of these are here, a line each: what
+sessions need, and each of their options, `term` and `record`. A command
+missing one fails before it starts anything, in a line saying what's
+missing and how to get it, as `Session` and MCP's `start_session` do.
 
 No Python packages: it's the standard library and those tools. Wayland
 sessions need more; see [Wayland](#wayland).

@@ -22,6 +22,7 @@
     shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
+    shotbox doctor                                  what's here of what each command needs
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
     shotbox listen IN.wav                           its level, clipping and dropouts
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
@@ -46,7 +47,7 @@ from pathlib import Path
 
 from . import a11y, kept, mcp, sound, term, usage, x, xtest
 from .screen import Screen, SessionError
-from .session import Session
+from .session import NEEDS, Session
 
 
 def scale(s):
@@ -387,6 +388,19 @@ def cmd_stop(argv):
         if scratch:
             print(f"shotbox: kept {scratch}")
     return 0
+
+
+def cmd_doctor(argv):
+    argparse.ArgumentParser(prog="shotbox doctor",
+                            description="What's here of what sessions, each of their "
+                                        "options and `term` and `record` need, a line "
+                                        "each; fails if any is missing.").parse_args(argv)
+    missing = 0
+    for part, check in NEEDS.items():
+        why = check()
+        print(f"no    {part}: {why}" if why else f"ok    {part}")
+        missing += bool(why)
+    return 1 if missing else 0
 
 
 def cmd_sessions(argv):
@@ -850,7 +864,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
-            "sessions": cmd_sessions}
+            "sessions": cmd_sessions, "doctor": cmd_doctor}
 
 # What --session puts inside a lasting session.
 INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",
