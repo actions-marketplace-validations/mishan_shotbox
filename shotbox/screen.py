@@ -592,14 +592,14 @@ class Screen:
                        and still(m, i, st[1]) and brings(m, i, shown)):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
-                at, held_for, look, then, first, back = min(
+                at, held_for, look, then, first, _ = min(
                     (now[n] for n in group if n in now), key=lambda f: f[0])
-                # After it, torn, the last of it gone.
+                # Torn, till the last of it is gone.
                 after = max(now[n][5] for n in group if n in now)
                 out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
                                 every=held_for,
                                 looks=(flicker.hex_of(then), flicker.hex_of(look))))
-                seen.append(((bx, by, bw, bh), [*range(first - 1, back)][:8] + [after]))
+                seen.append(((bx, by, bw, bh), [*range(first - 1, after)][:8] + [after]))
         order = sorted(range(len(out)), key=lambda i: out[i]["at"])
         if save is not None:
             for number, i in enumerate(order, 1):
@@ -644,7 +644,9 @@ class Screen:
                 cells.append(Path(tmp) / f"{n}.png")
                 subprocess.run([*x.CONVERT, "-size", f"{cw}x{ch}", "-depth", "8", "rgb:-", *grow,
                                 "-fill", "none", "-stroke", "magenta", "+antialias",
+                                # Two wide, so a sheet seen smaller keeps it.
                                 "-draw", f"rectangle {left},{top} {right},{bottom}",
+                                "-draw", f"rectangle {left - 1},{top - 1} {right + 1},{bottom + 1}",
                                 "-antialias", "-stroke", "none", "-fill", "white",
                                 "-background", "black", "+size", "-pointsize", "14",
                                 f"label:{t:.3f}\u2013{till:.3f}s", "-gravity", "center", "-append",
