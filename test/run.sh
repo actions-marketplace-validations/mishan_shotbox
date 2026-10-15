@@ -36,7 +36,7 @@ set +e; TMPDIR=$long "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
   || fail "long TMPDIR ($st): $(cat "$tmp/err")"
 # Under bubblewrap: none of the machine's sound devices, and none of the
 # desktop's sockets; all of them with --no-sandbox.
-look='find /dev/snd "/run/user/$(id -u)" -mindepth 1 -maxdepth 1 2>/dev/null'
+look='find /dev/snd "/run/user/$(id -u)" -mindepth 1 -maxdepth 1 2>/dev/null; true'
 if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
   in=$("$sb" run -- sh -c "$look"); out=$("$sb" run --no-sandbox -- sh -c "$look")
   [ -z "$in" ] && [ -n "$out" ] \
