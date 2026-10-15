@@ -2,7 +2,9 @@
 # shotbox command, from this checkout of it, so the version is the ref
 # the job asked for. Ubuntu runners: apt, sudo, and pipx, as they have.
 
-name: shotbox
+# Not "shotbox": the Marketplace takes no name of a GitHub user or
+# organization, and there's one.
+name: shotbox sealed sessions
 description: Sealed X11 or Wayland sessions for screenshots, accessibility checks and tests of real graphical programs
 author: Misha Nasledov
 branding:
@@ -42,8 +44,8 @@ runs:
         GAMEPADS: ${{ inputs.gamepads }}
       run: |
         set -euo pipefail
-        pkgs="xvfb xauth dbus-daemon imagemagick x11-utils bubblewrap fonts-dejavu-core"
-        [ "$A11Y" != true ] || pkgs="$pkgs at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin python3-gi"
+        pkgs="xvfb xauth dbus-daemon imagemagick x11-utils bubblewrap libglib2.0-bin fonts-dejavu-core"
+        [ "$A11Y" != true ] || pkgs="$pkgs at-spi2-core gir1.2-atspi-2.0 python3-gi"
         [ "$WAYLAND" != true ] || pkgs="$pkgs sway grim xwayland"
         [ "$AUDIO" != true ] || pkgs="$pkgs pipewire pipewire-bin wireplumber"
         [ "$RECORD" != true ] || pkgs="$pkgs ffmpeg"
@@ -66,5 +68,10 @@ runs:
           sudo udevadm trigger --action=change /dev/uinput
         fi
         # The system's PyGObject, for `shotbox term` and the a11y checks.
-        pipx install --system-site-packages "$GITHUB_ACTION_PATH"
+        # Built from a copy, which pip leaves its build in, not the
+        # checkout (with `uses: ./`, the job's own); --force, so a second
+        # use at another ref installs that one.
+        src=$(mktemp -d)
+        cp -r "$GITHUB_ACTION_PATH"/. "$src"
+        pipx install --force --system-site-packages "$src"
         shotbox --help > /dev/null
