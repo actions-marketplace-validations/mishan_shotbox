@@ -766,16 +766,34 @@ class Session(Screen):
                           or f"status {probe.returncode}"))
         if why and self.gamepads:
             raise SessionError(f"gamepads need bubblewrap to make a sandbox, and {why}")
-        run = Path(f"/run/user/{os.getuid()}")
+        kept = [d for d in self._runtime_dirs() if self.scratch.resolve().is_relative_to(d)]
         if why:
             self.unsealed = ("programs run without a sandbox, so they can reach the "
                              f"machine's sound devices and the desktop's sockets: {why}")
-        elif run.is_dir() and self.scratch.resolve().is_relative_to(run.resolve()):
-            self.unsealed = (f"the session's scratch dir is in {run}, so programs can reach "
-                             "the desktop's sockets there: set TMPDIR elsewhere")
+        elif kept:
+            self.unsealed = (f"the session's scratch dir is in {kept[0]}, so programs can "
+                             "reach the desktop's sockets there: set TMPDIR elsewhere")
         if self.unsealed:
             sys.stderr.write(f"shotbox: {self.unsealed}\n")
         self._sandboxed = not why
+
+    def _runtime_dirs(self):
+        """The desktop's runtime dirs, where its own sockets are (Wayland,
+        PulseAudio, PipeWire, its bus), for the sandbox to hide: /run/user/UID
+        and XDG_RUNTIME_DIR, where it's one, the user's own and no one
+        else's. Not one with the scratch dir in it, which _probe_sandbox
+        says."""
+        dirs = []
+        for d in filter(None, (f"/run/user/{os.getuid()}", os.environ.get("XDG_RUNTIME_DIR"))):
+            d = Path(d).resolve()
+            try:
+                st = d.stat()
+            except OSError:
+                continue
+            if (d.is_dir() and st.st_uid == os.getuid() and not st.st_mode & 0o077
+                    and d not in dirs):
+                dirs.append(d)
+        return dirs
 
     def _sandbox(self):
         """bwrap and its options, made for each program, since devices come
@@ -790,11 +808,9 @@ class Session(Screen):
         args = ["--dev-bind", "/", "/", "--tmpfs", "/dev/input"]
         if Path("/dev/snd").is_dir():
             args += ["--tmpfs", "/dev/snd"]
-        # The desktop's own sockets: Wayland, PulseAudio, PipeWire, its bus.
-        # Not with the scratch dir in it, which _probe_sandbox says.
-        run = Path(f"/run/user/{os.getuid()}")
-        if run.is_dir() and not self.scratch.resolve().is_relative_to(run.resolve()):
-            args += ["--tmpfs", str(run)]
+        for run in self._runtime_dirs():
+            if not self.scratch.resolve().is_relative_to(run):
+                args += ["--tmpfs", str(run)]
         for node in self._pad_nodes:
             args += ["--dev-bind", node, node]
         masked = str(self.scratch / "masked")
@@ -840,6 +856,12 @@ class Session(Screen):
         bubblewrap where it can, with no sound devices, and a /dev/input
         that has only the session's gamepads."""
         if self._sandboxed:
+            cwd = Path(kw.get("cwd") or os.getcwd()).resolve()
+            hidden = [d for d in self._runtime_dirs() if cwd.is_relative_to(d)
+                      and not self.scratch.resolve().is_relative_to(d)]
+            if hidden:
+                raise SessionError(f"can't run {cmd[0]} from {cwd}: programs in the "
+                                   f"session don't see {hidden[0]}")
             why = self._runnable(cmd[0], kw.get("cwd"))
             if why:
                 raise SessionError(f"can't run {cmd[0]}: {why}")

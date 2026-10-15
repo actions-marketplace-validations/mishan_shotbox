@@ -135,7 +135,7 @@ def number(v, what, least=None, most=None):
 
 
 def program_pid(proc):
-    """The program's pid, not that of the sandbox it's in, with gamepads."""
+    """The program's pid, not that of the sandbox it's in."""
     return getattr(proc, "program_pid", proc.pid)
 
 

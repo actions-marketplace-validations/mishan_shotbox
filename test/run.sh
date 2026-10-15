@@ -42,6 +42,14 @@ if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
   [ -z "$in" ] && [ -n "$out" ] \
     && ok "no sound devices or desktop sockets inside, but with --no-sandbox" \
     || fail "inside: [$in], with --no-sandbox: [$out]"
+  # Run from inside it, where the program wouldn't be: refused, saying so.
+  hid="/run/user/$(id -u)/shotbox-test-$$"
+  if mkdir "$hid" 2>/dev/null; then
+    set +e; (cd "$hid" && "$sb" run -- true) 2> "$tmp/err"; st=$?; set -e
+    rmdir "$hid"
+    [ $st != 0 ] && grep -q "programs in the session don't see" "$tmp/err" \
+      && ok "a program run from where it's hidden, refused" || fail "hidden cwd: $st $(cat "$tmp/err")"
+  fi
 fi
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"

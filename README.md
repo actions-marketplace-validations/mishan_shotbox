@@ -251,14 +251,18 @@ Sealed:
   nowhere), all the session's own.
 - Under bubblewrap, which every program the session spawns runs in where it
   can: `/dev/snd` is empty, so nothing plays to the machine's sound
-  devices, and `/run/user/UID` is, so your desktop's Wayland, PulseAudio,
-  PipeWire and bus sockets aren't there to find. With `--gamepads`, only
-  the session's pads (see [Gamepads](#gamepads)).
+  devices, and `/run/user/UID` is (and `XDG_RUNTIME_DIR`, if that's
+  elsewhere), so your desktop's Wayland, PulseAudio, PipeWire and bus
+  sockets aren't there to find, and a program can't be run from inside
+  it. With `--gamepads`, only the session's pads (see [Gamepads](#gamepads)).
 
 Not sealed:
 - The files: the filesystem is the machine's, readable and writable as
   you, outside the scratch home.
 - The network: a server bound to `0.0.0.0` is on your network.
+- The machine's system bus, unless `--system-bus`: logind,
+  NetworkManager and the rest, which may let a program in your desktop's
+  session suspend or power off the machine.
 - Your X server: its sockets, in `/tmp/.X11-unix` and the abstract one,
   are reachable by a program that sets `DISPLAY` and finds your cookie
   itself.
