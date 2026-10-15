@@ -29,7 +29,8 @@ shotbox shoot editor.png --window 'Text Editor' -- gnome-text-editor notes.md
 ```
 
 Worked examples, from checking a change to a game's smoke test:
-[docs/recipes.md](docs/recipes.md).
+[docs/recipes.md](docs/recipes.md). How it differs from other tools that
+drive a GUI: [docs/comparison.md](docs/comparison.md).
 
 ## For agents
 
