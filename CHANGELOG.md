@@ -33,6 +33,12 @@
   for it, so it can't play through the machine's speakers or find the
   desktop's Wayland, PulseAudio, PipeWire or bus sockets. Without
   bubblewrap, the session says so and runs it as before.
+- A window asked for and not there is said with the titles, or app ids,
+  there are, and that it's matched in full.
+- **The README is a front page**, the reference moved to docs/commands.md,
+  sealed.md, gamepads.md, python.md and node.md, the a11y commands to
+  docs/accessibility.md, the Wayland example to docs/wayland.md, and the
+  tests to CONTRIBUTING.md.
 
 ### Added
 
@@ -77,6 +83,13 @@
 - **`shotbox latency move X1 Y1 X2 Y2 --watch G`**: how long what's
   drawn takes to follow the pointer, a move at a time, as the median and
   95th percentile; `Screen.latency` from Python.
+- **`shotbox flicker`**: a part of the screen that keeps switching
+  between two looks, or flashes another once, found from pictures taken
+  as fast as they come, a tile at a time, by its mean color and in time:
+  its box, how many changes, how often, and both colors; and how many
+  pictures it took and how many changed, on stdout whatever's found, a
+  rate too slow said.
+  `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
   `start`, `exec` and MCP's `start_session`: a server a test starts is
@@ -96,9 +109,9 @@
   under bubblewrap, and `--audio` if it's wanted.
 - **`--no-sandbox`**, for a program that needs a setuid helper (sudo, an
   AppImage), which can't run under bubblewrap.
-- **What's sealed**, in the README: what a session keeps from a program,
-  and what it doesn't. And instructions to give an agent so it runs
-  graphical programs, browsers and sound in a session.
+- **What's sealed**, in docs/sealed.md: what a session keeps from a program,
+  and what it doesn't. And, in the README, instructions to give an agent
+  so it runs graphical programs, browsers and sound in a session.
 - **`wait match REF.png` and `wait change`**, with `--window`, `--crop`,
   `--fuzz` and `--max`: wait until the screen looks like a picture, or
   looks different from when the wait started, and say how long it took.

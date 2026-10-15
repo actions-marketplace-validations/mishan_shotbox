@@ -6,6 +6,46 @@ program does reaches your desktop's screen reader. `--a11y` gives the
 session a bus of its own instead, so what a screen reader would hear can
 be read, linted and walked, headless, in CI.
 
+## Commands
+
+Inside a session with `--a11y`:
+
+- **`shotbox a11y tree [--window RE]`** prints the tree, a node a line,
+  indented: role, name, description if any, and the states a screen
+  reader would say: [Reading the tree](#reading-the-tree).
+- **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
+  for what has no name to say: [Lint](#lint).
+- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--window RE]`** presses
+  the key until the focus lands somewhere it has been, printing where it
+  lands each time, and fails on a trap: [Walking the Tab
+  order](#walking-the-tab-order).
+- **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
+  node whose name matches NAME (a regex, matched in full): a button by
+  its label rather than where it is. [Clicking by name](#clicking-by-name).
+- **`shotbox a11y contrast [--window RE]`** measures the contrast of
+  what each node draws against its background, and fails, a line each:
+  `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
+  [Contrast](#contrast).
+- **`shotbox wait announce RE`** waits for a program to announce
+  something matching RE (found anywhere in it) to a screen reader:
+  GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
+  live region (`aria-live`, `role="status"`). [Announcements](#announcements).
+
+```
+shotbox run --a11y -- sh -c 'gnome-text-editor &
+  shotbox a11y lint --window ".*Text Editor"'
+```
+
+finds that the editor's text area has no name.
+
+`--window` picks a window by title, or `app=RE`, as everywhere, and
+waits up to `--timeout` (10s) for it to appear in the tree. Without it,
+every program's windows are there. It works on X11, Wayland and
+Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
+Bevy, GTK built with it), and for Chromium, headed, given
+`--force-renderer-accessibility` (the Node package's `accessible`), on
+X11.
+
 ## The bus
 
 With `--a11y`, the session:
@@ -114,7 +154,7 @@ problem inside a scrolled window: it's flagged as itself.
 
 Each problem is a line: the node's path, every step a role and its index
 among its siblings, from the window down, then what's wrong. The exit
-status is 1 if there are any. `--ignore RE` leaves out each line the
+status is 1 if there are any. `--ignore RE` (repeatable) leaves out each line the
 regex is found in: an unnamed node that won't be fixed yet, or a
 toolkit's own (libadwaita's tab bar scroller), so the rest can be held
 to in CI.
@@ -281,7 +321,8 @@ signal (interface `org.a11y.atspi.Event.Object`, arguments: the
 politeness, 1 polite or 2 assertive, and the text). GTK sends it whether
 or not a reader has registered to hear it, so the recorder is a match
 rule on the accessibility bus. It writes each one to
-`$SHOTBOX_SCRATCH/announcements`, or `--announce-log FILE`, as
+`$SHOTBOX_SCRATCH/announcements`, or `--announce-log FILE` (which
+implies `--a11y`), as
 `polite: TEXT`, a line break in it as `\n`, and the session waits for
 it to be listening before anything runs. `$SHOTBOX_ANNOUNCEMENTS` says
 where the file is.

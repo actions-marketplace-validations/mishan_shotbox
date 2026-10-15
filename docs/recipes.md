@@ -190,7 +190,7 @@ or was silent:
 
 The pad is a virtual Xbox 360 controller, which SDL names that; your
 desktop's controllers aren't in the session. `--gamepads` needs write
-access to `/dev/uinput`; see [Gamepads](../README.md#gamepads).
+access to `/dev/uinput`; see [Gamepads](gamepads.md).
 
 ## An agent over MCP
 

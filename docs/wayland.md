@@ -3,8 +3,14 @@
 A session can be a Wayland one: `--wayland` runs the program under a
 headless sway instead of Xvfb, and `--xwayland` adds an X server inside
 it, for X clients running on a Wayland desktop the way they do on a real
-one. Everything else stays: the scratch home, the private bus, the waits,
-the pictures, the cleanup.
+one. Everything else stays: the scratch home, the private bus, windows
+by title or `app=`, pictures, waits, failure pictures, keys, text, the
+pointer, `park`, `term`, `record`, the Python API
+(`shotbox.Session(wayland=True)`, or `here()` inside) and the cleanup.
+
+```
+shotbox shoot editor.png --wayland --window app=org.gnome.TextEditor -- gnome-text-editor
+```
 
 This is the plan for it, and where it has got to.
 
