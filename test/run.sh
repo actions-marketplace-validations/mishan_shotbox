@@ -697,7 +697,8 @@ if command -v ffmpeg >/dev/null; then
   # Stopped a moment after it starts, in the background, where a job's
   # Ctrl-C is ignored: it ends rather than recording for good. Killed, then
   # killed outright while it finishes: the file is still whole. A GIF
-  # killed outright is made all the same, and nothing left in TMPDIR.
+  # killed outright, once it has frames (ffmpeg can take a second or more
+  # to start), is made all the same, and nothing left in TMPDIR.
   rm -rf "$tmp/rtmp2"; mkdir "$tmp/rtmp2"
   "$sb" run --env "TMPDIR=$tmp/rtmp2" -- sh -c "'$here/window.py' re & '$sb' wait window re || exit 1
     for d in 0.05 0.08 0.1 0.15 0.2 0.3 0.5; do
@@ -709,7 +710,7 @@ if command -v ffmpeg >/dev/null; then
     '$sb' record '$tmp/rec-9.gif' --window re & r=\$!
     n=0; until pgrep -ax python3 | grep keep_recording | grep -q rec-9.gif; do
       [ \$n -lt 100 ] || { echo 'no keeper'; pgrep -ax python3; exit 1; }; sleep 0.1; n=\$((n + 1)); done
-    sleep 1; kill -9 \$r
+    sleep 3; kill -9 \$r
     n=0; while [ ! -s '$tmp/rec-9.gif' ] || [ -n \"\$(ls '$tmp/rtmp2')\" ]; do
       [ \$n -lt 300 ] || { echo 'no GIF'; pgrep -ax python3; pgrep -ax ffmpeg; exit 1; }
       sleep 0.1; n=\$((n + 1)); done" > "$tmp/rec-steps" 2>&1 \
