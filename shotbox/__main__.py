@@ -725,7 +725,9 @@ def cmd_flicker(argv):
                                 description="Inside `shotbox run`: watch the screen, or a "
                                             "window, for a part that keeps switching between "
                                             "two looks (flicker), or flashes another look "
-                                            "once and comes back; fail if one does.")
+                                            "once and comes back; fail (1) if one does, "
+                                            "or can't watch (2). Boxes are in what's "
+                                            "watched: the window, or the crop.")
     p.add_argument("--window", metavar="RE")
     p.add_argument("--crop", metavar="WxH+X+Y")
     p.add_argument("--seconds", type=float, default=2, metavar="SECS",
@@ -744,8 +746,13 @@ def cmd_flicker(argv):
     if not (a.seconds > 0 and a.brief > 0 and a.times >= 2 and a.tile >= 1 and a.fuzz >= 0):
         p.error("--seconds, --brief and --tile are more than 0, --times 2 or more, --fuzz 0 "
                 "or more")
-    found = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
-                             brief=a.brief / 1000, times=a.times, fuzz=a.fuzz, ignore=a.ignore)
+    try:
+        found = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
+                                 brief=a.brief / 1000, times=a.times, fuzz=a.fuzz,
+                                 ignore=a.ignore)
+    except SessionError as e:
+        sys.stderr.write(f"shotbox: {e}\n")
+        return 2
     for f in found:
         if f["kind"] == "flicker":
             print(f"flicker: {f['box']}, {f['changes']} changes, every {f['every'] * 1000:.0f} "

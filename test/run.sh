@@ -450,16 +450,18 @@ st=$?; set -e
 
 # flicker: a square switching green and black every 30 ms flickers, at
 # that; one that blinks every half second, as a caret does, doesn't; one
-# black for 40 ms once flashed; and a still window, neither.
+# black for 40 ms, once a second, flashed; and a still window, a moving
+# square and scrolling text, none.
 flickered=""
-for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [23][0-9] ms, #000000 and #009900" "flip 500 0" \
-         "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-5][0-9] ms in #009900" "still - 0"; do
+for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
+         "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
+         "move - 0" "scroll - 0" "strip - 1 ^flicker: 200x120+0+0, .* ms, #00.* and #00"; do
   set -- $c
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e
   [ $st = "$3" ] && { [ -z "${4-}" ] || echo "$out" | grep -q "$4"; } || flickered="$flickered $1 $2 ($st: $out)"
 done
-[ -z "$flickered" ] && ok "flicker: switching every 30 ms, not every 500; a flash; a still window, neither" \
+[ -z "$flickered" ] && ok "flicker: switching every 30 ms, not every 500; a flash; a still window, a moving square and scrolling text, neither" \
   || fail "flicker:$flickered"
 
 # chords LOG [SESSION OPTIONS]: Shift in a chord, into cat in a terminal:

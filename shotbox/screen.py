@@ -19,6 +19,7 @@ $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 
 import contextlib
 import fcntl
+import functools
 import json
 import os
 import re
@@ -315,61 +316,86 @@ class Screen:
         every, looks)], a box of tiles each, in order."""
         from . import flicker
         w = self.window(window) if window else None
+        geometry = r"(\d+)x(\d+)\+(\d+)\+(\d+)"
         area = None
         if crop:
-            m = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
-            if not m:
-                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, not {crop}")
+            m = re.fullmatch(geometry, crop)
+            if not (m and int(m[1]) and int(m[2])):
+                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
             area = tuple(int(n) for n in m.groups())
         skip = []
         for g in ignore:
-            m = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", g)
+            m = re.fullmatch(geometry, g)
             if not m:
                 self.fail(f"what to ignore is WIDTHxHEIGHT+X+Y, not {g}")
             skip.append(tuple(int(n) for n in m.groups()))
+        fd, png = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
+        os.close(fd)
+
+        def picture():
+            """In memory where the backend can; else through a PNG, as a
+            window partly off the screen is."""
+            got = self.backend.grab(self.env, w, area)
+            if got:
+                return got
+            try:
+                self.backend.capture(self.env, png, window=w,
+                                     crop=area and "{}x{}+{}+{}".format(*area))
+                got = x.rgb(png)
+            except subprocess.CalledProcessError:
+                self.fail("can't take pictures of " + (f"the window {window!r}" if window
+                                                       else "the display"))
+            if area and got[:2] != area[:2]:
+                self.fail(f"the crop {crop} isn't inside what's watched, {got[0]}x{got[1]}")
+            return got
+
         # Every picture that differs from the one before, compressed: the
         # program draws at its own rate, and what holds is said by time.
         shots, last, start = [], None, time.monotonic()
-        while time.monotonic() - start < seconds:
-            t0 = time.monotonic()
-            got = self.backend.grab(self.env, w, area)
-            if not got:
-                self.fail("can't take pictures of " + (f"the window {window!r}" if window
-                                                       else "the display")
-                          + (f", cropped to {crop}" if crop else ""))
-            if got[2] != last:
-                shots.append(((t0 + time.monotonic()) / 2 - start, zlib.compress(got[2], 1)))
-                last = got[2]
+        try:
+            while time.monotonic() - start < seconds:
+                t0 = time.monotonic()
+                got = picture()
+                if got[2] != last:
+                    shots.append(((t0 + time.monotonic()) / 2 - start, zlib.compress(got[2], 1)))
+                    last = got[2]
+        finally:
+            Path(png).unlink(missing_ok=True)
         width, height = got[:2]
-        looks = [flicker.means(zlib.decompress(data), width, height, tile) for _, data in shots]
+        frames = functools.lru_cache(maxsize=4)(lambda k: zlib.decompress(shots[k][1]))
+        looks = [flicker.means(frames(k), width, height, tile) for k in range(len(shots))]
         times_ = [t for t, _ in shots]
         across = -(-width // tile)
         found = {"flicker": {}, "flash": {}}
         for n in range(len(looks[0])):
-            x, y = n % across * tile, n // across * tile
-            if any(gx < x + tile and x < gx + gw and gy < y + tile and y < gy + gh
+            tx, ty = n % across * tile, n // across * tile
+            if any(gx < tx + tile and tx < gx + gw and gy < ty + tile and ty < gy + gh
                    for gw, gh, gx, gy in skip):
                 continue
+            x1, y1 = min(tx + tile, width), min(ty + tile, height)
+
+            def pixels(state, tx=tx, ty=ty, x1=x1, y1=y1):
+                f = frames(state[3])
+                return b"".join(f[(y * width + tx) * 3:(y * width + x1) * 3] for y in range(ty, y1))
             held = flicker.states(times_, [frame[n] for frame in looks], seconds, fuzz * 2.55)
-            flickers, flashes = flicker.find(held, brief, times, fuzz * 2.55)
-            if flickers:
-                found["flicker"][n] = flickers[0]
-            elif flashes:
-                found["flash"][n] = flashes[0]
+            flickering, flashed = flicker.find(held, brief, times, fuzz, pixels)
+            if flickering:
+                found["flicker"][n] = flickering
+            elif flashed:
+                found["flash"][n] = flashed
         out = []
         for kind, tiles in found.items():
             for bx, by, bw, bh, group in flicker.boxes(tiles, across, tile):
                 bw, bh = min(bw, width - bx), min(bh, height - by)    # tiles at the edge
-                first = min((tiles[n] for n in group), key=lambda f: f[0])
+                box = f"{bw}x{bh}+{bx}+{by}"
                 if kind == "flicker":
-                    at, changes, every, a, b = first
-                    out.append(dict(kind=kind, box=f"{bw}x{bh}+{bx}+{by}", at=at,
-                                    changes=max(tiles[n][1] for n in group), every=every,
+                    # The box said as its tile that changed most does.
+                    at, changes, every, a, b = max((tiles[n] for n in group), key=lambda f: f[1])
+                    out.append(dict(kind=kind, box=box, at=at, changes=changes, every=every,
                                     looks=(flicker.hex_of(a), flicker.hex_of(b))))
                 else:
-                    at, held_for, look, then = first
-                    out.append(dict(kind=kind, box=f"{bw}x{bh}+{bx}+{by}", at=at,
-                                    changes=2, every=held_for,
+                    at, held_for, look, then = min((tiles[n] for n in group), key=lambda f: f[0])
+                    out.append(dict(kind=kind, box=box, at=at, changes=2, every=held_for,
                                     looks=(flicker.hex_of(then), flicker.hex_of(look))))
         return sorted(out, key=lambda f: f["at"])
 

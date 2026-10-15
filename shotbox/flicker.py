@@ -12,7 +12,15 @@ held no longer than `brief`, `times` changes or more, flickers; one that
 goes A, B, A once, B as brief, flashed. A caret that blinks holds each
 look half a second, and an animation doesn't come back to a look so
 quickly, so neither is either.
+
+Mean colors find what might be; the tile's pixels decide. Flicker's looks
+come back as the same pictures, near enough, A as A and B as B, which a
+line of text scrolling past, or anything moving through, doesn't; a flash
+is to a color, all of the tile, as a frame drawn black, and back to the
+same picture as before.
 """
+
+from .x import differ
 
 
 def means(pixels, width, height, tile):
@@ -34,13 +42,14 @@ def means(pixels, width, height, tile):
 
 
 def states(times, looks, end, fuzz):
-    """[(look, start, seconds held)]: `looks` at `times`, a look held while
-    the next is within `fuzz` (of 255) of it in every channel."""
+    """[[look, start, seconds held, picture]]: `looks` at `times`, a look
+    held while the next is within `fuzz` (of 255) of it in every channel,
+    and the picture, by its place in `looks`, it first showed in."""
     out = []
-    for t, look in zip(times, looks):
+    for k, (t, look) in enumerate(zip(times, looks)):
         if out and all(abs(a - b) <= fuzz for a, b in zip(out[-1][0], look)):
             continue
-        out.append([look, t, None])
+        out.append([look, t, None, k])
     for here, there in zip(out, out[1:]):
         here[2] = there[1] - here[1]
     if out:
@@ -48,14 +57,32 @@ def states(times, looks, end, fuzz):
     return out
 
 
-def find(held, brief, times, fuzz):
-    """In one tile's states, flicker, as (start, changes, mean seconds a
-    state, look A, look B), and flashes, as (start, seconds, look, then
-    look): see the module's docstring."""
-    def same(a, b):
-        return all(abs(x - y) <= fuzz for x, y in zip(a, b))
+def alike(a, b, fuzz):
+    """Whether two tiles' RGB pixels are the same picture, near enough: no
+    more than a tenth of them differing by more than `fuzz` percent."""
+    return differ(a, b, fuzz, len(a) // 30) <= len(a) // 30
 
-    flickers, flashes, i = [], [], 1
+
+def plain(pixels, fuzz):
+    """Whether a tile's pixels are all near one color: a flash to black, or
+    white, not something passing through it."""
+    return all(max(pixels[c::3]) - min(pixels[c::3]) <= 2 * fuzz * 2.55 for c in range(3))
+
+
+def find(held, brief, times, fuzz, pixels):
+    """In one tile's states, its longest flicker, as (start, changes, mean
+    seconds a brief state, look A, look B), or else a flash, as (start,
+    seconds, look, then look), or None: see the module's docstring.
+    `pixels(state)` is the tile's pixels in a state's first picture, for
+    what mean colors can't tell: that the looks come back as the same
+    pictures, which a line of text scrolling past, or anything else moving,
+    doesn't."""
+    near = fuzz * 2.55
+
+    def same(a, b):
+        return all(abs(x - y) <= near for x, y in zip(a, b))
+
+    best, flash, i = None, None, 1
     while i + 1 < len(held):
         j = i
         # A run: each state held briefly, and the same look as two before.
@@ -63,17 +90,20 @@ def find(held, brief, times, fuzz):
                and not same(held[j][0], held[j + 1][0])):
             j += 1
         changes = j - i + 1
-        if changes >= times:
-            run = held[i:j + 1]
-            flickers.append((held[i][1], changes, sum(s[2] for s in run) / len(run),
-                             held[i - 1][0], held[i][0]))
-            i = j + 1
-        elif changes >= 2:
-            flashes.append((held[i][1], held[i][2], held[i][0], held[i - 1][0]))
-            i = j + 1
-        else:
+        if changes < 2:
             i += 1
-    return flickers, flashes
+            continue
+        # Each look the same picture as two states before.
+        recurs = all(alike(pixels(held[k]), pixels(held[k + 2]), fuzz) for k in range(i - 1, j - 1))
+        if recurs and changes >= times:
+            brief_ones = [st[2] for st in held[i:j + 1] if st[2] <= brief]
+            run = (held[i][1], changes, sum(brief_ones) / len(brief_ones), held[i - 1][0],
+                   held[i][0])
+            best = run if best is None or changes > best[1] else best
+        elif recurs and not flash and plain(pixels(held[i]), fuzz):
+            flash = (held[i][1], held[i][2], held[i][0], held[i - 1][0])
+        i = j + 1
+    return best, (None if best else flash)
 
 
 def boxes(tiles, across, tile):

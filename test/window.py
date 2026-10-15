@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
-[corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS. With LOG, it holds an entry instead, and
+[corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
+TITLE move, or TITLE scroll, or TITLE strip. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -68,7 +69,7 @@ elif sys.argv[2:3] == ["flip"]:
     GLib.timeout_add(int(sys.argv[3]), flip)
     w.add(square)
 elif sys.argv[2:3] == ["flash"]:
-    # A green square that goes black for MS milliseconds, once, a second in.
+    # A green square that goes black for MS milliseconds, every second.
     square, black = Gtk.DrawingArea(), [False]
     square.connect("draw", lambda a, cr: (cr.set_source_rgb(0, 0 if black[0] else 0.6, 0),
                                           cr.paint()))
@@ -76,9 +77,54 @@ elif sys.argv[2:3] == ["flash"]:
     def turn(to):
         black[0] = to
         square.queue_draw()
-    GLib.timeout_add(1000, lambda: turn(True))
-    GLib.timeout_add(1000 + int(sys.argv[3]), lambda: turn(False))
+        return False
+
+    def flash():
+        turn(True)
+        GLib.timeout_add(int(sys.argv[3]), turn, False)
+        return True
+    GLib.timeout_add(1000, flash)
     w.add(square)
+elif sys.argv[2:3] == ["strip"]:
+    # As bzflag's strip: black every other 30 ms, and between, a green
+    # scene with a square crossing it, a little further on each time.
+    area, began, black = Gtk.DrawingArea(), GLib.get_monotonic_time(), [False]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0, 0, 0) if black[0] else cr.set_source_rgb(0, 0.6, 0)
+        cr.paint()
+        if not black[0]:
+            cr.set_source_rgb(1, 1, 1)
+            cr.rectangle((GLib.get_monotonic_time() - began) / 1e6 * 100 % 216 - 16, 50, 16, 16)
+            cr.fill()
+    area.connect("draw", draw)
+
+    def swap():
+        black[0] = not black[0]
+        area.queue_draw()
+        return True
+    GLib.timeout_add(30, swap)
+    w.add(area)
+elif sys.argv[2:3] in (["move"], ["scroll"]):
+    # Motion, which is neither: a black square crossing white at 300
+    # pixels a second, or lines of text scrolling up at 200.
+    area, began = Gtk.DrawingArea(), GLib.get_monotonic_time()
+
+    def draw(a, cr):
+        t = (GLib.get_monotonic_time() - began) / 1e6
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0)
+        if sys.argv[2] == "move":
+            cr.rectangle(t * 300 % 216 - 16, 50, 16, 16)
+            cr.fill()
+        else:
+            for line in range(12):
+                cr.move_to(4, 14 + line * 14 - t * 200 % 14)
+                cr.show_text(f"line {line + int(t * 200 / 14)}: the quick brown fox")
+    area.connect("draw", draw)
+    GLib.timeout_add(16, lambda: area.queue_draw() or True)
+    w.add(area)
 elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)
     button.connect("clicked", lambda b: open(sys.argv[2], "w").write("clicked"))
