@@ -140,18 +140,17 @@ w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
     || fail "--audio: left running: $left"
   "$sb" run -- sh -c '! pactl info >/dev/null 2>&1' && ok "no --audio, no sound server" \
     || fail "a sound server without --audio"
-  # record OUT.wav: what plays, for as long as asked; none without --audio.
-  python3 -c "import math, struct, wave; w = wave.open('$tmp/tone.wav', 'wb')
-w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
-w.writeframes(b''.join(struct.pack('<h', int(16000 * math.sin(i / 48000 * 2 * math.pi * 440)))
-                       for i in range(24000))); w.close()"
+  # record OUT.wav: what plays in the sink's format, bit for bit, for
+  # --seconds to the sample; none without --audio.
+  python3 -c "import random, wave; w = wave.open('$tmp/noise.wav', 'wb')
+w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
+w.writeframes(random.Random(1).randbytes(4 * 24000)); w.close()"
   "$sb" run --audio -- sh -c "'$sb' record '$tmp/heard.wav' --seconds 2 >/dev/null &
-    sleep 0.5; timeout 10 paplay '$tmp/tone.wav'; wait" \
-    && got=$(python3 -c "import array, wave; w = wave.open('$tmp/heard.wav')
-a = array.array('h', w.readframes(w.getnframes()))
-print(round(w.getnframes() / w.getframerate(), 1), max(map(abs, a)))") \
-    && [ "${got% *}" = 2.0 ] && [ "${got#* }" -gt 8000 ] \
-    && ok "record OUT.wav: the session's sound, for --seconds" || fail "record wav: ${got-}"
+    sleep 0.5; timeout 10 paplay '$tmp/noise.wav'; wait" \
+    && got=$(python3 -c "import wave; w, n = wave.open('$tmp/heard.wav'), wave.open('$tmp/noise.wav')
+print(w.getnframes(), n.readframes(24000) in w.readframes(w.getnframes()))") \
+    && [ "$got" = "96000 True" ] \
+    && ok "record OUT.wav: the session's sound, bit for bit, for --seconds" || fail "record wav: ${got-}"
   set +e; "$sb" run -- "$sb" record "$tmp/none.wav" --seconds 1 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q "start the session with --audio" "$tmp/err" \
     && ok "record OUT.wav without --audio: refused, saying so" || fail "wav without audio: $st"

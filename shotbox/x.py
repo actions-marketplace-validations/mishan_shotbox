@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wave
 from pathlib import Path
 
 TREE_LINE = re.compile(r'^\s*(0x[0-9a-f]+) "(.*)": \((?:"(.*?)" "(.*?)")?\)'
@@ -132,7 +133,9 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
     kind = out.suffix.lower()
     if kind not in (*VIDEO, ".gif", ".wav"):
         raise ValueError(f"a recording is .mp4, .webm, .gif or .wav, not {out.name}")
-    if kind == ".wav" and not env.get("PULSE_SERVER"):
+    # The session's own sound server, not one let in with --env or --pass.
+    if kind == ".wav" and not env.get("PULSE_SERVER", "").startswith(
+            f"unix:{env.get('SHOTBOX_SCRATCH')}/"):
         raise ValueError("there's no sound to record: start the session with --audio")
     if not shutil.which("ffmpeg"):
         raise RuntimeError("recording needs ffmpeg")
@@ -140,15 +143,22 @@ def record(env, out, box, seconds=None, fps=None, pointer=False):
         raise ValueError(f"a recording lasts more than 0 seconds, not {seconds:g}")
     cmd = ["ffmpeg", "-loglevel", "error", "-nostdin", "-y"]
     if kind == ".wav":
-        cmd += ["-f", "pulse", "-i", "shotbox-sink.monitor"]
+        # The sink's own format, so what plays at it comes through as is.
+        cmd += ["-f", "pulse", "-sample_rate", "48000", "-channels", "2",
+                "-i", "shotbox-sink.monitor"]
     else:
         w, h, x, y = box
         w, h = w - w % 2, h - h % 2     # the encoders' color sampling halves each side
         fps = fps or (15 if kind == ".gif" else 30)
         cmd += ["-f", "x11grab", "-draw_mouse", str(int(pointer)), "-framerate", str(fps),
                 "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
-    cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
-    cmd += ["-c:a", "pcm_s16le"] if kind == ".wav" else VIDEO[".webm" if kind == ".webm" else ".mp4"]
+    if kind == ".wav":
+        # By the sample: -t goes by the input's clock, tens of ms out.
+        cmd += ["-af", f"atrim=end_sample={round(seconds * 48000)}"] if seconds is not None else []
+        cmd += ["-c:a", "pcm_s16le"]
+    else:
+        cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
+        cmd += VIDEO[".webm" if kind == ".webm" else ".mp4"]
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
     path = os.pathsep.join(filter(None, (here, env.get("PYTHONPATH"))))
     # -c puts the current directory first on the path, ahead of PYTHONPATH:
@@ -210,10 +220,14 @@ def keep_recording(cmd, out):
         if proc.returncode not in (0, 255) or not video.exists():
             sys.stderr.write(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}\n")
             return 1
-        # Stopped before the first frame, ffmpeg writes a file with no video.
-        frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a" if sound else "v",
-                                 "-show_entries", "stream=index", "-of", "csv=p=0", str(video)],
-                                capture_output=True, text=True).stdout.strip()
+        # Stopped before the first frame, ffmpeg writes a file with none.
+        if sound:
+            with wave.open(str(out)) as w:
+                frames = w.getnframes()
+        else:
+            frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v",
+                                     "-show_entries", "stream=index", "-of", "csv=p=0",
+                                     str(video)], capture_output=True, text=True).stdout.strip()
         if not frames:
             video.unlink()
             sys.stderr.write("nothing was recorded: it stopped before the first frame\n")
