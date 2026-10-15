@@ -4,6 +4,12 @@
 
 ### Changes to check when upgrading
 
+- **GTK 4 draws text with manual font rendering** (GTK 4.16 and later),
+  so text is drawn at its color rather than fainter, by however much
+  automatic rendering draws it on that GTK release. Every GTK 4 picture
+  with text changes, and `a11y contrast` measures thin text higher. A
+  seeded home whose GTK 4 `settings.ini` sets `gtk-font-rendering` keeps
+  its own.
 - Under bubblewrap, a program can't gain privileges, its supplementary
   groups show as `nogroup`, and one killed by a signal exits with 128
   plus the signal's number. `--no-sandbox` runs it as before.

@@ -443,6 +443,22 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'drawn lighter than its color, #5f5670, which is 6\.5[0-9]:1' \
     && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text's color said" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
+  # GTK 4.16 and later: thin text, spaced by a fraction of a pixel, drawn
+  # at its color, which GTK's automatic font rendering doesn't; and a
+  # seeded home that asks for that has it.
+  minor=$(python3 -c "import ctypes; print(ctypes.CDLL('libgtk-4.so.1').gtk_get_minor_version())")
+  if [ "$minor" -ge 16 ]; then
+    mkdir -p "$tmp/auto/.config/gtk-4.0"
+    printf '[Settings]\ngtk-font-rendering = automatic\n' > "$tmp/auto/.config/gtk-4.0/settings.ini"
+    "$sb" run --a11y -- sh -c "'$app' thin & '$sb' a11y contrast --text 99 --window a11y-test" \
+      > "$tmp/contrast" || true
+    "$sb" run --a11y --seed "$tmp/auto" -- sh -c "'$app' thin &
+      '$sb' a11y contrast --text 99 --window a11y-test" > "$tmp/contrast-auto" || true
+    grep -q '/label\[7\]: text 6\.59:1, #5f5670 ' "$tmp/contrast" \
+      && ! grep -q '/label\[7\]: text 6\.59:1, #5f5670 ' "$tmp/contrast-auto" \
+      && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
+      || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
+  fi
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && sed -n 1p "$tmp/walk" | grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]' \
     && grep -q '"Save" \[focusable, focused\]$' "$tmp/walk" \

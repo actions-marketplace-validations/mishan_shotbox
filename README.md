@@ -88,7 +88,10 @@ all want the same things, and every project was growing its own copy:
   No `sleep 6` and hope.
 - **Deterministic.** X11 on Xvfb, GTK's software renderer, `LANG=C.UTF-8`,
   `TZ=UTC`, a cursor that doesn't blink (GTK's text caret included, and GTK's
-  animations off), and PNGs with no timestamps in them.
+  animations off), GTK 4's text drawn at its color, as its manual font
+  rendering does, not fainter by however much a GTK release's automatic
+  one draws it ([more](docs/accessibility.md#contrast)), and PNGs with no
+  timestamps in them.
 - **Cleaned up.** Every program runs in its own process group, and the group
   is killed on the way out: signalling a wrapper script alone leaves its
   children running.
