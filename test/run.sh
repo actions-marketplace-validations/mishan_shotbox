@@ -210,7 +210,8 @@ printf '[D-BUS Service]\nName=org.shotbox.Probe\nExec=/bin/sh -c '"'"'echo "$HOM
   && ok "--desktop: what the bus activates is inside the session" \
   || fail "--desktop: activated with: $(cat "$tmp/activated" 2>/dev/null)"
 # Audio: PipeWire with a null sink, or skip, unless SHOTBOX_AUDIO=required.
-if command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; then
+audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
+if audio; then
   python3 -c "import wave; w = wave.open('$tmp/beep.wav', 'wb'); w.setnchannels(1)
 w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
   mkdir -p "$tmp/audio"
@@ -969,6 +970,34 @@ if command -v ffmpeg >/dev/null; then
     -show_entries format=duration -of csv=p=0 "$1" | tr '\n' ' '; }
   frames() { ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames \
     -of csv=p=0 "$1"; }
+  # FILE's streams' codecs and seconds, as decoded, on a line; then how
+  # far each tone starts from its flash's first frame (window.py's beep).
+  cat > "$tmp/av.py" <<'PY'
+import array, subprocess, sys
+f = sys.argv[1]
+
+
+def run(*cmd):
+    return subprocess.run(cmd, capture_output=True, check=True).stdout.decode("latin-1")
+
+
+frames = [(float(t), float(y) > 128) for t, y in (line.split(",")[:2] for line in run(
+    "ffprobe", "-v", "error", "-f", "lavfi", "-show_entries",
+    "frame=pts_time:frame_tags=lavfi.signalstats.YAVG", "-of", "csv=p=0",
+    f"movie={f},signalstats").split())]
+sound = array.array("h", run("ffmpeg", "-v", "error", "-i", f, "-map", "0:a", "-ac", "1",
+                             "-f", "s16le", "-").encode("latin-1"))
+codecs = run("ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", f).split()
+print(codecs[0], f"{frames[-1][0] + 1 / 30:.3f}", codecs[1], f"{len(sound) / 48000:.3f}")
+onsets, last = [], -48000
+for i, s in enumerate(sound):
+    if abs(s) > 2000:
+        if i - last > 4800:
+            onsets.append(i / 48000)
+        last = i
+flashes = [t for (t, white), (_, was) in zip(frames[1:], frames) if white and not was]
+print(" ".join(f"{a - v:.3f}" for v in flashes for a in onsets if abs(a - v) < 0.5))
+PY
   # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
   records() {
     opt=$1 pre=$2 say=$3
@@ -976,7 +1005,9 @@ if command -v ffmpeg >/dev/null; then
       '$sb' record '$tmp/$pre.mp4' --window rec --seconds 2 && '$sb' record '$tmp/$pre.webm' --fps 10 --seconds 1 &&
       '$sb' record '$tmp/$pre.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
       { '$sb' record '$tmp/$pre-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
-      ! '$sb' record '$tmp/$pre.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/${pre}0.mp4' --seconds 0 2>> '$tmp/err'" > /dev/null \
+      ! '$sb' record '$tmp/$pre.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/${pre}0.mp4' --seconds 0 2>> '$tmp/err' &&
+      ! '$sb' record '$tmp/${pre}s.mp4' --sound --seconds 1 2>> '$tmp/err' &&
+      ! '$sb' record '$tmp/${pre}s.gif' --sound --seconds 1 2>> '$tmp/err'" > /dev/null \
       && [ "$(probe "$tmp/$pre.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/$pre.mp4")" -ge 50 ] \
       && ffmpeg -loglevel error -y -ss 1 -i "$tmp/$pre.mp4" -frames:v 1 "$tmp/$pre-frame.png" \
       && "$sb" compare "$tmp/$pre-win.png" "$tmp/$pre-frame.png" --fuzz 20% > /dev/null \
@@ -984,6 +1015,7 @@ if command -v ffmpeg >/dev/null; then
       && [ "$(probe "$tmp/$pre.gif")" = "gif,100,50 1.000000 " ] \
       && probe "$tmp/$pre-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/$pre-k.mp4")" -ge 15 ] \
       && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/${pre}0.mp4" ] \
+      && grep -q "start the session with --audio" "$tmp/err" && grep -q "with sound is an .mp4 or .webm" "$tmp/err" \
       && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
       || fail "$say: $(probe "$tmp/$pre.mp4"); $(probe "$tmp/$pre.webm"); $(probe "$tmp/$pre.gif"); $(probe "$tmp/$pre-k.mp4")"
     # A GIF whose session is stopped (run killed) is finished all the same,
@@ -1038,6 +1070,24 @@ if command -v ffmpeg >/dev/null; then
     if kill -0 $r 2>/dev/null; then kill -9 $r; fail "$say: outlived its session's stop"
     else probe "$tmp/$pre-stop.mp4" | grep -q "^h264,1280,800 " && ok "$say: ends, finished, when its lasting session stops" \
       || fail "$say, session stopped: $(probe "$tmp/$pre-stop.mp4")"; fi
+    # --sound: what plays too, AAC in an MP4, Opus in a WebM, both streams
+    # --seconds long, each tone starting within 0.1 s of its flash, and
+    # what `listen` would say of it said; stopped by kill, the sound as
+    # long as the picture, near enough.
+    if audio; then
+      "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
+        '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound > '$tmp/$pre-heard' &&
+        '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound > /dev/null &&
+        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; }" > /dev/null \
+        && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
+        && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" \
+        && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | grep -qx "h264 3.000 aac 3.000 vp9 2.000 opus 2.000 " \
+        && sed -n 5p "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && ($2 - $4) ^ 2 < 0.01' | grep -q . \
+        && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
+        && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -q "gaps of silence" "$tmp/$pre-heard" \
+        && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
+        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard"; }
+    fi
   }
   records "" rec record
   # Run from where another shotbox is, the keeper is still this one.

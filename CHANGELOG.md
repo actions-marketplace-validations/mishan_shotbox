@@ -132,6 +132,14 @@
   frames over wlroots' screencopy and ffmpeg encodes them, as on X11.
   sway draws no pointer, so `--pointer` is refused there. The Action's
   `record` installs wf-recorder when `wayland` is on too.
+- **`shotbox record OUT.mp4 --sound`**, and .webm: in a session with
+  `--audio`, what plays too, in the same file, AAC in an MP4, Opus in a
+  WebM, by one ffmpeg, the sound in step with the picture from its first
+  frame, within a frame or so. Both are `--seconds` long, and it stops
+  the ways `record` does, the file finished. Then it says what `listen`
+  would of the sound: its level, clipping and dropouts. Also
+  `Screen.record(..., sound=True)`, which returns the file and what
+  `shotbox.sound.hear` heard.
 
 ### Fixed
 

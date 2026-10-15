@@ -4,7 +4,7 @@
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
-edge, gray, busy, icon or dropout. With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout or beep. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -193,6 +193,38 @@ elif sys.argv[2:3] == ["panel"]:
         GLib.timeout_add(40, turn, False)
         return True
     GLib.timeout_add(30, tick)
+    GLib.timeout_add(1000, flash)
+    w.add(area)
+elif sys.argv[2:3] == ["beep"]:
+    # Black, white for 100 ms every second, and a tone that long played
+    # as the white is drawn: a picture and a sound at the same instant.
+    import math
+    import struct
+    import subprocess
+    area, white, played = Gtk.DrawingArea(), [False], [False]
+    pacat = subprocess.Popen(["pacat", "--format=s16le", "--rate=48000", "--channels=2",
+                              "--latency-msec=10"], stdin=subprocess.PIPE)
+    tone = b"".join(struct.pack("<hh", s, s) for s in (
+        int(8000 * math.sin(2 * math.pi * 1000 * i / 48000)) for i in range(4800)))
+
+    def draw(a, cr):
+        cr.set_source_rgb(*[1 if white[0] else 0] * 3)
+        cr.paint()
+        if white[0] and not played[0]:
+            played[0] = True
+            pacat.stdin.write(tone)
+            pacat.stdin.flush()
+
+    def turn(to):
+        white[0], played[0] = to, False
+        area.queue_draw()
+        return False
+
+    def flash():
+        turn(True)
+        GLib.timeout_add(100, turn, False)
+        return True
+    area.connect("draw", draw)
     GLib.timeout_add(1000, flash)
     w.add(area)
 elif sys.argv[2:3] == ["text"]:

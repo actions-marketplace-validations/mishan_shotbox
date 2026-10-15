@@ -91,7 +91,14 @@ sway draws no pointer, so there `--pointer` is refused. `shotbox record
 OUT.wav` records what plays in a session with `--audio` instead: the
 sink's mix, 48 kHz 16-bit stereo, so what plays in that format comes
 through bit for bit, and `--seconds` is to the sample.
-On X11 or Wayland, and it stops the same ways. A wait that gives up takes a
+On X11 or Wayland, and it stops the same ways. `shotbox record OUT.mp4
+--sound` (or .webm), in a session with `--audio`, records the picture and
+what plays together, in one file, AAC in an MP4, Opus in a WebM: the
+sound in step with the picture from its first frame, within a frame or
+so, and both `--seconds` long. Then it says what `shotbox listen` would
+of the sound, its level and where it clipped or dropped out, without
+failing for it; a silent stretch between sounds is a gap there too.
+Without `--audio`, or as a GIF, it's refused. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
 

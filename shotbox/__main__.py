@@ -527,14 +527,20 @@ def cmd_record(argv):
                    help="draw the pointer too (X11 only: sway draws none)")
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
+    p.add_argument("--sound", action="store_true",
+                   help="with --audio, what plays too, in the same file (AAC in an MP4, "
+                        "Opus in a WebM), and say what `shotbox listen` would of it")
     a = p.parse_args(argv)
     if a.seconds == 0:
         p.error("--seconds is more than 0")
     start = time.monotonic()
     out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
-                          pointer=a.pointer, park=a.park)
+                          pointer=a.pointer, park=a.park, sound=a.sound)
+    out, heard = out if a.sound else (out, None)
     try:
         print(f"{out}  {time.monotonic() - start:.1f}s", flush=True)
+        if heard:
+            print("\n".join(sound.describe(heard) + sound.problems(heard)), flush=True)
     except OSError:     # stopped by its terminal closing, with nowhere to say so
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
     return 0
