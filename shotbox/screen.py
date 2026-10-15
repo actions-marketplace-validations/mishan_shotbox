@@ -468,6 +468,43 @@ class Screen:
             return (sum(a * b for a, b in zip(way, d))
                     > 0.8 * sum(c * c for c in way) ** 0.5 * sum(c * c for c in d) ** 0.5)
 
+        def between(p, a, b):
+            """Whether color p is within twice fuzz of the way from a to b."""
+            ab = [y - x for x, y in zip(a, b)]
+            t = max(0, min(1, sum((q - x) * d for q, x, d in zip(p, a, ab))
+                           / (sum(d * d for d in ab) or 1)))
+            return sum((q - x - t * d) ** 2 for q, x, d in zip(p, a, ab)) ** 0.5 <= 2 * fuzz * 2.55
+
+        def turned(m, i):
+            """Tile m's colors where it changed in its state i, before and
+            after, or None."""
+            old, new = tiles_in.get((m, helds[m][i - 1][3])), tiles_in.get((m, helds[m][i][3]))
+            return old and new and flicker.colors(old, new, flicker.changed(old, new, fuzz / 4))
+
+        def brings(m, i, flashed):
+            """Whether tile m's state i took the colors of a flash's, each
+            (look, then) in `flashed`, or a part of them, or they its."""
+            if not turned(m, i):
+                return True
+            was, took = turned(m, i)
+            return any(between(look, then, took) or between(took, was, look)
+                       for look, then in flashed)
+
+        def swapped(n, m, k):
+            """Whether tile m took, in picture k, what flashing tile n gave
+            up there: a thin thing stepping from one into the other, as an
+            aliased line's step does, not a flash."""
+            i = next((i for i, st in enumerate(helds[m]) if i and st[3] == k), None)
+            return bool(i and turned(m, i)) and between(turned(m, i)[1], now[n][3], now[n][3])
+
+        def still(n, i, t):
+            """Whether tile n, before its state i, held a look longer than
+            `brief`, or since watching began, ending within `brief` of `t`:
+            one busy all along, a scene animating, a terminal scrolling,
+            didn't."""
+            return any(st[2] > brief or j == 0 for j, st in enumerate(helds[n][:i])
+                       if j >= i - 3 and st[1] + st[2] >= t - brief)
+
         done = set()
         for k in sorted({f[4] for fs in flashes.values() for f in fs}):
             # Tiles that flashed in the same picture make a box. Something
@@ -490,7 +527,8 @@ class Screen:
             now.update({n: f for n, fs in flashes.items() for f in fs if k < f[4] < gone})
             done |= {(n, f[4]) for n, f in now.items()}
             with_it = {m for m, held in helds.items()
-                       for st, after in zip(held, held[1:]) if st[3] == k and after[3] <= gone}
+                       for i, (st, after) in enumerate(zip(held, held[1:]))
+                       if st[3] == k and after[3] <= gone and still(m, i, times_[k])}
             for bx, by, bw, bh, group in flicker.boxes(now.keys() | with_it, across, tile):
                 if not now.keys() & set(group):
                     continue
@@ -500,9 +538,19 @@ class Screen:
                 went = [sum(c) for c in zip(*(toward(now[n][4], n) for n in group if n in now))]
                 if 2 * sum(not along(went, toward(k, n)) for n in group if n not in now) > len(group):
                     continue
+                # Nor is it where a thin thing stepped out of, into a tile of
+                # the box, for that picture.
+                if any(swapped(n, m, now[n][4])
+                       for n in group if n in now for m in group if m != n):
+                    continue
+                # And it passes through what held still, with its colors: a
+                # tile beside busy all along, a scene animating, or going
+                # darker as text scrolls in by a black flash, says nothing.
+                shown = [now[n][2:4] for n in group if n in now]
                 if any(along(went, toward(st[3], m)) for m in beside(group) if m in helds
-                       for st in helds[m][1:] if st[3] != k and st[2] <= brief
-                       and (abs(st[3] - k) == 1 or abs(st[1] - times_[k]) <= brief)):
+                       for i, st in enumerate(helds[m]) if i and st[3] != k and st[2] <= brief
+                       and (abs(st[3] - k) == 1 or abs(st[1] - times_[k]) <= brief)
+                       and still(m, i, st[1]) and brings(m, i, shown)):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
                 at, held_for, look, then, *_ = min((now[n] for n in group if n in now),

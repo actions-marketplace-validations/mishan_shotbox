@@ -3,9 +3,10 @@
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, pages, poles, line, gradient, passer, skip, edge or gray. With LOG, it
-holds an entry instead, and writes what's typed in it there; with corner too, a button in its top
-left corner, and writes "clicked" there when it's clicked. With contrast,
+or TITLE text, pages, poles, line, gradient, passer, skip, edge, gray, busy,
+icon or dropout. With LOG, it holds an entry instead, and writes what's
+typed in it there; with corner too, a button in its top left corner, and
+writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
 may measure short; and a label drawn see-through, which it shouldn't. With slow, a square that
@@ -292,6 +293,57 @@ elif sys.argv[2:3] == ["passer"]:
             cr.set_source_rgb(1, 1, 1)
             cr.rectangle(166, t % 1 * 400 - 12, 26, 12)
             cr.fill()
+        cr.set_source_rgb(*((0, 0, 0) if n[0] % 2 else (0.53, 0.79, 0)))
+        cr.rectangle(178, 0, 6, 120)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] in (["icon"], ["dropout"]):
+    # icon: an X of strokes two wide flashing white for 40 ms once a
+    # second on gray. dropout: a line a pixel high, light on dark ground
+    # under a wall, missing for 30 ms once a second, as depth-fighting
+    # drops one in a turning view.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        if sys.argv[2] == "icon":
+            cr.set_source_rgb(0.3, 0.3, 0.3)
+            cr.paint()
+            if n[0] % 100 < 4:
+                cr.set_source_rgb(1, 1, 1)
+                for i in range(14):
+                    cr.rectangle(65 + i, 49 + i, 2, 1)
+                    cr.rectangle(78 - i, 49 + i, 2, 1)
+                cr.fill()
+            return
+        cr.set_source_rgb(0, 0.3, 0)
+        cr.paint()
+        cr.set_source_rgb(0.85, 0.45, 0.45)
+        cr.rectangle(0, 20, 200, 41)
+        cr.fill()
+        if n[0] % 100 > 2:
+            cr.set_source_rgb(0.67, 0.85, 0)
+            cr.rectangle(0, 62, 200, 1)
+            cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(10, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["busy"]:
+    # bzflag's strip, six columns black and green every other frame of
+    # 30 ms, in a tile with two of a scene moving on every frame, never
+    # black, ground lines at a wall's foot, and the page's background.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.9, 0.9, 0.9)
+        cr.paint()
+        for x in range(0, 178, 2):
+            for y in range(0, 120, 4):
+                v = ((x * 7 + y * 13 + n[0] * 29) % 97) / 97
+                cr.set_source_rgb(0.1 * v, 0.4 + 0.5 * v, 0.1)
+                cr.rectangle(x, y, 2, 4)
+                cr.fill()
         cr.set_source_rgb(*((0, 0, 0) if n[0] % 2 else (0.53, 0.79, 0)))
         cr.rectangle(178, 0, 6, 120)
         cr.fill()

@@ -742,8 +742,7 @@ def cmd_flicker(argv):
                         "color moving a quarter of this is a new look, and its pixels "
                         "within twice this, or half what's between two looks, the same "
                         "picture")
-    p.add_argument("--tile", type=int, default=16, metavar="PX",
-                   help="tile size (16): what's found can change with where the tiles fall")
+    p.add_argument("--tile", type=int, default=16, metavar="PX", help="tile size (16)")
     p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
                    help="leave out tiles in this box: a video, a caret (repeatable)")
     a = p.parse_args(argv)
@@ -751,9 +750,9 @@ def cmd_flicker(argv):
         p.error("--seconds, --brief and --tile are more than 0, --times 2 or more, --fuzz 0 "
                 "or more")
     try:
-        found, taken, changed = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
-                                                 brief=a.brief / 1000, times=a.times,
-                                                 fuzz=a.fuzz, ignore=a.ignore)
+        found, taken, changed = inside().flicker(
+            a.seconds, window=a.window, crop=a.crop, tile=a.tile, brief=a.brief / 1000,
+            times=a.times, fuzz=a.fuzz, ignore=a.ignore)
     except SessionError as e:
         sys.stderr.write(f"shotbox: {e}\n")
         return 2

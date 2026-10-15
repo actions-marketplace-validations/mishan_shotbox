@@ -455,13 +455,15 @@ st=$?; set -e
 # three columns at a tile's edge doing that beside still text, or one,
 # flickers, said in the band's own colors, and so does a strip whose black
 # is a dark gray with noise in it, one with something passing through most
-# of its tile, and one over plain gray beside a square changing, and two
-# grays 6% apart; and a still window, a moving square, slowly or through
+# of its tile, one beside a scene moving on all along, and one over plain
+# gray beside a square changing, and two grays 6% apart; an X flashing
+# white flashes; and a still window, a moving square, slowly or through
 # a tile in a picture or stepping past tiles to a sliver of it at the
 # edge, text scrolling past, close or spaced, a listing's lines, or pages
 # of them between blanks, a line's steps crawling, an edge between two
-# faces 8% apart sweeping past, and two poles alike crossing, none; and a panel with a word in it flashing white, beside a
-# caret and a spinner, flashes.
+# faces 8% apart sweeping past, two poles alike crossing, and a line
+# missing for a picture, none; and a panel with a word in it flashing
+# white, beside a caret and a spinner, flashes.
 flickered=""
 for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
          "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
@@ -471,7 +473,9 @@ for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #
          "band 1 1 ^flicker: 16x120+176+0, " "noisy - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
          "fast - 0" "panel - 1 ^flash: .*, #ffffff for [2-6][0-9] ms in " "text - 0" "pages - 0" \
          "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120+176+0, " "skip - 0" \
-         "edge - 1 ^flicker: 16x120+176+0, " "gray - 1 ^flicker: 200x120+0+0, " "poles - 0"; do
+         "edge - 1 ^flicker: 16x120+176+0, " "gray - 1 ^flicker: 200x120+0+0, " "poles - 0" \
+         "busy - 1 ^flicker: 16x120+176+0, " "icon - 1 ^flash: 16x16+64+48, #ffffff" \
+         "dropout - 0"; do
   set -- $c
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e

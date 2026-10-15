@@ -20,12 +20,13 @@ fewer than a line across the tile, which text, or a line's steps,
 moving through aren't. Its looks come back as the same pictures most
 times, nearer than A is to B, A as A and B as B, which anything moving
 through doesn't; or one of them does, and is one color where they
-differ, a band drawn black between frames of a scene that moves on,
-not one color as pages of text over their background are. A flash is
-to one color where it differs, a part of the tile filled with it, from
-a picture that held still and back to it; and the tiles round it don't
-change about then, as they do when something moves through. A look that's in the picture before or
-after, up or down the screen, is text scrolling, and neither.
+differ, a band drawn black between frames of a scene that moves on, not
+one color, or a shape of it, as pages of text over their background
+aren't. A flash is to one color where it differs, a shape of it, from a
+picture that held still and back to it, and not a thin line gone to
+the color beside it; and the tiles round it don't change about then, as
+they do when something moves through. A look that's in the picture
+before or after, up or down the screen, is text scrolling, and neither.
 """
 
 import functools
@@ -94,13 +95,25 @@ def alike(a, b, fuzz):
     return differ(a, b, 2 * fuzz, len(a) // 150) <= len(a) // 150
 
 
-def recur(shown, fuzz):
+def recur(shown, fuzz, where, line):
     """Whether each look, A and B, of a tile's pictures `shown` a state
-    after another, comes back as the same picture most times: something
-    passing through the rest of the tile spoils a few."""
-    return [2 * sum(same) > len(same) for same in
-            ([alike(shown[m], shown[m + 2], fuzz) for m in range(side, len(shown) - 2, 2)]
-             for side in (0, 1))]
+    after another, comes back as the same picture most times, as `alike`
+    says, but for pixels of `where`, where it keeps switching, that don't
+    come back most times: a scene moving on in a column or two beside a
+    strip. Those that do must be most of `where`, and a `line` or more.
+    Something passing through the rest of the tile spoils a few times."""
+    allow, out = len(shown[0]) // 150, []
+    for side in (0, 1):
+        offs = [changed(shown[m], shown[m + 2], 2 * fuzz) for m in range(side, len(shown) - 2, 2)]
+        # A pair the same but for less than half of `where` differs in no more.
+        if 2 * sum(len(off) <= allow + len(where) // 2 for off in offs) <= len(offs):
+            out.append(False)
+            continue
+        gone = Counter(k for off in offs for k in off & where)
+        kept = {k for k in where if 2 * gone[k] <= len(offs)}
+        same = sum(len(off - where) <= allow and len(off & kept) <= allow for off in offs)
+        out.append(2 * same > len(offs) and 2 * len(kept) > len(where) and len(kept) >= line)
+    return out
 
 
 def plain(pixels, where, fuzz):
@@ -112,11 +125,44 @@ def plain(pixels, where, fuzz):
                for c in range(3))
 
 
-def filled(where, wide):
-    """Whether pixels, by offset in a tile `wide` pixels across, fill at
-    least half the box round them."""
+def filled(where, wide, high):
+    """Whether pixels, by offset in a tile `wide` by `high`, are a shape,
+    not strokes scattered as text's are: filling at least half the box
+    round them, or one piece, a line, a ring, an X, more than half across
+    the tile both ways."""
+    at = {(k // 3 % wide, k // 3 // wide) for k in where}
+    xs, ys = [x for x, _ in at], [y for _, y in at]
+    w, h = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+    if 2 * len(at) >= w * h:
+        return True
+    if 2 * w <= wide or 2 * h <= high:
+        return False
+    todo, piece = [min(at)], set()
+    while todo:
+        x, y = todo.pop()
+        if (x, y) not in piece:
+            piece.add((x, y))
+            todo += [(x + i, y + j) for i in (-1, 0, 1) for j in (-1, 0, 1) if (x + i, y + j) in at]
+    return len(piece) == len(at)
+
+
+def dropped(pixels, where, wide, fuzz):
+    """Whether a tile's pixels at `where`, a line no more than two wide,
+    took the color of the pixels beside them on one side: something thin
+    missing for a picture, as a line at a wall's foot in a turning view
+    is, not a part of the screen drawn over."""
     xs, ys = [k // 3 % wide for k in where], [k // 3 // wide for k in where]
-    return 2 * len(where) >= (max(xs) - min(xs) + 1) * (max(ys) - min(ys) + 1)
+    if min(max(xs) - min(xs), max(ys) - min(ys)) > 1:
+        return False
+    here = colors(pixels, pixels, where)[0]
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0), (0, -2), (0, 2), (-2, 0), (2, 0)):
+        side = {(y + dy) * wide + x + dx for x, y in zip(xs, ys)
+                if 0 <= x + dx < wide and 0 <= (y + dy) * wide * 3 < len(pixels)}
+        side = {3 * k for k in side} - where
+        if side and max(abs(x - y) for x, y in
+                        zip(here, colors(pixels, pixels, side)[0])) <= 2 * fuzz * 2.55:
+            return True
+    return False
 
 
 def colors(a, b, where):
@@ -165,9 +211,15 @@ def find(held, brief, times, fuzz, pixels, wide):
             continue
         shown = [pixels(st[3]) for st in seq]
         a, b = shown[0], shown[1]
-        # Neither coming back even at the widest is something moving,
-        # every picture new: its pixels needn't be looked at further.
-        if not any(recur(shown, fuzz)):
+        high = len(a) // 3 // wide
+        # A look comes back nearer, in mean color, than the other look is:
+        # neither, most times, is something moving, every picture new,
+        # and its pixels needn't be looked at further.
+        def nearer(m):
+            return (sum((x - y) ** 2 for x, y in zip(seq[m][0], seq[m + 2][0]))
+                    < sum((x - y) ** 2 for x, y in zip(seq[m][0], seq[m + 1][0])))
+        if not any(2 * sum(map(nearer, pairs)) > len(pairs)
+                   for pairs in (range(0, changes - 1, 2), range(1, changes - 1, 2))):
             continue
         # Where it keeps switching: the pixels most changes change, each by
         # as much as a new look's mean moves, which must be most of what
@@ -180,7 +232,7 @@ def find(held, brief, times, fuzz, pixels, wide):
         for c, m in each.items():
             often.update(dict.fromkeys(c, m))
         where = {k for k, m in often.items() if 2 * m > changes}
-        if len(where) < min(wide, len(a) // 3 // wide) or 2 * sum(m for c, m in each.items()
+        if len(where) < min(wide, high) or 2 * sum(m for c, m in each.items()
                                         if 2 * len(where & c) >= len(c)) <= changes:
             continue
         looks = colors(a, b, where)
@@ -188,27 +240,30 @@ def find(held, brief, times, fuzz, pixels, wide):
         # a scene a little apart, an edge between them sweeping past,
         # would come back at any wider.
         near = min(fuzz, max(abs(x - y) for x, y in zip(*looks)) / 2.55 / 4)
-        back = recur(shown, near)
+        back = recur(shown, near, where, min(wide, high))
         # One color where the first two looks differ there, as a page of
         # text, missing a stroke the others have, isn't at all of it.
         first = where & changed(a, b, fuzz / 4) or where
         plains = [plain(a, first, fuzz), plain(b, first, fuzz)]
         # Both looks coming back as the same pictures; or one, a color all over,
         # as a frame drawn black between frames of a scene that moves on,
-        # which isn't one color: pages of text over their background are.
-        if changes >= times and (all(back) or any(r and p and not q for r, p, q
-                                                  in zip(back, plains, plains[::-1]))):
+        # which isn't one color, or is a shape of it, as a wall is and
+        # pages of text over their background aren't.
+        if changes >= times and (all(back) or any(
+                r and p and (not q or filled(first, wide, high))
+                for r, p, q in zip(back, plains, plains[::-1]))):
             brief_ones = [s[2] for s in seq[1:] if s[2] <= brief]
             run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *looks,
                    [st[3] for st in seq[1:]])
             best = run if best is None or changes > best[1] else best
-        # A flash: from a picture that held still, to a color, and back:
+        # A flash: from a look that held still, longer than `brief`, not
+        # one just met as watching began, to a color, and back:
         # what's moving holds no picture still, though it come back. And
-        # it's a part of the tile gone to that color, filling most of the
-        # box round it, as a band a pixel wide does and the scattered
-        # strokes of text drawn once don't.
-        elif (changes == 2 and back[0] and plains[1]
-              and alike(a, pixels(seq[1][3] - 1), fuzz) and filled(where, wide)):
+        # it's a shape gone to that color, a band, a line, an icon, not
+        # the scattered strokes of text drawn once, nor a line gone.
+        elif (changes == 2 and seq[0][2] > brief and back[0] and plains[1]
+              and alike(a, pixels(seq[1][3] - 1), fuzz) and filled(where, wide, high)
+              and not dropped(b, where, wide, fuzz)):
             flashes.append((seq[1][1], seq[1][2], looks[1], looks[0], seq[1][3], seq[2][3]))
     return best, ([] if best else flashes)
 
