@@ -63,7 +63,8 @@ class Screen:
     def fail(self, message):
         """Raise SessionError(message), first taking a picture of the screen
         to `failed` if it's set, and saying where."""
-        if self.failed and x.try_capture(self.env, self.failed, self.backend):
+        shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
+        if self.failed and shown and x.try_capture(self.env, self.failed, self.backend):
             message += f"; the screen then: {self.failed}"
         raise SessionError(message)
 
