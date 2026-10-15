@@ -33,8 +33,8 @@
   for it, so it can't play through the machine's speakers or find the
   desktop's Wayland, PulseAudio, PipeWire or bus sockets. Without
   bubblewrap, the session says so and runs it as before.
-- A window asked for and not there is said with the windows that are,
-  and that its title is matched in full.
+- A window asked for and not there is said with the titles, or app ids,
+  there are, and that it's matched in full.
 
 ### Added
 
@@ -83,7 +83,8 @@
   between two looks, or flashes another once, found from pictures taken
   as fast as they come, a tile at a time, by its mean color and in time:
   its box, how many changes, how often, and both colors; and how many
-  pictures it took, a rate too slow said. `Screen.flicker` from Python.
+  pictures it took, on stdout whatever's found, a rate too slow said.
+  `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
   `start`, `exec` and MCP's `start_session`: a server a test starts is

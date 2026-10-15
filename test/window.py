@@ -3,8 +3,8 @@
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, line, gradient, passer or skip. With LOG, it holds an entry instead, and
-writes what's typed in it there; with corner too, a button in its top
+or TITLE text, line, gradient, passer, skip, edge or gray. With LOG, it
+holds an entry instead, and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
@@ -236,8 +236,8 @@ elif sys.argv[2:3] == ["line"]:
 elif sys.argv[2:3] == ["passer"]:
     # bzflag's strip as it was at the screen's edge: six columns black and
     # green every other frame of 30 ms, in a tile with two of the scene's
-    # beside it, through which something passes for a third of each
-    # second, and the page's background after.
+    # beside it and the page's background after, through ten columns of
+    # which something passes for a third of each second.
     area, n, began = Gtk.DrawingArea(), [0], GLib.get_monotonic_time()
 
     def draw(a, cr):
@@ -249,13 +249,38 @@ elif sys.argv[2:3] == ["passer"]:
         cr.fill()
         if t % 1 < 0.33:
             cr.set_source_rgb(1, 1, 1)
-            cr.rectangle(166, t % 1 * 400 - 12, 12, 12)
+            cr.rectangle(166, t % 1 * 400 - 12, 26, 12)
             cr.fill()
         cr.set_source_rgb(*((0, 0, 0) if n[0] % 2 else (0.53, 0.79, 0)))
         cr.rectangle(178, 0, 6, 120)
         cr.fill()
     area.connect("draw", draw)
     GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] in (["edge"], ["gray"]):
+    # edge: a strip six columns wide, partway into a tile, black and green
+    # every other 30 ms over plain gray, and a square in a corner turning
+    # red and blue every 150 ms, so other pictures change too. gray: the
+    # whole window two grays 6% apart, every other 30 ms.
+    area, n, began = Gtk.DrawingArea(), [0], GLib.get_monotonic_time()
+
+    def draw(a, cr):
+        if sys.argv[2] == "gray":
+            cr.set_source_rgb(*[0.5 if n[0] % 2 else 0.56] * 3)
+            cr.paint()
+            return
+        cr.set_source_rgb(0.7, 0.7, 0.7)
+        cr.paint()
+        cr.set_source_rgb(*((0, 0, 0) if n[0] % 2 else (0.2, 0.6, 0.2)))
+        cr.rectangle(180, 0, 6, 120)
+        cr.fill()
+        turn = (GLib.get_monotonic_time() - began) // 150000 % 2
+        cr.set_source_rgb(*((1, 0, 0) if turn else (0, 0, 1)))
+        cr.rectangle(8, 8, 10, 10)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    GLib.timeout_add(150, lambda: area.queue_draw() or True)
     w.add(area)
 elif sys.argv[2:3] == ["gradient"]:
     # Two faces 8% apart, the edge between them sweeping past unevenly,

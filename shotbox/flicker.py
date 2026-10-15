@@ -27,6 +27,9 @@ do when something moves through. A look that's in the picture before or
 after, up or down the screen, is text scrolling, and neither.
 """
 
+import functools
+from collections import Counter
+
 from .x import differ
 
 
@@ -71,12 +74,15 @@ def states(times, looks, end, fuzz):
     return out
 
 
+@functools.lru_cache(maxsize=1 << 14)
 def changed(a, b, fuzz):
     """The pixels, by offset, where two tiles' RGB pixels differ by more
-    than `fuzz` percent in a channel."""
+    than `fuzz` percent in a channel: kept, as a strip's two looks are
+    told apart again each time they come back."""
     limit = fuzz * 2.55
-    return {k for k in range(0, len(a), 3)
-            if max(abs(a[k + c] - b[k + c]) for c in range(3)) > limit}
+    return frozenset(k for k in range(0, len(a), 3)
+                     if abs(a[k] - b[k]) > limit or abs(a[k + 1] - b[k + 1]) > limit
+                     or abs(a[k + 2] - b[k + 2]) > limit)
 
 
 def alike(a, b, fuzz):
@@ -134,7 +140,7 @@ def needs(held, brief):
     return {k for seq in runs(held, brief) for k in [s[3] for s in seq] + [seq[1][3] - 1]}
 
 
-def find(held, brief, times, fuzz, pixels):
+def find(held, brief, times, fuzz, pixels, line):
     """In one tile's states, its longest flicker, as (start, changes, mean
     seconds a brief state, look A, look B, the pictures it changed in), or
     else a flash, as (start, seconds, look, then look, picture, the
@@ -142,7 +148,8 @@ def find(held, brief, times, fuzz, pixels):
     docstring.
     `pixels(k)` is the tile's pixels in picture `k`, of those `needs` says,
     which decide what the mean colors found: brief states one after
-    another. A flash is said with its picture too, to tell it from motion."""
+    another. A flash is said with its picture too, to tell it from motion.
+    `line` is the tile's shorter side."""
     best, flashes = None, []
     for seq in runs(held, brief):
         changes = len(seq) - 1
@@ -154,14 +161,19 @@ def find(held, brief, times, fuzz, pixels):
         # every picture new: its pixels needn't be looked at further.
         if not any(recur(shown, fuzz)):
             continue
-        # Where it keeps switching: the pixels every change changes, which
-        # must be most of what each changes, and no fewer than a line
-        # across the tile. A passer-by elsewhere in the tile is left out;
-        # text or a line moving through changes other pixels each time,
-        # and a line's steps moving, a few.
-        each = [changed(p, q, fuzz) for p, q in zip(shown, shown[1:])]
-        where = set.intersection(*each)
-        if len(where) < (len(a) // 3) ** 0.5 or any(2 * len(where) < len(c) for c in each):
+        # Where it keeps switching: the pixels most changes change, each by
+        # as much as a new look's mean moves, which must be most of what
+        # most of them change, and no fewer than a line across the tile.
+        # Something passing through the rest of the tile is left out; text
+        # or a line moving through changes other pixels each time, and a
+        # line's steps moving, a few.
+        each = Counter(changed(p, q, fuzz / 4) for p, q in zip(shown, shown[1:]))
+        often = Counter()
+        for c, m in each.items():
+            often.update(dict.fromkeys(c, m))
+        where = {k for k, m in often.items() if 2 * m > changes}
+        if len(where) < line or 2 * sum(m for c, m in each.items()
+                                        if 2 * len(where & c) >= len(c)) <= changes:
             continue
         looks = colors(a, b, where)
         # The same picture is nearer than the two looks are: two faces of
