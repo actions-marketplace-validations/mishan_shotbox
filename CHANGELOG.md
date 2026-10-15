@@ -120,6 +120,8 @@
   which it took and then left out. It now gives shoot every session
   option as it was given, read back through its own options, so one
   added later reaches shoot too.
+- **`shoot` makes OUT's directory** if it isn't there, where it failed
+  with a traceback.
 
 ## 0.5.0 — 2026-10-14
 

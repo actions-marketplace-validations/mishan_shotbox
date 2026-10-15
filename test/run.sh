@@ -356,8 +356,9 @@ st=$?; set -e
 
 # --twice: a window drawn the same each time, kept; a clock, refused,
 # saying where it differs, with the diff beside OUT and no OUT.
-"$sb" shoot "$tmp/twice.png" --twice --window t1 -- "$here/window.py" t1 >/dev/null \
-  && [ -s "$tmp/twice.png" ] && ok "shoot --twice: the same twice, kept" || fail "shoot --twice"
+"$sb" shoot "$tmp/new/twice.png" --twice --window t1 -- "$here/window.py" t1 >/dev/null \
+  && [ -s "$tmp/new/twice.png" ] && ok "shoot --twice: the same twice, kept, its directory made" \
+  || fail "shoot --twice"
 set +e; "$sb" term --shoot "$tmp/clock.png" --twice --size 30x5 --when . -- date +%N 2> "$tmp/err"
 st=$?; set -e
 [ $st = 1 ] && grep -q "pixels differ, in [0-9]*x[0-9]* at [0-9]*,[0-9]*; see .*clock-diff.png" "$tmp/err" \
