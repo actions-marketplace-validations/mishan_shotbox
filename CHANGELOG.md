@@ -113,6 +113,12 @@
 - **How shotbox compares**, in docs/comparison.md, with
   linux-x11-harness, agent-workspace-linux, kwin-mcp, agent-desktop,
   dogtail, openQA and others.
+- **`shotbox record OUT.mp4` in Wayland sessions**, and .webm and .gif:
+  the same options, the same length for `--seconds`, and the same ways
+  to stop, the file finished however it stops. wf-recorder takes the
+  frames over wlroots' screencopy and ffmpeg encodes them, as on X11.
+  sway draws no pointer, so `--pointer` is refused there. The Action's
+  `record` installs wf-recorder when `wayland` is on too.
 
 ### Fixed
 

@@ -22,7 +22,7 @@ inputs:
     description: For --audio, PipeWire and WirePlumber
     default: "false"
   record:
-    description: For `shotbox record`, ffmpeg
+    description: For `shotbox record`, ffmpeg, and wf-recorder with wayland
     default: "false"
   term:
     description: For `shotbox term`, VTE
@@ -53,6 +53,7 @@ runs:
         [ "$WAYLAND" != true ] || pkgs="$pkgs sway grim xwayland"
         [ "$AUDIO" != true ] || pkgs="$pkgs pipewire pipewire-bin wireplumber"
         [ "$RECORD" != true ] || pkgs="$pkgs ffmpeg"
+        [ "$RECORD$WAYLAND" != truetrue ] || pkgs="$pkgs wf-recorder"
         [ "$TERM_" != true ] || pkgs="$pkgs gir1.2-vte-2.91 python3-gi"
         [ "$CLOCK" != true ] || pkgs="$pkgs libfaketime"
         sudo apt-get update -qq

@@ -443,7 +443,8 @@ class Screen:
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
         isn't drawn, as in a picture; with `park`, it goes out of the way
-        first. X11 only, for now; it needs ffmpeg. A .wav is what plays in
+        first. It needs ffmpeg, and on Wayland, wf-recorder; sway draws no
+        pointer there, so `pointer` is refused. A .wav is what plays in
         a session with audio, on X11 or Wayland, and takes none of those."""
         if Path(out).suffix.lower() == ".wav":
             if window or crop or fps or pointer or park:
@@ -453,12 +454,12 @@ class Screen:
                 return x.record(self.env, out, None, seconds=seconds)
             except (ValueError, RuntimeError) as e:
                 raise SessionError(str(e))
-        if self.wayland:
-            raise SessionError("recording works in X11 sessions only, for now")
+        if self.wayland and pointer:
+            raise SessionError("sway draws no pointer to record")
         if park:
             self.park()
         try:
-            screen_w, screen_h = x.root_size(self.env)
+            screen_w, screen_h = self.backend.root_size(self.env)
         except RuntimeError as e:
             raise SessionError(str(e))
         box = self.window(window)[2:6] if window else (screen_w, screen_h, 0, 0)

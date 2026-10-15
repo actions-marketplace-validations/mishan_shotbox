@@ -388,6 +388,7 @@ NEEDS = {
     "--net": lambda: lacks("bwrap", "nsenter"),
     "term": lambda: bindings(*VTE),
     "record": lambda: lacks("ffmpeg"),
+    "record on Wayland": lambda: lacks("ffmpeg", "wf-recorder"),
     "--clock": lambda: None if faketime() else ("the session's clock needs libfaketime, "
                                                 "and there's no libfaketime.so.1 here"),
 }
