@@ -65,6 +65,9 @@ def session_options(p, display=True):
     """The options `run`, `shoot` and `start` take; without `display`, as
     `exec` takes them, those that are about a display left out, and off."""
     g = p.add_argument_group("the session")
+    if display:
+        g.add_argument("--screen", type=size, default=(1280, 800), metavar="WxH",
+                       help="the display's size (1280x800)")
     g.add_argument("--desktop", action="store_true",
                    help="real GSettings (dconf) and the system's D-Bus services, "
                         "for desktop shells; the default is in-memory settings "
@@ -89,8 +92,6 @@ def session_options(p, display=True):
                        announce_log=None, dark=False, high_contrast=False, text_scale=None,
                        gamepads=0)
         return
-    g.add_argument("--screen", type=size, default=(1280, 800), metavar="WxH",
-                   help="the display's size (1280x800)")
     g.add_argument("--wayland", action="store_true",
                    help="a Wayland session, under a headless sway, rather than X11 on "
                         "Xvfb (docs/wayland.md)")
@@ -255,11 +256,14 @@ def cmd_shoot(argv):
     return 0
 
 
-def inside():
-    """The display of the session this runs in."""
+def inside(display=True):
+    """The display of the session this runs in, or with `display` off, the
+    session, which may have none."""
     if not os.environ.get("SHOTBOX_SCRATCH"):
-        raise SystemExit("shotbox: this only works inside `shotbox run`, or with "
-                         "`shotbox --session NAME`")
+        raise SystemExit("shotbox: this only works inside `shotbox run` or `exec`, or "
+                         "with `shotbox --session NAME`")
+    if display and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        raise SystemExit("shotbox: this session has no display: it's `shotbox exec`'s")
     return Screen()
 
 
@@ -336,7 +340,7 @@ def cmd_wait(argv):
     looks = a.kind in ("match", "change")
     if not looks and (a.crop or a.fuzz is not None or a.max is not None):
         p.error("--crop, --fuzz and --max go with match and change")
-    screen = inside()
+    screen = inside(display=a.kind not in ("port", "file", "ready"))
     screen.failed = a.failed or screen.failed
     if not looks:
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
@@ -399,7 +403,7 @@ def cmd_record(argv):
     if a.seconds == 0:
         p.error("--seconds is more than 0")
     start = time.monotonic()
-    out = inside().record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
+    out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
                           pointer=a.pointer, park=a.park)
     try:
         print(f"{out}  {time.monotonic() - start:.1f}s", flush=True)

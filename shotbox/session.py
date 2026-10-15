@@ -364,6 +364,10 @@ class Session(Screen):
                  sandbox=True, display=True):
         self.size = size
         self.display = display
+        if not display and (wayland or xwayland or a11y or announce_log or dark or high_contrast
+                            or text_scale or gamepads):
+            raise SessionError("a session with no display has no Wayland, accessibility "
+                               "bus, style, text scale or gamepads")
         self.sandbox = sandbox
         self._sandboxed = False
         self.unsealed = None    # what programs can reach that they shouldn't, to say
