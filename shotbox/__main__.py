@@ -437,8 +437,8 @@ def cmd_listen(argv):
     p.add_argument("--quiet", type=float, default=-60, metavar="DB",
                    help="a peak below this is silence (-60 dBFS)")
     a = p.parse_args(argv)
-    if a.gap <= 0:
-        p.error("--gap is more than 0")
+    if not 0 < a.gap < math.inf:
+        p.error("--gap is a number of milliseconds, more than 0")
     try:
         heard = sound.hear(a.wav, gap=a.gap / 1000)
     except (OSError, EOFError, ValueError, wave.Error) as e:

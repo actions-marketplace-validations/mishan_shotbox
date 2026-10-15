@@ -40,7 +40,10 @@ def hear(path, gap=0.001):
     gaps = []
     # Each run of zero bytes, whole, from its first: the lookbehind fails
     # at once anywhere else in it, so this is linear however long the runs.
-    for m in re.finditer(b"(?<!\0)\0{%d,}" % (shortest * width), data):
+    # None can be longer than the file, nor re count that far.
+    runs = (re.finditer(b"(?<!\0)\0{%d,}" % (shortest * width), data)
+            if shortest * width <= len(data) else ())
+    for m in runs:
         # The frames wholly inside it: one may begin mid-frame.
         start, end = -(-m.start() // width) * width, m.end() // width * width
         if m.start() > 0 and m.end() < len(data) and (end - start) // width >= shortest:

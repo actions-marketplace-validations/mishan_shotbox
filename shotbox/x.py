@@ -191,9 +191,9 @@ def stop(proc):
     """Stop the recording `proc`, and wait while it finishes its file."""
     try:
         proc.stdin.write(b"stop\n")
-        proc.stdin.flush()
+        proc.stdin.close()
     except OSError:
-        pass
+        pass                # gone already
     while True:
         try:
             proc.wait()
@@ -237,7 +237,8 @@ def keep_recording(cmd, out):
                 break
         _, err = proc.communicate()
         if proc.returncode not in (0, 255) or not video.exists():
-            sys.stderr.write(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}\n")
+            said = err.decode(errors="replace").strip() or "it was stopped before it began"
+            sys.stderr.write(f"ffmpeg couldn't record: {said}\n")
             return 1
         # Stopped before the first frame, ffmpeg writes a file with none.
         if sound:

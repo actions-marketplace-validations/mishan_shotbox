@@ -465,7 +465,7 @@ class Server:
         said = log.read_text().strip() if log.exists() else ""
         return said or "Nothing announced yet."
 
-    def sound(self, session, action):
+    def sound(self, session, action, gap=None):
         s = self.session(session)
         name = str(session)
         if action == "start":
@@ -481,8 +481,9 @@ class Server:
                 raise Refused(f"{name!r}'s sound isn't being recorded: action start first")
             keeper, wav = self.sounds.pop(name)
             stop(keeper)
+            gap = number(gap, "gap", 0.01, 60000) or 1
             try:
-                heard = sound.hear(ended(keeper, wav))
+                heard = sound.hear(ended(keeper, wav), gap=gap / 1000)
             except RuntimeError as e:
                 raise Refused(str(e))
             return "\n".join(sound.describe(heard)
@@ -655,11 +656,12 @@ TOOLS = [
     ("sound",
      "Record what plays in a session started with audio: action start, then do what makes "
      "the sound, then action stop, which says what it heard: its length, peak and RMS "
-     "(dBFS), samples clipped, and each gap, where a program fell behind and left "
-     "silence, with where it was; then what's wrong, if anything (gaps, clipping, "
-     "silence).",
-     schema({"session": SESSION, "action": {"type": "string", "enum": ["start", "stop"]}},
-            ["session", "action"])),
+     "(dBFS), samples clipped, and each gap, exact silence gap milliseconds (1) or longer "
+     "between the first sound and the last, as a program that falls behind leaves; then "
+     "what's wrong, if anything (gaps, clipping, silence). Sounds meant to be apart, two "
+     "beeps say, need a gap longer than the silence between them.",
+     schema({"session": SESSION, "action": {"type": "string", "enum": ["start", "stop"]},
+             "gap": {"type": "number"}}, ["session", "action"])),
 ]
 
 # Not screenshot (park moves the pointer) or contrast (it raises the window).
