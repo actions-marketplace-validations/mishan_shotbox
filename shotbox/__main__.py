@@ -793,6 +793,8 @@ def cmd_flicker(argv):
         sys.stderr.write(f"shotbox: {taken} pictures in {a.seconds:g} s, too few to hold "
                          f"{a.times} changes: flicker can't be seen\n")
     for f in found:
+        if "unsaved" in f:
+            sys.stderr.write(f"shotbox: couldn't write {f['unsaved']}\n")
         shown = f", shown in {f['sheet']}" if "sheet" in f else ""
         if f["kind"] == "flicker":
             print(f"flicker: {f['box']}, {f['changes']} changes, every {f['every'] * 1000:.0f} "

@@ -316,7 +316,7 @@ class Screen:
         every, looks)], a box of tiles each, in order, how many pictures
         were taken, and how many of them changed. With `save`, a directory,
         each one's pictures there as a sheet (see `_sheet`), its path its
-        "sheet" key."""
+        "sheet", or "unsaved" if it couldn't be written."""
         from . import flicker
         w = self.window(window) if window else None
         geometry = r"(\d+)x(\d+)\+(\d+)\+(\d+)"
@@ -332,9 +332,14 @@ class Screen:
             if not m:
                 self.fail(f"what to ignore is WIDTHxHEIGHT+X+Y, not {g}")
             skip.append(tuple(int(n) for n in m.groups()))
-        if save:
+        if save is not None:
+            if not str(save):
+                self.fail("a directory to save to, not ''")
             try:
                 Path(save).mkdir(parents=True, exist_ok=True)
+                tempfile.TemporaryFile(dir=save).close()
+            except (FileExistsError, NotADirectoryError):
+                self.fail(f"can't save to {save}: it, or a directory it's in, is a file")
             except OSError as e:
                 self.fail(f"can't save to {save}: {e.strerror}")
         fd, png = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
@@ -589,49 +594,64 @@ class Screen:
                 bw, bh = min(bw, width - bx), min(bh, height - by)
                 at, held_for, look, then, first, back = min(
                     (now[n] for n in group if n in now), key=lambda f: f[0])
+                # After it, torn, the last of it gone.
+                after = max(now[n][5] for n in group if n in now)
                 out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
                                 every=held_for,
                                 looks=(flicker.hex_of(then), flicker.hex_of(look))))
-                seen.append(((bx, by, bw, bh), [*range(first - 1, back)][:8] + [back]))
+                seen.append(((bx, by, bw, bh), [*range(first - 1, back)][:8] + [after]))
         order = sorted(range(len(out)), key=lambda i: out[i]["at"])
-        if save:
+        if save is not None:
             for number, i in enumerate(order, 1):
                 f = out[i]
-                f["sheet"] = str(self._sheet(
-                    Path(save) / f"{number:0{len(str(len(out)))}d}-{f['kind']}-{f['box']}.png",
-                    [zlib.decompress(shots[k][1]) for k in seen[i][1]],
-                    [times_[k] for k in seen[i][1]], width, seen[i][0], tile))
+                path = Path(save) / f"{number:0{len(str(len(out)))}d}-{f['kind']}-{f['box']}.png"
+                # One not written leaves the rest, and what was found, to be said.
+                try:
+                    f["sheet"] = str(self._sheet(path, shots, seen[i][1], seconds, (width, height),
+                                                 seen[i][0], tile))
+                except (OSError, subprocess.CalledProcessError):
+                    f["unsaved"] = str(path)
         return [out[i] for i in order], taken, len(shots)
 
-    def _sheet(self, out, pictures, times, width, box, margin):
-        """Pictures, RGB `width` wide, cut to `box` (x, y, width, height)
-        and `margin` round it, each labeled with its time, in order, as one
-        PNG at `out`: magnified, a pixel a square, up to 8 times, so a
-        band a pixel wide is seen."""
-        bx, by, bw, bh = box
-        height = len(pictures[0]) // 3 // width
+    def _sheet(self, out, shots, ks, end, size, box, margin):
+        """Pictures `ks` of `shots`, (seconds, compressed RGB `size`) of a
+        watch that ended at `end`, cut to `box` (x, y, width, height) and
+        `margin` round it, the box outlined, each labeled with when it
+        showed, in order, as one PNG at `out` no more than 1920 pixels each
+        way: magnified, a pixel a square, up to 8 times, so a band a pixel
+        wide is seen, or shrunk, its label not, to fit."""
+        (width, height), (bx, by, bw, bh) = size, box
         x0, y0 = max(0, bx - margin), max(0, by - margin)
         x1, y1 = min(width, bx + bw + margin), min(height, by + bh + margin)
-        scale = max(1, min(8, 384 // max(x1 - x0, y1 - y0)))
+        cw, ch = x1 - x0, y1 - y0
         # As near square as it goes: a strip down the screen side by side,
         # one across it one above another.
-        across = max(1, min(len(pictures), round((len(pictures) * (y1 - y0) / (x1 - x0)) ** 0.5)))
-        cells = []
-        try:
-            for n, (data, t) in enumerate(zip(pictures, times)):
-                cell = Path(self.env["SHOTBOX_SCRATCH"]) / f"{Path(out).stem}-{n}.png"
-                cells.append(cell)
-                subprocess.run([*x.CONVERT, "-background", "black", "-fill", "white",
-                                "-size", f"{x1 - x0}x{y1 - y0}", "-depth", "8", "rgb:-",
-                                "-scale", f"{scale * 100}%", "+size", "-pointsize", "14",
-                                f"label:{t:.3f}s", "-gravity", "center", "-append",
-                                "-bordercolor", "gray50", "-border", "1", str(cell)],
+        across = max(1, min(len(ks), round((len(ks) * ch / cw) ** 0.5)))
+        down = -(-len(ks) // across)
+        # A cell's border is 2 pixels, its label 17 high.
+        fit = min((1920 // across - 2) / cw, (1920 // down - 20) / ch)
+        scale = min(8, int(fit)) or fit
+        grow = (["-scale", f"{scale * 100}%"] if scale >= 1
+                else ["-resize", f"{int(cw * scale)}x{int(ch * scale)}!"])
+        left, top = int((bx - x0) * scale) - 1, int((by - y0) * scale) - 1
+        right, bottom = int((bx - x0 + bw) * scale), int((by - y0 + bh) * scale)
+        with tempfile.TemporaryDirectory(dir=self.env["SHOTBOX_SCRATCH"]) as tmp:
+            cells = []
+            for n, k in enumerate(ks):
+                t, data = shots[k]
+                till = shots[k + 1][0] if k + 1 < len(shots) else max(end, t)
+                data = zlib.decompress(data)
+                cells.append(Path(tmp) / f"{n}.png")
+                subprocess.run([*x.CONVERT, "-size", f"{cw}x{ch}", "-depth", "8", "rgb:-", *grow,
+                                "-fill", "none", "-stroke", "magenta", "+antialias",
+                                "-draw", f"rectangle {left},{top} {right},{bottom}",
+                                "-antialias", "-stroke", "none", "-fill", "white",
+                                "-background", "black", "+size", "-pointsize", "14",
+                                f"label:{t:.3f}\u2013{till:.3f}s", "-gravity", "center", "-append",
+                                "-bordercolor", "gray50", "-border", "1", str(cells[-1])],
                                input=b"".join(data[(y * width + x0) * 3:(y * width + x1) * 3]
                                               for y in range(y0, y1)), check=True)
-            return x.sheet(cells, out, across=across, size=1920)
-        finally:
-            for cell in cells:
-                cell.unlink(missing_ok=True)
+            return x.sheet(cells, out, across=across)
 
     def wait_announce(self, pattern, timeout=30):
         """Wait for a program to have announced something matching

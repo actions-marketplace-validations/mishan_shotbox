@@ -93,7 +93,8 @@
   its box, how many changes, how often, and both colors; and how many
   pictures it took and how many changed, on stdout whatever's found, a
   rate too slow said. With `--save DIR`, a sheet of each one's pictures,
-  its box and a tile round it magnified, each labeled with its time.
+  its box outlined and a tile round it magnified, each labeled with when
+  it showed.
   `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
