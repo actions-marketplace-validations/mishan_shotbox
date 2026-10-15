@@ -80,8 +80,8 @@
 - **`shotbox flicker`**: a part of the screen that keeps switching
   between two looks, or flashes another once, found from pictures taken
   as fast as they come, a tile at a time, by its mean color and in time:
-  its box, how many changes, how often, and both colors.
-  `Screen.flicker` from Python.
+  its box, how many changes, how often, and both colors; and how many
+  pictures it took, a rate too slow said. `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
   `start`, `exec` and MCP's `start_session`: a server a test starts is

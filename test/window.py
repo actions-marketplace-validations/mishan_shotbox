@@ -2,7 +2,8 @@
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
-or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel. With LOG, it holds an entry instead, and
+or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
+or TITLE text, line, gradient or passer. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -192,6 +193,83 @@ elif sys.argv[2:3] == ["panel"]:
         return True
     GLib.timeout_add(30, tick)
     GLib.timeout_add(1000, flash)
+    w.add(area)
+elif sys.argv[2:3] == ["text"]:
+    # A terminal's listing scrolling a line every 30 ms, as winterm's
+    # `ls -lR` does: lines of other text, long and short and empty, over
+    # a plain background, so a tile goes blank and back to text that
+    # isn't the text it had.
+    import random
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.9, 0.9, 0.9)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0.44)
+        for line in range(9):
+            r = random.Random(n[0] + line)
+            cr.move_to(4, 12 + line * 14)
+            cr.show_text("".join(r.choice("abcdefghijklmnopqrstuvwxyz-./ ")
+                                 for _ in range(r.choice((0, 3, 8, 20, 32)))))
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["line"]:
+    # A line a pixel wide, not smoothed, as bzflag's ground lines while the
+    # tank turns: drifting, and a little back and on each frame, so its
+    # steps move a few pixels along it, and back.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_antialias(1)    # cairo.ANTIALIAS_NONE
+        cr.set_source_rgb(0, 0.3, 0)
+        cr.paint()
+        cr.set_source_rgb(0, 0.83, 0.67)
+        cr.set_line_width(1)
+        y = 58 + 0.02 * n[0] + (0.25 if n[0] % 2 else -0.25)
+        cr.move_to(0, y)
+        cr.line_to(200, y + 10)
+        cr.stroke()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["passer"]:
+    # bzflag's strip as it was at the screen's edge: six columns black and
+    # green every other frame of 30 ms, in a tile with two of the scene's
+    # beside it, through which something passes for a third of each
+    # second, and the page's background after.
+    area, n, began = Gtk.DrawingArea(), [0], GLib.get_monotonic_time()
+
+    def draw(a, cr):
+        t = (GLib.get_monotonic_time() - began) / 1e6
+        cr.set_source_rgb(0.9, 0.9, 0.9)
+        cr.paint()
+        cr.set_source_rgb(0, 0.4, 0)
+        cr.rectangle(0, 0, 178, 120)
+        cr.fill()
+        if t % 1 < 0.33:
+            cr.set_source_rgb(1, 1, 1)
+            cr.rectangle(166, t % 1 * 400 - 12, 12, 12)
+            cr.fill()
+        cr.set_source_rgb(*((0, 0, 0) if n[0] % 2 else (0.53, 0.79, 0)))
+        cr.rectangle(178, 0, 6, 120)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:3] == ["gradient"]:
+    # Two faces 8% apart, the edge between them sweeping past unevenly,
+    # forward and back a little each frame, as a turning view's do.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.84, 0.44, 0.44)
+        cr.paint()
+        cr.set_source_rgb(0.76, 0.44, 0.44)
+        cr.rectangle(0, 0, n[0] * 3 % 240 + (6 if n[0] % 2 else -6), 120)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)
 elif sys.argv[2:3] == ["strip"]:
     # As bzflag's strip: black every other 30 ms, and between, a green

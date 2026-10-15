@@ -312,7 +312,8 @@ class Screen:
         `brief` seconds brief, `times` changes or more flicker, looks
         within `fuzz` percent the same, and boxes (WxH+X+Y) in `ignore`
         left out. [dict(kind="flicker" or "flash", box, at, changes,
-        every, looks)], a box of tiles each, in order."""
+        every, looks)], a box of tiles each, in order, and how many
+        pictures were taken."""
         from . import flicker
         w = self.window(window) if window else None
         geometry = r"(\d+)x(\d+)\+(\d+)\+(\d+)"
@@ -345,16 +346,18 @@ class Screen:
                 self.fail("can't take pictures of " + (f"the window {window!r}" if window
                                                        else "the display"))
             if area and got[:2] != area[:2]:
-                self.fail(f"the crop {crop} isn't inside what's watched, {got[0]}x{got[1]}")
+                self.fail(f"the crop {crop} isn't inside " +
+                          (f"the window, {w[2]}x{w[3]}" if w else "the display"))
             return got
 
         # Every picture that differs from the one before, compressed: the
         # program draws at its own rate, and what holds is said by time.
-        shots, last, start = [], None, time.monotonic()
+        shots, last, taken, start = [], None, 0, time.monotonic()
         try:
             while time.monotonic() - start < seconds:
                 t0 = time.monotonic()
                 got = picture()
+                taken += 1
                 if got[2] != last:
                     shots.append(((t0 + time.monotonic()) / 2 - start, zlib.compress(got[2], 1)))
                     last = got[2]
@@ -363,7 +366,11 @@ class Screen:
         width, height = got[:2]
         times_ = [t for t, _ in shots]
         across = -(-width // tile)
-        looks = [flicker.means(zlib.decompress(data), width, height, tile) for _, data in shots]
+        looks, before = [], None
+        for _, data in shots:
+            now = zlib.decompress(data)
+            looks.append(flicker.means(now, width, height, tile, before, looks and looks[-1]))
+            before = now
         # A tile's states, by its mean colors, a change of a quarter of fuzz
         # a new one, so a band a pixel or two wide is seen; the pixels decide.
         helds, wanted = {}, {}
@@ -393,12 +400,42 @@ class Screen:
                 found["flicker"][n] = flickering
             elif flashed:
                 found["flash"][n] = flashed
+        # A look that's in the picture before or after, up or down the
+        # screen, is text scrolling: lines alike, one where another was, or
+        # drawn again the same after a blank, aren't a look coming back,
+        # nor a line shown once a flash. One color all over is anywhere,
+        # so says nothing.
+        ask = {}
+        for n, k in ([(n, k) for n, f in found["flicker"].items() for k in f[5]]
+                     + [(n, k) for n, fs in found["flash"].items() for f in fs for k in f[4:]]):
+            for j in (k - 1, k + 1):
+                ask.setdefault(j, []).append((n, k))
+        scrolled = set()
+        for j in sorted(set(ask) & set(range(len(shots)))):
+            f = zlib.decompress(shots[j][1])
+            for n, k in ask[j]:
+                here = tiles_in[n, k]
+                if here == here[:3] * (len(here) // 3):
+                    continue
+                tx, ty = n % across * tile, n // across * tile
+                step = (min(tx + tile, width) - tx) * 3
+                column = b"".join(f[(y * width + tx) * 3:(y * width + tx) * 3 + step]
+                                  for y in range(height))
+                at = column.find(here)
+                while at >= 0 and (at % step or at == ty * step):
+                    at = column.find(here, at + 1)
+                if at >= 0:
+                    scrolled.add((n, k))
+        found["flicker"] = {n: f for n, f in found["flicker"].items()
+                            if not any((n, k) in scrolled for k in f[5])}
+        found["flash"] = {n: [f for f in fs if not {(n, f[4]), (n, f[5])} & scrolled]
+                          for n, fs in found["flash"].items()}
         out = []
         for bx, by, bw, bh, group in flicker.boxes(found["flicker"], across, tile):
             bw, bh = min(bw, width - bx), min(bh, height - by)    # tiles at the edge
             # The box said as its tile that changed most does.
-            at, changes, every, a, b = max((found["flicker"][n] for n in group),
-                                           key=lambda f: f[1])
+            at, changes, every, a, b, _ = max((found["flicker"][n] for n in group),
+                                              key=lambda f: f[1])
             out.append(dict(kind="flicker", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=changes,
                             every=every, looks=(flicker.hex_of(a), flicker.hex_of(b))))
         flashes = found["flash"]
@@ -417,10 +454,11 @@ class Screen:
 
         for k in sorted({f[4] for fs in flashes.values() for f in fs}):
             # Tiles that flashed in the same picture make a box. Something
-            # moving through turns a tile beside it the same way a picture
-            # or three before or after; a flash doesn't, and what changes
-            # beside it in the same picture, or another way, is something
-            # else: a caret, a spinner, a word in the flash.
+            # moving through turns a tile beside it the same way within
+            # `brief`, or a picture, before or after, if pictures come
+            # slower; a flash doesn't, and what changes beside it in the
+            # same picture, or another way, is something else: a caret, a
+            # spinner, a word in the flash.
             now = {n: f for n, fs in flashes.items() for f in fs if f[4] == k}
             for bx, by, bw, bh, group in flicker.boxes(now, across, tile):
                 way = [sum(c) / len(group) for c in zip(*(toward(k, n) for n in group))]
@@ -428,15 +466,16 @@ class Screen:
                 if size and any(
                         sum(a * b for a, b in zip(way, d)) > 0.8 * size * sum(c * c for c in d) ** 0.5
                         for m in beside(group) if m in helds
-                        for st in helds[m][1:] if 0 < abs(st[3] - k) <= 3
+                        for st in helds[m][1:] if st[3] != k
+                        and (abs(st[3] - k) == 1 or abs(st[1] - times_[k]) <= brief)
                         for d in [toward(st[3], m)]):
                     continue
                 bw, bh = min(bw, width - bx), min(bh, height - by)
-                at, held_for, look, then, _ = now[group[0]]
+                at, held_for, look, then, *_ = now[group[0]]
                 out.append(dict(kind="flash", box=f"{bw}x{bh}+{bx}+{by}", at=at, changes=2,
                                 every=held_for,
                                 looks=(flicker.hex_of(then), flicker.hex_of(look))))
-        return sorted(out, key=lambda f: f["at"])
+        return sorted(out, key=lambda f: f["at"]), taken
 
     def wait_announce(self, pattern, timeout=30):
         """Wait for a program to have announced something matching

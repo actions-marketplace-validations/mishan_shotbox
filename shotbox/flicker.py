@@ -14,35 +14,45 @@ look half a second, and an animation doesn't come back to a look so
 quickly, so neither is either.
 
 Mean colors find what might be, a quarter of fuzz a change, so a band a
-pixel wide is seen; the tile's pixels decide. Flicker's looks come back
-as the same pictures, near enough, A as A and B as B, which a line of
-text scrolling past, or anything moving through, doesn't; or one of them
-does, and is one color where they differ, a band drawn black between
-frames of a scene that moves on. A flash is to one color where it
-differs, from a picture that held still and back to it; and the tiles
-round it don't change about then, as they do when something moves
-through.
+pixel wide is seen; the tile's pixels decide. Flicker keeps its place:
+the pixels every change changes are most of what each does, and no
+fewer than a line across the tile, which text, or a line's steps,
+moving through aren't. Its looks come back as the same pictures most
+times, nearer than A is to B, A as A and B as B, which anything moving
+through doesn't; or one of them does, and is one color where they
+differ, a band drawn black between frames of a scene that moves on. A
+flash is to one color where it differs, from a picture that held still
+and back to it; and the tiles round it don't change about then, as they
+do when something moves through. A look that's in the picture before or
+after, up or down the screen, is text scrolling, and neither.
 """
 
 from .x import differ
 
 
-def means(pixels, width, height, tile):
-    """Each tile's mean color, (r, g, b), a row of tiles at a time, of RGB
-    `pixels`: every row, so a band a row high is in it."""
-    across, down = -(-width // tile), -(-height // tile)
-    sums = [[0, 0, 0, 0] for _ in range(across * down)]
-    for y in range(height):
-        row = pixels[y * width * 3:(y + 1) * width * 3]
-        base = (y // tile) * across
-        for tx in range(across):
-            part = row[tx * tile * 3:min(width, (tx + 1) * tile) * 3]
-            s = sums[base + tx]
-            s[0] += sum(part[0::3])
-            s[1] += sum(part[1::3])
-            s[2] += sum(part[2::3])
-            s[3] += len(part) // 3
-    return [(r / n, g / n, b / n) if n else (0, 0, 0) for r, g, b, n in sums]
+def means(pixels, width, height, tile, before=None, then=None):
+    """Each tile's mean color, (r, g, b), of RGB `pixels`: every row, so a
+    band a row high is in it. A tile as it was in the picture `before`,
+    whose means were `then`, keeps its mean: most of a screen holds still."""
+    out = []
+    for ty in range(0, height, tile):
+        band = slice(ty * width * 3, min(height, ty + tile) * width * 3)
+        if before is not None and pixels[band] == before[band]:
+            out += then[len(out):len(out) + -(-width // tile)]
+            continue
+        for tx in range(0, width, tile):
+            rows = [(y * width + tx) * 3 for y in range(ty, min(height, ty + tile))]
+            span = (min(width, tx + tile) - tx) * 3
+            if before is not None and all(pixels[r:r + span] == before[r:r + span] for r in rows):
+                out.append(then[len(out)])
+                continue
+            r = g = b = 0
+            for at in rows:
+                part = pixels[at:at + span]
+                r, g, b = r + sum(part[0::3]), g + sum(part[1::3]), b + sum(part[2::3])
+            n = len(rows) * span // 3
+            out.append((r / n, g / n, b / n))
+    return out
 
 
 def states(times, looks, end, fuzz):
@@ -61,6 +71,14 @@ def states(times, looks, end, fuzz):
     return out
 
 
+def changed(a, b, fuzz):
+    """The pixels, by offset, where two tiles' RGB pixels differ by more
+    than `fuzz` percent in a channel."""
+    limit = fuzz * 2.55
+    return {k for k in range(0, len(a), 3)
+            if max(abs(a[k + c] - b[k + c]) for c in range(3)) > limit}
+
+
 def alike(a, b, fuzz):
     """Whether two tiles' RGB pixels are the same picture: no more than one
     in fifty differing by more than twice `fuzz` percent, which noise in a
@@ -69,26 +87,29 @@ def alike(a, b, fuzz):
     return differ(a, b, 2 * fuzz, len(a) // 150) <= len(a) // 150
 
 
-def plain(pixels, other, fuzz):
-    """Whether a tile's pixels, where they differ from `other`'s, are all
-    near one color: a flash to black, or a band of the tile drawn black
-    every other frame, not something passing through it. Where they're
-    the same, the rest of the tile, doesn't count."""
-    limit = fuzz * 2.55
-    changed = [k for k in range(0, len(pixels), 3)
-               if max(abs(pixels[k + c] - other[k + c]) for c in range(3)) > limit]
-    return bool(changed) and all(
-        max(pixels[k + c] for k in changed) - min(pixels[k + c] for k in changed) <= 2 * limit
-        for c in range(3))
+def recur(shown, fuzz):
+    """Whether each look, A and B, of a tile's pictures `shown` a state
+    after another, comes back as the same picture most times: something
+    passing through the rest of the tile spoils a few."""
+    return [2 * sum(same) > len(same) for same in
+            ([alike(shown[m], shown[m + 2], fuzz) for m in range(side, len(shown) - 2, 2)]
+             for side in (0, 1))]
 
 
-def colors(a, b, fuzz):
-    """Two tiles' looks, as the mean color of each where they differ: a
-    narrow band's own colors, not the tile's, most of which held still."""
+def plain(pixels, where, fuzz):
+    """Whether a tile's pixels at `where`, where it differs from another
+    look, are all near one color: a flash to black, or a band of the tile
+    drawn black every other frame, not something passing through it."""
     limit = fuzz * 2.55
-    changed = [k for k in range(0, len(a), 3)
-               if max(abs(a[k + c] - b[k + c]) for c in range(3)) > limit] or range(0, len(a), 3)
-    return tuple(tuple(sum(p[k + c] for k in changed) / len(changed) for c in range(3))
+    return all(max(pixels[k + c] for k in where) - min(pixels[k + c] for k in where) <= 2 * limit
+               for c in range(3))
+
+
+def colors(a, b, where):
+    """Two tiles' looks, as the mean color of each at `where`, where they
+    differ: a narrow band's own colors, not the tile's, most of which held
+    still."""
+    return tuple(tuple(sum(p[k + c] for k in where) / len(where) for c in range(3))
                  for p in (a, b))
 
 
@@ -115,31 +136,52 @@ def needs(held, brief):
 
 def find(held, brief, times, fuzz, pixels):
     """In one tile's states, its longest flicker, as (start, changes, mean
-    seconds a brief state, look A, look B), or else a flash, as (start,
-    seconds, look, then look, picture), each, or None and []: see the
-    module's docstring.
+    seconds a brief state, look A, look B, the pictures it changed in), or
+    else a flash, as (start, seconds, look, then look, picture, the
+    picture it came back in), each, or None and []: see the module's
+    docstring.
     `pixels(k)` is the tile's pixels in picture `k`, of those `needs` says,
     which decide what the mean colors found: brief states one after
     another. A flash is said with its picture too, to tell it from motion."""
     best, flashes = None, []
     for seq in runs(held, brief):
         changes = len(seq) - 1
-        recur = [all(alike(pixels(seq[m][3]), pixels(seq[m + 2][3]), fuzz)
-                     for m in range(side, len(seq) - 2, 2)) for side in (0, 1)]
-        a, b = pixels(seq[0][3]), pixels(seq[1][3])
-        plains = [plain(a, b, fuzz), plain(b, a, fuzz)]
-        # Both looks the same pictures each time; or one, a color all over,
+        if changes < times and changes != 2:
+            continue
+        shown = [pixels(st[3]) for st in seq]
+        a, b = shown[0], shown[1]
+        # Neither coming back even at the widest is something moving,
+        # every picture new: its pixels needn't be looked at further.
+        if not any(recur(shown, fuzz)):
+            continue
+        # Where it keeps switching: the pixels every change changes, which
+        # must be most of what each changes, and no fewer than a line
+        # across the tile. A passer-by elsewhere in the tile is left out;
+        # text or a line moving through changes other pixels each time,
+        # and a line's steps moving, a few.
+        each = [changed(p, q, fuzz) for p, q in zip(shown, shown[1:])]
+        where = set.intersection(*each)
+        if len(where) < (len(a) // 3) ** 0.5 or any(2 * len(where) < len(c) for c in each):
+            continue
+        looks = colors(a, b, where)
+        # The same picture is nearer than the two looks are: two faces of
+        # a scene a little apart, an edge between them sweeping past,
+        # would come back at any wider.
+        near = min(fuzz, max(abs(x - y) for x, y in zip(*looks)) / 2.55 / 4)
+        back = recur(shown, near)
+        plains = [plain(a, where, fuzz), plain(b, where, fuzz)]
+        # Both looks coming back as the same pictures; or one, a color all over,
         # as a frame drawn black between frames of a scene that moves on.
-        if changes >= times and (all(recur) or any(r and p for r, p in zip(recur, plains))):
+        if changes >= times and (all(back) or any(r and p for r, p in zip(back, plains))):
             brief_ones = [s[2] for s in seq[1:] if s[2] <= brief]
-            run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *colors(a, b, fuzz))
+            run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *looks,
+                   [st[3] for st in seq[1:]])
             best = run if best is None or changes > best[1] else best
         # A flash: from a picture that held still, to a color, and back:
         # what's moving holds no picture still, though it come back.
-        elif (changes == 2 and recur[0] and plains[1]
-              and alike(pixels(seq[0][3]), pixels(seq[1][3] - 1), fuzz)):
-            before, during = colors(a, b, fuzz)
-            flashes.append((seq[1][1], seq[1][2], during, before, seq[1][3]))
+        elif (changes == 2 and back[0] and plains[1]
+              and alike(a, pixels(seq[1][3] - 1), fuzz)):
+            flashes.append((seq[1][1], seq[1][2], looks[1], looks[0], seq[1][3], seq[2][3]))
     return best, ([] if best else flashes)
 
 

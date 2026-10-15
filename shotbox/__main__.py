@@ -740,8 +740,10 @@ def cmd_flicker(argv):
     p.add_argument("--fuzz", type=float, default=6, metavar="PCT",
                    help="how near two colors are to count as one (6): a tile's mean "
                         "color moving a quarter of this is a new look, and its pixels "
-                        "within twice this the same picture")
-    p.add_argument("--tile", type=int, default=16, metavar="PX", help="tile size (16)")
+                        "within twice this, or half what's between two looks, the same "
+                        "picture")
+    p.add_argument("--tile", type=int, default=16, metavar="PX",
+                   help="tile size (16): what's found can change with where the tiles fall")
     p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
                    help="leave out tiles in this box: a video, a caret (repeatable)")
     a = p.parse_args(argv)
@@ -749,12 +751,16 @@ def cmd_flicker(argv):
         p.error("--seconds, --brief and --tile are more than 0, --times 2 or more, --fuzz 0 "
                 "or more")
     try:
-        found = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
-                                 brief=a.brief / 1000, times=a.times, fuzz=a.fuzz,
-                                 ignore=a.ignore)
+        found, taken = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
+                                        brief=a.brief / 1000, times=a.times, fuzz=a.fuzz,
+                                        ignore=a.ignore)
     except SessionError as e:
         sys.stderr.write(f"shotbox: {e}\n")
         return 2
+    if taken < 2 * a.seconds / (a.brief / 1000):
+        sys.stderr.write(f"shotbox: {taken / a.seconds:.0f} pictures a second, fewer than two "
+                         f"to {a.brief:g} ms: a look that brief may be missed, and motion taken "
+                         "for a flash\n")
     for f in found:
         if f["kind"] == "flicker":
             print(f"flicker: {f['box']}, {f['changes']} changes, every {f['every'] * 1000:.0f} "
@@ -762,6 +768,7 @@ def cmd_flicker(argv):
         else:
             print(f"flash: {f['box']}, {f['looks'][1]} for {f['every'] * 1000:.0f} ms in "
                   f"{f['looks'][0]}, at {f['at']:.3f}s")
+    print(f"watched {a.seconds:g} s, {taken} pictures, {taken / a.seconds:.0f} a second")
     return 1 if found else 0
 
 
