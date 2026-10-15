@@ -349,9 +349,69 @@ def focus(env, window):
         d.focus(int(window[0], 16))
 
 
+# Connections to take pictures over, a display each, kept: a wait polls.
+_grabbers = {}
+
+
+def grab(env, window=None, box=None):
+    """What's on the display, or in `window` (as find_window has it), or
+    the `box` (width, height, x, y) of it, straight from the X server, as
+    (width, height, RGB bytes): a few milliseconds where `import` takes
+    tens. None where it can't be had that way, some of it off the screen
+    say, for the slower way."""
+    from .xtest import Closed, Display, XError
+    key = env.get("DISPLAY"), env.get("XAUTHORITY")
+    try:
+        d = _grabbers.get(key) or _grabbers.setdefault(key, Display(env))
+        # import takes what of a window is on the screen; GetImage would
+        # take a backing store's all, or fail, so a window partly off it
+        # is import's.
+        if window and not (0 <= window[4] and 0 <= window[5] and window[4] + window[2] <= d.width
+                           and window[5] + window[3] <= d.height):
+            return None
+        drawable = int(window[0], 16) if window else d.root
+        w, h, x, y = box or ((*window[2:4], 0, 0) if window else (d.width, d.height, 0, 0))
+        return w, h, d.image(drawable, x, y, w, h)
+    except (Closed, OSError):
+        _grabbers.pop(key, None)
+        return None
+    except XError:          # a window gone, say: the connection's fine
+        return None
+
+
+def rgb(path):
+    """A picture's (width, height, RGB bytes), as grab has them."""
+    w, h = map(int, size_of(path).split("x"))
+    data = subprocess.run([*CONVERT, str(path), "-alpha", "off", "-depth", "8", "rgb:-"],
+                          capture_output=True, check=True).stdout
+    return w, h, data
+
+
+def differ(a, b, fuzz=0.0, most=0):
+    """How many pixels of two RGB buffers of one size differ, as compare
+    counts them, where any channel differs by more than `fuzz` percent;
+    up to `most` + 1, where it stops counting. Runs that are the same are
+    passed over whole, so a picture that's mostly so is quick."""
+    limit, n, run = fuzz / 100 * 255, 0, 3 * 512
+    for start in range(0, len(a), run):
+        end = start + run
+        if a[start:end] == b[start:end]:
+            continue
+        for i in range(start, min(end, len(a)), 3):
+            if (abs(a[i] - b[i]) > limit or abs(a[i + 1] - b[i + 1]) > limit
+                    or abs(a[i + 2] - b[i + 2]) > limit):
+                n += 1
+                if n > most:
+                    return n
+    return n
+
+
 def fingerprint(env, window=None):
     """A digest of what's on the display, or in one window, or None if it
     couldn't be taken (a window gone between finding it and taking it)."""
+    got = grab(env, window)
+    if got:
+        return hashlib.sha256(got[2]).digest()
     target = window[0] if window else "root"
     r = subprocess.run(["import", "-window", target, "-depth", "8", "rgb:-"],
                        env=env, capture_output=True)
@@ -424,7 +484,10 @@ def compare(a, b, diff=None, fuzz="0%"):
     # by hand: compare's own AE metric weighs pixels differently from one
     # ImageMagick release to the next.
     out = subprocess.run(
-        [*CONVERT, str(a), str(b), "-alpha", "off", "-compose", "difference",
+        # sRGB: ImageMagick reads a gray PNG, as it writes any picture with
+        # no color in it, as one channel, and would count only that.
+        [*CONVERT, str(a), str(b), "-colorspace", "sRGB", "-alpha", "off",
+         "-compose", "difference",
          "-composite", "-separate", "-evaluate-sequence", "max",
          "-threshold", fuzz, "-format", "%[fx:round(mean*w*h)]", "info:"],
         capture_output=True, text=True, check=True).stdout

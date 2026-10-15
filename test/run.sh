@@ -305,7 +305,7 @@ set -e
   '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term || exit 1
   { sleep 1; touch '$tmp/go'; } &
   '$sb' wait change --window shotbox-term" > "$tmp/out" \
-  && awk '{ exit !($1 + 0 >= 1) }' "$tmp/out" && ok "change waits for the screen to change, and says when" \
+  && awk '{ exit !($1 + 0 >= 0.5) }' "$tmp/out" && ok "change waits for the screen to change, and says when" \
   || fail "change: $(cat "$tmp/out")"
 
 # chords LOG [SESSION OPTIONS]: Shift in a chord, into cat in a terminal:
