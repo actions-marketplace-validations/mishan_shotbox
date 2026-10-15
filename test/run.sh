@@ -330,6 +330,19 @@ full=$(identify -format %wx%h "$tmp/full.png"); cells=$(identify -format %wx%h "
   && ok "term --crop takes the top-left cells ($cells of $full)" || fail "term --crop: $cells of $full"
 set +e; "$sb" term --env A=b -- true 2>/dev/null; st=$?; set -e
 [ $st = 2 ] && ok "term takes session options only with --shoot" || fail "term --env: status $st"
+# The session options reach the session term --shoot starts: only loopback
+# on its network, what it used written, and the machine's devices seen with
+# --no-sandbox.
+if bwrap --dev-bind / / --unshare-user --unshare-net true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
+  "$sb" term --shoot "$tmp/tnet.png" --net loopback --usage "$tmp/tused.json" --log "$tmp/tnet.log" \
+    --size 40x4 --when n= -- sh -c 'echo n=$(grep -c : /proc/net/dev).' >/dev/null 2>&1
+  "$sb" term --shoot "$tmp/tbox.png" --no-sandbox --log "$tmp/tbox.log" --size 40x4 -- \
+    sh -c "$look" >/dev/null
+  grep -aq 'n=1\.' "$tmp/tnet.log" && grep -q '"peak"' "$tmp/tused.json" \
+    && grep -aqE '/dev/snd|/run/user' "$tmp/tbox.log" \
+    && ok "term --shoot passes on --net, --usage and --no-sandbox" \
+    || fail "term --shoot: net [$(cat "$tmp/tnet.log")], usage [$(cat "$tmp/tused.json")], no sandbox [$(cat "$tmp/tbox.log")]"
+fi
 
 # A window by its app id: WM_CLASS, instance or class.
 "$sb" shoot "$tmp/app1.png" --window app=window.py -- "$here/window.py" t1 >/dev/null

@@ -108,6 +108,13 @@
   48 kHz 16-bit stereo, bit for bit for what plays in that format, on X11
   or Wayland, for `--seconds` (to the sample) or until stopped.
 
+### Fixed
+
+- **`term --shoot` passes on `--net`, `--usage` and `--no-sandbox`,**
+  which it took and then left out. It now gives shoot every session
+  option as it was given, read back through its own options, so one
+  added later reaches shoot too.
+
 ## 0.5.0 — 2026-10-14
 
 Holding keys and buttons, pictures as colorblind eyes see them, bursts, videos, and gamepads.
