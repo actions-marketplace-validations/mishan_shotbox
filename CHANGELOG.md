@@ -128,6 +128,9 @@
   added later reaches shoot too.
 - **`shoot` makes OUT's directory** if it isn't there, where it failed
   with a traceback.
+- **A recording's keeper killed outright** takes ffmpeg (and
+  wf-recorder) with it, ffmpeg finishing the file, rather than leaving
+  them recording after the session has gone.
 
 ## 0.5.0 — 2026-10-14
 

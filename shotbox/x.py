@@ -180,7 +180,7 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False):
             # frames and hands them on raw. -D takes one every refresh, not
             # only when something's drawn, or a still screen gives -r
             # nothing to make its frames from.
-            grab = ["wf-recorder", "-y", "-D", "-r", str(fps), "-g", f"{x},{y} {w}x{h}",
+            grab = ["wf-recorder", "-D", "-r", str(fps), "-g", f"{x},{y} {w}x{h}",
                     "-c", "rawvideo", "-m", "nut", "-f", "pipe:1"]
             cmd += ["-f", "nut", "-i", "pipe:0", "-r", str(fps)]
         else:
@@ -231,7 +231,21 @@ def ended(proc, out):
     return out
 
 
-def keep_recording(cmd, out, grab="null"):
+def tied(sig):
+    """For preexec_fn: the child gets `sig` when this process goes, however
+    it goes, rather than recording on for good."""
+    import ctypes
+    keeper = os.getpid()
+
+    def tie():
+        PR_SET_PDEATHSIG = 1
+        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, sig, 0, 0, 0)
+        if os.getppid() != keeper:      # it went before the line above took
+            os._exit(1)
+    return tie
+
+
+def keep_recording(cmd, out, grab):
     """Run the ffmpeg command `cmd` (JSON, without its output file) to
     record to `out`, reading what the command `grab` (JSON, or null)
     writes, and stop it with one signal, which it finishes the file on (a
@@ -242,23 +256,30 @@ def keep_recording(cmd, out, grab="null"):
     cmd, out, grab = json.loads(cmd), Path(out), json.loads(grab)
     tmp = tempfile.mkdtemp() if out.suffix.lower() == ".gif" else None
     video = Path(tmp) / "recording.mp4" if tmp else out
+    feed = None
     try:
         # What started this may have had Ctrl-C ignored (a job started with
         # &): ffmpeg's own handlers mustn't start out that way.
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, signal.SIG_DFL)
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
-        grab_err = tempfile.TemporaryFile()
-        feed = grab and subprocess.Popen(grab, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                         stderr=grab_err)
+        if grab:
+            grab_err = tempfile.TemporaryFile()
+            feed = subprocess.Popen(grab, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=grab_err, preexec_fn=tied(signal.SIGKILL))
+        # SIGTERM, so ffmpeg finishes the file.
         proc = subprocess.Popen(cmd + [str(video)], stderr=subprocess.PIPE,
-                                stdin=feed.stdout if feed else subprocess.DEVNULL)
+                                stdin=feed.stdout if feed else subprocess.DEVNULL,
+                                preexec_fn=tied(signal.SIGTERM))
         if feed:
             feed.stdout.close()
         sound = out.suffix.lower() == ".wav"
-        sock = (os.environ["PULSE_SERVER"].removeprefix("unix:") if sound else
-                str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"])) if feed
-                else None)
+        if sound:
+            sock = os.environ["PULSE_SERVER"].removeprefix("unix:")
+        elif feed:
+            sock = str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
+        else:
+            sock = None
         while proc.poll() is None:
             up = socket_up(sock) if sock else display_up(os.environ["DISPLAY"])
             if select.select([sys.stdin], [], [], 0.5)[0] or not up:
@@ -305,6 +326,9 @@ def keep_recording(cmd, out, grab="null"):
                 return 1
         return 0
     finally:
+        if feed:
+            feed.kill()
+            feed.wait()
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
 
