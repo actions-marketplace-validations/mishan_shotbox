@@ -23,6 +23,11 @@
 - **What's sealed**, in the README: what a session keeps from a program,
   and what it doesn't. And instructions to give an agent so it runs
   graphical programs, browsers and sound in a session.
+- **`wait match REF.png` and `wait change`**, with `--window`, `--crop`,
+  `--fuzz` and `--max`: wait until the screen looks like a picture, or
+  looks different from when the wait started, and say how long it took.
+  Also `Screen.wait_match` and `wait_change`, and MCP's `wait_for`,
+  whose picture to match is a file in the `--allow` file's directory.
 
 ## 0.5.0 — 2026-10-14
 

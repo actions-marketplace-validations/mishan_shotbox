@@ -144,7 +144,13 @@ and exits with its status. For scripts that take several pictures: inside,
 `shotbox wait window|port|file|ready|stable ARG` and `shotbox capture OUT.png
 [--window RE] [--crop G] [--park] [--vision KIND]` work on the session's
 display. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
-click, in place of a sleep. `capture --burst N [--every SECS] [--sheet
+click, in place of a sleep. `shotbox wait match REF.png [--window RE] [--crop
+G]` waits until it looks like a picture, for a screen with no other sign
+it's up (a boot, a login screen), and `shotbox wait change [--window RE]
+[--crop G]` until it looks different from the first picture the wait takes
+(a window still drawing is a picture too: `wait stable` first); each
+counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`), and prints how
+long it took. `capture --burst N [--every SECS] [--sheet
 FILE]` takes N pictures, to OUT-1.png, OUT-2.png..., one starting every SECS
 (or as fast as they come), and prints when each was taken; `--sheet` puts
 them in rows of four in one picture too. For what one picture can't show:
