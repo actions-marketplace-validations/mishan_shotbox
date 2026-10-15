@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-14
 
 Holding keys and buttons, pictures as colorblind eyes see them, bursts, videos, and gamepads.
 
