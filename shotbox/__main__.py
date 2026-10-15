@@ -82,6 +82,9 @@ def session_options(p, display=True):
     g.add_argument("--audio", action="store_true",
                    help="a PipeWire of the session's own, pulse protocol too, whose "
                         "one sink plays to nowhere")
+    g.add_argument("--net", choices=["loopback"],
+                   help="loopback: a network of the session's own, which its programs "
+                        "share, with nothing on it but them; needs bubblewrap")
     g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
                    help="run programs outside bubblewrap, for those that need setuid "
                         "helpers (sudo, AppImages); they can reach the machine's sound "
@@ -132,7 +135,7 @@ def make_session(a):
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
                    audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox,
-                   display=a.display)
+                   display=a.display, net=a.net)
 
 
 def self_command():

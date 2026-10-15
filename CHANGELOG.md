@@ -25,6 +25,11 @@
 
 ### Added
 
+- **`--net loopback`**: a network of the session's own, which every
+  program it runs shares and nothing else is on, for `run`, `shoot`,
+  `start`, `exec` and MCP's `start_session`: a server a test starts is
+  reached by the rest of the session, and from nowhere else. `wait port`
+  looks in it.
 - **`shotbox exec -- COMMAND`**: the session's seal with no display, for
   a headless browser or a test suite: its own environment, home and bus,
   under bubblewrap, and `--audio` if it's wanted.
