@@ -19,6 +19,10 @@
 - A session with a display wants ImageMagick, and one with X11 or
   Xwayland `xwininfo` and `xprop` (x11-utils), before it starts, rather
   than at its first wait or picture.
+- `Screen.record` returns a Recording, not the path: its `path`, and
+  with sound what was heard. It stands in for the path where one is
+  opened (`os.fspath`) and in `str()`, but `.suffix` and the rest of a
+  Path's are on `.path`.
 
 ### Changed
 
@@ -132,6 +136,15 @@
   frames over wlroots' screencopy and ffmpeg encodes them, as on X11.
   sway draws no pointer, so `--pointer` is refused there. The Action's
   `record` installs wf-recorder when `wayland` is on too.
+- **`shotbox record OUT.mp4 --sound`**, and .webm: in a session with
+  `--audio`, what plays too, in the same file, AAC in an MP4, Opus in a
+  WebM, by one ffmpeg, the sound in step with the picture from its first
+  frame, within a frame or so. Both are `--seconds` long, and it stops
+  the ways `record` does, the file finished. Then it says what `listen`
+  would of the sound: its level, clipping and dropouts, by `listen`'s
+  `--gap`, `--clipped` and `--quiet`, failing for them with `--strict`.
+  Also `Screen.record(..., sound=True)`, whose Recording has what
+  `shotbox.sound.hear` heard, and its `problems()`.
 
 ### Fixed
 

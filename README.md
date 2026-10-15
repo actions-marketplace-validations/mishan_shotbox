@@ -15,8 +15,9 @@ and lets whatever is driving it look, listen and act: read the accessible
 tree, take screenshots, record what it plays, click by a button's name,
 type, hold keys and gamepad buttons, and wait until the program is
 actually ready. Then measure what it finds: names a screen reader can't
-say, contrast, the Tab order, pixels changed against a reference, how
-fast it follows the pointer, where its sound drops out, and what it used.
+say, contrast, the Tab order, pixels changed against a reference, where
+it flickers, how fast it follows the pointer, where its sound drops out,
+and what it used.
 Nothing it runs reaches your desktop or speakers by accident, and with
 `--net loopback`, not your network either.
 
@@ -164,7 +165,7 @@ shotbox stop ed
 | [`term`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#term) | a terminal to take pictures of |
 | [`wait`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#run-wait-capture-and-record) | waits for a window, a port, a file, stillness, a picture, a change, a log line |
 | [`capture`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#run-wait-capture-and-record) | takes a picture, or a burst of them |
-| [`record`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#run-wait-capture-and-record) | records a video, or the sound |
+| [`record`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#run-wait-capture-and-record) | records a video, the sound, or both |
 | [`key`, `type`, `click`, `move`, `drag`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#key-type-click-move-drag-park-and-focus) | presses keys, types, works the pointer; [held](https://github.com/mishan/shotbox/blob/main/docs/commands.md#holding-keys-and-buttons) too |
 | [`park`, `focus`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#key-type-click-move-drag-park-and-focus) | moves the pointer out of the way; gives a window the keyboard |
 | [`latency`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#latency) | how fast what's drawn follows the pointer |
