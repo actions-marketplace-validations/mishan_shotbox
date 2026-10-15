@@ -215,6 +215,18 @@ the pointer parked, and measures each node in its bounds:
   drawn see-through looks the same; where GTK 3 says the text's color
   and what's drawn is a lighter shade of it, a failure says that color
   too, to tell which (GTK 4 doesn't say).
+  GTK 4.16 and later draw text with `gtk-font-rendering = automatic`
+  unless told otherwise, which ignores fontconfig's hinting and places
+  glyphs at fractions of a pixel: a stem thinner than a pixel covers
+  none whole, so small or spaced text is drawn fainter than its color,
+  by an amount that differs from one GTK release to the next (small
+  monospace set at 6.6:1 measures 4.9 on GTK 4.24; another project's
+  heading, set at 6.3:1, 5.7 there and 4.3 on 4.22). Sessions set
+  `gtk-font-rendering = manual`, which draws it at its color, so a
+  check passes or fails the same on any distribution. That's how the
+  text is set, not how GTK draws it on a desktop left at automatic: to
+  measure that, seed a home whose `.config/gtk-4.0/settings.ini` sets
+  `gtk-font-rendering = automatic` (`--seed`), which a session keeps.
   A control may draw its name or an icon, and GTK 3's and Qt's buttons
   keep their text to themselves, so the tree can't tell which: it's held
   to text's ratio. GTK 4 puts a label in a control that draws text, so a
