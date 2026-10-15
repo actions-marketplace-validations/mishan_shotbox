@@ -107,6 +107,9 @@
 - **`shotbox record OUT.wav`**: what plays in a session with `--audio`,
   48 kHz 16-bit stereo, bit for bit for what plays in that format, on X11
   or Wayland, for `--seconds` (to the sample) or until stopped.
+- **Recipes**, in docs/recipes.md: checking a change in a GUI, visual
+  regression in CI, an accessibility audit, a game smoke test and an
+  agent over MCP, each run as written.
 
 ### Fixed
 
