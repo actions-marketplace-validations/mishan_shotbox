@@ -19,6 +19,7 @@
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
     shotbox latency move X1 Y1 X2 Y2 --watch G      (inside a session) how fast it follows
+    shotbox flicker [--window RE] [--crop G]        (inside a session) find what flickers
     shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
@@ -719,6 +720,42 @@ def cmd_latency(argv):
     return 0
 
 
+def cmd_flicker(argv):
+    p = argparse.ArgumentParser(prog="shotbox flicker",
+                                description="Inside `shotbox run`: watch the screen, or a "
+                                            "window, for a part that keeps switching between "
+                                            "two looks (flicker), or flashes another look "
+                                            "once and comes back; fail if one does.")
+    p.add_argument("--window", metavar="RE")
+    p.add_argument("--crop", metavar="WxH+X+Y")
+    p.add_argument("--seconds", type=float, default=2, metavar="SECS",
+                   help="how long to watch (2)")
+    p.add_argument("--brief", type=float, default=100, metavar="MS",
+                   help="a look held no longer than this is brief (100): a caret's blink is "
+                        "longer")
+    p.add_argument("--times", type=int, default=4, metavar="N",
+                   help="brief changes between two looks, in a row, that are flicker (4)")
+    p.add_argument("--fuzz", type=float, default=6, metavar="PCT",
+                   help="tiles' mean colors this close are one look (6)")
+    p.add_argument("--tile", type=int, default=16, metavar="PX", help="tile size (16)")
+    p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
+                   help="leave out tiles in this box: a video, a caret (repeatable)")
+    a = p.parse_args(argv)
+    if not (a.seconds > 0 and a.brief > 0 and a.times >= 2 and a.tile >= 1 and a.fuzz >= 0):
+        p.error("--seconds, --brief and --tile are more than 0, --times 2 or more, --fuzz 0 "
+                "or more")
+    found = inside().flicker(a.seconds, window=a.window, crop=a.crop, tile=a.tile,
+                             brief=a.brief / 1000, times=a.times, fuzz=a.fuzz, ignore=a.ignore)
+    for f in found:
+        if f["kind"] == "flicker":
+            print(f"flicker: {f['box']}, {f['changes']} changes, every {f['every'] * 1000:.0f} "
+                  f"ms, {f['looks'][0]} and {f['looks'][1]}, from {f['at']:.3f}s")
+        else:
+            print(f"flash: {f['box']}, {f['looks'][1]} for {f['every'] * 1000:.0f} ms in "
+                  f"{f['looks'][0]}, at {f['at']:.3f}s")
+    return 1 if found else 0
+
+
 def cmd_focus(argv):
     p = argparse.ArgumentParser(prog="shotbox focus",
                                 description="Inside `shotbox run`: give a window the "
@@ -863,7 +900,8 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "vision": cmd_vision, "listen": cmd_listen, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
-            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "latency": cmd_latency, "pad": cmd_pad,
+            "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "latency": cmd_latency,
+            "flicker": cmd_flicker, "pad": cmd_pad,
             "a11y": a11y.main,
             "mcp": mcp.main,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
@@ -871,7 +909,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
 
 # What --session puts inside a lasting session.
 INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",
-          "pad", "a11y", "latency")
+          "pad", "a11y", "latency", "flicker")
 
 
 def main(argv=None):

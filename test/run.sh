@@ -448,6 +448,20 @@ st=$?; set -e
   && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
   && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
 
+# flicker: a square switching green and black every 30 ms flickers, at
+# that; one that blinks every half second, as a caret does, doesn't; one
+# black for 40 ms once flashed; and a still window, neither.
+flickered=""
+for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [23][0-9] ms, #000000 and #009900" "flip 500 0" \
+         "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-5][0-9] ms in #009900" "still - 0"; do
+  set -- $c
+  set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
+    '$sb' flicker --window fl --seconds 1.6"); st=$?; set -e
+  [ $st = "$3" ] && { [ -z "${4-}" ] || echo "$out" | grep -q "$4"; } || flickered="$flickered $1 $2 ($st: $out)"
+done
+[ -z "$flickered" ] && ok "flicker: switching every 30 ms, not every 500; a flash; a still window, neither" \
+  || fail "flicker:$flickered"
+
 # chords LOG [SESSION OPTIONS]: Shift in a chord, into cat in a terminal:
 # the symbol on the key's shifted level, as on a keyboard (A, !, +), and
 # Shift+Tab as the terminal's back-tab, ESC [ Z.

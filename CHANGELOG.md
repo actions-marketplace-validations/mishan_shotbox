@@ -77,6 +77,11 @@
 - **`shotbox latency move X1 Y1 X2 Y2 --watch G`**: how long what's
   drawn takes to follow the pointer, a move at a time, as the median and
   95th percentile; `Screen.latency` from Python.
+- **`shotbox flicker`**: a part of the screen that keeps switching
+  between two looks, or flashes another once, found from pictures taken
+  as fast as they come, a tile at a time, by its mean color and in time:
+  its box, how many changes, how often, and both colors.
+  `Screen.flicker` from Python.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
   `start`, `exec` and MCP's `start_session`: a server a test starts is

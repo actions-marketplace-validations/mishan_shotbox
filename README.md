@@ -249,6 +249,25 @@ later than that would have one taken for the next move's. The pointer itself isn
 pictures, so what's measured is what the program draws for it: a hover,
 or a pointer of its own, as an emulator draws.
 
+`shotbox flicker [--window RE] [--crop G] [--seconds 2]` watches for a
+part of the screen that keeps switching between two looks, or flashes
+another once and comes back, and fails if one does: a strip of the
+buffer a game isn't showing, say, or a frame drawn black. It takes
+pictures as fast as they come, cuts each into 16-pixel tiles
+(`--tile`), and takes a tile's mean color as its look, so a look that
+moves within itself, a game's frame, is still one look, within `--fuzz`
+(6%). A tile's looks are timed, not counted in pictures, since a program
+draws at its own rate: going A, B, A, B... with each held no longer than
+`--brief` (100 ms), `--times` changes (4) or more, is flicker, said with
+its box (whole tiles), how many changes, how often, and both colors; A,
+B, A once is a flash. A caret's half-second blink is neither, and an
+animation doesn't come back so soon; `--ignore G` leaves out a box that
+does on purpose, a video say:
+
+```
+flicker: 64x16+1216+592, 66 changes, every 30 ms, #000000 and #009900, from 0.022s
+```
+
 Keys and buttons can be held, for games and for anything that reacts to
 how long they're down. `shotbox key --hold SECS CHORD...` presses the
 chords together, keeps them down that long, and lets go, last first;
