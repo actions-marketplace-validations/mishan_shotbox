@@ -44,6 +44,12 @@
   two fresh sessions, and a failure if they differ, beyond `--fuzz` and
   `--max`, saying how many pixels and the box they're in, with
   `OUT-diff.png` beside OUT. If they're alike, one is kept as OUT.
+- **`--identity USER@HOST`**: who and where a session's programs are,
+  for `run`, `shoot`, `term`, `start`, `exec`, `Session(identity=...)`
+  and MCP's `start_session`: `hostname`, `uname -n`, `whoami`, `id
+  -un`, `getpwuid()`, `ls -l`'s owner, `$USER`, `$LOGNAME` and
+  `$HOSTNAME` say USER and HOST, so a picture doesn't show who took it.
+  It needs bubblewrap, and not `--no-sandbox`.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else

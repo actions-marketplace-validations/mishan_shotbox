@@ -97,6 +97,10 @@ def session_options(p, display=True):
                    help="loopback: a network of the session's own, which its programs "
                         "share, with nothing on it but them; needs bubblewrap, and not "
                         "--no-sandbox")
+    g.add_argument("--identity", metavar="USER@HOST",
+                   help="who and where programs are: whoami, ls -l's owner, hostname, "
+                        "$USER and $HOSTNAME say USER and HOST, not yours; needs "
+                        "bubblewrap, and not --no-sandbox")
     g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
                    help="run programs outside bubblewrap, for those that need setuid "
                         "helpers (sudo, AppImages); they can reach the machine's sound "
@@ -147,7 +151,8 @@ def make_session(a):
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
                    audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox,
-                   display=a.display, net=a.net, usage=bool(a.usage))
+                   display=a.display, net=a.net, usage=bool(a.usage),
+                   identity=a.identity)
 
 
 @contextlib.contextmanager

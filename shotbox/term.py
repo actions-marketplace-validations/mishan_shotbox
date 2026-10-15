@@ -118,7 +118,7 @@ def shoot(args):
     for opt, value in (("--failed", args.failed), ("--seed", args.seed),
                        ("--announce-log", args.announce_log), ("--text-scale", args.text_scale),
                        ("--gamepads", args.gamepads), ("--fuzz", args.fuzz),
-                       ("--max", args.max)):
+                       ("--max", args.max), ("--identity", args.identity)):
         if value is not None:
             outer += [opt, str(value)]
     for e in args.env:

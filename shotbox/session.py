@@ -40,6 +40,7 @@ The pieces, and why each one:
 
 import json
 import os
+import pwd
 import re
 import secrets
 import select
@@ -376,7 +377,7 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True, display=True, net=None, usage=False):
+                 sandbox=True, display=True, net=None, usage=False, identity=None):
         self.size = size
         self.measure = usage
         self._sampler = self._slice = None
@@ -391,6 +392,18 @@ class Session(Screen):
                                "session's network, setuid helpers can't work either")
         self.net = net
         self._net_pid = None    # a process in the session's network namespace, with net
+        m = re.fullmatch(r"([A-Za-z_][\w.-]{0,31})@([A-Za-z0-9][A-Za-z0-9.-]{0,63})",
+                         identity or "", re.ASCII)
+        if identity and not m:
+            raise SessionError("identity is USER@HOST, of letters, digits, '.', '-' and '_', "
+                               f"not {identity!r}")
+        if identity and not sandbox:
+            # Only bubblewrap can fake them: going on without, as for an
+            # unsealed session, would put the real names in the very
+            # pictures this is for.
+            raise SessionError("--identity and --no-sandbox don't go together: only "
+                               "bubblewrap can fake who and where programs are")
+        self.identity = m and m.groups()   # (user, host)
         self.display = display
         if not display and (wayland or xwayland or a11y or announce_log or dark or high_contrast
                             or text_scale or gamepads):
@@ -449,6 +462,8 @@ class Session(Screen):
         try:
             if self.measure:
                 self._start_usage()
+            if self.identity:
+                self._make_identity()
             if self.sandbox or self.gamepads:
                 self._probe_sandbox()
             if self.net:
@@ -519,6 +534,22 @@ class Session(Screen):
         return {"seconds": time.monotonic() - self._started, "programs": programs,
                 "session": self._sampler.read("session")}
 
+    def _make_identity(self):
+        """The machine's /etc/passwd and /etc/group, for programs to see,
+        with the session's uid and gid USER's, home the session's, and
+        nothing else called that: whoami, ls -l and getpwuid all say USER."""
+        user, uid, gid = self.identity[0], os.getuid(), os.getgid()
+        try:
+            shell = pwd.getpwuid(uid).pw_shell
+        except KeyError:
+            shell = "/bin/sh"
+        home = self.scratch / "home"
+        for name, id_, ours in (("passwd", uid, f"{user}:x:{uid}:{gid}:{user}:{home}:{shell}"),
+                                ("group", gid, f"{user}:x:{gid}:")):
+            kept = [line for line in Path("/etc", name).read_text().splitlines()
+                    if line.split(":")[0] != user and line.split(":")[2:3] != [str(id_)]]
+            (self.scratch / name).write_text("\n".join([*kept, ours]) + "\n")
+
     def _make_home(self):
         home = self.scratch / "home"
         if self.seed:
@@ -559,8 +590,12 @@ class Session(Screen):
         for _ in range(20):
             n = free_display(skip=taken)
             taken.add(n)
-            subprocess.run(["xauth", "-q", "-f", str(xauth), "add", f":{n}", ".", cookie],
-                           check=True)
+            # For any hostname (xauth add's is the machine's): a program
+            # with an --identity looks for its own.
+            num = str(n).encode().hex()
+            subprocess.run(["xauth", "-q", "-f", str(xauth), "nmerge", "-"], check=True, text=True,
+                           input=f"ffff 0000  {len(num) // 2:04x} {num} 0012 "
+                                 f"{b'MIT-MAGIC-COOKIE-1'.hex()} 0010 {cookie}\n")
             r, w = os.pipe()
             w_, h = self.size
             proc = subprocess.Popen(
@@ -695,6 +730,9 @@ class Session(Screen):
             # its HIDAPI drivers would read the machine's controllers from.
             env["SDL_JOYSTICK_DISABLE_UDEV"] = "1"
             env["SDL_JOYSTICK_HIDAPI"] = "0"
+        if self.identity:
+            user, host = self.identity
+            env.update(USER=user, LOGNAME=user, HOSTNAME=host)
         if bus:
             env["DBUS_SESSION_BUS_ADDRESS"] = bus
         if sysbus:
@@ -874,6 +912,8 @@ class Session(Screen):
                           or f"status {probe.returncode}"))
         if why and self.gamepads:
             raise SessionError(f"gamepads need bubblewrap to make a sandbox, and {why}")
+        if why and self.identity:
+            raise SessionError(f"--identity needs bubblewrap to make a sandbox, and {why}")
         kept = [d for d in self._runtime_dirs() if self.scratch.resolve().is_relative_to(d)]
         if why:
             self.unsealed = ("programs run without a sandbox, so they can reach the "
@@ -928,6 +968,11 @@ class Session(Screen):
                 args += ["--ro-bind", masked, str(node)]
         if (dev / "bus/usb").is_dir():
             args += ["--tmpfs", "/dev/bus/usb"]
+        if self.identity:
+            # A UTS namespace each, every one with the same name in it.
+            args += ["--unshare-uts", "--hostname", self.identity[1]]
+            for name in ("passwd", "group"):
+                args += ["--ro-bind", str(self.scratch / name), f"/etc/{name}"]
         # Found on shotbox's PATH, where the session checked for it: the
         # session's PATH is the program's. Not --die-with-parent: Linux
         # sends that when the thread that started bwrap ends, which can be

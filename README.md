@@ -256,8 +256,8 @@ with other keys shifts them too, and a key held past the repeat delay
 way, but with no display: for what draws nothing, a headless browser or a
 test suite, which should reach neither your desktop nor your speakers. It
 takes the session options that aren't about a display: `--env`, `--pass`,
-`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio`, `--net` and
-`--no-sandbox`.
+`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio`, `--net`,
+`--identity` and `--no-sandbox`.
 
 **`shotbox start [--name NAME] [options]`** starts a session that lasts
 until `shotbox stop NAME`, and prints its name (`s1`, `s2`... without
@@ -292,8 +292,9 @@ nowhere, so a program that makes sound has somewhere to play it (without
 it there's no sound server at all); `--gamepads N` for
 [gamepads](#gamepads); `--usage [FILE]` to say, when it stops, what its programs used, and
 its own processes (see below); `--net loopback` for a network of the session's own
-(see [What's sealed](#whats-sealed)); `--no-sandbox` for a program that needs a setuid
-helper (see [What's sealed](#whats-sealed)); and the display presets:
+(see [What's sealed](#whats-sealed)); `--identity USER@HOST` for a user and host name
+that aren't yours (see [What's sealed](#whats-sealed)); `--no-sandbox` for a program that
+needs a setuid helper (see [What's sealed](#whats-sealed)); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
 - `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
@@ -362,6 +363,17 @@ Not sealed:
   anything outside them. `wait port` looks there, from inside the
   session or out. It needs bubblewrap, and `nsenter`, and fails without;
   and not `--no-sandbox`, since setuid helpers can't work in it either.
+- Who and where you are, unless `--identity USER@HOST`: a shell's
+  prompt, `ls -l` and a title bar show your user and host name. With
+  it, programs see USER and HOST however they ask: `hostname`, `uname
+  -n` and `gethostname()` (each program in a UTS namespace of its own,
+  all with the one name), `whoami`, `id -un`, `getpwuid()` and `ls -l`'s
+  owner (an `/etc/passwd` and `/etc/group` of the session's, the
+  machine's with your uid and gid called USER, the scratch home theirs),
+  and `$USER`, `$LOGNAME` and `$HOSTNAME`. It needs bubblewrap, and
+  fails without, rather than take a picture with your names in it; and
+  not `--no-sandbox`. `Session(identity="USER@HOST")` from Python, and
+  `start_session`'s `identity` over MCP.
 - The machine's system bus, unless `--system-bus`: logind,
   NetworkManager and the rest, which may let a program in your desktop's
   session suspend or power off the machine.

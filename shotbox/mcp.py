@@ -208,7 +208,7 @@ class Server:
 
     def start_session(self, name=None, a11y=True, wayland=False, xwayland=False,
                       dark=False, high_contrast=False, text_scale=None, audio=False,
-                      screen="1280x800", gamepads=0, net=None, usage=False):
+                      screen="1280x800", gamepads=0, net=None, usage=False, identity=None):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
         if name in self.sessions:
@@ -221,7 +221,7 @@ class Server:
                     high_contrast=flag(high_contrast),
                     text_scale=number(text_scale, "text_scale"), audio=flag(audio),
                     gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0,
-                    net=text(net), usage=flag(usage))
+                    net=text(net), usage=flag(usage), identity=text(identity))
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
@@ -230,6 +230,7 @@ class Server:
                 + (", with an accessibility bus" if s.a11y else ", no accessibility bus")
                 + (f", {s.gamepads} gamepad{'s' * (s.gamepads > 1)}" if s.gamepads else "")
                 + (", a network of its own, loopback only" if s.net else "")
+                + (", its programs running as {}@{}".format(*s.identity) if s.identity else "")
                 + f". Programs it can spawn: {progs}."
                 + (f" Note: {s.unsealed}." if s.unsealed else ""))
 
@@ -556,6 +557,8 @@ TOOLS = [
                           "description": "Virtual Xbox 360 pads, 0 to 4, for the gamepad tool"},
              "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"},
              "net": {"type": "string", "enum": ["loopback"]},
+             "identity": {"type": "string", "description": "USER@HOST: who and where its "
+                          "programs are, for whoami, hostname, ls -l and $USER"},
              "usage": {"type": "boolean", "description": "Say, when it's stopped, what its "
                        "programs used: peak memory and CPU time"}})),
     ("stop_session", "Stop a session and everything running in it.",
