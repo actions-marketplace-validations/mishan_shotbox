@@ -273,7 +273,7 @@ def enter(name):
 def main(argv):
     import argparse
 
-    from .__main__ import make_session, session_options
+    from .__main__ import make_session, say_usage, session_options
     p = argparse.ArgumentParser(prog="shotbox start",
                                 description="Start a session that lasts until "
                                             "`shotbox stop NAME`, and say its name. "
@@ -288,6 +288,7 @@ def main(argv):
         check(a.serve)
         with make_session(a) as s:
             serve(a.serve, s, keep=a.keep)
+        say_usage(a, s)
         return 0
     print(start(a.name, argv))
     return 0

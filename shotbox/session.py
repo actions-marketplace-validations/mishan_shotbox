@@ -51,7 +51,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import wl
+from . import usage, wl
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
 # Passed through from the caller unless told otherwise. Everything else is
@@ -376,8 +376,11 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True, display=True, net=None):
+                 sandbox=True, display=True, net=None, usage=False):
         self.size = size
+        self.measure = usage
+        self._sampler = self._slice = None
+        self.used = None        # what usage() said as the session stopped
         if net not in (None, "loopback"):
             raise SessionError(f"net is loopback or nothing, not {net!r}")
         if net and not sandbox:
@@ -443,6 +446,8 @@ class Session(Screen):
                                "a shorter one")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
+            if self.measure:
+                self._start_usage()
             if self.sandbox or self.gamepads:
                 self._probe_sandbox()
             if self.net:
@@ -478,10 +483,36 @@ class Session(Screen):
                 self._start_audio()
             if self.gamepads:
                 self._start_pads()
+            if self._sampler:
+                for proc in self._procs:
+                    self._sampler.add("session", proc.pid)
         except BaseException:
             self.__exit__(None, None, None)
             raise
         return self
+
+    def _start_usage(self):
+        """Count what the session's programs use, in a systemd slice of
+        theirs where the user's systemd can make one, and what its own
+        processes do, read from /proc."""
+        self._started = time.monotonic()
+        self._sampler = usage.Sampler()
+        if shutil.which("systemd-run"):
+            try:
+                self._slice = usage.Slice(self.scratch.name)
+            except OSError:
+                pass
+
+    def usage(self):
+        """With usage, what the session's programs and its own processes
+        have used so far: {"seconds": since it started, "programs" and
+        "session": {"peak": bytes of memory, all at once, at most, "cpu":
+        seconds, "how": "cgroup" or "sampled"}}; else None."""
+        if not self._sampler:
+            return None
+        programs = self._slice.read() if self._slice else self._sampler.read("programs")
+        return {"seconds": time.monotonic() - self._started, "programs": programs,
+                "session": self._sampler.read("session")}
 
     def _make_home(self):
         home = self.scratch / "home"
@@ -948,8 +979,12 @@ class Session(Screen):
             if self._net_pid:
                 cmd = [shutil.which("nsenter") or "nsenter", "-t", str(self._net_pid), "-U", "-n",
                        "--preserve-credentials", "--", *cmd]
+            if self._slice:
+                cmd = self._slice.wrap(cmd, self.env)
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,
                                     start_new_session=True, **kw)
+            if self._sampler and not self._slice:
+                self._sampler.add("programs", proc.pid)
         except OSError as e:
             if info is not None:
                 os.close(info)
@@ -976,8 +1011,13 @@ class Session(Screen):
 
     def __exit__(self, *exc):
         self.close()
+        if self._sampler:
+            self.used = self.usage()
         for proc in reversed(self._procs):
             kill_group(proc)
+        for meter in (self._sampler, self._slice):
+            if meter:
+                meter.close()
         if self.scratch and self.scratch.exists():
             if self.keep:
                 print(f"shotbox: kept {self.scratch}")

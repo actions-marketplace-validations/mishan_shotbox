@@ -68,6 +68,15 @@ print(urllib.request.urlopen('http://127.0.0.1:$port/').status, open('/proc/net/
     || fail "--net loopback: $(cat "$tmp/net.log")"
   "$sb" stop "$net"
 fi
+# --usage: what a program used, its 300 MB at once among it, and what the
+# session's own processes did, said and written as JSON.
+"$sb" run --usage "$tmp/used.json" -- python3 -c "import time; x = bytearray(300 * 2**20)
+time.sleep(0.5)" 2> "$tmp/err"
+python3 -c "import json, sys; u = json.load(open('$tmp/used.json'))
+sys.exit(not (u['programs']['peak'] > 300 * 2**20 and u['session']['peak'] > 0
+              and u['programs']['how'] in ('cgroup', 'sampled')))" \
+  && grep -q "^shotbox: used, over " "$tmp/err" && ok "--usage: a program's peak memory, and the session's own" \
+  || fail "--usage: $(cat "$tmp/err" "$tmp/used.json")"
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"
 set +e; "$sb" run -- sh -c 'exit 7'; st=$?; set -e

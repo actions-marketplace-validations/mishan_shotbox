@@ -256,7 +256,8 @@ for a [Wayland](#wayland) session; `--a11y` for an
 session's own, speaking the pulse protocol too, whose one sink plays to
 nowhere, so a program that makes sound has somewhere to play it (without
 it there's no sound server at all); `--gamepads N` for
-[gamepads](#gamepads); `--net loopback` for a network of the session's own
+[gamepads](#gamepads); `--usage [FILE]` to say, when it stops, what its programs used, and
+its own processes (see below); `--net loopback` for a network of the session's own
 (see [What's sealed](#whats-sealed)); `--no-sandbox` for a program that needs a setuid
 helper (see [What's sealed](#whats-sealed)); and the display presets:
 
@@ -268,6 +269,25 @@ helper (see [What's sealed](#whats-sealed)); and the display presets:
 
 Each is off unless asked for, so pictures without them don't change.
 Reduced motion needs no preset: GTK's animations are always off.
+
+### Resource use
+
+`--usage` says, when the session stops, what its programs used, all of
+them together, and, apart, what its own processes did (its display,
+buses and sound server): peak memory and CPU time, over how long:
+
+```
+shotbox: used, over 41.0s: its programs peak memory 1412 MB, CPU 12.3s (cgroup); the session's own peak memory 81 MB, CPU 0.4s (sampled)
+```
+
+`--usage FILE` writes it as JSON too, for comparing runs; with `start`,
+it's written there when the session stops. Where the user's systemd can
+make scopes (`systemd-run --user`), each program runs in one, in a slice
+of the session's, which counts every process it ever had, a spike that
+lasts a moment included: `cgroup`. Elsewhere, and for the session's own
+processes, `/proc` is read ten times a second, and a peak between reads
+is missed: `sampled`. From Python, `Session(usage=True)` and its
+`usage()`; over MCP, `start_session`'s `usage`, said when it's stopped.
 
 ### What's sealed
 

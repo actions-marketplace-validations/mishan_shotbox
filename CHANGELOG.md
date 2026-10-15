@@ -25,6 +25,11 @@
 
 ### Added
 
+- **`--usage [FILE]`**: what a session's programs used, together, and
+  apart, its own processes: peak memory and CPU time, from a systemd
+  slice of the session's where the user's systemd can make one, else
+  read from `/proc`; as JSON to FILE. `Session(usage=True)` and MCP's
+  `start_session` take it too.
 - **`--net loopback`**: a network of the session's own, which every
   program it runs shares and nothing else is on, for `run`, `shoot`,
   `start`, `exec` and MCP's `start_session`: a server a test starts is
