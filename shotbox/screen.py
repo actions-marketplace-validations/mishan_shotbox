@@ -136,6 +136,44 @@ class Screen:
     def wait_file(self, path, timeout=30):
         self.until(*self.test("file", path), timeout)
 
+    def wait_line(self, pattern, path, from_start=False, timeout=30):
+        """Wait for a line of the file at `path` that matches `pattern` (a
+        regex, found anywhere in it), written after the wait starts, or with
+        `from_start`, anywhere in the file: for a program that logs what
+        happens, a line an event, where its clock isn't the wall's. A file
+        not there yet is waited for, and one replaced (rotated, or written
+        again from the top) is read from its start. A line counts once it
+        ends. The line."""
+        found = re.compile(pattern)
+        ino, pos, rest, old = None, 0, b"", False
+        if not from_start:
+            with contextlib.suppress(FileNotFoundError):
+                st = os.stat(path)
+                # From its last byte: what ends the line that's in is old.
+                ino, pos, old = st.st_ino, max(st.st_size - 1, 0), st.st_size > 0
+
+        def line():
+            nonlocal ino, pos, rest, old
+            try:
+                with open(path, "rb") as f:
+                    st = os.fstat(f.fileno())
+                    if st.st_ino != ino or st.st_size < pos:
+                        ino, pos, rest, old = st.st_ino, 0, b"", False
+                    f.seek(pos)
+                    got = f.read()
+            except FileNotFoundError:
+                return None
+            pos += len(got)
+            *lines, rest = (rest + got).split(b"\n")
+            if lines:
+                lines, old = lines[old:], False
+            for got in lines:
+                got = got.decode(errors="replace").removesuffix("\r")
+                if found.search(got):
+                    return [got]   # in a list: an empty line can match too
+            return None
+        return self.until(f"a line matching {pattern!r} in {path}", line, timeout)[0]
+
     def wait_ready(self, timeout=30):
         """Wait for $SHOTBOX_SCRATCH/ready, which `shotbox term` writes."""
         self.until(*self.test("ready"), timeout)

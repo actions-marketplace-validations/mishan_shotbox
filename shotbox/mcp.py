@@ -402,8 +402,24 @@ class Server:
                           f"there; there's no file {value!r} in it")
         return path
 
+    def log(self, file):
+        """The file a line wait reads: in the allow file's directory, where
+        the programs start, and nowhere else an agent could have it read. It
+        needn't be there yet."""
+        if file is None:
+            raise Refused("wait_for line needs a file: the one the line is written to")
+        if self.home is None:
+            raise Refused("wait_for line reads a file in the --allow file's directory, "
+                          "and shotbox mcp was given no --allow file")
+        home = Path(self.home).resolve()
+        path = (home / str(file)).resolve()
+        if not path.is_relative_to(home):
+            raise Refused(f"wait_for line reads a file in {home}, by its path from there, "
+                          f"not {file!r}")
+        return path
+
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
-                 fuzz=None, most=None):
+                 fuzz=None, most=None, file=None, from_start=False):
         s = self.session(session)
         # Each call holds the server till it's done: not for long.
         timeout = number(timeout, "timeout", 0, 300) or 10
@@ -432,8 +448,10 @@ class Server:
             n = self.a11y_session(session).wait_focus(str(value), timeout=timeout,
                                                       window=text(window))
             return f"The focus is on {n.line()}."
-        raise Refused(f"wait_for waits for a window, stable, an announcement, focus, match "
-                      f"or change, not {what!r}")
+        if what == "line":
+            return s.wait_line(str(value), self.log(file), flag(from_start), timeout)
+        raise Refused(f"wait_for waits for a window, stable, an announcement, focus, match, "
+                      f"change or a line, not {what!r}")
 
     # --- checking ------------------------------------------------------------
 
@@ -626,14 +644,20 @@ TOOLS = [
      "reader), focus (value: a regex for the name of the node with the keyboard focus), "
      "match (value: a PNG in the directory of the server's allow file, by its path from "
      "there, that the screen, or the window, cropped to crop, should look like: no more than most pixels, 0, differing by more than fuzz percent, 0), or "
-     "change (from how it looked when the wait started, by more than that). match and "
-     "change say how long they took. Fails after timeout seconds (10), saying so.",
+     "change (from how it looked when the wait started, by more than that), or "
+     "line (value: a regex found in a line of file, by its path from the allow file's "
+     "directory, written after the wait starts, or with from_start, anywhere in it: for a "
+     "program that logs its events, rather than a sleep; a file not there yet is waited "
+     "for, and one rotated or rewritten is read from the top). match and change say how "
+     "long they took; line answers with the line. Fails after timeout seconds (10), "
+     "saying so.",
      schema({"session": SESSION,
              "what": {"type": "string", "enum": ["window", "stable", "announcement", "focus",
-                                                 "match", "change"]},
+                                                 "match", "change", "line"]},
              "value": {"type": "string"}, "window": WINDOW, "timeout": {"type": "number"},
              "crop": {"type": "string", "description": "WxH+X+Y"},
-             "fuzz": {"type": "number"}, "most": {"type": "integer"}},
+             "fuzz": {"type": "number"}, "most": {"type": "integer"},
+             "file": {"type": "string"}, "from_start": {"type": "boolean"}},
             ["session", "what"])),
     ("lint",
      "Nodes a screen reader has no name to say for: controls, images (not inside a named "
