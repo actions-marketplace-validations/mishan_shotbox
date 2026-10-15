@@ -388,18 +388,18 @@ NEEDS = {
     "--net": lambda: lacks("bwrap", "nsenter"),
     "term": lambda: bindings(*VTE),
     "record": lambda: lacks("ffmpeg"),
+    "--clock": lambda: None if faketime() else ("the session's clock needs libfaketime, "
+                                                "and there's no libfaketime.so.1 here"),
 }
 
 
 def faketime():
     """libfaketime's library, wherever the distribution put it: this
-    machine's multiarch dir, guessed where Python wasn't told it."""
+    machine's multiarch dir, guessed where Python wasn't told it; or None."""
     arch = sysconfig.get_config_var("MULTIARCH") or os.uname().machine + "-*"
     for d in (f"/usr/lib/{arch}", "/usr/lib64", "/usr/lib", "/usr/local/lib"):
         for lib in sorted(glob.glob(f"{d}/faketime/libfaketime.so.1")):
             return lib
-    raise SessionError("the session's clock needs libfaketime, and there's no "
-                       "libfaketime.so.1 here")
 
 
 def free_display(skip=()):
@@ -565,7 +565,8 @@ class Session(Screen):
             parts.append("--wayland" if self.use_wayland else "X11")
         parts += [p for p, on in (("--xwayland", self.xwayland), ("--desktop", self.desktop),
                                   ("--a11y", self.a11y), ("--audio", self.audio),
-                                  ("--gamepads", self.gamepads), ("--net", self.net)) if on]
+                                  ("--gamepads", self.gamepads), ("--net", self.net),
+                                  ("--clock", self.clock is not None)) if on]
         why = next(filter(None, (NEEDS[p]() for p in parts)), None)
         if why:
             raise SessionError(why)
