@@ -208,7 +208,7 @@ class Server:
 
     def start_session(self, name=None, a11y=True, wayland=False, xwayland=False,
                       dark=False, high_contrast=False, text_scale=None, audio=False,
-                      screen="1280x800", gamepads=0):
+                      screen="1280x800", gamepads=0, net=None):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
         if name in self.sessions:
@@ -220,7 +220,8 @@ class Server:
                     xwayland=flag(xwayland), dark=flag(dark),
                     high_contrast=flag(high_contrast),
                     text_scale=number(text_scale, "text_scale"), audio=flag(audio),
-                    gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0)
+                    gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0,
+                    net=text(net))
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
@@ -228,6 +229,7 @@ class Server:
         return (f"Session {name!r} is up: {kind}, {m[1]}x{m[2]}"
                 + (", with an accessibility bus" if s.a11y else ", no accessibility bus")
                 + (f", {s.gamepads} gamepad{'s' * (s.gamepads > 1)}" if s.gamepads else "")
+                + (", a network of its own, loopback only" if s.net else "")
                 + f". Programs it can spawn: {progs}."
                 + (f" Note: {s.unsealed}." if s.unsealed else ""))
 
@@ -522,7 +524,9 @@ TOOLS = [
      "reaches it. Start one, spawn a program in it, then look with accessible_tree (cheap, "
      "text) before screenshot (pixels). It lasts until stop_session, or until this server "
      "stops. dark, high_contrast and text_scale (1.25) set the desktop's styles for GTK and "
-     "libadwaita; audio gives it a sound server whose sink plays to nowhere.",
+     "libadwaita; audio gives it a sound server whose sink plays to nowhere; net loopback "
+     "a network of its own, which its programs share and nothing else is on: a server "
+     "they start can't be reached from outside, nor can they reach anything.",
      schema({"name": {"type": "string", "description": "What to call it (s1, s2... by default)"},
              "a11y": {"type": "boolean", "description": "An accessibility bus (default true)"},
              "wayland": {"type": "boolean"}, "xwayland": {"type": "boolean"},
@@ -530,7 +534,8 @@ TOOLS = [
              "text_scale": {"type": "number"}, "audio": {"type": "boolean"},
              "gamepads": {"type": "integer",
                           "description": "Virtual Xbox 360 pads, 0 to 4, for the gamepad tool"},
-             "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"}})),
+             "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"},
+             "net": {"type": "string", "enum": ["loopback"]}})),
     ("stop_session", "Stop a session and everything running in it.",
      schema({"session": SESSION}, ["session"])),
     ("spawn",

@@ -86,7 +86,8 @@ class Screen:
         if kind == "window":
             return f"a {x.matcher(arg)[1]}", lambda: self.backend.find_window(self.env, arg)
         if kind == "port":
-            return f"port {arg}", lambda: x.port_open(int(arg))
+            return f"port {arg}", lambda: x.port_open(int(arg),
+                                                      net_pid=self.env.get("SHOTBOX_NET_PID"))
         if kind == "file":
             return f"{arg} to exist", lambda: Path(arg).exists()
         if kind == "ready":

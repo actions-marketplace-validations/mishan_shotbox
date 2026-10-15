@@ -25,6 +25,11 @@
 
 ### Added
 
+- **`--net loopback`**: a network of the session's own, which every
+  program it runs shares and nothing else is on, for `run`, `shoot`,
+  `start`, `exec` and MCP's `start_session`: a server a test starts is
+  reached by the rest of the session, and from nowhere else. `wait port`
+  looks in it.
 - **`shotbox listen IN.wav`**: a recording's peak and RMS level, samples
   clipped, and gaps, where a program fell behind and left the sink
   silent; it fails on any, or on silence. `shotbox.sound.hear` from

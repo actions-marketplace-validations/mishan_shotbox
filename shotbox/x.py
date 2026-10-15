@@ -75,7 +75,15 @@ def find_window(env, spec):
     return max(hits, key=lambda w: w[2] * w[3]) if hits else None
 
 
-def port_open(port, host="127.0.0.1"):
+def port_open(port, host="127.0.0.1", net_pid=None):
+    """Whether something takes connections on `port`: here, or with
+    `net_pid`, in that process's network namespace, as its TCP tables say,
+    which needs no way into it."""
+    if net_pid:
+        tables = [Path(f"/proc/{net_pid}/net/{t}") for t in ("tcp", "tcp6")]
+        return any(line.split()[1].rsplit(":", 1)[1] == f"{port:04X}"
+                   and line.split()[3] == "0A"     # listening
+                   for t in tables if t.exists() for line in t.read_text().splitlines()[1:])
     with socket.socket() as s:
         s.settimeout(0.2)
         return s.connect_ex((host, port)) == 0

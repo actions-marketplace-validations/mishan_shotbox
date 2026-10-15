@@ -51,6 +51,23 @@ if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
       && ok "a program run from where it's hidden, refused" || fail "hidden cwd: $st $(cat "$tmp/err")"
   fi
 fi
+# --net loopback: one network for all the session's programs, a server one
+# starts reached from another and seen by a wait from outside, with only
+# loopback on it, and not reached from the machine.
+if bwrap --dev-bind / / --unshare-user --unshare-net true 2>/dev/null && command -v nsenter >/dev/null; then
+  port=$((20000 + $$ % 10000)); net=net$$
+  "$sb" start --name "$net" --net loopback >/dev/null
+  "$sb" spawn --session "$net" -- python3 -m http.server $port --bind 127.0.0.1 >/dev/null
+  "$sb" --session "$net" wait port $port --timeout 10 >/dev/null \
+    && "$sb" spawn --session "$net" --log "$tmp/net.log" -- python3 -c "import urllib.request
+print(urllib.request.urlopen('http://127.0.0.1:$port/').status, open('/proc/net/dev').read().count(':'))" >/dev/null
+  n=0; until [ -s "$tmp/net.log" ] || [ $n = 50 ]; do sleep 0.1; n=$((n + 1)); done
+  python3 -c "import socket, sys; sys.exit(socket.socket().connect_ex(('127.0.0.1', $port)) == 0)" \
+    && [ "$(cat "$tmp/net.log")" = "200 1" ] \
+    && ok "--net loopback: the session's programs share a network of their own" \
+    || fail "--net loopback: $(cat "$tmp/net.log")"
+  "$sb" stop "$net"
+fi
 scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"
 set +e; "$sb" run -- sh -c 'exit 7'; st=$?; set -e

@@ -208,7 +208,7 @@ with other keys shifts them too, and a key held past the repeat delay
 way, but with no display: for what draws nothing, a headless browser or a
 test suite, which should reach neither your desktop nor your speakers. It
 takes the session options that aren't about a display: `--env`, `--pass`,
-`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio` and
+`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio`, `--net` and
 `--no-sandbox`.
 
 **`shotbox start [--name NAME] [options]`** starts a session that lasts
@@ -242,7 +242,8 @@ for a [Wayland](#wayland) session; `--a11y` for an
 session's own, speaking the pulse protocol too, whose one sink plays to
 nowhere, so a program that makes sound has somewhere to play it (without
 it there's no sound server at all); `--gamepads N` for
-[gamepads](#gamepads); `--no-sandbox` for a program that needs a setuid
+[gamepads](#gamepads); `--net loopback` for a network of the session's own
+(see [What's sealed](#whats-sealed)); `--no-sandbox` for a program that needs a setuid
 helper (see [What's sealed](#whats-sealed)); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
@@ -279,7 +280,14 @@ Sealed:
 Not sealed:
 - The files: the filesystem is the machine's, readable and writable as
   you, outside the scratch home.
-- The network: a server bound to `0.0.0.0` is on your network.
+- The network, unless `--net loopback`: a server bound to `0.0.0.0` is
+  on your network, and a program reaches whatever you can. With `--net
+  loopback`, the session has a network of its own, which every program
+  it runs shares and nothing else is on: a dev server and the browser
+  testing it reach each other on `127.0.0.1`, and nothing outside, nor
+  anything outside them. `wait port` looks there, from inside the
+  session or out. It needs bubblewrap, and `nsenter`, and fails without;
+  and not `--no-sandbox`, since setuid helpers can't work in it either.
 - The machine's system bus, unless `--system-bus`: logind,
   NetworkManager and the rest, which may let a program in your desktop's
   session suspend or power off the machine.

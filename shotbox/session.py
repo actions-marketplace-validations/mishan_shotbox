@@ -376,8 +376,17 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True, display=True):
+                 sandbox=True, display=True, net=None):
         self.size = size
+        if net not in (None, "loopback"):
+            raise SessionError(f"net is loopback or nothing, not {net!r}")
+        if net and not sandbox:
+            # Programs join its namespace as a user namespace's, where a
+            # setuid helper can't work: what --no-sandbox is for.
+            raise SessionError("--net loopback and --no-sandbox don't go together: in the "
+                               "session's network, setuid helpers can't work either")
+        self.net = net
+        self._net_pid = None    # a process in the session's network namespace, with net
         self.display = display
         if not display and (wayland or xwayland or a11y or announce_log or dark or high_contrast
                             or text_scale or gamepads):
@@ -436,6 +445,8 @@ class Session(Screen):
         try:
             if self.sandbox or self.gamepads:
                 self._probe_sandbox()
+            if self.net:
+                self._start_net()
             self._make_home()
             # What the buses run what they activate with, until there's a
             # display and a bus to add: never the caller's.
@@ -639,6 +650,9 @@ class Session(Screen):
             SHOTBOX_SCRATCH=str(self.scratch),
         )
         env.update(graphics)
+        if self._net_pid:
+            # For `wait port` from outside, to look in the session's network.
+            env["SHOTBOX_NET_PID"] = str(self._net_pid)
         if self.gamepads:
             # SDL finds the pads in /dev/input itself; asked, udev would name
             # the machine's, which aren't there. Nor are the raw HID devices
@@ -781,6 +795,33 @@ class Session(Screen):
             raise SessionError(got["error"])
         self._pad_nodes = got
 
+    def _start_net(self):
+        """A network namespace of the session's own, for every program it
+        runs to join, so they reach each other and nothing else: a process
+        sleeping in it, which bwrap makes, bringing its loopback up. A
+        namespace of each program's own would keep them apart too."""
+        need("bwrap", "nsenter")
+        r, w = os.pipe()
+        proc = subprocess.Popen(["bwrap", "--dev-bind", "/", "/", "--unshare-user",
+                                 "--unshare-net", "--info-fd", str(w), "--", "sleep", "infinity"],
+                                pass_fds=(w,), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                start_new_session=True)
+        os.close(w)
+        self._procs.append(proc)
+        pid = sandboxed_pid(r, proc)
+        if proc.poll() is not None or pid == proc.pid:
+            slow = proc.poll() is None
+            if slow:
+                proc.kill()
+                proc.wait()
+            said = proc.stderr.read().decode(errors="replace").strip()
+            raise SessionError("--net loopback needs bubblewrap to make a network namespace, "
+                               "and it can't here (are unprivileged user namespaces "
+                               "allowed?): " + (said or "it didn't say it had one in 5s"
+                                                if slow else said or f"status {proc.returncode}"))
+        self._net_pid = pid
+
     def _probe_sandbox(self):
         """Run programs under bubblewrap if it can make a sandbox here. Gamepads
         need one; without them, the session goes on without, saying so."""
@@ -904,6 +945,9 @@ class Session(Screen):
                 info, w = os.pipe()
                 kw["pass_fds"] = (*kw.get("pass_fds", ()), w)
                 cmd = [*self._sandbox(), "--info-fd", str(w), "--", *cmd]
+            if self._net_pid:
+                cmd = [shutil.which("nsenter") or "nsenter", "-t", str(self._net_pid), "-U", "-n",
+                       "--preserve-credentials", "--", *cmd]
             proc = subprocess.Popen(cmd, env=self.env, stdout=out, stderr=out,
                                     start_new_session=True, **kw)
         except OSError as e:
