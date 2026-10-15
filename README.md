@@ -210,7 +210,8 @@ then prints the median and the 95th percentile. On X11 that's to within
 a millisecond or so; on Wayland, grim takes its picture late in its run,
 and moves read a few milliseconds long. Before each move the box holds
 still for `--settle SECS` (0.25), or twice the longest move yet, and the
-first move's own redraw is waited out: a program whose redraws come
+first move's own redraw is waited out, for up to a second (or four
+times `--settle`): a program whose redraws come
 later than that would have one taken for the next move's. The pointer itself isn't in the
 pictures, so what's measured is what the program draws for it: a hover,
 or a pointer of its own, as an emulator draws.

@@ -579,11 +579,16 @@ class Screen:
             self.fail(f"what to watch is WIDTHxHEIGHT+X+Y, at least 1x1, not {watch}")
         box = tuple(int(n) for n in box.groups())
         w = self.window(window) if window else None
-        wide, high = (w[2], w[3]) if w else self.backend.grab(self.env)[:2]
+        whole = None if w else self.backend.grab(self.env)
+        if not (w or whole):
+            self.fail("can't take a picture of the display")
+        wide, high = (w[2], w[3]) if w else whole[:2]
         if box[0] + box[2] > wide or box[1] + box[3] > high:
             self.fail(f"{watch} isn't inside the {wide}x{high} "
                       + ("window" if window else "display"))
         # Where to, found now: finding a window is milliseconds of its own.
+        # A window that moves after isn't followed.
+        said = {self._at(*p, window): p for p in (a, b)}
         a, b = self._at(*a, window), self._at(*b, window)
 
         def look():
@@ -606,11 +611,12 @@ class Screen:
             return last
 
         took = []
-        # The first move's own redraw, waited out, however late, so it
-        # isn't taken for the next's.
+        # The first move's own redraw, waited out, up to a second, so it
+        # isn't taken for the next's; a first point whose arrival shows
+        # nothing (no hover) has none to wait for.
         before = look()
         self.xt.move(*a)
-        end = time.monotonic() + timeout
+        end = time.monotonic() + min(timeout, max(1.0, 4 * settle))
         while look() == before and time.monotonic() < end:
             pass
         for i in range(times):
@@ -629,7 +635,7 @@ class Screen:
                     break
                 if t - sent > timeout:
                     self.fail(f"{watch} didn't change in {timeout:g}s after the pointer "
-                              f"moved to {to[0]},{to[1]}")
+                              "moved to {},{}".format(*said[to]))
         return took
 
     def click(self, px, py, window=None, button=1, double=False, hold=None, state=None):

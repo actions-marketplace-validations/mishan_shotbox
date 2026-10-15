@@ -620,9 +620,11 @@ def cmd_latency(argv):
                                    window=a.window, times=a.times, timeout=a.timeout,
                                    settle=a.settle))
     median = statistics.median(took)
-    p95 = took[math.ceil(0.95 * len(took)) - 1]
-    print(f"median {median * 1000:.1f} ms, 95th percentile {p95 * 1000:.1f} ms, "
-          f"of {len(took)} moves, {took[0] * 1000:.1f} to {took[-1] * 1000:.1f} ms")
+    # Below 20 moves, the 95th percentile is the slowest: said as that.
+    high = (f"95th percentile {took[math.ceil(0.95 * len(took)) - 1] * 1000:.1f} ms"
+            if len(took) >= 20 else f"slowest {took[-1] * 1000:.1f} ms")
+    print(f"median {median * 1000:.1f} ms, {high}, of {len(took)} moves, "
+          f"fastest {took[0] * 1000:.1f} ms")
     return 0
 
 
