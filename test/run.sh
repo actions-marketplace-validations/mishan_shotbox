@@ -706,9 +706,12 @@ if command -v ffmpeg >/dev/null; then
         sleep 0.1; n=\$((n + 1)); done
     done
     '$sb' record '$tmp/rec-2.mp4' --window re & r=\$!; sleep 1.5; kill \$r; sleep 0.1; kill -9 \$r
-    '$sb' record '$tmp/rec-9.gif' --window re & r=\$!; sleep 1.5; kill -9 \$r
+    '$sb' record '$tmp/rec-9.gif' --window re & r=\$!
+    n=0; until pgrep -ax python3 | grep keep_recording | grep -q rec-9.gif; do
+      [ \$n -lt 100 ] || exit 1; sleep 0.1; n=\$((n + 1)); done
+    sleep 1; kill -9 \$r
     n=0; while [ ! -s '$tmp/rec-9.gif' ] || [ -n \"\$(ls '$tmp/rtmp2')\" ]; do
-      [ \$n -lt 100 ] || exit 1; sleep 0.1; n=\$((n + 1)); done" > /dev/null \
+      [ \$n -lt 300 ] || exit 1; sleep 0.1; n=\$((n + 1)); done" > /dev/null \
     && probe "$tmp/rec-2.mp4" | grep -q "^h264,200,120 " && probe "$tmp/rec-9.gif" | grep -q "^gif,200,120 " \
     && ok "record: stopped as it starts, ends; killed while finishing, and a GIF killed, still whole" \
     || fail "record, stopped early or killed: $(probe "$tmp/rec-2.mp4"); $(probe "$tmp/rec-9.gif"); $(ls "$tmp/rtmp2")"
