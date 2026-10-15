@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
-TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced. With LOG, it holds an entry instead, and
+TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
+or TITLE band. With LOG, it holds an entry instead, and
 writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
@@ -100,6 +101,33 @@ elif sys.argv[2:3] == ["scene"]:
                     cr.set_source_rgb(0.1 * v, 0.4 + 0.5 * v, 0.1)
                     cr.rectangle(x, y, 8, 8)
                     cr.fill()
+    area.connect("draw", draw)
+
+    def swap():
+        black[0] = not black[0]
+        n[0] += 1
+        area.queue_draw()
+        return True
+    GLib.timeout_add(30, swap)
+    w.add(area)
+elif sys.argv[2:3] == ["band"]:
+    # bzflag's strip as narrow as it was: three columns at a tile's edge,
+    # black every other 30 ms, and between, a scene that's moved on; text
+    # that doesn't change beside it, in the rest of the tile.
+    area, n, black = Gtk.DrawingArea(), [0], [False]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.95, 0.95, 0.95)
+        cr.paint()
+        cr.set_source_rgb(0.1, 0.1, 0.1)
+        for line in range(8):
+            cr.move_to(4, 14 + line * 14)
+            cr.show_text("still text, beside the band")
+        for y in range(0, 120, 4):
+            v = ((y * 13 + n[0] * 29) % 97) / 97
+            cr.set_source_rgb(*((0, 0, 0) if black[0] else (0.1 * v, 0.4 + 0.5 * v, 0.1)))
+            cr.rectangle(189, y, 3, 4)
+            cr.fill()
     area.connect("draw", draw)
 
     def swap():

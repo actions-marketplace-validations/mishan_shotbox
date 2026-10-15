@@ -65,10 +65,27 @@ def alike(a, b, fuzz):
     return differ(a, b, fuzz, len(a) // 150) <= len(a) // 150
 
 
-def plain(pixels, fuzz):
-    """Whether a tile's pixels are all near one color: a flash to black, or
-    white, not something passing through it."""
-    return all(max(pixels[c::3]) - min(pixels[c::3]) <= 2 * fuzz * 2.55 for c in range(3))
+def plain(pixels, other, fuzz):
+    """Whether a tile's pixels, where they differ from `other`'s, are all
+    near one color: a flash to black, or a band of the tile drawn black
+    every other frame, not something passing through it. Where they're
+    the same, the rest of the tile, doesn't count."""
+    limit = fuzz * 2.55
+    changed = [k for k in range(0, len(pixels), 3)
+               if max(abs(pixels[k + c] - other[k + c]) for c in range(3)) > limit]
+    return bool(changed) and all(
+        max(pixels[k + c] for k in changed) - min(pixels[k + c] for k in changed) <= 2 * limit
+        for c in range(3))
+
+
+def colors(a, b, fuzz):
+    """Two tiles' looks, as the mean color of each where they differ: a
+    narrow band's own colors, not the tile's, most of which held still."""
+    limit = fuzz * 2.55
+    changed = [k for k in range(0, len(a), 3)
+               if max(abs(a[k + c] - b[k + c]) for c in range(3)) > limit] or range(0, len(a), 3)
+    return tuple(tuple(sum(p[k + c] for k in changed) / len(changed) for c in range(3))
+                 for p in (a, b))
 
 
 def find(held, brief, times, fuzz, pixels):
@@ -90,18 +107,20 @@ def find(held, brief, times, fuzz, pixels):
         changes = len(seq) - 1
         recur = [all(alike(pixels(seq[m][3]), pixels(seq[m + 2][3]), fuzz)
                      for m in range(side, len(seq) - 2, 2)) for side in (0, 1)]
-        plains = [plain(pixels(seq[side][3]), fuzz) for side in (0, 1)]
+        a, b = pixels(seq[0][3]), pixels(seq[1][3])
+        plains = [plain(a, b, fuzz), plain(b, a, fuzz)]
         # Both looks the same pictures each time; or one, a color all over,
         # as a frame drawn black between frames of a scene that moves on.
         if changes >= times and (all(recur) or any(r and p for r, p in zip(recur, plains))):
-            run = (seq[1][1], changes, sum(s[2] for s in held[i:k]) / (k - i), seq[0][0],
-                   seq[1][0])
+            run = (seq[1][1], changes, sum(s[2] for s in held[i:k]) / (k - i),
+                   *colors(a, b, fuzz))
             best = run if best is None or changes > best[1] else best
         # A flash: from a picture that held still, to a color, and back:
         # what's moving holds no picture still, though it come back.
         elif (changes == 2 and recur[0] and plains[1] and not flash
               and alike(pixels(seq[0][3]), pixels(seq[1][3] - 1), fuzz)):
-            flash = (seq[1][1], seq[1][2], seq[1][0], seq[0][0])
+            before, during = colors(a, b, fuzz)
+            flash = (seq[1][1], seq[1][2], during, before)
         i = k
     return best, (None if best else flash)
 
