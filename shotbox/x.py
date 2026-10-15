@@ -492,7 +492,7 @@ def compare(a, b, diff=None, fuzz="0%", box=False):
          "-composite", "-separate", "-evaluate-sequence", "max",
          # A black border so the box (%@, what -trim would keep) is found
          # around what differs even when a corner does; -quiet, since with
-         # nothing in the box it warns, and fails.
+         # nothing in the box it warns.
          "-threshold", fuzz, "-bordercolor", "black", "-border", "1", "-quiet",
          "-format", "%[fx:round(mean*w*h)] %@", "info:"],
         capture_output=True, text=True, check=True).stdout.split()

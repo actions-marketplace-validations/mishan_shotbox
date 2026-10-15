@@ -14,6 +14,8 @@
 - Under bubblewrap, a program can't gain privileges, its supplementary
   groups show as `nogroup`, and one killed by a signal exits with 128
   plus the signal's number. `--no-sandbox` runs it as before.
+- `compare` says where pixels differ, after how many: `N pixels differ,
+  in WxH at X,Y`, on each picture's line with directories too.
 
 ### Changed
 
@@ -41,8 +43,7 @@
 - **`shoot --twice`** (and `term --shoot --twice`): the picture taken in
   two fresh sessions, and a failure if they differ, beyond `--fuzz` and
   `--max`, saying how many pixels and the box they're in, with
-  `OUT-diff.png` beside OUT; one is kept as OUT if they don't. `compare`
-  says the box too, after the count.
+  `OUT-diff.png` beside OUT. If they're alike, one is kept as OUT.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else

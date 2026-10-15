@@ -811,9 +811,9 @@ fi
 
 # Compare.
 "$sb" compare "$tmp/a.png" "$tmp/b.png" >/dev/null && ok "compare: the same" || fail "compare same"
-convert "$tmp/a.png" -fill red -draw 'point 3,3' "$tmp/d.png"
+convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
 set +e; n=$("$sb" compare "$tmp/a.png" "$tmp/d.png" --diff "$tmp/diff.png"); st=$?; set -e
-[ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 3,3" ] && [ -s "$tmp/diff.png" ] \
+[ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ -s "$tmp/diff.png" ] \
   && ok "compare: one pixel off, found, and where" || fail "compare: $st $n"
 
 mkdir -p "$tmp/ref" "$tmp/new"

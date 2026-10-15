@@ -294,6 +294,8 @@ def twice(a, cmd, waits):
     start in) shows; kept as OUT if the two are alike."""
     out = Path(a.out)
     fuzz = "0%" if a.fuzz is None else a.fuzz
+    diff = out.with_name(out.stem + "-diff.png")
+    # Beside OUT, so the one kept is moved there whole, on one filesystem.
     with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
         pics = [Path(tmp) / "1.png", Path(tmp) / "2.png"]
         for pic in pics:
@@ -305,10 +307,10 @@ def twice(a, cmd, waits):
             sys.stderr.write(f"shotbox: taken twice, {e}\n")
             return 1
         if n > (a.max or 0):
-            diff = out.with_name(out.stem + "-diff.png")
             x.compare(*pics, diff=diff, fuzz=fuzz)
             sys.stderr.write(f"shotbox: taken twice, {differing(n, box)}; see {diff}\n")
             return 1
+        diff.unlink(missing_ok=True)
         os.replace(pics[0], out)
     print(a.out)
     return 0
@@ -823,7 +825,7 @@ def cmd_compare(argv):
             print(f"{name}: {differing(n, box)}" + (f"; see {diff}" if diff else ""))
             bad.append(name)
         else:
-            print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}, allowed'}")
+            print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}; allowed'}")
     if bad:
         print(f"differ: {', '.join(bad)}")
         return 1

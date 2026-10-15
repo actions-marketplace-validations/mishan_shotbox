@@ -84,7 +84,8 @@ def parse(argv):
     given = [k for k, v in vars(args).items()
              if k not in TERM_OPTS and k in defaults and v != defaults[k]]
     if given and not args.shoot:
-        p.error("the session options, --park and --failed go with --shoot")
+        p.error("the session options, --park, --failed, --twice, --fuzz and --max "
+                "go with --shoot")
     return args
 
 
@@ -118,7 +119,7 @@ def shoot(args):
                        ("--announce-log", args.announce_log), ("--text-scale", args.text_scale),
                        ("--gamepads", args.gamepads), ("--fuzz", args.fuzz),
                        ("--max", args.max)):
-        if value:
+        if value is not None:
             outer += [opt, str(value)]
     for e in args.env:
         outer += ["--env", e]
