@@ -372,7 +372,16 @@ class Screen:
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
         isn't drawn, as in a picture; with `park`, it goes out of the way
-        first. X11 only, for now; it needs ffmpeg."""
+        first. X11 only, for now; it needs ffmpeg. A .wav is what plays in
+        a session with audio, on X11 or Wayland, and takes none of those."""
+        if Path(out).suffix.lower() == ".wav":
+            if window or crop or fps or pointer or park:
+                raise SessionError("a .wav is the session's sound: no window, crop, fps, "
+                                   "pointer or park")
+            try:
+                return x.record(self.env, out, None, seconds=seconds)
+            except (ValueError, RuntimeError) as e:
+                raise SessionError(str(e))
         if self.wayland:
             raise SessionError("recording works in X11 sessions only, for now")
         if park:

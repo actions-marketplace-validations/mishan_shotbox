@@ -140,6 +140,22 @@ w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
     || fail "--audio: left running: $left"
   "$sb" run -- sh -c '! pactl info >/dev/null 2>&1' && ok "no --audio, no sound server" \
     || fail "a sound server without --audio"
+  # record OUT.wav: what plays in the sink's format, bit for bit, for
+  # --seconds to the sample; none without --audio.
+  python3 -c "import random, wave; w = wave.open('$tmp/noise.wav', 'wb')
+w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
+w.writeframes(random.Random(1).randbytes(4 * 24000)); w.close()"
+  # Played a second in, half a second long: well inside the three, however
+  # slow the recording is to start.
+  "$sb" run --audio -- sh -c "'$sb' record '$tmp/heard.wav' --seconds 3 >/dev/null & r=\$!
+    sleep 1; timeout 10 paplay '$tmp/noise.wav'; wait \$r" \
+    && got=$(python3 -c "import wave; w, n = wave.open('$tmp/heard.wav'), wave.open('$tmp/noise.wav')
+print(w.getnframes(), n.readframes(24000) in w.readframes(w.getnframes()))") \
+    && [ "$got" = "144000 True" ] \
+    && ok "record OUT.wav: the session's sound, bit for bit, for --seconds" || fail "record wav: ${got-}"
+  set +e; "$sb" run -- "$sb" record "$tmp/none.wav" --seconds 1 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && grep -q "start the session with --audio" "$tmp/err" \
+    && ok "record OUT.wav without --audio: refused, saying so" || fail "wav without audio: $st"
 else
   [ "${SHOTBOX_AUDIO-}" = required ] && fail "audio skipped: no PipeWire, WirePlumber or pactl" \
     || echo "skip  audio: no PipeWire, WirePlumber or pactl"
@@ -722,7 +738,7 @@ if command -v ffmpeg >/dev/null; then
     && [ "$(probe "$tmp/rec.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/rec.webm")" = 10 ] \
     && [ "$(probe "$tmp/rec.gif")" = "gif,100,50 1.000000 " ] \
     && probe "$tmp/rec-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/rec-k.mp4")" -ge 15 ] \
-    && grep -q "mp4, .webm or .gif" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/rec0.mp4" ] \
+    && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/rec0.mp4" ] \
     && ok "record: a window, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
     || fail "record: $(probe "$tmp/rec.mp4"); $(probe "$tmp/rec.webm"); $(probe "$tmp/rec.gif"); $(probe "$tmp/rec-k.mp4")"
   # A GIF whose session is stopped (run killed) is finished all the same,
