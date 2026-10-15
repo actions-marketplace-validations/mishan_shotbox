@@ -238,6 +238,19 @@ def presets(toolkit, dark, high_contrast, text_scale, minor=None):
     return keys
 
 
+def settings(text):
+    """The keys `text`, a settings.ini, sets in its [Settings] group, the
+    one GTK reads."""
+    group, keys = None, set()
+    for line in text.splitlines():
+        bare = line.strip()
+        if bare.startswith("["):
+            group = bare
+        elif group == "[Settings]" and "=" in bare and not bare.startswith(("#", ";")):
+            keys.add(bare.split("=", 1)[0].strip())
+    return keys
+
+
 def merge(text, keys):
     """`text`, a settings.ini, with `keys` set in its [Settings] group, and
     its comments and everything else as they were."""
@@ -471,7 +484,7 @@ class Session(Screen):
             # how much depending on the GTK: manual draws it at its color,
             # the same on every distro. Older GTK 4 warns of the key.
             if (gtk == "gtk-4.0" and (minor or 0) >= 16
-                    and not re.search(r"^\s*gtk-font-rendering\s*=", ini.read_text(), re.M)):
+                    and "gtk-font-rendering" not in settings(ini.read_text())):
                 more["gtk-font-rendering"] = "manual"
             if more:
                 ini.write_text(merge(ini.read_text(), more))

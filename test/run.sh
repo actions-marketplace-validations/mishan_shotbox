@@ -455,7 +455,7 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     "$sb" run --a11y --seed "$tmp/auto" -- sh -c "'$app' thin &
       '$sb' a11y contrast --text 99 --window a11y-test" > "$tmp/contrast-auto" || true
     grep -q '/label\[7\]: text 6\.59:1, #5f5670 ' "$tmp/contrast" \
-      && ! grep -q '/label\[7\]: text 6\.59:1, #5f5670 ' "$tmp/contrast-auto" \
+      && grep '/label\[7\]: text ' "$tmp/contrast-auto" | grep -qv '#5f5670 ' \
       && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi

@@ -219,8 +219,9 @@ the pointer parked, and measures each node in its bounds:
   unless told otherwise, which ignores fontconfig's hinting and places
   glyphs at fractions of a pixel: a stem thinner than a pixel covers
   none whole, so small or spaced text is drawn fainter than its color,
-  by an amount that differs from one GTK release to the next (a label
-  set at 6.3:1 measured 5.7 on GTK 4.24 and 4.3 on 4.22). Sessions set
+  by an amount that differs from one GTK release to the next (small
+  monospace set at 6.6:1 measures 4.9 on GTK 4.24; another project's
+  heading, set at 6.3:1, 5.7 there and 4.3 on 4.22). Sessions set
   `gtk-font-rendering = manual`, which draws it at its color, so a
   check passes or fails the same on any distribution. That's how the
   text is set, not how GTK draws it on a desktop left at automatic: to
