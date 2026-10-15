@@ -172,7 +172,14 @@ it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 [--crop G]` until it looks different from the first picture the wait takes
 (a window still drawing is a picture too: `wait stable` first); each
 counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`), and prints how
-long it took. `capture --burst N [--every SECS] [--sheet
+long it took. `shotbox wait line RE FILE` waits for a line matching RE (found
+anywhere in it) to be written to FILE, and prints it: for a program that logs
+what happens, a line an event, where a sleep would go by the wall's clock
+and a game's can stop. Lines written before the wait starts don't count
+(`--from-start` for those too), nor one not yet ended; a file not there yet
+is waited for, and one rotated or written again from the top is read from
+its start (lines written to a rotated one just before it went may be
+missed). `capture --burst N [--every SECS] [--sheet
 FILE]` takes N pictures, to OUT-1.png, OUT-2.png..., one starting every SECS
 (or as fast as they come), and prints when each was taken; `--sheet` puts
 them in rows of four in one picture too. For what one picture can't show:
@@ -607,6 +614,7 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
 - Waits: `wait_window(re)` (a title, or `app=RE`; returns
   `(id, name, w, h, x, y)`),
   `wait_port(n)`, `wait_file(path)`, `wait_ready()`,
+  `wait_line(re, path, from_start=False)` (returns the line),
   `wait_stable(secs=0.5, window=None)`, and `until(what, test)` for a test
   of your own; each takes `timeout` (30).
 - Input: `key(*chords, hold=None, state=None)`, `type(text)`, `click(x, y,

@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -159,6 +160,19 @@ try:
     check(not bad and "matches held.png" in said
           and all(bad and "no file" in said for said, bad in refused),
           f"wait_for: match, a picture in the allow file's directory and nowhere else ({said})")
+    (tmp / "game.log").write_text("beacon_claimed 1\n")
+    with open(tmp / "game.log", "a") as log:
+        threading.Timer(1, lambda: log.write("beacon_claimed 2\n") and log.flush()).start()
+        said, bad, _ = tool("wait_for", session="h", what="line", value="beacon_claimed",
+                            file="game.log")
+    refused = [tool("wait_for", session="h", what="line", value="x", file=f)[:2]
+               for f in ("/etc/hostname", "../" * 20 + "etc/hostname", ".")]
+    threading.Timer(0.5, (tmp / "later.log").symlink_to, ["/etc/hostname"]).start()
+    later, later_bad, _ = tool("wait_for", session="h", what="line", value="", file="later.log")
+    check(not bad and said == "beacon_claimed 2"
+          and all(bad and "by its path from there" in said for said, bad in refused)
+          and later_bad and "outside" in later,
+          f"wait_for: line, a new one, in a file in the allow file's directory only ({said})")
     steps = [("click", dict(x=50, y=50, window="held")),
              ("press_keys", dict(keys="w", state="down")),
              ("click", dict(x=60, y=60, window="held", state="down")),

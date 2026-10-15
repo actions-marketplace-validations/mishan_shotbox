@@ -8,7 +8,7 @@
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
     shotbox wait window|port|file|ready|stable|announce|match|change [ARG]
-                                                    (inside a session) wait for it
+    shotbox wait line RE FILE                       (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox record OUT.mp4|OUT.wav [--seconds S]    (inside a session) take a video, or the sound
     shotbox key CHORD...                            (inside a session) press keys
@@ -342,16 +342,22 @@ def cmd_wait(argv):
                                             "a port, a file, the ready file, the "
                                             "screen to stop changing, an "
                                             "announcement, the screen to look like a "
-                                            "picture, or to change. match and change "
-                                            "say how long they took.")
+                                            "picture, or to change, or a line in a "
+                                            "file. match and change say how long they "
+                                            "took; line prints the line.")
     p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
-                                    "match", "change"))
+                                    "match", "change", "line"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
                         "stable, how long it must hold still (0.5); for announce, "
                         "a regex found in what was said (needs --a11y); for match, "
-                        "the picture (a PNG) to look like")
+                        "the picture (a PNG) to look like; for line, a regex found in "
+                        "the line")
+    p.add_argument("file", nargs="?", help="for line, the file it's written to")
+    p.add_argument("--from-start", action="store_true",
+                   help="for line: from the top of the file, not from the end it has "
+                        "when the wait starts")
     p.add_argument("--window", metavar="RE",
                    help="for stable, match and change: watch this window rather than "
                         "the display")
@@ -369,13 +375,20 @@ def cmd_wait(argv):
     a = p.parse_args(argv)
     if a.kind == "match" and not a.arg:
         p.error("match needs the picture to look like")
+    if (a.kind == "line") != bool(a.file):
+        p.error("line, and only line, takes a FILE after its pattern")
+    if a.from_start and a.kind != "line":
+        p.error("--from-start goes with line")
     if a.kind == "change" and a.arg:
         p.error("change takes no ARG: it waits for a change from how it looks now")
     looks = a.kind in ("match", "change")
     if not looks and (a.crop or a.fuzz is not None or a.max is not None):
         p.error("--crop, --fuzz and --max go with match and change")
-    screen = inside(display=a.kind not in ("port", "file", "ready"))
+    screen = inside(display=a.kind not in ("port", "file", "ready", "line"))
     screen.failed = a.failed or screen.failed
+    if a.kind == "line":
+        print(screen.wait_line(a.arg, a.file, a.from_start, a.timeout))
+        return 0
     if not looks:
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
         return 0

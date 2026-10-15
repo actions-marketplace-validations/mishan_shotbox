@@ -87,7 +87,7 @@ adds is clicks and keys on a display no one else is looking at.
 | `click` | by a node's name (and role), or a point, the button held a while or left down if asked |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
 | `gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
-| `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, or a change |
+| `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
 | `lint`, `contrast`, `tab_walk` | the checks `shotbox a11y` makes |
 | `announcements` | what's been announced to a screen reader |
 | `sound` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |

@@ -136,6 +136,62 @@ class Screen:
     def wait_file(self, path, timeout=30):
         self.until(*self.test("file", path), timeout)
 
+    def wait_line(self, pattern, path, from_start=False, timeout=30, within=None):
+        """Wait for a line of the file at `path` that matches `pattern` (a
+        regex, found anywhere in it), written after the wait starts, or with
+        `from_start`, anywhere in the file: for a program that logs what
+        happens, a line an event, where its clock isn't the wall's. A file
+        not there yet is waited for, and one replaced (rotated, or written
+        again from the top) is read from its start; lines written to a
+        rotated file just before it went may be missed. A line counts once
+        it ends. With `within`, a directory, a file that's really outside it
+        (by a symlink) is refused. The line."""
+        found, chunk = re.compile(pattern), 1 << 20
+        # `seen`: the bytes just before `pos`, to tell the file written again.
+        ino, pos, seen, rest, old = None, 0, b"", b"", False
+        if not from_start:
+            with contextlib.suppress(OSError), open(path, "rb") as f:
+                # From its last byte: what ends the line that's in is old.
+                end = f.seek(0, os.SEEK_END)
+                pos, old = max(end - 1, 0), end > 0
+                f.seek(max(pos - 64, 0))
+                ino, seen = os.fstat(f.fileno()).st_ino, f.read(pos - f.tell())
+
+        def line():
+            nonlocal ino, pos, seen, rest, old
+            try:
+                with open(path, "rb") as f:
+                    real = os.readlink(f"/proc/self/fd/{f.fileno()}")
+                    if within and not Path(real).is_relative_to(within):
+                        raise SessionError(f"{path} leads outside {within}")
+                    st = os.fstat(f.fileno())
+                    f.seek(pos - len(seen))
+                    got = f.read(len(seen) + chunk)
+                    if st.st_ino != ino or not got.startswith(seen):
+                        ino, pos, seen, rest, old = st.st_ino, 0, b"", b"", False
+                        f.seek(0)
+                        got = f.read(chunk)
+                    else:
+                        got = got[len(seen):]
+            except FileNotFoundError:
+                return None
+            except OSError as e:
+                raise SessionError(f"can't read {path}: {e.strerror}") from None
+            pos += len(got)
+            seen = (seen + got)[-64:]
+            *lines, rest = (rest + got).split(b"\n")
+            if lines:
+                lines, old = lines[old:], False
+            if len(rest) > chunk:
+                # Not kept growing: what's left of a line this long is dropped.
+                rest, old = b"", True
+            for got in lines:
+                got = got.decode(errors="replace").removesuffix("\r")
+                if found.search(got):
+                    return [got]   # in a list: an empty line can match too
+            return None
+        return self.until(f"a line matching {pattern!r} in {path}", line, timeout)[0]
+
     def wait_ready(self, timeout=30):
         """Wait for $SHOTBOX_SCRATCH/ready, which `shotbox term` writes."""
         self.until(*self.test("ready"), timeout)

@@ -31,6 +31,13 @@
 
 ### Added
 
+- **`wait line RE FILE`**: wait for a line matching RE to be written to
+  a file, and print it, for a script that follows a program's log of
+  what happens rather than sleeping by a clock the program may not
+  keep to. From the file's end when the wait starts (`--from-start` for
+  the top); a file not there yet is waited for, and one rotated or
+  rewritten is followed. Also `Screen.wait_line`, and MCP's `wait_for`,
+  whose file is in the `--allow` file's directory.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else
