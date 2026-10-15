@@ -11,6 +11,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -122,13 +123,43 @@ def record(env, out, box, seconds=None, fps=30, pointer=False):
         raise ValueError(f"a recording is .mp4, .webm or .gif, not {out.name}")
     if not shutil.which("ffmpeg"):
         raise RuntimeError("recording needs ffmpeg")
+    if seconds is not None and seconds <= 0:
+        raise ValueError(f"a recording lasts more than 0 seconds, not {seconds:g}")
+    tmp = tempfile.mkdtemp() if kind == ".gif" else None
+    video = Path(tmp) / "recording.mp4" if tmp else out
+    try:
+        _record(env, video, box, seconds, fps, pointer)
+    except BaseException:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    if tmp:
+        # The GIF is made, and the recording removed, in a session of its
+        # own: `shotbox run`, stopped, kills what's left of its command two
+        # seconds on, which would cut both short.
+        proc = subprocess.Popen(["sh", "-c", 'ffmpeg -loglevel error -y -i "$1" -vf '
+                                 '"split[a][b];[a]palettegen[p];[b][p]paletteuse" "$2"; '
+                                 's=$?; rm -rf "$3"; exit $s', "sh", str(video), str(out), tmp],
+                                stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                start_new_session=True)
+        while True:
+            try:
+                _, err = proc.communicate()
+                break
+            except KeyboardInterrupt:
+                pass        # it's the file the first stop asked for
+        if proc.returncode:
+            raise RuntimeError(f"ffmpeg couldn't make the GIF: {err.decode(errors='replace').strip()}")
+    return out
+
+
+def _record(env, video, box, seconds, fps, pointer):
     w, h, x, y = box
     w, h = w - w % 2, h - h % 2         # the encoders' color sampling halves each side
-    video = out.with_name(out.stem + ".recording.mp4") if kind == ".gif" else out
     cmd = ["ffmpeg", "-loglevel", "error", "-y", "-f", "x11grab", "-draw_mouse", str(int(pointer)),
            "-framerate", str(fps), "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
     cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
-    cmd += VIDEO[".mp4" if kind == ".gif" else kind] + [str(video)]
+    cmd += VIDEO[".webm" if video.suffix.lower() == ".webm" else ".mp4"] + [str(video)]
     # Its own session, so a Ctrl-C reaches it only as passed on here.
     proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             start_new_session=True)
@@ -139,14 +170,13 @@ def record(env, out, box, seconds=None, fps=30, pointer=False):
         _, err = proc.communicate()
     if proc.returncode not in (0, 255) or not video.exists():
         raise RuntimeError(f"ffmpeg couldn't record: {err.decode(errors='replace').strip()}")
-    if kind == ".gif":
-        try:
-            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(video), "-vf",
-                            "split[a][b];[a]palettegen[p];[b][p]paletteuse", str(out)],
-                           check=True, capture_output=True)
-        finally:
-            video.unlink()
-    return out
+    # Stopped before the first frame, ffmpeg writes a file with no video in it.
+    frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
+                             "stream=index", "-of", "csv=p=0", str(video)],
+                            capture_output=True, text=True).stdout.strip()
+    if not frames:
+        video.unlink()
+        raise RuntimeError("nothing was recorded: it stopped before the first frame")
 
 
 # How colors look without one kind of cone, as Machado, Oliveira and

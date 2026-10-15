@@ -340,6 +340,8 @@ def cmd_record(argv):
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way first, as `shotbox park`")
     a = p.parse_args(argv)
+    if a.seconds == 0:
+        p.error("--seconds is more than 0")
     start = time.monotonic()
     out = inside().record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
                           pointer=a.pointer, park=a.park)

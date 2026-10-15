@@ -287,10 +287,8 @@ class Screen:
             raise SessionError("recording works in X11 sessions only, for now")
         if park:
             self.park()
-        if window:
-            box = self.window(window)[2:6]
-        else:
-            box = (*x.root_size(self.env), 0, 0)
+        screen_w, screen_h = x.root_size(self.env)
+        box = self.window(window)[2:6] if window else (screen_w, screen_h, 0, 0)
         if crop:
             m = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
             if not m:
@@ -299,6 +297,13 @@ class Screen:
             if cx + cw > box[0] or cy + ch > box[1] or cw < 2 or ch < 2:
                 raise SessionError(f"the crop {crop} isn't inside the {box[0]}x{box[1]} taken")
             box = (cw, ch, box[2] + cx, box[3] + cy)
+        # Only what's on the screen can be recorded: a window partly off it
+        # is recorded as far as it shows.
+        x0, y0 = max(box[2], 0), max(box[3], 0)
+        x1, y1 = min(box[2] + box[0], screen_w), min(box[3] + box[1], screen_h)
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            raise SessionError("nothing of that is on the screen to record")
+        box = (x1 - x0, y1 - y0, x0, y0)
         try:
             return x.record(self.env, out, box, seconds=seconds, fps=fps, pointer=pointer)
         except (ValueError, RuntimeError) as e:

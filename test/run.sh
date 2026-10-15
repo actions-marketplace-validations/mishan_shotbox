@@ -660,19 +660,44 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 if command -v ffmpeg >/dev/null; then
   probe() { ffprobe -v error -select_streams v -show_entries stream=codec_name,width,height \
     -show_entries format=duration -of csv=p=0 "$1" | tr '\n' ' '; }
+  frames() { ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames \
+    -of csv=p=0 "$1"; }
   "$sb" run -- sh -c "'$here/window.py' rec & '$sb' wait window rec &&
     '$sb' record '$tmp/rec.mp4' --window rec --seconds 2 && '$sb' record '$tmp/rec.webm' --fps 10 --seconds 1 &&
     '$sb' record '$tmp/rec.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
     { '$sb' record '$tmp/rec-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
-    ! '$sb' record '$tmp/rec.avi' --seconds 1 2> '$tmp/err'" > /dev/null \
-    && [ "$(probe "$tmp/rec.mp4")" = "h264,200,120 2.000000 " ] \
-    && [ "$(probe "$tmp/rec.webm")" = "vp9,1280,800 1.000000 " ] \
+    ! '$sb' record '$tmp/rec.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/rec0.mp4' --seconds 0 2>> '$tmp/err'" > /dev/null \
+    && [ "$(probe "$tmp/rec.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/rec.mp4")" -ge 50 ] \
+    && [ "$(probe "$tmp/rec.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/rec.webm")" = 10 ] \
     && [ "$(probe "$tmp/rec.gif")" = "gif,100,50 1.000000 " ] \
-    && [ "$(ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames \
-         -of csv=p=0 "$tmp/rec.webm")" = 10 ] \
-    && probe "$tmp/rec-k.mp4" | grep -q "^h264,200,120 1\." && grep -q "mp4, .webm or .gif" "$tmp/err" \
+    && probe "$tmp/rec-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/rec-k.mp4")" -ge 15 ] \
+    && grep -q "mp4, .webm or .gif" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/rec0.mp4" ] \
     && ok "record: a window, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
     || fail "record: $(probe "$tmp/rec.mp4"); $(probe "$tmp/rec.webm"); $(probe "$tmp/rec.gif"); $(probe "$tmp/rec-k.mp4")"
+  # A GIF whose session is stopped (run killed) is finished all the same,
+  # leaving nothing behind in the temp dir.
+  rm -rf "$tmp/rtmp"; mkdir "$tmp/rtmp"
+  "$sb" run --env "TMPDIR=$tmp/rtmp" -- sh -c "'$here/window.py' rg & '$sb' wait window rg &&
+    '$sb' record '$tmp/rec-run.gif'" > /dev/null & r=$!
+  sleep 6; kill $r; wait $r || true
+  n=0; while [ -n "$(ls "$tmp/rtmp")" ] && [ $n -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+  [ "$(probe "$tmp/rec-run.gif" | cut -d' ' -f1)" = gif,1280,800 ] && [ -z "$(ls "$tmp/rtmp")" ] \
+    && ok "record: a GIF in a session that's stopped, finished, nothing left behind" \
+    || fail "record, stopped run: $(probe "$tmp/rec-run.gif"); $(ls "$tmp/rtmp")"
+  # A window partly off the screen is recorded as far as it shows; one
+  # entirely off it is refused.
+  if command -v xdotool >/dev/null; then
+    "$sb" run -- sh -c "'$here/window.py' off & '$sb' wait window off &&
+      xdotool search --name '^off\$' windowmove -- -50 -30 && sleep 0.3 &&
+      '$sb' record '$tmp/rec-off.mp4' --window off --seconds 0.5 &&
+      xdotool search --name '^off\$' windowmove -- -500 -500 && sleep 0.3 &&
+      ! '$sb' record '$tmp/rec-gone.mp4' --window off --seconds 0.5 2> '$tmp/err'" > /dev/null \
+      && [ "$(probe "$tmp/rec-off.mp4" | cut -d' ' -f1)" = h264,150,90 ] && grep -q "nothing of that" "$tmp/err" \
+      && ok "record: a window partly off the screen, as far as it shows; one off it, refused" \
+      || fail "record off screen: $(probe "$tmp/rec-off.mp4"); $(cat "$tmp/err")"
+  else
+    echo "skip  record off the screen: no xdotool"
+  fi
 else
   echo "skip  record: no ffmpeg"
 fi
