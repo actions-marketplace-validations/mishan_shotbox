@@ -101,6 +101,10 @@ def session_options(p, display=True):
                    help="who and where programs are: whoami, ls -l's owner, hostname, "
                         "$USER and $HOSTNAME say USER and HOST, not yours; needs "
                         "bubblewrap, and not --no-sandbox")
+    g.add_argument("--clock", metavar="TIME",
+                   help="the wall clock starts at TIME (ISO 8601, 2026-09-26T18:40:00, in "
+                        "--tz or UTC) and runs on, for every program; needs libfaketime")
+    g.add_argument("--tz", metavar="ZONE", help="the time zone (Europe/Berlin; UTC by default)")
     g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
                    help="run programs outside bubblewrap, for those that need setuid "
                         "helpers (sudo, AppImages); they can reach the machine's sound "
@@ -152,7 +156,7 @@ def make_session(a):
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
                    audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox,
                    display=a.display, net=a.net, usage=bool(a.usage),
-                   identity=a.identity)
+                   identity=a.identity, clock=a.clock, tz=a.tz)
 
 
 @contextlib.contextmanager

@@ -50,6 +50,13 @@
   -un`, `getpwuid()`, `ls -l`'s owner, `$USER`, `$LOGNAME` and
   `$HOSTNAME` say USER and HOST, so a picture doesn't show who took it.
   It needs bubblewrap, and not `--no-sandbox`.
+- **`--clock TIME` and `--tz ZONE`**: every program a session runs sees
+  the wall clock start at TIME (ISO 8601, in ZONE or UTC) and run on, a
+  program spawned later reading the same clock as the first, so dates in
+  pictures don't change between shoots. For `run`, `shoot`, `term`,
+  `start`, `exec`, `Session(clock=..., tz=...)` and MCP's
+  `start_session`; by libfaketime, which doesn't reach static binaries or
+  Go programs.
 - **`--usage [FILE]`**: what a session's programs used, together, and
   apart, its own processes: peak memory and CPU time, from a systemd
   slice of the session's where the user's systemd can make one, else

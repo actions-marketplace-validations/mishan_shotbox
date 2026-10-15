@@ -34,12 +34,15 @@ The pieces, and why each one:
 - Optionally, with audio=True, a PipeWire of its own whose one sink is a
   null sink, speaking the pulse protocol too: sound goes nowhere, and a
   player has something to play to.
+- Optionally, with clock=TIME, a wall clock that starts at TIME and runs
+  on, for every program, by libfaketime.
 - Every process in its own group, and the group killed on the way out:
   signalling a wrapper script alone leaves its children running.
 """
 
 import json
 import grp
+import math
 import os
 import pwd
 import re
@@ -50,9 +53,12 @@ import signal
 import socket
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from . import usage, wl
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
@@ -302,6 +308,17 @@ def need(*tools):
         raise SessionError("not found: " + ", ".join(missing))
 
 
+def faketime():
+    """libfaketime's library, wherever the distribution put it."""
+    for d in (f"/usr/lib/{sysconfig.get_config_var('MULTIARCH') or ''}", "/usr/lib64",
+              "/usr/lib", "/usr/local/lib"):
+        lib = Path(d, "faketime", "libfaketime.so.1")
+        if lib.exists():
+            return str(lib)
+    raise SessionError("the session's clock needs libfaketime, and there's no "
+                       "libfaketime.so.1 here")
+
+
 def free_display(skip=()):
     """The lowest display number with neither a lock nor a socket."""
     for n in range(99, 1000):
@@ -379,7 +396,8 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True, display=True, net=None, usage=False, identity=None):
+                 sandbox=True, display=True, net=None, usage=False, identity=None,
+                 clock=None, tz=None):
         self.size = size
         self.measure = usage
         self._sampler = self._slice = None
@@ -393,6 +411,18 @@ class Session(Screen):
             raise SessionError("--net loopback and --no-sandbox don't go together: in the "
                                "session's network, setuid helpers can't work either")
         self.net = net
+        try:
+            zone = ZoneInfo(tz) if tz else timezone.utc
+        except (KeyError, ValueError):
+            raise SessionError(f"there's no time zone called {tz!r}")
+        try:
+            t = clock and datetime.fromisoformat(clock)
+        except ValueError:
+            raise SessionError(f"the clock is an ISO 8601 time, like 2026-09-26T18:40:00, "
+                               f"not {clock!r}")
+        # In the zone, unless it names its own.
+        self.clock = (t if t.tzinfo else t.replace(tzinfo=zone)).timestamp() if t else None
+        self._time_env = {"TZ": tz} if tz else {}
         self._net_pid = None    # a process in the session's network namespace, with net
         m = re.fullmatch(r"([A-Za-z_][\w.-]{0,31})@([A-Za-z0-9][A-Za-z0-9.-]{0,63})",
                          identity or "", re.ASCII)
@@ -453,6 +483,17 @@ class Session(Screen):
             need("pipewire", "wireplumber", "pw-dump")
         if self.gamepads:
             need("bwrap")
+        if self.clock is not None:
+            # An offset, fixed as the session starts, so a program started
+            # later reads the clock those before it do: a start-at time
+            # (FAKETIME="@TIME") starts over in each program, and
+            # FAKETIME_DONT_RESET carries it on only to a program's own
+            # children, not to the next one the session starts. Monotonic
+            # clocks are left be, so timeouts aren't thrown out by it, and
+            # file times read as they are on disk.
+            self._time_env.update(LD_PRELOAD=faketime(),
+                                  FAKETIME=f"{math.ceil(self.clock - time.time()):+d}",
+                                  FAKETIME_DONT_FAKE_MONOTONIC="1", NO_FAKE_STAT="1")
         # Sockets are made in the scratch dir, the longest sway's (run/
         # sway-ipc.UID.PID.sock), and Linux allows a socket path 107 bytes.
         tmp = tempfile.gettempdir()
@@ -727,7 +768,7 @@ class Session(Screen):
     def _make_env(self, graphics, bus, sysbus):
         home = self.scratch / "home"
         env = {k: os.environ[k] for k in self.passthrough if k in os.environ}
-        env.update(SEALED_ENV)
+        env.update(SEALED_ENV, **self._time_env)
         if self.desktop:
             del env["GSETTINGS_BACKEND"]
         if self.a11y:

@@ -208,7 +208,8 @@ class Server:
 
     def start_session(self, name=None, a11y=True, wayland=False, xwayland=False,
                       dark=False, high_contrast=False, text_scale=None, audio=False,
-                      screen="1280x800", gamepads=0, net=None, usage=False, identity=None):
+                      screen="1280x800", gamepads=0, net=None, usage=False, identity=None,
+                      clock=None, tz=None):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
         if name in self.sessions:
@@ -221,7 +222,8 @@ class Server:
                     high_contrast=flag(high_contrast),
                     text_scale=number(text_scale, "text_scale"), audio=flag(audio),
                     gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0,
-                    net=text(net), usage=flag(usage), identity=text(identity))
+                    net=text(net), usage=flag(usage), identity=text(identity),
+                    clock=text(clock), tz=text(tz))
         s.__enter__()
         self.sessions[name], self.spawned[name] = s, []
         kind = "Wayland (sway)" if s.use_wayland else "X11 (Xvfb)"
@@ -547,7 +549,8 @@ TOOLS = [
      "stops. dark, high_contrast and text_scale (1.25) set the desktop's styles for GTK and "
      "libadwaita; audio gives it a sound server whose sink plays to nowhere; net loopback "
      "a network of its own, which its programs share and nothing else is on: a server "
-     "they start can't be reached from outside, nor can they reach anything.",
+     "they start can't be reached from outside, nor can they reach anything. clock starts "
+     "its wall clock at a time and lets it run on, so dates in pictures don't change.",
      schema({"name": {"type": "string", "description": "What to call it (s1, s2... by default)"},
              "a11y": {"type": "boolean", "description": "An accessibility bus (default true)"},
              "wayland": {"type": "boolean"}, "xwayland": {"type": "boolean"},
@@ -560,7 +563,10 @@ TOOLS = [
              "identity": {"type": "string", "description": "USER@HOST: who and where its "
                           "programs are, for whoami, hostname, ls -l and $USER"},
              "usage": {"type": "boolean", "description": "Say, when it's stopped, what its "
-                       "programs used: peak memory and CPU time"}})),
+                       "programs used: peak memory and CPU time"},
+             "clock": {"type": "string", "description": "ISO 8601, 2026-09-26T18:40:00, in tz "
+                       "or UTC: where its wall clock starts (needs libfaketime)"},
+             "tz": {"type": "string", "description": "Its time zone, Europe/Berlin (UTC)"}})),
     ("stop_session", "Stop a session and everything running in it.",
      schema({"session": SESSION}, ["session"])),
     ("spawn",

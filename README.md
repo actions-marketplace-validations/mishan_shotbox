@@ -107,13 +107,15 @@ Needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick and `xwininfo`; for
 `shotbox term`, PyGObject with VTE (`gir1.2-vte-2.91`); for `--a11y`,
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
-`--gamepads`, write access to `/dev/uinput`; for `record`, ffmpeg; and
+`--gamepads`, write access to `/dev/uinput`; for `record`, ffmpeg; for
+`--clock`, libfaketime; and
 bubblewrap, which `--gamepads` needs, and which [seals](#whats-sealed)
 more where it's there. On Debian:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap
+  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap \
+  libfaketime
 pipx install --system-site-packages shotbox
 ```
 
@@ -134,7 +136,7 @@ bubblewrap make its sandbox, which Ubuntu's AppArmor holds back:
   with:
     a11y: true        # --a11y and `shotbox a11y`
     term: true        # `shotbox term`
-    # wayland, audio, record and gamepads too
+    # wayland, audio, record, gamepads and clock too
 - run: shotbox shoot app.png --window 'My App' -- ./my-app
 ```
 
@@ -257,7 +259,7 @@ way, but with no display: for what draws nothing, a headless browser or a
 test suite, which should reach neither your desktop nor your speakers. It
 takes the session options that aren't about a display: `--env`, `--pass`,
 `--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio`, `--net`,
-`--identity` and `--no-sandbox`.
+`--identity`, `--clock`, `--tz` and `--no-sandbox`.
 
 **`shotbox start [--name NAME] [options]`** starts a session that lasts
 until `shotbox stop NAME`, and prints its name (`s1`, `s2`... without
@@ -293,8 +295,9 @@ it there's no sound server at all); `--gamepads N` for
 [gamepads](#gamepads); `--usage [FILE]` to say, when it stops, what its programs used, and
 its own processes (see below); `--net loopback` for a network of the session's own
 (see [What's sealed](#whats-sealed)); `--identity USER@HOST` for a user and host name
-that aren't yours (see [What's sealed](#whats-sealed)); `--no-sandbox` for a program that
-needs a setuid helper (see [What's sealed](#whats-sealed)); and the display presets:
+that aren't yours (see [What's sealed](#whats-sealed)); `--clock TIME` and `--tz ZONE` for
+a wall clock that starts at TIME (see [The clock](#the-clock)); `--no-sandbox` for a program
+that needs a setuid helper (see [What's sealed](#whats-sealed)); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
 - `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20
@@ -329,6 +332,27 @@ them, or one left behind by a parent that's gone, which the user's
 systemd takes in. That's `sampled, resident`. Compare runs measured the same way.
 From Python, `Session(usage=True)` and its `usage()`; over MCP,
 `start_session`'s `usage`, said when it's stopped.
+
+### The clock
+
+Pictures carry the wall clock: a panel's, a chat's timestamps, "Today" in
+a mail list, a `git log`'s dates. So that a reshoot only differs where the
+program does, `--clock TIME` starts the clock at TIME, ISO 8601
+(`2026-09-26T18:40:00`), as the session starts, and lets it run on, so
+animations and timeouts work as ever. TIME is in `--tz ZONE`
+(`Europe/Berlin`) if it's given, else UTC; and `--tz` is every program's
+`TZ`, so `date` and a panel clock read the same. It's the session's clock,
+not each program's: one spawned a minute in reads a minute past TIME, as
+the first does by then.
+
+It's libfaketime, preloaded into every program the session starts, and a
+session with `--clock` fails without it. It covers what's dynamically
+linked and asks the C library: GTK, Qt, Emacs, irssi, Python, git. Static
+binaries and Go programs read the clock themselves, and setuid ones (with
+`--no-sandbox`) drop the preload: they see the real time. Monotonic clocks
+aren't moved, and file times are what's on disk: the dates of files a test
+makes are its own to set (`touch -d`). From Python, `Session(clock=...,
+tz=...)`; over MCP, `start_session`'s `clock` and `tz`.
 
 ### What's sealed
 
@@ -668,8 +692,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `wait_announce(re)`. `focus_window(re)` gives a window the keyboard.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and
   `scratch`. It takes the session options as arguments: `a11y`,
-  `announce_log`, `audio`, `dark`, `high_contrast`, `text_scale`,
-  `wayland` and the rest.
+  `announce_log`, `audio`, `clock`, `tz`, `dark`, `high_contrast`,
+  `text_scale`, `wayland` and the rest.
 
 Installed, `import shotbox` just works. With a checkout, put its root on
 `PYTHONPATH` (`--pass PYTHONPATH` to let it
@@ -768,8 +792,9 @@ Chromium (`npm install && npx playwright install chromium`) and skip
 without it, the Wayland sessions need sway, grim and Xwayland and skip
 without them, the accessibility checks need GTK 4, libadwaita and
 at-spi2-core and skip without them, `--audio` needs PipeWire,
-WirePlumber and `pactl` and skips without them, and `--gamepads` needs
-bubblewrap and a writable `/dev/uinput` and skips without them.
+WirePlumber and `pactl` and skips without them, `--gamepads` needs
+bubblewrap and a writable `/dev/uinput` and skips without them, and
+`--clock` needs libfaketime and skips without it.
 
 ## License
 

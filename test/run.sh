@@ -239,6 +239,31 @@ else
   [ "${SHOTBOX_AUDIO-}" = required ] && fail "audio skipped: no PipeWire, WirePlumber or pactl" \
     || echo "skip  audio: no PipeWire, WirePlumber or pactl"
 fi
+# --clock: the wall clock starts at TIME, in --tz, and runs on, for a
+# program started later in a session as for the first. With no libfaketime,
+# said in a line, and the rest skipped, unless SHOTBOX_CLOCK=required.
+if python3 -c "import sys; sys.path.insert(0, '$root')
+from shotbox.session import faketime; faketime()" 2>/dev/null; then
+  clk=clock$$; t=$(date -d 2026-09-26T16:40:00Z +%s); s1=0 s2=0 hm=
+  "$sb" start --name "$clk" --clock 2026-09-26T18:40:00 --tz Europe/Berlin >/dev/null
+  for n in 1 2; do
+    [ $n = 1 ] || sleep 3
+    "$sb" spawn --session "$clk" --log "$tmp/clock$n" -- date '+%s %H:%M %Z' >/dev/null
+    i=0; until [ -s "$tmp/clock$n" ] || [ $i = 50 ]; do sleep 0.1; i=$((i + 1)); done
+  done
+  "$sb" stop "$clk"
+  read -r s1 hm < "$tmp/clock1" || true; read -r s2 _ < "$tmp/clock2" || true
+  [ "$hm" = "18:40 CEST" ] && [ $((s1 - t)) -ge 0 ] && [ $((s1 - t)) -le 5 ] \
+    && [ $((s2 - s1)) -ge 3 ] && [ $((s2 - s1)) -le 8 ] \
+    && ok "--clock: starts at TIME in its zone, and runs on for a program started later" \
+    || fail "--clock: $(cat "$tmp/clock1" "$tmp/clock2"), from $t"
+else
+  set +e; "$sb" exec --clock 2026-09-26T18:40:00 -- true 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && [ "$(cat "$tmp/err")" = "shotbox: the session's clock needs libfaketime, and there's no libfaketime.so.1 here" ] \
+    && ok "--clock with no libfaketime, said in a line" || fail "--clock, no libfaketime ($st): $(cat "$tmp/err")"
+  [ "${SHOTBOX_CLOCK-}" = required ] && fail "clock skipped: no libfaketime" \
+    || echo "skip  clock: no libfaketime"
+fi
 
 # The terminal: steps, the ready file, the log, and the same picture twice.
 cat > "$tmp/scheme.json" <<'JSON'

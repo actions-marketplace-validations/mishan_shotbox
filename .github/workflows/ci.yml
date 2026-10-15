@@ -34,7 +34,7 @@ jobs:
       # ffmpeg for the gif and record, xdotool to move a window off the
       # screen, a monospace font for the terminal, and GTK 4
       # and libadwaita for the accessibility checks' window, and PipeWire,
-      # WirePlumber and pactl for --audio.
+      # WirePlumber and pactl for --audio, and libfaketime for --clock.
       - name: Install what shotbox runs
         run: |
           sudo apt-get update
@@ -44,7 +44,7 @@ jobs:
             libglib2.0-bin ffmpeg fonts-dejavu-core \
             sway grim xwayland \
             at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1 \
-            pipewire wireplumber pulseaudio-utils bubblewrap xdotool
+            pipewire wireplumber pulseaudio-utils bubblewrap xdotool libfaketime
 
       # For --gamepads: uinput, and its pads, for this user (a desktop's
       # udev gives them to the seat's user; a runner has no seat), and
@@ -71,6 +71,7 @@ jobs:
           SHOTBOX_A11Y: required
           SHOTBOX_AUDIO: required
           SHOTBOX_GAMEPAD: required
+          SHOTBOX_CLOCK: required
 
   # The Action, as another project's job would use it: from a runner with
   # nothing of shotbox's on it, each feature it installs for, sandboxed.
@@ -86,6 +87,7 @@ jobs:
           record: true
           term: true
           gamepads: true
+          clock: true
       - name: Use it
         working-directory: /tmp
         run: |
@@ -100,6 +102,7 @@ jobs:
           shotbox exec --audio -- shotbox record quiet.wav --seconds 1 > /dev/null
           test -s quiet.wav
           shotbox run --gamepads 1 -- sh -c 'ls /dev/input | grep -q event'
+          shotbox exec --clock 2026-09-26T18:40:00 -- date | grep -q 18:40
 
   # What gets published, built and used the way someone who installs it
   # would: the wheel in a fresh venv (with the system's PyGObject, as the
