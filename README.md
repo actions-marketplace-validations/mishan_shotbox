@@ -59,10 +59,10 @@ makes sound straight on this machine: it reaches my desktop and speakers.
 Run it in a shotbox session:
 
 - a picture: `shotbox shoot OUT.png --window RE -- COMMAND`
-- a script or a test suite: `shotbox run [--audio] -- COMMAND`
-- a browser from Node: the script under `shotbox run`; the shotbox
-  package's `sealed()` seals a browser's environment, but not the
-  speakers
+- a script or a test suite with windows: `shotbox run [--audio] -- COMMAND`
+- with none, a headless browser say: `shotbox exec [--audio] -- COMMAND`;
+  the shotbox package's `sealed()` seals a browser's environment, but
+  not the speakers
 - a session to come back to: `shotbox start --name NAME`, then
   `shotbox spawn --session NAME -- COMMAND`, and `shotbox stop NAME`
 
@@ -196,6 +196,13 @@ keys down. As
 on a real keyboard, a shifted symbol held
 with other keys shifts them too, and a key held past the repeat delay
 (about half a second) repeats.
+
+**`shotbox exec [options] -- COMMAND...`** runs a command sealed the same
+way, but with no display: for what draws nothing, a headless browser or a
+test suite, which should reach neither your desktop nor your speakers. It
+takes the session options that aren't about a display: `--env`, `--pass`,
+`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio` and
+`--no-sandbox`.
 
 **`shotbox start [--name NAME] [options]`** starts a session that lasts
 until `shotbox stop NAME`, and prints its name (`s1`, `s2`... without

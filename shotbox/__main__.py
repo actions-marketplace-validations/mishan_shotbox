@@ -2,6 +2,7 @@
 
     shotbox shoot OUT.png [options] -- COMMAND...   run it, wait, take the picture
     shotbox run [options] -- COMMAND...             run it in a sealed session
+    shotbox exec [options] -- COMMAND...            the same, with no display
     shotbox start [--name NAME] [options]           a session that lasts, until stopped
     shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
     shotbox stop NAME | shotbox sessions            stop one; list them
@@ -60,10 +61,10 @@ def size(s):
     return int(w), int(h)
 
 
-def session_options(p):
+def session_options(p, display=True):
+    """The options `run`, `shoot` and `start` take; without `display`, as
+    `exec` takes them, those that are about a display left out, and off."""
     g = p.add_argument_group("the session")
-    g.add_argument("--screen", type=size, default=(1280, 800), metavar="WxH",
-                   help="the display's size (1280x800)")
     g.add_argument("--desktop", action="store_true",
                    help="real GSettings (dconf) and the system's D-Bus services, "
                         "for desktop shells; the default is in-memory settings "
@@ -75,6 +76,21 @@ def session_options(p):
     g.add_argument("--pass", dest="passthrough", action="append", default=[], metavar="NAME",
                    help="let a variable through from outside (repeatable)")
     g.add_argument("--keep", action="store_true", help="keep the scratch dir, and say where")
+    g.add_argument("--audio", action="store_true",
+                   help="a PipeWire of the session's own, pulse protocol too, whose "
+                        "one sink plays to nowhere")
+    g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
+                   help="run programs outside bubblewrap, for those that need setuid "
+                        "helpers (sudo, AppImages); they can reach the machine's sound "
+                        "devices then")
+    p.set_defaults(display=display)
+    if not display:
+        p.set_defaults(screen=None, wayland=False, xwayland=False, a11y=False,
+                       announce_log=None, dark=False, high_contrast=False, text_scale=None,
+                       gamepads=0)
+        return
+    g.add_argument("--screen", type=size, default=(1280, 800), metavar="WxH",
+                   help="the display's size (1280x800)")
     g.add_argument("--wayland", action="store_true",
                    help="a Wayland session, under a headless sway, rather than X11 on "
                         "Xvfb (docs/wayland.md)")
@@ -86,9 +102,6 @@ def session_options(p):
     g.add_argument("--announce-log", metavar="FILE",
                    help="record what programs announce here (implies --a11y; "
                         "$SHOTBOX_SCRATCH/announcements by default)")
-    g.add_argument("--audio", action="store_true",
-                   help="a PipeWire of the session's own, pulse protocol too, whose "
-                        "one sink plays to nowhere")
     g.add_argument("--dark", action="store_true", help="the dark style")
     g.add_argument("--high-contrast", action="store_true", help="the high-contrast style")
     g.add_argument("--text-scale", type=scale, metavar="N",
@@ -97,10 +110,6 @@ def session_options(p):
                    help="N virtual Xbox 360 pads (1 to 4), seen only by the session's "
                         "programs, for `shotbox pad`; needs write access to /dev/uinput, "
                         "and bubblewrap")
-    g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
-                   help="run programs outside bubblewrap, for those that need setuid "
-                        "helpers (sudo, AppImages); they can reach the machine's sound "
-                        "devices then")
 
 
 def stop_once(signum, frame):
@@ -121,7 +130,8 @@ def make_session(a):
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,
                    high_contrast=a.high_contrast, text_scale=a.text_scale,
-                   audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox)
+                   audio=a.audio, gamepads=a.gamepads, sandbox=a.sandbox,
+                   display=a.display)
 
 
 def self_command():
@@ -150,6 +160,20 @@ def cmd_run(argv):
                                 description="Run a command in a sealed session: its own X display, "
                                             "D-Bus and home, and none of yours.")
     session_options(p)
+    opts, cmd = split(argv)
+    a = p.parse_args(opts)
+    cmd = command(cmd, p)
+    with make_session(a) as s:
+        return s.run(cmd)
+
+
+def cmd_exec(argv):
+    p = argparse.ArgumentParser(prog="shotbox exec",
+                                description="Run a command sealed as in a session, with "
+                                            "no display: a headless browser, a test "
+                                            "suite, anything that's to reach neither your "
+                                            "desktop nor your speakers.")
+    session_options(p, display=False)
     opts, cmd = split(argv)
     a = p.parse_args(opts)
     cmd = command(cmd, p)
@@ -636,7 +660,7 @@ def cmd_compare(argv):
     return 0
 
 
-COMMANDS = {"run": cmd_run, "shoot": cmd_shoot, "term": term.main, "wait": cmd_wait,
+COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.main, "wait": cmd_wait,
             "capture": cmd_capture, "record": cmd_record, "compare": cmd_compare,
             "vision": cmd_vision, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),

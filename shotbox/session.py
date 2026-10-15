@@ -361,8 +361,9 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True):
+                 sandbox=True, display=True):
         self.size = size
+        self.display = display
         self.sandbox = sandbox
         self._sandboxed = False
         self.unsealed = None    # what programs can reach that they shouldn't, to say
@@ -393,7 +394,9 @@ class Session(Screen):
     # --- setup ----------------------------------------------------------------
 
     def __enter__(self):
-        if self.use_wayland:
+        if not self.display:
+            need("dbus-daemon")
+        elif self.use_wayland:
             need("sway", "grim", "dbus-daemon", *(["Xwayland"] if self.xwayland else []))
         else:
             need("Xvfb", "xauth", "dbus-daemon")
@@ -420,7 +423,9 @@ class Session(Screen):
             self.env = self._make_env({}, None, None)
             bus = self._start_bus("session")
             sysbus = self._start_bus("system") if self.system_bus else None
-            if self.use_wayland:
+            if not self.display:
+                graphics = {}
+            elif self.use_wayland:
                 graphics = self._start_sway(bus)
             else:
                 display, xauth = self._start_x()

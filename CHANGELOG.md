@@ -18,6 +18,9 @@
 
 ### Added
 
+- **`shotbox exec -- COMMAND`**: the session's seal with no display, for
+  a headless browser or a test suite: its own environment, home and bus,
+  under bubblewrap, and `--audio` if it's wanted.
 - **`--no-sandbox`**, for a program that needs a setuid helper (sudo, an
   AppImage), which can't run under bubblewrap.
 - **What's sealed**, in the README: what a session keeps from a program,

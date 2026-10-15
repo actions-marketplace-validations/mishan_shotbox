@@ -55,6 +55,16 @@ scratch=$("$sb" run -- sh -c 'echo $SHOTBOX_SCRATCH')
 [ ! -e "$scratch" ] && ok "the scratch dir is removed" || fail "left $scratch behind"
 set +e; "$sb" run -- sh -c 'exit 7'; st=$?; set -e
 [ $st = 7 ] && ok "run exits with the command's status" || fail "run exited $st"
+# exec: the same seal with no display, its status, and no display's options.
+out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 SECRET=x \
+  "$sb" exec -- sh -c 'echo "D=${DISPLAY-} W=${WAYLAND_DISPLAY-} X=${SECRET-} H=$HOME"')
+set +e; "$sb" exec -- sh -c 'exit 5'; st=$?; "$sb" exec --wayland -- true 2>/dev/null; st2=$?; set -e
+case $out in
+  "D= W= X= H=/tmp/shotbox-"*) [ $st = 5 ] && [ $st2 = 2 ] \
+    && ok "exec: sealed with no display, its command's status; display options refused" \
+    || fail "exec: status $st, --wayland $st2" ;;
+  *) fail "exec: $out" ;;
+esac
 # A program that's gone, leaving a child behind: the child goes too.
 "$sb" run -- sh -c "sleep 300 & echo \$! > '$tmp/orphan'"
 pid=$(cat "$tmp/orphan")
