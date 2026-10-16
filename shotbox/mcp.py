@@ -57,11 +57,12 @@ PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 # each tool's own description can't say.
 INSTRUCTIONS = """\
 shotbox runs graphical programs in sealed sessions of their own, X11 or Wayland, \
-where you can look at them, drive them and check them; nothing in one reaches the \
-person's desktop or speakers, and with net: loopback, not the network either.
+where you can look at them, drive them and check them; nothing in one is meant to \
+reach the person's desktop or speakers (start_session's answer says when it can't), \
+and with net: loopback, not the network either.
 
-Start with start_session, then spawn a program from the person's allow list (the \
-error lists them) and wait_for its window. Read accessible_tree before clicking: \
+Start with start_session (with audio, for sound), then spawn a program from the \
+person's allow list (start_session's answer lists them) and wait_for its window. Read accessible_tree before clicking: \
 it says, in a few hundred tokens, what's on screen and what each thing is called, \
 and click takes a name. Take a screenshot only for what pixels say (colors, \
 layout); record for motion and sound. After acting, wait_for stable rather than \

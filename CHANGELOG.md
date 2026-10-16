@@ -5,8 +5,8 @@
 ### Added
 
 - **MCP's server instructions**: as it connects, `shotbox mcp` tells the
-  agent how its tools go together, which clients give the agent and
-  directories show.
+  agent how its tools go together; clients pass it on, and directories
+  show it.
 - `record --until-line RE FILE [--tail SECS]`: a recording that ends on
   an event, once a line matching RE is written to FILE, as `wait line`
   waits for one, and SECS after it; `--seconds` is then the most it
