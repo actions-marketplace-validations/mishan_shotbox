@@ -1213,6 +1213,21 @@ PY
   (cd "$tmp/other" && "$sb" run -- "$sb" record "$tmp/rec-cwd.mp4" --seconds 1 > /dev/null) \
     && probe "$tmp/rec-cwd.mp4" | grep -q "^h264,1280,800 " \
     && ok "record: from where another shotbox is, still this one's" || fail "record, from another shotbox's dir"
+  # An ffmpeg stuck opening what it records, where SIGTERM doesn't reach
+  # it: given up on, timed or stopped, saying so.
+  mkdir -p "$tmp/stuck"; printf '#!/bin/sh\ntrap "" TERM\nexec sleep 60\n' > "$tmp/stuck/ffmpeg"
+  chmod +x "$tmp/stuck/ffmpeg"
+  "$sb" run --env "PATH=$tmp/stuck:$PATH" -- sh -c "! '$sb' record '$tmp/stuck.mp4' --seconds 1 2> '$tmp/err' &&
+    ! timeout -s INT 2 '$sb' record '$tmp/stuck.mp4' 2>> '$tmp/err'" \
+    && [ "$(sort -u "$tmp/err")" = "shotbox: ffmpeg couldn't record: it was still opening what it records after 10 seconds" ] \
+    && [ "$(wc -l < "$tmp/err")" = 2 ] \
+    && ok "record: an ffmpeg that never begins, given up on, timed or stopped, saying so" \
+    || fail "record, ffmpeg stuck: $(cat "$tmp/err")"
+  # A still screen as a WebM, of which ffmpeg writes nothing for seconds,
+  # holding it back, lasts its --seconds all the same.
+  "$sb" run -- "$sb" record "$tmp/still.webm" --seconds 12 >/dev/null \
+    && [ "$(probe "$tmp/still.webm")" = "vp9,1280,800 12.000000 " ] \
+    && ok "record: a still screen as a WebM, its --seconds long" || fail "record, still WebM: $(probe "$tmp/still.webm")"
   # A window partly off the screen is recorded as far as it shows; one
   # entirely off it is refused.
   if command -v xdotool >/dev/null; then

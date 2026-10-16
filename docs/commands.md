@@ -82,7 +82,9 @@ an animation, a transition, something moving. `shotbox record OUT.mp4
 stopped: Ctrl-C, `kill` when it runs in the background with `&`, its
 session's display stopping. However it stops, even killed outright, the
 file is finished, by a process of its own, which can still be making a
-GIF after `shotbox run` returns. `--until-line RE FILE` stops it at an
+GIF after `shotbox run` returns. An ffmpeg still opening what it records
+10 seconds in is stuck there, and is killed, `record` failing saying so.
+`--until-line RE FILE` stops it at an
 event instead: once a line matching RE is written to FILE, as `wait line`
 waits for one (from the end the file has when it starts, followed if it
 isn't there yet or is replaced), and `--tail SECS` after it, so the clip
