@@ -431,7 +431,10 @@ def keep_recording(cmd, out, grab, heard, size="0"):
                 # The sound ended first, and timed, nothing ended the picture
                 # with it: cut to the sound's length now ffmpeg's done, where
                 # a picture a frame short can't cut the sound as -shortest can.
+                # Into a link's target, over what a cut killed partway left.
+                out = out.resolve()
                 part = out.with_name(f".{out.name}")
+                part.unlink(missing_ok=True)
                 made = subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i",
                                        str(out), "-c", "copy", "-t", str(said["seconds"]),
                                        "-movflags", "+faststart", str(part)],
