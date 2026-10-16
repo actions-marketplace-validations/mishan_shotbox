@@ -441,7 +441,8 @@ its own processes (see below); `--net loopback` for a network of the session's o
 (see [What's sealed](sealed.md)); `--identity USER@HOST` for a user and host name
 that aren't yours (see [What's sealed](sealed.md)); `--clock TIME` and `--tz ZONE` for
 a wall clock that starts at TIME (see [The clock](#the-clock)); `--no-sandbox` for a program
-that needs a setuid helper (see [What's sealed](sealed.md)); and the display presets:
+that needs a setuid helper, or for every session `SHOTBOX_SANDBOX=off` in the environment
+(see [What's sealed](sealed.md)); and the display presets:
 
 - `--dark`: the dark style. libadwaita apps, GTK 4 and GTK 3.
 - `--high-contrast`: the high-contrast style. libadwaita apps, GTK 4.20

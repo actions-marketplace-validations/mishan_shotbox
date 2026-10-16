@@ -113,10 +113,10 @@ def session_options(p, display=True):
                    help="the wall clock starts at TIME (ISO 8601, 2026-09-26T18:40:00, in "
                         "--tz or UTC) and runs on, for every program; needs libfaketime")
     g.add_argument("--tz", metavar="ZONE", help="the time zone (Europe/Berlin; UTC by default)")
-    g.add_argument("--no-sandbox", dest="sandbox", action="store_false",
+    g.add_argument("--no-sandbox", dest="sandbox", action="store_false", default=None,
                    help="run programs outside bubblewrap, for those that need setuid "
                         "helpers (sudo, AppImages); they can reach the machine's sound "
-                        "devices then")
+                        "devices then. SHOTBOX_SANDBOX=off is this for every session")
     p.set_defaults(display=display)
     if not display:
         p.set_defaults(screen=None, wayland=False, xwayland=False, a11y=False,

@@ -108,6 +108,14 @@ the new one from that run's artifact the same way; each failing one has
 of dithering or antialiasing every run can be given room by name,
 `--fuzz month=1%` or `--max files=20`, leaving the rest exact.
 
+In a container (a job's `container:`), which holds back the user
+namespaces bubblewrap makes its sandbox in, as Docker's default profile
+does, `--identity`, `--net` and `--gamepads` can't be had. Sessions run
+without a sandbox there, and say so only where it would have hidden
+something, a sound device or a runtime dir mounted in, say;
+`SHOTBOX_SANDBOX: off` in the job's `env` says that's meant ([What's
+sealed](sealed.md)).
+
 ## An accessibility audit
 
 What a screen reader hears, what can't be read, and where Tab goes:

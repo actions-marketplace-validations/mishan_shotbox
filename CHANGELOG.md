@@ -12,6 +12,17 @@
   Recording says the `line` and whether it was `stopped`; MCP's `record`
   takes `until_line`, `file` and `tail`, its file in the `--allow` file's
   directory, as `wait_for`'s line is.
+- `SHOTBOX_SANDBOX=off` in the environment: `--no-sandbox` for every
+  session, from Python and MCP too, and for one started inside a session,
+  for a Dockerfile or CI job to set once (`false` and `0` too). `shotbox
+  doctor` says whether sessions have a sandbox, and why not.
+
+### Changed
+
+- A session that can't make a sandbox says so only where it would have
+  hidden something: not in a container with no sound, input, HID or USB
+  devices and nothing in `/run/user/UID` or `XDG_RUNTIME_DIR`. Where it
+  says so, it says how to say it's meant.
 
 ### Fixed
 
