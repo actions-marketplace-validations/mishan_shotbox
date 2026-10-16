@@ -106,6 +106,10 @@ class Screen:
             # thing said twice can be waited for twice. The lines taken, a
             # number a line, under a lock: waits may run side by side.
             taken = Path(self.env["SHOTBOX_SCRATCH"]) / "announcements-taken"
+            try:
+                found = re.compile(arg)
+            except re.error as e:
+                raise SessionError(f"{arg!r} isn't a regex: {e}") from None
 
             def said():
                 log = self.env.get("SHOTBOX_ANNOUNCEMENTS")
@@ -119,7 +123,7 @@ class Screen:
                     f.seek(0)
                     gone = {int(n) for n in f.read().split()}
                     for i, line in enumerate(lines):
-                        if i not in gone and re.search(arg, line.partition(": ")[2]):
+                        if i not in gone and found.search(line.partition(": ")[2]):
                             f.write(f"{i}\n")
                             return True
                 return False
@@ -704,28 +708,33 @@ class Screen:
         return [Node(n) for n in self._a11y("tree", *([f"--window={window}"] if window else []))]
 
     def find(self, role=None, name=None, window=None):
-        """The nodes with this role ("button") and a name matching `name`
-        (a regex, matched in full)."""
-        return [n for n in self.a11y_tree(window)
-                if (role is None or n.role == role)
-                and (name is None or re.fullmatch(name, n.name))]
+        """The nodes with this role ("button") and named `name`: those
+        named exactly that, if any, else those it matches as a regex, in
+        full."""
+        named = None if name is None else x.pattern(name)[0]
+        found = [n for n in self.a11y_tree(window)
+                 if (role is None or n.role == role) and (named is None or named(n.name))]
+        return [n for n in found if n.name == name] or found
 
     def focused(self, window=None):
         """The node with the keyboard focus, or None."""
         return next((n for n in self.a11y_tree(window) if "focused" in n.states), None)
 
     def wait_focus(self, name, timeout=30, window=None):
-        """Wait for the keyboard focus to be on a node whose name matches
-        `name` (a regex, matched in full); that node."""
+        """Wait for the keyboard focus to be on a node named `name`, exactly
+        or as a regex matched in full; that node."""
+        named, note = x.pattern(name)
+
         def there():
             n = self.focused(window)
-            return n if n and re.fullmatch(name, n.name) else None
-        return self.until(f"the focus on {name!r}", there, timeout)
+            return n if n and named(n.name) else None
+        return self.until(f"the focus on {name!r}{note}", there, timeout)
 
     def a11y_lint(self, window=None, ignore=()):
         """The nodes a screen reader would have no name to say for, each
         with what's wrong as `problem`; but those whose "PATH: PROBLEM"
-        line one of the regexes in `ignore` is found in."""
+        line, or "LINE: PROBLEM" with its tree line, one of the regexes in
+        `ignore` is found in."""
         from .a11y import Node
         args = [f"--ignore={i}" for i in ignore]
         return [Node(n) for n in self._a11y("lint", *args, *([f"--window={window}"] if window else []))]
@@ -734,8 +743,9 @@ class Screen:
         """The nodes drawn with too little contrast, each with what's wrong
         as `problem`: text, buttons and links against their background (at
         least `text`), images (`graphics`), and with `edges`, a button's or field's edge against
-        what's round it; but those whose "PATH: PROBLEM" line one of the
-        regexes in `ignore` is found in. Measured on a picture of the
+        what's round it; but those whose "PATH: PROBLEM" line, or "LINE:
+        PROBLEM" with its tree line, one of the regexes in `ignore` is found
+        in. Measured on a picture of the
         screen, `window` raised."""
         from .a11y import Node
         args = ["--text", str(text), "--graphics", str(graphics),
@@ -745,8 +755,8 @@ class Screen:
         return [Node(n) for n in self._a11y("contrast", *args)]
 
     def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
-        """Click the middle of the node whose name matches `name` (a regex,
-        matched in full), and role `role` if given (a regex too), waiting
+        """Click the middle of the node named `name`, exactly or else as a
+        regex matched in full, and role `role` if given (the same), waiting
         up to `timeout` for it to show; that node."""
         from .a11y import Node
         args = ["--button", str(button), "--timeout", str(timeout),

@@ -14,6 +14,7 @@ desktop's. `record` is the session's announcement recorder.
 """
 
 import argparse
+import difflib
 import json
 import math
 import os
@@ -95,11 +96,14 @@ class Node(dict):
         except KeyError:
             raise AttributeError(key)
 
-    def line(self):
+    def line(self, bounds=False):
+        """As the tree has it, and with `bounds`, where it is, if that's known."""
         out = f'{self.role} {json.dumps(self.name, ensure_ascii=False)}'
         if self.description:
             out += f' description={json.dumps(self.description, ensure_ascii=False)}'
-        return out + (f" [{', '.join(self.states)}]" if self.states else "")
+        out += f" [{', '.join(self.states)}]" if self.states else ""
+        return out + (" @{},{} {}x{}".format(*self["bounds"]) if bounds and self.get("bounds")
+                      else "")
 
 
 def toplevels(Atspi, window=None, timeout=10):
@@ -137,7 +141,7 @@ def find_toplevels(Atspi, window=None):
     def picks(got):
         if window.startswith("app="):
             return bool(got) and shown()[1] is not None and got == shown()[1][1]
-        return re.fullmatch(window, got) is not None
+        return x.pattern(window)[0](got)
 
     hits = []
     for name, _, app in sorted(apps, key=lambda a: a[:2]):
@@ -282,12 +286,24 @@ def roles(Atspi, names):
     return {int(getattr(Atspi.Role, r)) for r in names if hasattr(Atspi.Role, r)}
 
 
+def ignored(ignore):
+    """A test of a problem, (node, what), for the regexes in `ignore`: one
+    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT"."""
+    try:
+        found = [re.compile(i) for i in ignore]
+    except re.error as e:
+        raise SessionError(f"ignore takes regexes, and {e.pattern!r} isn't one: {e}") from None
+    return lambda n, what: any(r.search(f"{n.path}: {what}") or r.search(f"{n.line()}: {what}")
+                               for r in found)
+
+
 def lint(Atspi, nodes, ignore=()):
     """(node, what's wrong) for each control, image or focusable node a
     screen reader would have no name to say for. An image inside a named
     control is part of it: the control's name is what gets said. Anything
     with a name inside it is said by what's in it, and a container with
     something focusable inside passes the focus on to it."""
+    skip = ignored(ignore)
     controls = roles(Atspi, CONTROLS)
     containers = roles(Atspi, CONTAINERS)
     by_path = {n.path: n for n in nodes}
@@ -320,8 +336,7 @@ def lint(Atspi, nodes, ignore=()):
         elif ("focusable" in n.states and n.path not in said_inside
               and not (n._role in containers and n.path in focus_inside)):
             problems.append((n, f"focusable {n.role} with no name"))
-    return [(n, what) for n, what in problems
-            if not any(re.search(i, f"{n.path}: {what}") for i in ignore)]
+    return [(n, what) for n, what in problems if not skip(n, what)]
 
 
 def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=False):
@@ -609,39 +624,54 @@ def scroll(name, dy, dx=0, role=None, window=None, timeout=10):
 
 
 def at_node(name, role, window, timeout, act):
-    """Do `act` (a Screen, x, y) at the middle of the node whose name
-    matches `name` (a regex, matched in full), and role `role` (a regex
-    too) if given, waiting up to `timeout` for it to show, its window
-    raised. A match inside another (a button's label) is the outer one.
-    The node."""
+    """Do `act` (a Screen, x, y) at the middle of the node named `name`, and
+    with role `role` if given, each as x.pattern() matches a name, waiting
+    up to `timeout` for it to show, its window raised. Nodes named exactly
+    `name` are taken over those it matches as a regex: a calculator's "."
+    is its button, not any one character. A match inside another (a
+    button's label) is the outer one. The node."""
     Atspi = atspi()
+    (named, note), (as_role, role_note) = x.pattern(name), x.pattern(role or "")
+    showing = []
 
     def matches():
-        nodes = [n for _, n in walk(Atspi, window, timeout)
-                 if n._showing and re.fullmatch(name, n.name)
-                 and (role is None or re.fullmatch(role, n.role))]
+        showing[:] = [n for _, n in walk(Atspi, window, timeout) if n._showing]
+        nodes = [n for n in showing if named(n.name) and (role is None or as_role(n.role))]
+        nodes = [n for n in nodes if n.name == name] or nodes
         return [n for n in nodes if not any(n.path.startswith(o.path + "/") for o in nodes)]
 
-    what = f"a node named {name!r}" + (f" with role {role!r}" if role else "")
-    hits = wait_for(what, matches, timeout)
-    if len(hits) > 1:
-        raise SessionError(f"{len(hits)} nodes match: " + "; ".join(n.path for n in hits))
-    n = hits[0]
+    what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
+    try:
+        hits = wait_for(what, matches, timeout)
+    except SessionError as e:
+        near = not any(named(n.name) for n in showing) and difflib.get_close_matches(
+            name, {n.name for n in showing if n.name}, 5)
+        if not near:
+            raise
+        raise SessionError(f"{e}. The nearest names: "
+                           + ", ".join(json.dumps(n, ensure_ascii=False) for n in near)) from None
     screen = Screen()
     origins = {}
-    box = place(Atspi, n, screen.backend.windows(screen.env), origins)
+    shown = screen.backend.windows(screen.env)
+    for n in hits:
+        n["bounds"] = place(Atspi, n, shown, origins)
+    if len(hits) > 1:
+        raise SessionError(f"{len(hits)} nodes match {name!r}:\n  "
+                           + "\n  ".join(n.line(bounds=True) for n in hits)
+                           + "\nNarrow it with a role or a window, or click one where it is.")
+    n = hits[0]
+    box = n.bounds
     if not box or box[2] <= 0 or box[3] <= 0:
         raise SessionError(f"can't tell where {n.line()} is on the screen")
     # Inside its window: a node scrolled out of view is still showing.
-    x, y, w, h = overlap(box, origins[n._top][0])
+    px, py, w, h = overlap(box, origins[n._top][0])
     if not w or not h:
         raise SessionError(f"{n.line()} is outside its window")
     try:
         screen.backend.focus(screen.env, origins[n._top][2])
-        act(screen, x + w // 2, y + h // 2)
+        act(screen, px + w // 2, py + h // 2)
     finally:
         screen.close()
-    n["bounds"] = box
     return n
 
 
@@ -656,8 +686,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     what's outside its window (scrolled out of view); text is taken as
     normal size. A node that can't be placed, and
     text with nothing drawn on its background, are problems too: nothing
-    says they can be read. But for those whose "PATH: PROBLEM" line one of
-    the regexes in `ignore` is found in."""
+    says they can be read. But for those ignored() leaves out."""
+    skip = ignored(ignore)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
     screen = Screen()
@@ -790,8 +820,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if got and got[0] < edges and not (field and framed(n, box)):
                 problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
                                     f"{picture.hex_of(got[2])} (at least {edges:g})"))
-    return [(n, what) for n, what in problems
-            if not any(re.search(i, f"{n.path}: {what}") for i in ignore)]
+    return [(n, what) for n, what in problems if not skip(n, what)]
 
 
 def grow_box(box, by):
@@ -918,8 +947,8 @@ def main(argv):
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
     ignore = dict(action="append", default=[], metavar="RE",
-                  help="not a problem whose line (PATH: WHAT) this regex is found in "
-                       "(repeatable)")
+                  help="not a problem whose line (PATH: WHAT, or the node's tree line: "
+                       "WHAT) this regex is found in (repeatable)")
     lt.add_argument("--ignore", **ignore)
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
@@ -928,16 +957,18 @@ def main(argv):
                    help="fail where the focus doesn't show: too little of the screen "
                         "round a node changed as it took it")
     c = sub.add_parser("click", help="click a node, found by its name")
-    c.add_argument("name", metavar="NAME", help="its name, a regex matched in full")
-    c.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
+    c.add_argument("name", metavar="NAME", help="its name: exactly, or failing that, a regex "
+                                                "matched in full")
+    c.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     c.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
     c.add_argument("--double", action="store_true", help="click twice")
     sc = sub.add_parser("scroll", help="turn the mouse wheel over a node, found by its name")
-    sc.add_argument("name", metavar="NAME", help="its name, a regex matched in full")
+    sc.add_argument("name", metavar="NAME", help="its name: exactly, or failing that, a regex "
+                                                 "matched in full")
     sc.add_argument("dy", type=int, metavar="DY", help="clicks down; up if negative")
     sc.add_argument("dx", type=int, nargs="?", default=0, metavar="DX",
                     help="clicks right; left if negative")
-    sc.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
+    sc.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
                     help="text, buttons, links and tabs against their background, at least (4.5)")
@@ -977,7 +1008,7 @@ def main(argv):
         return 0
     if a.what in ("lint", "contrast"):
         if a.what == "lint":
-            problems = lint(atspi(), tree(a.window, a.timeout), a.ignore)
+            problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
         else:
             problems = contrast(a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore)
         if a.json:

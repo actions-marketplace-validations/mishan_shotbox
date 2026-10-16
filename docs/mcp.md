@@ -106,7 +106,15 @@ by nothing else.
 A failure is an answer, marked `isError`, in a sentence saying what to do
 instead: a program not on the list says what is, a session that isn't
 there names the ones that are, and an argument a tool doesn't take is
-named. Arguments are taken however the client sends them, since clients
+named, as is a choice that isn't one before what a call lacks. A node's
+name, for `click` and `wait_for`'s focus, is taken as it is, and failing
+that as a regex: `+` and `(Draft)` are labels, not regexes, as in
+[Clicking by name](accessibility.md#clicking-by-name). Two nodes matching
+are listed as `accessible_tree` lines with their bounds; none, the
+nearest names. `lint` and `contrast` answer in tree lines too, with
+bounds, and an `ignore` regex leaves out a problem it's found in, the
+tree line's or the node's path's, as `shotbox a11y lint --ignore` does.
+Arguments are taken however the client sends them, since clients
 don't pass them through as typed. A number can come as text, and a list
 as text with commas or spaces: `"Tab Tab"` for `["Tab", "Tab"]`.
 

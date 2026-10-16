@@ -198,14 +198,13 @@ def words(v):
 
 
 def tree_text(nodes, bounds=False):
-    lines = []
-    for n in nodes:
-        line = "  " * n.depth + n.line()
-        if bounds and n.get("bounds"):
-            x, y, w, h = n.bounds
-            line += f" @{x},{y} {w}x{h}"
-        lines.append(line)
-    return "\n".join(lines) or "(no accessible windows)"
+    return "\n".join("  " * n.depth + n.line(bounds) for n in nodes) or "(no accessible windows)"
+
+
+def problems(nodes):
+    """lint's and contrast's answer: a line a node, as the tree has it, and
+    what's wrong."""
+    return "\n".join(f"{n.line(bounds=True)}: {n.problem}" for n in nodes) or "No problems."
 
 
 class Server:
@@ -441,7 +440,7 @@ class Server:
     # --- acting --------------------------------------------------------------
 
     def click(self, session, name=None, role=None, x=None, y=None, window=None,
-              button=1, double=False, hold=None, state=None):
+              button=1, double=False, hold=None, state=None, timeout=None):
         s = self.session(session)
         button, double = int(number(button, "button") or 1), flag(double)
         hold, state = held(hold, state)
@@ -450,8 +449,10 @@ class Server:
         if name is not None:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
+            timeout = number(timeout, "timeout", 0, 300)
             n = self.a11y_session(session).click_node(
-                str(name), role=text(role), window=text(window), button=button, double=double)
+                str(name), role=text(role), window=text(window), button=button, double=double,
+                timeout=10 if timeout is None else timeout)
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click takes a node's name, or x and y")
@@ -559,6 +560,9 @@ class Server:
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
                  fuzz=None, most=None, file=None, from_start=False):
         s = self.session(session)
+        if what not in WAITS:
+            raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
+                          f"not {what!r}")
         # Each call holds the server till it's done: not for long.
         timeout = number(timeout, "timeout", 0, 300) or 10
         if what in ("match", "change"):
@@ -586,24 +590,19 @@ class Server:
             n = self.a11y_session(session).wait_focus(str(value), timeout=timeout,
                                                       window=text(window))
             return f"The focus is on {n.line()}."
-        if what == "line":
-            return s.wait_line(str(value), self.log(file), flag(from_start), timeout,
-                               within=Path(self.home).resolve())
-        raise Refused(f"wait_for waits for a window, stable, an announcement, focus, match, "
-                      f"change or a line, not {what!r}")
+        return s.wait_line(str(value), self.log(file), flag(from_start), timeout,
+                           within=Path(self.home).resolve())
 
     # --- checking ------------------------------------------------------------
 
     def lint(self, session, window=None, ignore=None):
-        nodes = self.a11y_session(session).a11y_lint(text(window), words(ignore))
-        return "\n".join(f"{n.path}: {n.problem}" for n in nodes) or "No problems."
+        return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)))
 
     def contrast(self, session, window=None, text_ratio=4.5, graphics=3.0, edges=None,
                  ignore=None):
-        nodes = self.a11y_session(session).contrast(
+        return problems(self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
-            number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore))
-        return "\n".join(f"{n.path}: {n.problem}" for n in nodes) or "No problems."
+            number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore)))
 
     def tab_walk(self, session, key="Tab", window=None, visible=False, most=50):
         s = self.a11y_session(session)
@@ -676,7 +675,9 @@ STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}
 CROP = {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"}
 WINDOW = {"type": "string", "description":
-          "A window by its title (a regex, matched in full), or app=RE for its app id"}
+          "A window by its title (exactly, or a regex matched in full), or app=RE for its "
+          "app id"}
+WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
 # to read in its answer, and what to do instead when it's the wrong one.
@@ -774,17 +775,21 @@ TOOLS = [
              "tail": {"type": "number"}},
             ["session"])),
     ("click",
-     "Click a node by its name, as the accessible tree gives it (a regex, matched in "
-     "full; role narrows it, like \"button\" or \"(push )?button\"), or a point by x and "
-     "y, on the screen or inside a window. By name is the one to use: it finds the node "
-     "wherever it is, raises its window and clicks its middle, and fails saying why when "
-     "two nodes match. A click gives a window the keyboard, which nothing else does on "
-     "X11. hold and state, by x and y, hold the button as press_keys holds keys.",
+     "Click a node by its name, as the accessible tree gives it: exactly, or failing "
+     "that, a regex matched in full (role narrows it, exactly or as a regex, like "
+     "\"button\" or \"(push )?button\"); or a point by x and y, on the screen or inside a window. By name "
+     "is the one to use: it waits up to timeout seconds (10) for the node, raises its "
+     "window and clicks its middle. When two nodes match it lists them, with where they "
+     "are; when none does, the nearest names. A click gives a window the keyboard, which "
+     "nothing else does on X11. hold and state, by x and y, hold the button as press_keys "
+     "holds keys.",
      schema({"session": SESSION, "name": {"type": "string"}, "role": {"type": "string"},
              "x": {"type": "integer"}, "y": {"type": "integer"}, "window": WINDOW,
              "button": {"type": "integer", "description": "1 left, 2 middle, 3 right"},
              "double": {"type": "boolean"},
-             "hold": HOLD, "state": STATE}, ["session"])),
+             "hold": HOLD, "state": STATE,
+             "timeout": {"type": "number", "description": "By name, how long to wait for "
+                         "the node (10 seconds)"}}, ["session"])),
     ("scroll",
      "Turn the mouse wheel over a node by its name, found as click finds it, or at a point "
      "by x and y: dy clicks down (negative, up), dx right (negative, left), up to 100 "
@@ -821,10 +826,11 @@ TOOLS = [
      "Type text into whatever has the keyboard focus. ASCII only.",
      schema({"session": SESSION, "text": {"type": "string"}}, ["session", "text"])),
     ("wait_for",
-     "Wait, instead of sleeping, for: a window (value: its title, a regex, or app=RE), "
-     "stable (the screen, or the window, unchanged for value seconds, 0.5: after a click, "
-     "for the repaint), an announcement (value: a regex in what was announced to a screen "
-     "reader), focus (value: a regex for the name of the node with the keyboard focus), "
+     "Wait, instead of sleeping, for: a window (value: its title, exactly or a regex, or "
+     "app=RE), stable (the screen, or the window, unchanged for value seconds, 0.5: after "
+     "a click, for the repaint), an announcement (value: a regex in what was announced to "
+     "a screen reader), focus (value: the name of the node with the keyboard focus, as "
+     "click takes one), "
      "match (value: a PNG in the directory of the server's allow file, by its path from "
      "there, that the screen, or the window, cropped to crop, should look like: no more than most pixels, 0, differing by more than fuzz percent, 0), or "
      "change (from how it looked when the wait started, by more than that), or "
@@ -835,8 +841,7 @@ TOOLS = [
      "long they took; line answers with the line. Fails after timeout seconds (10), "
      "saying so.",
      schema({"session": SESSION,
-             "what": {"type": "string", "enum": ["window", "stable", "announcement", "focus",
-                                                 "match", "change", "line"]},
+             "what": {"type": "string", "enum": list(WAITS)},
              "value": {"type": "string"}, "window": WINDOW, "timeout": {"type": "number"},
              "crop": {"type": "string", "description": "WxH+X+Y"},
              "fuzz": {"type": "number"}, "most": {"type": "integer"},
@@ -844,16 +849,17 @@ TOOLS = [
             ["session", "what"])),
     ("lint",
      "Nodes a screen reader has no name to say for: controls, images (not inside a named "
-     "control) and anything else that takes the focus. A line each: the node's path, then "
-     "what's wrong. ignore takes regexes for lines that can't be fixed yet.",
+     "control) and anything else that takes the focus. A line each: the node, as "
+     "accessible_tree has it, then what's wrong. ignore takes regexes for lines that can't "
+     "be fixed yet.",
      schema({"session": SESSION, "window": WINDOW,
              "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),
     ("contrast",
      "Contrast measured on the screen, in each node's bounds: text, buttons and links "
      "against their background (at least text_ratio, 4.5), images (graphics, 3), and with "
-     "edges, a button's or field's edge against what's round it. A line each, with the "
-     "colors. Switches, sliders and check boxes are left out, and so is what's scrolled "
-     "out of view.",
+     "edges, a button's or field's edge against what's round it. A line each, the node "
+     "as accessible_tree has it with its bounds, then the colors. Switches, sliders and "
+     "check boxes are left out, and so is what's scrolled out of view.",
      schema({"session": SESSION, "window": WINDOW, "text_ratio": {"type": "number"},
              "graphics": {"type": "number"}, "edges": {"type": "number"},
              "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),

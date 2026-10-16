@@ -23,17 +23,28 @@ TREE_LINE = re.compile(r'^\s*(0x[0-9a-f]+) "(.*)": \((?:"(.*?)" "(.*?)")?\)'
                        r'\s+(\d+)x(\d+)\+-?\d+\+-?\d+\s+\+(-?\d+)\+(-?\d+)\s*$')
 
 
+def pattern(spec):
+    """How a name is matched, a window's or a node's: as it is, or as a
+    regex matched in full; one that isn't a regex ("+", "Save (") only as
+    it is. A test of a name, and what to add to saying what's looked for."""
+    try:
+        rx = re.compile(spec)
+    except re.error as e:
+        return (lambda name: name == spec), f" (exactly: it isn't a regex, {e})"
+    return (lambda name: name == spec or rx.fullmatch(name) is not None), ""
+
+
 def matcher(spec):
-    """What a window is asked for by: a regex for its name (its title),
-    matched in full, or app=RE for its app id: a Wayland window's app_id,
+    """What a window is asked for by: its name (its title), as pattern()
+    matches one, or app=RE for its app id: a Wayland window's app_id,
     or either half of an X window's WM_CLASS, its instance or its class.
     A test of (name, app ids), and how to say what it's looking for."""
     if spec.startswith("app="):
-        pattern = re.compile(spec[4:])
-        return (lambda name, apps: any(pattern.fullmatch(a) for a in apps),
-                f"window with app id {spec[4:]!r}")
-    pattern = re.compile(spec)
-    return lambda name, apps: bool(pattern.fullmatch(name)), f"window named {spec!r}"
+        test, note = pattern(spec[4:])
+        return (lambda name, apps: any(map(test, apps)),
+                f"window with app id {spec[4:]!r}{note}")
+    test, note = pattern(spec)
+    return lambda name, apps: test(name), f"window named {spec!r}{note}"
 
 
 def windows(env):

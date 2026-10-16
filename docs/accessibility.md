@@ -20,7 +20,7 @@ Inside a session with `--a11y`:
   lands each time, and fails on a trap: [Walking the Tab
   order](#walking-the-tab-order).
 - **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
-  node whose name matches NAME (a regex, matched in full): a button by
+  node named NAME, exactly or as a regex matched in full: a button by
   its label rather than where it is. [Clicking by name](#clicking-by-name).
 - **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE]`** turns
   the mouse wheel over that node, found as `click` finds it, DY clicks
@@ -159,10 +159,11 @@ problem inside a scrolled window: it's flagged as itself.
 
 Each problem is a line: the node's path, every step a role and its index
 among its siblings, from the window down, then what's wrong. The exit
-status is 1 if there are any. `--ignore RE` (repeatable) leaves out each line the
-regex is found in: an unnamed node that won't be fixed yet, or a
-toolkit's own (libadwaita's tab bar scroller), so the rest can be held
-to in CI.
+status is 1 if there are any. `--ignore RE` (repeatable) leaves out each
+line the regex is found in, or would be in with the node's tree line in
+place of its path (`button "": button with no name`): an unnamed node
+that won't be fixed yet, or a toolkit's own (libadwaita's tab bar
+scroller), so the rest can be held to in CI.
 
 ## Walking the Tab order
 
@@ -229,17 +230,31 @@ nothing else would get to stop it.
 
 ## Clicking by name
 
-`click NAME` reads the tree, picks the showing nodes whose name matches
-NAME, and `--role` too, waiting up to `--timeout` for one; drops a match
+`click NAME` reads the tree, picks the showing nodes named NAME, and
+with the role `--role`, waiting up to `--timeout` for one; drops a match
 inside another (a GTK button's label, inside the button), fails if more
-than one is left, saying which; raises the `--window`; and clicks the
-middle of its bounds, cut to its window's (a node scrolled out of view
-is still "showing"; one wholly outside its window is refused), over
-XTEST or sway's virtual pointer, as `shotbox click` does. A real
+than one is left, saying which, as tree lines with where each is; raises
+the `--window`; and clicks the middle of its bounds, cut to its window's
+(a node scrolled out of view is still "showing"; one wholly outside its
+window is refused), over XTEST or sway's virtual pointer, as `shotbox
+click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would. `scroll NAME DY [DX]` finds the node the same way and turns the
 wheel at the same place, as `shotbox scroll` does.
+
+A name is taken as it is, and failing that as a regex matched in full:
+nodes named exactly NAME are picked over those it matches as a regex, so
+a calculator's `+`, `.` and `(Draft)` are its buttons, not a regex that
+doesn't compile, any one character and `Draft`. That's among the nodes
+showing each time it looks: while it waits, a node the regex matches
+that shows before one named exactly NAME is taken, so wait for the
+window to be up first. A NAME that isn't a regex
+is taken only as it is, and when nothing is named that, the error says
+it isn't a regex. A role, a `--window`'s title and `wait_focus` take a
+name the same way, but don't prefer an exact match (the biggest window
+is taken, and the focus is on one node). When nothing matches, the error
+lists the nearest names showing.
 
 `shotbox focus RE` gives a window the keyboard and raises it, for one a
 pointer can't reach first: on X11 by SetInputFocus and a restack, on
