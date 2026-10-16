@@ -247,7 +247,12 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
             # first, the sound's before the picture's dropped.
             end = f",atrim=end_sample={round(seconds * 48000)}" if seconds is not None else ""
             cmd += ["-filter_complex", f"[1:a]aresample=async=1:first_pts=0{end},asplit[a][heard]",
-                    "-map", "0:v", "-map", "[a]", "-shortest", *SOUND[kind]]
+                    "-map", "0:v", "-map", "[a]", *SOUND[kind]]
+            # Ended by a signal, or by the sound server going, the picture
+            # ends with the sound. Not when timed: atrim and -t end both, and
+            # a picture a frame short of -t, as a busy machine's can be,
+            # would cut the sound short with it.
+            cmd += ["-shortest"] if seconds is None else []
             cmd += PROMPT[kind]
             heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le", "-f", "wav"], "gap": gap}
     here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
@@ -368,6 +373,13 @@ def keep_recording(cmd, out, grab, heard, size="0"):
         # Whether the sound server had gone when it ended, not later.
         cut = bool(heard) and not socket_up(pulse)
         if feed:
+            # With sound, a moment for ffmpeg to stop both itself: ended by
+            # the pipe, the picture stops while the sound runs on until
+            # ffmpeg sees the signal, and timed, no -shortest ends it there.
+            try:
+                proc.wait(timeout=2 if heard else 0)
+            except subprocess.TimeoutExpired:
+                pass
             # ffmpeg waits on its input, and with sway gone, wf-recorder
             # waits for good on a frame: an end to the pipe ends both.
             feed.kill()
