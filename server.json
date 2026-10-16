@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mishan/shotbox",
+  "title": "shotbox",
+  "description": "Sealed X11/Wayland sessions to see, drive and check real GUI programs: a11y, pictures, sound.",
+  "repository": { "url": "https://github.com/mishan/shotbox", "source": "github" },
+  "websiteUrl": "https://github.com/mishan/shotbox/blob/main/docs/mcp.md",
+  "version": "0.6.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "shotbox",
+      "version": "0.6.0",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "mcp" },
+        {
+          "type": "named",
+          "name": "--allow",
+          "description": "File of programs the agent may start, NAME = COMMAND a line",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

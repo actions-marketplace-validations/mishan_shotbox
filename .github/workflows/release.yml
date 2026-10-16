@@ -1,7 +1,8 @@
 # Publish a release: pushing a tag vX.Y.Z runs ci.yml first, then publishes
 # the Python package to PyPI and the Node package to npm, each only if the
-# tag is its version. Both publish over GitHub's OIDC, trusted publishing:
-# no token is kept anywhere. docs/releasing.md has the one-time setup and
+# tag is its version, and once PyPI has it, server.json to the MCP
+# registry. All over GitHub's OIDC, trusted publishing: no token is kept
+# anywhere. docs/releasing.md has the one-time setup and
 # the steps for a release.
 
 name: release
@@ -64,3 +65,29 @@ jobs:
           fi
       - if: steps.version.outputs.published != 'yes'
         run: npm ci && npm publish
+
+  mcp-registry:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: The tag is the version
+        run: |
+          v=$(python3 -c "import json; s = json.load(open('server.json')); print(*{s['version'], *(p['version'] for p in s['packages'])})")
+          [ "${GITHUB_REF_NAME#v}" = "$v" ] || { echo "tag $GITHUB_REF_NAME, server.json $v"; exit 1; }
+      - name: mcp-publisher
+        run: |
+          curl -fsSL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz \
+            | tar xz mcp-publisher
+      # The registry checks PyPI's page for the version names the entry,
+      # which can take a minute to show after publishing.
+      - name: Publish
+        run: |
+          ./mcp-publisher login github-oidc
+          for n in 1 2 3 4 5 6; do
+            ./mcp-publisher publish && exit 0
+            sleep 30
+          done
+          exit 1

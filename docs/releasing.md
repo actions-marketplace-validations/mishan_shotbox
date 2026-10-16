@@ -7,8 +7,10 @@ changelog's newest heading; `test/run.sh` fails if they disagree.
 
 ## A release
 
-1. Set the version: `__version__` in `shotbox/__init__.py`, and
-   `npm version X.Y.Z --no-git-tag-version` for the two npm files.
+1. Set the version: `__version__` in `shotbox/__init__.py`, `"version"` in
+   `package.json` (by hand: `npm version` reformats the whole file), then
+   `npm install --package-lock-only` for the lockfile, and both
+   `"version"`s in `server.json`, the MCP registry's entry.
 2. Turn the changelog's `## Unreleased` into `## X.Y.Z — DATE`, with a
    line or two on what the release is.
 3. Merge that to main, then tag it and push the tag:
@@ -26,7 +28,10 @@ changelog's newest heading; `test/run.sh` fails if they disagree.
 
 `.github/workflows/release.yml` then runs the tests (`ci.yml`, including
 its build of both packages from scratch), checks the tag is the version,
-and publishes to PyPI and npm.
+and publishes to PyPI and npm, then, once PyPI has it, `server.json` to
+the [MCP registry](https://registry.modelcontextprotocol.io) as
+`io.github.mishan/shotbox`. The registry takes the PyPI package as
+shotbox's because its description, the README, has an `mcp-name` line.
 
 ## Once, before the first release
 
