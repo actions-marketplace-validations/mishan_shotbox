@@ -1,0 +1,23 @@
+1
+00:00:00,000 --> 00:00:08,500
+Accessibility: lint finds an unnamed button, contrast faint text
+
+2
+00:00:08,500 --> 00:00:20,500
+The fix, then both checks again: ok
+
+3
+00:00:20,500 --> 00:00:32,500
+Pictures: shoot, change, compare: just the pixels that changed
+
+4
+00:00:32,500 --> 00:00:42,500
+Sound: record what it plays, and hear where it dropped out
+
+5
+00:00:42,500 --> 00:00:52,500
+Flicker: find the strip that flips, its frames magnified
+
+6
+00:00:52,500 --> 00:01:02,500
+Hands: a virtual gamepad plays a game

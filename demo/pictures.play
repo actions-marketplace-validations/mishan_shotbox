@@ -1,0 +1,22 @@
+record ${OUT} --seconds 12 &
+0.3   focus shotbox-term
+0.3   type "shotbox shoot before.png --window Sketchpad -- python3 sketchpad.py"
+0.9   key Return
+wait line --from-start "before\.png\s*$" term.log
+2.4   focus shotbox-term
+2.4   type "show before.png"
+2.7   key Return
+3.4   focus shotbox-term
+3.4   type "git apply fix.diff"
+3.8   key Return
+4.6   focus shotbox-term
+4.6   type "shotbox shoot after.png --window Sketchpad -- python3 sketchpad.py"
+5.2   key Return
+wait line --from-start "after\.png\s*$" term.log
+6.8   focus shotbox-term
+6.8   type "shotbox compare before.png after.png --diff diff.png"
+7.4   key Return
+wait line --from-start "pixels differ" term.log
+8.8   focus shotbox-term
+8.8   type "show diff.png"
+9.1   key Return

@@ -1,0 +1,17 @@
+record ${OUT} --seconds 10 &
+0.3   focus shotbox-term
+0.3   type game
+0.6   key Return
+wait window "Pad game"
+1.5   focus shotbox-term
+1.5   type "shotbox pad stick left 0.5 -1 --hold 0.75"
+2     key Return
+3.4   focus shotbox-term
+3.4   type "shotbox pad stick left -1 1 --hold 0.75"
+3.9   key Return
+5.3   focus shotbox-term
+5.3   type "shotbox pad stick left 1 0.5 --hold 0.75"
+5.8   key Return
+7.2   focus shotbox-term
+7.2   type "shotbox pad press a"
+7.6   key Return

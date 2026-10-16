@@ -1,0 +1,25 @@
+record ${OUT} --seconds 20.5 &
+0.3   type sketchpad
+0.6   key Return
+wait window Sketchpad
+1.5   focus shotbox-term
+1.5   type "shotbox a11y lint --window Sketchpad && echo ok"
+2.3   key Return
+wait line --from-start "no name" term.log
+4.5   focus shotbox-term
+4.5   type "shotbox a11y contrast --window Sketchpad && echo ok"
+5.3   key Return
+wait line --from-start "at least" term.log
+8.5   focus shotbox-term
+8.5   type "git apply fix.diff && git diff -U1"
+9     key Return
+wait line --from-start Delete term.log
+12.5  type sketchpad
+12.8  key Return
+14    focus shotbox-term
+14    type "shotbox a11y lint --window Sketchpad && echo ok"
+14.6  key Return
+wait line --from-start "(^|[^ ])ok\s*$" term.log
+16.3  focus shotbox-term
+16.3  type "shotbox a11y contrast --window Sketchpad && echo ok"
+16.9  key Return
