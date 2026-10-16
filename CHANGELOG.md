@@ -28,6 +28,9 @@
 
 - `wait line` with a pattern that isn't a regex says so, rather than
   with a traceback.
+- `record --sound --seconds N` whose session's sound server stops first,
+  as a lasting session's does when it's stopped: the picture ends with
+  the sound, rather than running on for up to a second past it.
 
 ## 0.6.0 — 2026-10-15
 

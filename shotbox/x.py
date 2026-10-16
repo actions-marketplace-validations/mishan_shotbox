@@ -267,9 +267,10 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
             cmd += ["-filter_complex", f"[1:a]aresample=async=1:first_pts=0{end},asplit[a][heard]",
                     "-map", "0:v", "-map", "[a]", *SOUND[kind]]
             # Ended by a signal, or by the sound server going, the picture
-            # ends with the sound. Not when timed: atrim and -t end both, and
-            # a picture a frame short of -t, as a busy machine's can be,
-            # would cut the sound short with it.
+            # ends with the sound. Not when timed: atrim and -t end both (and
+            # the keeper the picture, if the sound server goes), and a
+            # picture a frame short of -t, as a busy machine's can be, would
+            # cut the sound short with it.
             cmd += ["-shortest"] if seconds is None else []
             cmd += PROMPT[kind]
             heard = {"options": ["-map", "[heard]", "-c:a", "pcm_s16le", "-f", "wav"], "gap": gap}
@@ -425,8 +426,23 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             return 1
         if heard:
             from .sound import hear
-            print(json.dumps({**hear(wav, gap=heard["gap"]), "cut": cut}),
-                  flush=True)
+            said = hear(wav, gap=heard["gap"])
+            if cut:
+                # The sound ended first, and timed, nothing ended the picture
+                # with it: cut to the sound's length now ffmpeg's done, where
+                # a picture a frame short can't cut the sound as -shortest can.
+                part = out.with_name(f".{out.name}")
+                made = subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i",
+                                       str(out), "-c", "copy", "-t", str(said["seconds"]),
+                                       "-movflags", "+faststart", str(part)],
+                                      stderr=subprocess.PIPE)
+                if made.returncode:
+                    part.unlink(missing_ok=True)
+                    sys.stderr.write("ffmpeg couldn't end the picture with the sound: "
+                                     + made.stderr.decode(errors="replace").strip() + "\n")
+                    return 1
+                part.replace(out)
+            print(json.dumps({**said, "cut": cut}), flush=True)
         if gif:
             made = subprocess.run(["ffmpeg", "-loglevel", "error", "-nostdin", "-y", "-i",
                                    str(video), "-vf",
