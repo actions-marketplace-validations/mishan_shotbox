@@ -468,7 +468,9 @@ def cmd_wait(argv):
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
                         "($SHOTBOX_FAILED)")
-    a = p.parse_args(argv)
+    # Intermixed, so `line --from-start RE FILE` reads RE and FILE on
+    # Python 3.12.3 too, whose parse_args settles both before the option.
+    a = p.parse_intermixed_args(argv)
     if a.kind == "match" and not a.arg:
         p.error("match needs the picture to look like")
     if (a.kind == "line") != bool(a.file):
