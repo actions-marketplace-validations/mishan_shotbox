@@ -297,10 +297,12 @@ def tied(sig):
     it goes, rather than recording on for good."""
     import ctypes
     keeper = os.getpid()
+    # Looked up here: after fork, with other threads, the loader may be locked.
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
 
     def tie():
         PR_SET_PDEATHSIG = 1
-        ctypes.CDLL(None, use_errno=True).prctl(PR_SET_PDEATHSIG, sig, 0, 0, 0)
+        prctl(PR_SET_PDEATHSIG, sig, 0, 0, 0)
         if os.getppid() != keeper:      # it went before the line above took
             os._exit(1)
     return tie

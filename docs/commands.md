@@ -169,16 +169,17 @@ pause. A step whose time has passed runs at once, saying how late, if
 it's more than a tenth of a second.
 
 A step ending in a bare `&` runs on behind those after it, in a process
-of its own, and the script waits for it at its end; for a `+` time after
-it, it ended as it started. What it prints is dropped, but for why it
+of its own, and the script waits for it at its end (so a `record` with
+no `--seconds` there keeps it going until it's stopped); for a `+` time
+after it, it ended as it started. What it prints is dropped, but for why it
 failed. If it fails, the script stops before its next step, but a step
 already running (a long wait, a hold) runs to its end first.
 
 Words are split and quoted as in the shell, and `#` at the start of a
 word starts a comment. `${NAME}` is the session's variable (`--env
 THEME=dark`), so one script serves two sessions; one not set is an
-error. A value with spaces stays one word, and in single quotes, or as
-`\${`, it's left as written.
+error. A value with spaces stays one word, and in single quotes it's
+left as written, as `\${` is, less its backslash.
 
 Before the first step starts, each one's options are checked, as its
 command checks them before it starts, with key and gamepad button names,
