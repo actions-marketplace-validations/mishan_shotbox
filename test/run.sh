@@ -60,13 +60,14 @@ set +e; "$venv/bin/python" "$sb" doctor > "$tmp/out"; st=$?; set -e
 [ $st = 0 ] && grep -q "^ok    sessions$" "$tmp/out" && grep -q "^no    term: needs PyGObject and VTE $reinstall\$" "$tmp/out" \
   && ok "doctor: what's here, and what isn't" || fail "doctor ($st): $(cat "$tmp/out")"
 # Under bubblewrap: none of the machine's sound devices, and none of the
-# desktop's sockets; all of them with --no-sandbox.
+# desktop's sockets; all of them with --no-sandbox, or SHOTBOX_SANDBOX=off.
 look='find /dev/snd "/run/user/$(id -u)" -mindepth 1 -maxdepth 1 2>/dev/null; true'
 if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
   in=$("$sb" run -- sh -c "$look"); out=$("$sb" run --no-sandbox -- sh -c "$look")
-  [ -z "$in" ] && [ -n "$out" ] \
-    && ok "no sound devices or desktop sockets inside, but with --no-sandbox" \
-    || fail "inside: [$in], with --no-sandbox: [$out]"
+  off=$(SHOTBOX_SANDBOX=off "$sb" run -- sh -c "$look")
+  [ -z "$in" ] && [ -n "$out" ] && [ "$off" = "$out" ] \
+    && ok "no sound devices or desktop sockets inside, but with --no-sandbox or SHOTBOX_SANDBOX=off" \
+    || fail "inside: [$in], with --no-sandbox: [$out], SHOTBOX_SANDBOX=off: [$off]"
   # Run from inside it, where the program wouldn't be: refused, saying so.
   hid="/run/user/$(id -u)/shotbox-test-$$"
   if mkdir "$hid" 2>/dev/null; then

@@ -67,7 +67,8 @@ from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for 
 
 # Passed through from the caller unless told otherwise. Everything else is
 # rebuilt: nothing from your session leaks in by accident.
-PASS = ("PATH", "USER", "LOGNAME", "SHELL", "TERM")
+# SHOTBOX_SANDBOX, so one set for a session holds for a session started in it.
+PASS = ("PATH", "USER", "LOGNAME", "SHELL", "TERM", "SHOTBOX_SANDBOX")
 
 # Deterministic GTK: X11 on Xvfb, the software renderer, no portals, no
 # accessibility bus, in-memory settings, nothing mounted.
@@ -363,6 +364,43 @@ def a11y_needs():
     return lacks("gdbus") or bindings(*ATSPI)
 
 
+def sandbox_needs(sandbox=("bwrap", "--dev-bind", "/", "/")):
+    """Why bubblewrap can't make a sandbox here, `sandbox` its command;
+    nothing if it can."""
+    if not shutil.which("bwrap"):
+        return "there's no bwrap (bubblewrap)"
+    probe = subprocess.run([*sandbox, "--", "true"], capture_output=True, text=True)
+    if probe.returncode:
+        return ("it can't make one here (are unprivileged user namespaces allowed?): "
+                + ("; ".join(filter(None, probe.stderr.strip().splitlines()))
+                   or f"status {probe.returncode}"))
+    return None
+
+
+def nothing_to_hide():
+    """Whether a sandbox would hide nothing here, as in a container: no
+    sound, input, raw HID or USB device, no uinput, and nothing in
+    /run/user/UID or XDG_RUNTIME_DIR, whoever's they are. What can't be
+    looked in counts as something."""
+    dev = Path("/dev")
+    for p in [dev / "snd", dev / "input", dev / "bus/usb", dev / "uhid", dev / "uinput",
+              *dev.glob("hidraw*"), *dev.glob("usb/hiddev*"), Path(f"/run/user/{os.getuid()}"),
+              *[Path(d) for d in [os.environ.get("XDG_RUNTIME_DIR")] if d]]:
+        try:
+            if p.exists() and (not p.is_dir() or any(p.iterdir())):
+                return False
+        except OSError:
+            return False
+    return True
+
+
+def sandbox_off():
+    why = sandbox_needs()
+    if why and nothing_to_hide():
+        why += "; nothing here for it to hide, so sessions don't say so"
+    return why
+
+
 def gamepad_needs():
     try:
         os.close(pad.uinput())
@@ -386,6 +424,7 @@ NEEDS = {
     "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
     "--gamepads": gamepad_needs,
     "--net": lambda: lacks("bwrap", "nsenter"),
+    "sandbox": sandbox_off,
     "term": lambda: bindings(*VTE),
     "record": lambda: lacks("ffmpeg"),
     "record on Wayland": lambda: lacks("ffmpeg", "wf-recorder"),
@@ -480,19 +519,25 @@ class Session(Screen):
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
-                 sandbox=True, display=True, net=None, usage=False, identity=None,
+                 sandbox=None, display=True, net=None, usage=False, identity=None,
                  clock=None, tz=None):
         self.size = size
         self.measure = usage
         self._sampler = self._slice = None
         self.used = None        # what usage() said as the session stopped
         self._up = False
+        unsandboxed = "--no-sandbox"
+        if sandbox is None:
+            on = os.environ.get("SHOTBOX_SANDBOX", "on")
+            if on not in ("on", "off"):
+                raise SessionError(f"SHOTBOX_SANDBOX is on or off, not {on!r}")
+            sandbox, unsandboxed = on == "on", "SHOTBOX_SANDBOX=off"
         if net not in (None, "loopback"):
             raise SessionError(f"net is loopback or nothing, not {net!r}")
         if net and not sandbox:
             # Programs join its namespace as a user namespace's, where a
             # setuid helper can't work: what --no-sandbox is for.
-            raise SessionError("--net loopback and --no-sandbox don't go together: in the "
+            raise SessionError(f"--net loopback and {unsandboxed} don't go together: in the "
                                "session's network, setuid helpers can't work either")
         self.net = net
         try:
@@ -523,7 +568,7 @@ class Session(Screen):
             # Only bubblewrap can fake them: going on without, as for an
             # unsealed session, would put the real names in the very
             # pictures this is for.
-            raise SessionError("--identity and --no-sandbox don't go together: only "
+            raise SessionError(f"--identity and {unsandboxed} don't go together: only "
                                "bubblewrap can fake who and where programs are")
         self.identity = m and m.groups()   # (user, host)
         self.display = display
@@ -1059,26 +1104,20 @@ class Session(Screen):
 
     def _probe_sandbox(self):
         """Run programs under bubblewrap if it can make a sandbox here. Gamepads
-        need one; without them, the session goes on without, saying so."""
+        need one; without them, the session goes on without, saying so where
+        it would have hidden something."""
         (self.scratch / "masked").touch(mode=0)
-        why = None
-        if not shutil.which("bwrap"):
-            why = "there's no bwrap (bubblewrap)"
-        else:
-            probe = subprocess.run([*self._sandbox(), "--", "true"], capture_output=True,
-                                   text=True)
-            if probe.returncode:
-                why = ("it can't make one here (are unprivileged user namespaces allowed?): "
-                       + ("; ".join(filter(None, probe.stderr.strip().splitlines()))
-                          or f"status {probe.returncode}"))
+        why = sandbox_needs(self._sandbox())
         if why and self.gamepads:
             raise SessionError(f"gamepads need bubblewrap to make a sandbox, and {why}")
         if why and self.identity:
             raise SessionError(f"--identity needs bubblewrap to make a sandbox, and {why}")
         kept = [d for d in self._runtime_dirs() if self.scratch.resolve().is_relative_to(d)]
-        if why:
+        if why and not nothing_to_hide():
             self.unsealed = ("programs run without a sandbox, so they can reach the "
-                             f"machine's sound devices and the desktop's sockets: {why}")
+                             f"machine's sound devices and the desktop's sockets: {why}; "
+                             "--no-sandbox or SHOTBOX_SANDBOX=off runs them so without "
+                             "saying this")
         elif kept:
             self.unsealed = (f"the session's scratch dir is in {kept[0]}, so programs can "
                              "reach the desktop's sockets there: set TMPDIR elsewhere")
