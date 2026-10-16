@@ -53,7 +53,7 @@ and then:
 That's enough for an agent to check its own change in a GUI, test a game
 by playing it, audit what a screen reader hears, or reproduce a bug report
 in a session that's the same each time. The accessible tree is the cheap
-way to look, a few hundred tokens of text; a screenshot is for what only
+way to look, a thousand or two tokens of text; a screenshot is for what only
 pixels say. An agent can't run anything off the list, and its sessions stop
 when the server does.
 

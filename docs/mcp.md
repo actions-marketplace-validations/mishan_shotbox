@@ -26,8 +26,8 @@ can:
 - **reproduce a report.** Follow the steps in a session that is the same
   each time, and show the state it ends in.
 
-The accessible tree is the cheap way to look. A few hundred tokens of
-text say what's on screen, what each thing is called and what can be
+The accessible tree is the cheap way to look. A thousand or two tokens
+of text say what's on screen, what each thing is called and what can be
 clicked, and the tree is what someone who can't see the screen gets. A
 screenshot costs far more, and is for what only pixels say: colors,
 layout, what's drawn.

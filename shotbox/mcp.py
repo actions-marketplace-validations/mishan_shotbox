@@ -63,8 +63,8 @@ and with net: loopback, not the network either.
 
 Start with start_session (with audio, for sound), then spawn a program from the \
 person's allow list (start_session's answer lists them) and wait_for its window. Read accessible_tree before clicking: \
-it says, in a few hundred tokens, what's on screen and what each thing is called, \
-and click takes a name. Take a screenshot only for what pixels say (colors, \
+it says what's on screen and what each thing is called, in far fewer tokens than \
+a screenshot, and click takes a name. Take a screenshot only for what pixels say (colors, \
 layout); record for motion and sound. After acting, wait_for stable rather than \
 sleeping. lint, contrast, tab_walk, announcements and sound check what a person \
 would meet. stop_session when done; every session stops with the server."""
