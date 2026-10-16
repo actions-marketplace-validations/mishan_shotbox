@@ -168,6 +168,7 @@ shotbox stop ed
 | [`record`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#run-wait-capture-and-record) | records a video, the sound, or both |
 | [`key`, `type`, `click`, `move`, `drag`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#key-type-click-move-drag-park-and-focus) | presses keys, types, works the pointer; [held](https://github.com/mishan/shotbox/blob/main/docs/commands.md#holding-keys-and-buttons) too |
 | [`park`, `focus`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#key-type-click-move-drag-park-and-focus) | moves the pointer out of the way; gives a window the keyboard |
+| [`play`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#play) | plays a script of timed input, on one clock |
 | [`latency`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#latency) | how fast what's drawn follows the pointer |
 | [`flicker`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#flicker) | finds a part of the screen that flickers or flashes |
 | [`pad`](https://github.com/mishan/shotbox/blob/main/docs/gamepads.md) | works a virtual gamepad |

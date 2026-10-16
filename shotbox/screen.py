@@ -1155,6 +1155,21 @@ class Screen:
             except SessionError:
                 pass
 
+    # --- scripts --------------------------------------------------------------
+
+    def play(self, script, vars=None, name=None, verbose=False):
+        """Play a script of timed steps, as `shotbox play` does: its text,
+        or with a Path, the file's; with `vars` (a dict) over the session's
+        variables for ${NAME}. Each step's options are checked before the
+        first starts; SessionError, naming the line (in `name`), if one is
+        wrong or fails, once what runs in the background is stopped. Text
+        starting with a newline, as a triple-quoted string does, is
+        numbered from the line after it."""
+        from .__main__ import play
+        if isinstance(script, str):
+            script = script.removeprefix("\n")
+        play(script, self, verbose, name, vars)
+
     def close(self):
         if self._x is not None:
             self._x.close()
