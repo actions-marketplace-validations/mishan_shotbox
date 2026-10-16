@@ -4,7 +4,7 @@
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
-edge, gray, busy, icon, dropout or beep. With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout, beep or fields. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -13,7 +13,9 @@ a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
 may measure short; and a label drawn see-through, which it shouldn't. With slow, a square that
 turns dark MS milliseconds after the pointer comes into the window, and
-light again that long after it leaves: a known latency."""
+light again that long after it leaves: a known latency. With fields, an
+entry named by its mnemonic label, and a search bar not revealed, in a
+notebook with its tabs hidden."""
 
 import sys
 
@@ -46,6 +48,21 @@ if sys.argv[2:] == ["contrast"]:
     for widget in (light, dim, switch, frame):
         box.add(widget)
     w.add(box)
+elif sys.argv[2:] == ["fields"]:
+    # GTK 3 names a field by its label as labelled-by, not as its own name;
+    # an unrevealed bar's unnamed button is visible, but not showing; a
+    # notebook's hidden tab is showing, but has no size.
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    label = Gtk.Label.new_with_mnemonic("_Name:")
+    entry = Gtk.Entry()
+    label.set_mnemonic_widget(entry)
+    bar = Gtk.Revealer()
+    bar.add(Gtk.Button.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
+    for widget in (label, entry, bar):
+        box.add(widget)
+    book = Gtk.Notebook(show_tabs=False)
+    book.append_page(box)
+    w.add(book)
 elif sys.argv[2:3] == ["slow"]:
     late = int(sys.argv[3])
     square = Gtk.DrawingArea()

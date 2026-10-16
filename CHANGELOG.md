@@ -64,6 +64,13 @@
   running when its stdin closes, rather than finishing it, and sends `notifications/progress` every 5 seconds to
   a call with a `progressToken`. docs/mcp.md says which calls run long,
   and how to raise a client's timeout.
+- `a11y lint` and `tree` take a field's label as its name, as a screen
+  reader does: a GTK 3 field with a mnemonic label passes, and is
+  `text "Name:"` in the tree; `a11y click Name:` (and `scroll`) takes the
+  field, not its label. They leave out what isn't showing, as a
+  revealer's unrevealed bar (gedit's search bar), not only what's
+  hidden; and lint, what says it has no size (gedit's one document's
+  hidden tab). Thanks to @jay23606, whose #141 found the same fix.
 - `wait line` with a pattern that isn't a regex says so, rather than
   with a traceback.
 - `record --sound --seconds N` whose session's sound server stops first,

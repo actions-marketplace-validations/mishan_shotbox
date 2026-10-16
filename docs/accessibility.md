@@ -102,8 +102,12 @@ the one `--window` picks there, matched to its program by process, unless
 one of that program's named windows is picked. A pattern that matches an
 empty name, like `.*`, picks every unnamed window.
 
-The tree leaves out nodes that aren't visible (a hidden widget, a stack
-page not shown), and lists the states a screen reader says, not the ones
+The tree leaves out nodes that aren't showing (a hidden widget, a stack
+page not shown, what's in a revealer not revealed, which the toolkit
+calls visible), and in a web page those that aren't visible, since a
+page's nodes scrolled out of view aren't showing, where a toolkit's still
+are. A field with no name of its own goes by what labels it
+([Lint](#lint)). It lists the states a screen reader says, not the ones
 about layout: focusable, focused, selected, checked, indeterminate,
 pressed, expanded or collapsed, editable, read-only, modal, required,
 invalid-entry, and disabled for a node that isn't sensitive. Programs
@@ -142,7 +146,12 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
 
 ## Lint
 
-Few rules, each one something a screen reader user would trip over:
+Few rules, each one something a screen reader user would trip over. A
+node that takes the focus and has no name of its own is named by what
+labels it (a labelled-by relation, as GTK 3 has between a field and its
+mnemonic label), as a screen reader says it, in the tree too. A node
+that says it has no size (GTK 3's notebook tab, with its tabs hidden)
+isn't drawn, and isn't linted:
 
 | A node with no name that's | Why it's a problem |
 |---|---|
@@ -232,12 +241,13 @@ nothing else would get to stop it.
 
 `click NAME` reads the tree, picks the showing nodes named NAME, and
 with the role `--role`, waiting up to `--timeout` for one; drops a match
-inside another (a GTK button's label, inside the button), fails if more
-than one is left, saying which, as tree lines with where each is; raises
-the `--window`; and clicks the middle of its bounds, cut to its window's
-(a node scrolled out of view is still "showing"; one wholly outside its
-window is refused), over XTEST or sway's virtual pointer, as `shotbox
-click` does. A real
+inside another (a GTK button's label, inside the button), and a label
+whose field it names, which matches too (the field takes the focus);
+fails if more than one is left, saying which, as tree lines with where
+each is; raises the `--window`; and clicks the middle of its bounds,
+cut to its window's (a node scrolled out of view is still "showing";
+one wholly outside its window is refused), over XTEST or sway's virtual
+pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would. `scroll NAME DY [DX]` finds the node the same way and turns the

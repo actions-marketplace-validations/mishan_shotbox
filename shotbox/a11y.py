@@ -223,7 +223,11 @@ def node(Atspi, acc, states, path):
         shown.append("collapsed")
     if not states.contains(Atspi.StateType.SENSITIVE):
         shown.append("disabled")
-    return Node(role=acc.get_role_name(), name=acc.get_name() or "",
+    # A field GTK 3 names by its mnemonic label: a screen reader says that.
+    name = acc.get_name() or ""
+    if not name and "focusable" in shown:
+        name = " ".join(t.get_name() for t in related(Atspi, acc, "LABELLED_BY") if t.get_name())
+    return Node(role=acc.get_role_name(), name=name,
                 description=acc.get_description() or "", states=shown, path=path,
                 _role=int(acc.get_role()),
                 _showing=states.contains(Atspi.StateType.SHOWING),
@@ -233,12 +237,12 @@ def node(Atspi, acc, states, path):
 
 
 def walk(Atspi, window=None, timeout=10, bounds=False):
-    """Every visible node under the toplevels `window` picks, depth first,
-    as (depth, Node). With `bounds`, each has its bounds on the screen, or
-    None where they can't be told."""
+    """Every showing node (in a page, visible) under the toplevels `window`
+    picks, depth first, as (depth, Node). With `bounds`, each has its
+    bounds on the screen, or None where they can't be told."""
     out = []
 
-    def visit(acc, depth, path):
+    def visit(acc, depth, path, web=False):
         if len(out) > 20000 or depth > 200:
             return
         try:
@@ -246,14 +250,18 @@ def walk(Atspi, window=None, timeout=10, bounds=False):
             n = node(Atspi, acc, states, path)
         except Exception:   # gone while we looked: a closing popover, a toast
             return
-        if not states.contains(Atspi.StateType.VISIBLE):
+        # A toolkit's widget can be visible and not on the screen (in a
+        # revealer not revealed); a page's is not showing only scrolled
+        # out of view, as a toolkit's list row is still showing.
+        web = web or n._role == Atspi.Role.DOCUMENT_WEB
+        if not states.contains(Atspi.StateType.VISIBLE if web else Atspi.StateType.SHOWING):
             return
         n["_top"] = top
         out.append((depth, n))
         for i in range(acc.get_child_count()):
             child = acc.get_child_at_index(i)
             if child is not None:
-                visit(child, depth + 1, f"{path}/{child.get_role_name()}[{i}]")
+                visit(child, depth + 1, f"{path}/{child.get_role_name()}[{i}]", web)
 
     for _, top in toplevels(Atspi, window, timeout):
         # libatspi caches states, and hears they've changed only from
@@ -298,8 +306,8 @@ def ignored(ignore):
 
 
 def lint(Atspi, nodes, ignore=()):
-    """(node, what's wrong) for each control, image or focusable node a
-    screen reader would have no name to say for. An image inside a named
+    """(node, what's wrong) for each showing control, image or focusable node
+    a screen reader would have no name to say for. An image inside a named
     control is part of it: the control's name is what gets said. Anything
     with a name inside it is said by what's in it, and a container with
     something focusable inside passes the focus on to it."""
@@ -326,7 +334,7 @@ def lint(Atspi, nodes, ignore=()):
 
     problems = []
     for n in nodes:
-        if n.name:
+        if n.name or undrawn(Atspi, n):
             continue
         if n._role in controls or (n._role == Atspi.Role.TEXT and "editable" in n.states):
             problems.append((n, f"{n.role} with no name"))
@@ -337,6 +345,26 @@ def lint(Atspi, nodes, ignore=()):
               and not (n._role in containers and n.path in focus_inside)):
             problems.append((n, f"focusable {n.role} with no name"))
     return [(n, what) for n, what in problems if not skip(n, what)]
+
+
+def related(Atspi, acc, kind):
+    """The nodes `acc` has a relation of `kind` ("LABELLED_BY") to."""
+    try:
+        return [t for r in acc.get_relation_set()
+                if r.get_relation_type() == getattr(Atspi.RelationType, kind)
+                for t in (r.get_target(i) for i in range(r.get_n_targets())) if t]
+    except Exception:   # gone while we looked
+        return []
+
+
+def undrawn(Atspi, n):
+    """Whether `n` says it has no size: GTK 3's for what it doesn't draw
+    (a notebook's tab, with its tabs hidden), though it's showing."""
+    try:
+        e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+    except Exception:   # gone while we looked
+        return True
+    return e.width < 0 or e.height < 0
 
 
 def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=False):
@@ -638,7 +666,11 @@ def at_node(name, role, window, timeout, act):
         showing[:] = [n for _, n in walk(Atspi, window, timeout) if n._showing]
         nodes = [n for n in showing if named(n.name) and (role is None or as_role(n.role))]
         nodes = [n for n in nodes if n.name == name] or nodes
-        return [n for n in nodes if not any(n.path.startswith(o.path + "/") for o in nodes)]
+        # A field named by its label is the one of the two that's taken.
+        ids = {n._id for n in nodes}
+        return [n for n in nodes if not any(n.path.startswith(o.path + "/") for o in nodes)
+                and not ids & {f"{t.app.bus_name if t.app else ''}{t.path}"
+                               for t in related(Atspi, n._acc, "LABEL_FOR")}]
 
     what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
     try:
