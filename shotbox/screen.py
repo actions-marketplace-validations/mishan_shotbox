@@ -36,6 +36,12 @@ class SessionError(RuntimeError):
     pass
 
 
+def wheel(dy, dx):
+    """Refuse a scroll of no clicks either way."""
+    if not dy and not dx:
+        raise SessionError("nothing to scroll: no clicks down or across")
+
+
 def wait_for(what, test, timeout, interval=0.1, alive=None):
     """Poll `test()` until it returns something true, or fail saying what."""
     end = time.monotonic() + timeout
@@ -748,6 +754,14 @@ class Screen:
                 *([f"--window={window}"] if window else []), "--", name]
         return Node(self._a11y("click", *args, timeout=90 + timeout))
 
+    def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10):
+        """Turn the mouse wheel over the node `click_node` would click, `dy`
+        clicks down and `dx` right, as `scroll`; that node."""
+        from .a11y import Node
+        args = ["--timeout", str(timeout), *([f"--role={role}"] if role else []),
+                *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx)]
+        return Node(self._a11y("scroll", *args, timeout=90 + timeout))
+
     def tab_walk(self, key="Tab", most=50, window=None, visible=False):
         """Press `key` until the focus lands somewhere it has been: the node
         it lands on after each press, the last being that one. Fails if a
@@ -1093,6 +1107,12 @@ class Screen:
             self.xt.button(*at, button=button, state=state)
         else:
             self.xt.click(*at, button=button, count=2 if double else 1)
+
+    def scroll(self, px, py, dy, dx=0, window=None):
+        """Turn the mouse wheel at X, Y on the screen, or inside `window`:
+        `dy` clicks down (up if negative), `dx` right (left)."""
+        wheel(dy, dx)
+        self.xt.scroll(*self._at(px, py, window), dy, dx)
 
     def drag(self, x1, y1, x2, y2, window=None, button=1):
         dx, dy = self._at(0, 0, window)

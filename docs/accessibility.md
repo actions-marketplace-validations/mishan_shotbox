@@ -22,6 +22,11 @@ Inside a session with `--a11y`:
 - **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
   node whose name matches NAME (a regex, matched in full): a button by
   its label rather than where it is. [Clicking by name](#clicking-by-name).
+- **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE]`** turns
+  the mouse wheel over that node, found as `click` finds it, DY clicks
+  down and DX right (negative, up and left): a list by itself or by a
+  row still in view (one scrolled out of it is refused, as `click`
+  refuses it).
 - **`shotbox a11y contrast [--window RE]`** measures the contrast of
   what each node draws against its background, and fails, a line each:
   `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
@@ -233,7 +238,8 @@ is still "showing"; one wholly outside its window is refused), over
 XTEST or sway's virtual pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
-would.
+would. `scroll NAME DY [DX]` finds the node the same way and turns the
+wheel at the same place, as `shotbox scroll` does.
 
 `shotbox focus RE` gives a window the keyboard and raises it, for one a
 pointer can't reach first: on X11 by SetInputFocus and a restack, on

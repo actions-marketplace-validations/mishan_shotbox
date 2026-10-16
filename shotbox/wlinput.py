@@ -320,6 +320,25 @@ class Display:
         self._button(button, PRESSED if state == "down" else RELEASED)
         self.sync()
 
+    def scroll(self, x, y, dy, dx=0):
+        """Move to x, y and turn the wheel dy clicks down (up if negative)
+        and dx right (left), a frame a click. The virtual pointer has only
+        axis_discrete for a click; wlroots passes it on as value120 to a
+        program that takes that. 15 is a click in degrees, as libinput
+        gives a mouse's."""
+        self.move(x, y)
+        for axis, n in ((0, dy), (1, dx)):
+            step = 1 if n > 0 else -1
+            for _ in range(abs(n)):
+                self._send(self.pointer, 7, struct.pack("<IIii", self._ms(), axis,
+                                                        step * 15 * 256, step))
+                self._frame()
+        self.sync()
+        # GTK 4 holds scroll events till its next frame, and crashes on
+        # one whose pointer has gone by then, as this one does when the
+        # connection closes (it's sway's only pointer): a dozen frames.
+        time.sleep(0.2)
+
     def drag(self, x1, y1, x2, y2, button=1, steps=10):
         """Press at one point, move to another in steps, release there."""
         self.move(x1, y1)

@@ -25,6 +25,7 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   of your own; each takes `timeout` (30).
 - Input: `key(*chords, hold=None, state=None)`, `type(text)`, `click(x, y,
   window=None, button=1, double=False, hold=None, state=None)`, `move`,
+  `scroll(x, y, dy, dx=0, window=None)` (wheel clicks down and right),
   `drag`, `park()`. One X connection, kept. In a session with `gamepads`:
   `pad_press(names, n=1, hold=None, state=None)`, `pad_stick(which, x, y,
   n=1, hold=None)`, `pad_trigger(which, value, n=1, hold=None)` and
@@ -55,7 +56,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   the focus lands on, failing on a trap (and with `visible`, where the
   focus doesn't show); `a11y_lint(window=None, ignore=())` and
   `contrast(window=None, text=4.5, graphics=3, edges=None)`, the nodes
-  with a `problem`; `click_node(name, role=None, window=None)`; and
+  with a `problem`; `click_node(name, role=None, window=None)` and
+  `scroll_node(name, dy, dx=0, role=None, window=None)`; and
   `wait_announce(re)`. `focus_window(re)` gives a window the keyboard.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and
   `scratch`. It takes the session options as arguments: `a11y`,

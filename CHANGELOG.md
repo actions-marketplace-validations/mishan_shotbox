@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Scrolling**: `shotbox scroll X Y DY [DX] [--window RE]` turns the
+  mouse wheel at a point, DY clicks down and DX right (negative, up and
+  left), over XTEST's buttons 4 to 7 on X11 and the virtual pointer's
+  `axis_discrete` on Wayland; `shotbox a11y scroll NAME DY [DX]` over a
+  node found by its name, as `a11y click` finds it. A step in `play`
+  scripts too; `Screen.scroll` and `Screen.scroll_node`, and MCP's
+  `scroll`, by a node's name or a point.
 - **MCP's server instructions**: as it connects, `shotbox mcp` tells the
   agent how its tools go together; clients pass it on, and directories
   show it.

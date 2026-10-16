@@ -106,7 +106,7 @@ can connect for as long as the session lasts.
    waits and failure pictures; the Python API choosing its backend;
    tests that skip without sway, `grim` and Xwayland, and CI that
    installs them. *Done.*
-2. **Input.** Keys, text, clicks, moves, drags and `park` over the
+2. **Input.** Keys, text, clicks, moves, scrolls, drags and `park` over the
    virtual keyboard and pointer protocols, on one connection kept for
    the session, reaching Xwayland's X clients too. *Done.*
 
