@@ -82,7 +82,21 @@ an animation, a transition, something moving. `shotbox record OUT.mp4
 stopped: Ctrl-C, `kill` when it runs in the background with `&`, its
 session's display stopping. However it stops, even killed outright, the
 file is finished, by a process of its own, which can still be making a
-GIF after `shotbox run` returns. The
+GIF after `shotbox run` returns. `--until-line RE FILE` stops it at an
+event instead: once a line matching RE is written to FILE, as `wait line`
+waits for one (from the end the file has when it starts, followed if it
+isn't there yet or is replaced), and `--tail SECS` after it, so the clip
+doesn't end on the event itself. `--seconds` is then the most it lasts.
+It prints the line, as `wait line` does, or says there was none: in its
+`--seconds`, or stopped before it came. As for `wait line`, a line
+written before `record` has started (a few hundred milliseconds, Python
+starting up) is old and doesn't count, so give `--seconds` as a cap when
+the line might come that soon; one that comes before the first frame
+(ffmpeg can take a second to start, on Wayland more) leaves nothing
+recorded, and fails, as Ctrl-C then would. The line stops it as Ctrl-C
+does, the file finished and, with `--sound`, both streams ending
+together; in the background too, as a `play` step (`record clip.mp4
+--sound --until-line run_end logs/events.csv &`). The
 pointer isn't drawn unless `--pointer`, as in a picture (`--park` moves it
 aside first). A window is recorded where it is when recording starts, as
 far as it's on the screen: it isn't followed if it moves, and what's drawn

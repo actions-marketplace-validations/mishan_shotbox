@@ -212,6 +212,24 @@ try:
           and all(bad and "by its path from there" in said for said, bad in refused)
           and later_bad and "outside" in later,
           f"wait_for: line, a new one, in a file in the allow file's directory only ({said})")
+    with open(tmp / "game.log", "a") as log:
+        threading.Timer(1, lambda: log.write("run_end 3\n") and log.flush()).start()
+        said, bad, _ = tool("record", session="h", until_line="run_", file="game.log",
+                            tail=0.5)
+    saved = re.match(r"Saved (.+?), ([\d.]+) seconds", said)
+    capped, capped_bad, _ = tool("record", session="h", until_line="nope", file="game.log",
+                                 seconds=0.5)
+    threading.Timer(0.5, (tmp / "later2.log").symlink_to, ["/etc/hostname"]).start()
+    refused = [tool("record", session="h", until_line="x", file=f)[:2]
+               for f in ("later2.log", "/etc/hostname", None)]
+    check(not bad and saved and 1.2 <= float(saved[2]) < 2.5
+          and said.endswith("It ended on the line: run_end 3")
+          and not capped_bad and "No line matching 'nope' came in its 0.5 seconds" in capped
+          and "outside" in refused[0][0] and "by its path from there" in refused[1][0]
+          and "needs a file" in refused[2][0] and all(bad for _, bad in refused)
+          and "tail goes with until_line" in tool("record", session="h", seconds=1, tail=1)[0],
+          f"record: until_line, ended by a new line, and tail; else by seconds; its file in "
+          f"the allow file's directory only ({said})")
     steps = [("click", dict(x=50, y=50, window="held")),
              ("press_keys", dict(keys="w", state="down")),
              ("click", dict(x=60, y=60, window="held", state="down")),

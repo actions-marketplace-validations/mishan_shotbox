@@ -135,11 +135,12 @@ SINK = ["-f", "pulse", "-sample_rate", "48000", "-channels", "2", "-i", "shotbox
 
 
 class Recording:
-    """What `record` made: its `path`, which it stands in for, and with
-    sound, `heard`, what `sound.hear` heard in its sound (else None)."""
+    """What `record` made: its `path`, which it stands in for; with
+    sound, `heard`, what `sound.hear` heard in its sound (else None); the
+    `line` that ended it, if one did; and whether it was `stopped`."""
 
-    def __init__(self, path, heard=None):
-        self.path, self.heard = Path(path), heard
+    def __init__(self, path, heard=None, line=None, stopped=False):
+        self.path, self.heard, self.line, self.stopped = Path(path), heard, line, stopped
 
     def __fspath__(self):
         return str(self.path)
@@ -160,19 +161,36 @@ class Recording:
 
 
 def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001,
-           size=None):
+           size=None, until=None, tail=0):
     """As `recording`, and wait for it: a Recording, or RuntimeError.
-    Ctrl-C stops it, and it's finished all the same."""
+    Ctrl-C stops it, and it's finished all the same. With `until`, a test
+    as wait_for polls, giving a line in a list, it's stopped as Ctrl-C
+    stops it `tail` seconds after the test passes, and that's its `line`."""
     proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound,
                      gap=gap, size=size)
+    line, stopped = None, False
     try:
-        proc.wait()
+        # Watched here, not by the keeper: here's where the line is wanted,
+        # and however this goes, the keeper's stdin closes and it stops.
+        while until and not line and proc.poll() is None:
+            line = until() or time.sleep(0.1)
+        proc.wait(timeout=tail if line else None)
+    except subprocess.TimeoutExpired:
+        pass
     except KeyboardInterrupt:
+        stopped = True
+    except RuntimeError as e:      # the file couldn't be followed
         stop(proc)
+        if not proc.returncode:
+            e.args = (f"{e}; what was recorded is kept, at {out}",)
+        raise
+    finally:
+        if proc.poll() is None:
+            stop(proc)
     out = ended(proc, out)
     if sound:
         proc.said.seek(0)
-    return Recording(out, json.load(proc.said) if sound else None)
+    return Recording(out, json.load(proc.said) if sound else None, line and line[0], stopped)
 
 
 def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False, gap=0.001,
@@ -354,16 +372,9 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             feed.stdout.close()
         sound = out.suffix.lower() == ".wav"
         pulse = os.environ["PULSE_SERVER"].removeprefix("unix:") if sound or heard else None
-        if sound:
-            sock = pulse
-        elif feed:
-            sock = str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
-        else:
-            sock = None
+        sock = feed and str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
         while proc.poll() is None:
-            up = socket_up(sock) if sock else display_up(os.environ["DISPLAY"])
-            # With sound, the sound server going ends the picture too.
-            up = up and (not heard or socket_up(pulse))
+            up = source_up(os.environ, sound, heard)
             # Stopped, not cut off as ffmpeg's -fs would: the sound heard
             # ends with the picture.
             full = int(size) and video.exists() and video.stat().st_size >= int(size)
@@ -430,6 +441,18 @@ def keep_recording(cmd, out, grab, heard, size="0"):
         if feed:
             feed.kill()
             feed.wait()
+
+
+def source_up(env, wav=False, sound=False):
+    """Whether what a recording records is still there: the display (on
+    Wayland, sway), or for a .wav the sound server; with `sound`, the
+    sound server too, whose going ends the picture as well."""
+    pulse = env.get("PULSE_SERVER", "").removeprefix("unix:")
+    if wav:
+        return socket_up(pulse)
+    up = (socket_up(str(Path(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"])))
+          if env.get("SWAYSOCK") else display_up(env["DISPLAY"]))
+    return up and (not sound or socket_up(pulse))
 
 
 def display_up(display):

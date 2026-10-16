@@ -148,7 +148,16 @@ class Screen:
         rotated file just before it went may be missed. A line counts once
         it ends. With `within`, a directory, a file that's really outside it
         (by a symlink) is refused. The line."""
-        found, chunk = re.compile(pattern), 1 << 20
+        return self.until(f"a line matching {pattern!r} in {path}",
+                          self._follow(pattern, path, from_start, within), timeout)[0]
+
+    def _follow(self, pattern, path, from_start=False, within=None):
+        """wait_line's test, from now: the line in a list once one comes,
+        else None."""
+        try:
+            found, chunk = re.compile(pattern), 1 << 20
+        except re.error as e:
+            raise SessionError(f"{pattern!r} isn't a regex: {e}") from None
         # `seen`: the bytes just before `pos`, to tell the file written again.
         ino, pos, seen, rest, old = None, 0, b"", b"", False
         if not from_start:
@@ -192,7 +201,7 @@ class Screen:
                 if found.search(got):
                     return [got]   # in a list: an empty line can match too
             return None
-        return self.until(f"a line matching {pattern!r} in {path}", line, timeout)[0]
+        return line
 
     def wait_ready(self, timeout=30):
         """Wait for $SHOTBOX_SCRATCH/ready, which `shotbox term` writes."""
@@ -795,7 +804,8 @@ class Screen:
         return Path(out)
 
     def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
-               park=False, sound=False, gap=0.001, size=None):
+               park=False, sound=False, gap=0.001, size=None, until=None, tail=0,
+               within=None):
         """A video of the display, or of the window named `window`, cropped
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
@@ -808,15 +818,21 @@ class Screen:
         With `size`, it ends when the file (for a .gif, the video it's made
         from) reaches that many bytes; a .webm's may be seconds late, as
         its muxer holds up to about 5 seconds before writing.
+        With `until`, (pattern, path), it stops `tail` seconds after a line
+        matching the pattern is written to the file at `path`, as
+        `wait_line` waits for one (`within` as there), and `seconds` is
+        the most it lasts.
         A Recording: its `path`, which it stands in for, its `heard` (with
-        `sound`), and `problems()`."""
+        `sound`), its `line` (the line that ended it, or None), whether it
+        was `stopped` (interrupted, not ended by itself), and `problems()`."""
+        until = until and self._follow(*until, within=within)
         if Path(out).suffix.lower() == ".wav":
             if window or crop or fps or pointer or park:
                 raise SessionError("a .wav is the session's sound: no window, crop, fps, "
                                    "pointer or park")
             try:
                 return x.record(self.env, out, None, seconds=seconds, sound=sound, gap=gap,
-                                size=size)
+                                size=size, until=until, tail=tail)
             except (ValueError, RuntimeError) as e:
                 raise SessionError(str(e))
         if self.wayland and pointer:
@@ -845,7 +861,7 @@ class Screen:
         box = (x1 - x0, y1 - y0, x0, y0)
         try:
             return x.record(self.env, out, box, seconds=seconds, fps=fps, pointer=pointer,
-                            sound=sound, gap=gap, size=size)
+                            sound=sound, gap=gap, size=size, until=until, tail=tail)
         except (ValueError, RuntimeError) as e:
             raise SessionError(str(e))
 
