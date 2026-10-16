@@ -57,9 +57,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   reach_all=False, ignore=())`, the nodes the focus lands on, failing as
   `tabwalk` does (with `visible`, where the focus doesn't show; with
   `reach_all`, on what it never reaches); `a11y_lint(window=None,
-  ignore=())` and
-  `contrast(window=None, text=4.5, graphics=3, edges=None)`, the nodes
-  with a `problem`; `click_node(name, role=None, window=None)` and
+  ignore=())` and `contrast(window=None, text=4.5, graphics=3,
+  edges=None, large=3, notes=False)`, the nodes with a `problem` (with
+  `notes`, also what wasn't measured, which doesn't fail: `fails` False,
+  GTK 4's with its `why`); `click_node(name, role=None, window=None)` and
   `scroll_node(name, dy, dx=0, role=None, window=None)`; and
   `wait_announce(re)`. `focus_window(re)` gives a window the keyboard.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and

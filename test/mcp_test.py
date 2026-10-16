@@ -185,8 +185,9 @@ try:
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore=["image", '^panel ""'])
     check(len(said.splitlines()) == 1 and "button with no name" in said,
           f"lint: ignore found in a tree line, by a path ({said!r})")
-    said, _, _ = tool("contrast", session="t", window="a11y-test")
-    check(said == "No problems.", f"contrast ({said!r})")
+    said, bad, _ = tool("contrast", session="t", window="a11y-test")
+    check(bad and "nothing measured" in said and "reports where its widgets are" in said,
+          f"contrast: GTK 4, nothing measured, said ({said!r})")
     said, _, _ = tool("tab_walk", session="t", window="a11y-test", visible=True,
                       ignore=['button "(Minimize|Maximize|Close)"'])
     check("focus not shown" in said and said.endswith("round again after 6\nfocus not shown on 1"),

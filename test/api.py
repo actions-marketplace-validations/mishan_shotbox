@@ -112,7 +112,12 @@ def a11y():
         problems = s.a11y_lint(window="a11y-test", ignore=[r"image\[", "panel with"])
         check([n.problem for n in problems] == [f"{button[0]} with no name"],
               f"a11y: a11y_lint(), ignoring some ({[n.problem for n in problems]})")
-        check(s.contrast(window="a11y-test") == [], "a11y: contrast() passes libadwaita's own")
+        try:
+            s.contrast(window="a11y-test")
+            check(False, "a11y: contrast() on GTK 4, nothing measured, raises")
+        except shotbox.SessionError as e:
+            check("nothing measured" in str(e) and "reports where its widgets are" in str(e),
+                  f"a11y: contrast() on GTK 4, nothing measured, raises, saying why ({e})")
         try:
             s.tab_walk(window="a11y-test", visible=True)
             check(False, "a11y: tab_walk(visible=True) raises where the focus doesn't show")

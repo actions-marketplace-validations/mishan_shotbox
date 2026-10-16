@@ -125,15 +125,22 @@ def between(color, a, b):
 
 def text_contrast(pic, box):
     """Text (or an icon) on its background, in `box`: the background is the
-    color most of it is, the text the color with the most contrast against
-    that, of at least 3 pixels, which an antialiased glyph's core is.
-    (ratio, text, background), or None for a box of one color."""
+    color most of it is, the text the third pixel in order of contrast
+    against that, which an antialiased glyph's core reaches, though a
+    thin stroke seldom draws three of one color. (ratio, text,
+    background, how many pixels aren't the background), or None for a
+    box of one color."""
     colors = pic.colors(box)
     if not colors:
         return None
     back = colors.most_common(1)[0][0]
-    got = strongest(colors, back, least=3)
-    return got and (got[0], got[1], back)
+    ink = sum(colors.values()) - colors[back]
+    seen = 0
+    for r, color in sorted(((ratio(c, back), c) for c in colors if c != back), reverse=True):
+        seen += colors[color]
+        if seen >= 3:
+            return r, color, back, ink
+    return None
 
 
 def edge_contrast(pic, box):

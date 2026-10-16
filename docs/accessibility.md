@@ -320,13 +320,25 @@ Wayland by sway's `focus`.
 ## Contrast
 
 `contrast` raises the `--window`, takes a picture of the screen, with
-the pointer parked, and measures each node in its bounds:
+the pointer parked, and measures each node in its bounds, but GTK 4's
+([below](#gtk-4s-positions)):
 
 - **Text**: a node with a name whose role is text (a label, heading,
   link, static text, paragraph), or a button, link, tab, menu item or
-  combo box with no such node inside it: the color most of its bounds are is the background, and the color
-  with the most contrast against it, of at least three pixels, is the
-  text, which an antialiased glyph's core is. At least 4.5:1 (`--text`).
+  combo box with no such node inside it: the color most of its bounds are is the background, and the
+  third pixel in order of contrast against it is the text: an
+  antialiased glyph's core reaches its color, though a thin stroke
+  seldom draws three pixels of one color. At least 4.5:1 (`--text`).
+  Large text, 18pt or 14pt bold, is found by its font, run by run, as
+  GTK and Chromium say it, all of it large (GTK 4 says sizes in whole
+  pixels, rounded down, so 14pt, 18.67px, said as 18, is taken as up to
+  a pixel more), and is held to 3:1 (`--large` sets that ratio). A
+  toolkit that doesn't say (Qt) has its text taken as normal size, and
+  so does GTK 3's text sized by `<span font="18">`, which it says as
+  its label's own size. Fewer
+  than 16 pixels that aren't the background have no core of their color
+  to measure, in any toolkit: a ".", "-", ":" or ",". That's said, "too
+  small to measure", and passes.
   Light or small text covers no pixel whole, so its core is lighter than
   its color, by more on one font and renderer than another, and can fail
   though its color passes. It's still measured as drawn, since text
@@ -348,8 +360,7 @@ the pointer parked, and measures each node in its bounds:
   A control may draw its name or an icon, and GTK 3's and Qt's buttons
   keep their text to themselves, so the tree can't tell which: it's held
   to text's ratio. GTK 4 puts a label in a control that draws text, so a
-  GTK 4 control with none draws an icon, and is held to graphics'. Text is taken as normal size, so large text, which WCAG holds
-  to 3:1, has to be given its own run.
+  GTK 4 control with none draws an icon, and is held to graphics'.
 - **Graphics**: a named image: measured the same way, at least 3:1
   (`--graphics`).
 - A switch, slider, check box, radio button or spin button draws no
@@ -380,17 +391,55 @@ A node with something measured inside it (a button's label) is measured
 by that. Each node's bounds are cut to its window's and to those of
 every node it's inside, so a row scrolled out of view, which GTK still
 calls showing, is cut to nothing by its scrolled window, and isn't
-measured. Disabled nodes are left out, as WCAG leaves out inactive
-controls. `--ignore RE`, as lint has, leaves out each line the regex is
-found in. The colors are what's on the screen, after opacity and
+measured. Disabled nodes and what's in them (a disabled button's label)
+are left out, as WCAG leaves out inactive controls. `--ignore RE`, as
+lint has, leaves out each line the regex is found in. The colors are what's on the screen, after opacity and
 antialiasing: a check of what someone sees, not of the stylesheet. Text
 drawn with subpixel (LCD) antialiasing has every pixel of a thin glyph
 tinted, none of its own color, and measures low: Chromium needs
 `--disable-lcd-text` (in the Node package's `accessible`), and GTK on
-shotbox's displays draws grayscale. Where
-a node's bounds are off (GTK 4's padding, above), what's measured is
-what's there instead; a child's bounds are cut to its parent's, which
-keeps that inside what it's in.
+shotbox's displays draws grayscale; Qt's does it too (a Qt label set at
+3.00:1 measures 2.75).
+
+What wasn't measured (too small, GTK 4's) is said after the failures,
+a line each, and how many and why on stderr, so stdout is only
+`PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
+is 1 if anything failed, 0 if what was measured passed, and 2 if
+nothing was measured at all and GTK 4's was left out: a GTK 4 window,
+`shotbox: nothing measured: ...` (text too small to measure, alone,
+passes). With `--json` it's 0 with failures, which the lines say, and 2
+when nothing was measured. `Screen.contrast()` raises then, and MCP's `contrast`
+says so as an error.
+
+### GTK 4's positions
+
+A GTK 4 app isn't checked: GTK 4 doesn't say where its widgets are,
+so contrast isn't measured on them, a line each, `not measured: GTK 4
+reports its position wrong`, and why once (in `--json`, each such line's
+`why`). gnome-calculator's "=", white on blue at 3.76:1, fails WCAG and
+isn't reported. What GTK 4 gets wrong, which can't be undone from what
+it says:
+
+- each widget is placed without its containers' padding and borders,
+  so a label is off by everything round it (a dialog's button's label
+  by 44 pixels across and 22 down);
+- a stack's child is placed with its place in the stack counted twice;
+- a label's text is said to end a character short (more, for text that
+  isn't ASCII), without the label's own padding and border.
+
+Measuring at those places measures what's there instead: a button's
+fill, a neighbor's text. The stack's is in GTK 4.14 and later, the rest
+in 4.14.6 and later, up to 4.24 at least; before 4.14, GTK 4 said where
+a widget's content is, which hasn't been checked here, so it isn't
+measured either. GTK 3, Qt and browsers say where their widgets are, and
+are measured.
+Large text and disabled nodes don't come into it for GTK 4, since
+nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
+session's environment (`--env`) measures GTK 4 at its bounds as said:
+for a GTK whose bounds you've checked, which needs all three fixed (one
+with the padding alone fixed still has gnome-calculator's keypad 12
+pixels off). libadwaita's view stack and tab view pages take their
+bounds from their child, as GTK's stack pages do.
 
 ## Announcements
 

@@ -11,11 +11,12 @@ longer and more of them than fit, and writes where they're scrolled to,
 down and across, there. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
-may measure short; and a label drawn see-through, which it shouldn't. With slow, a square that
+may measure short; a label drawn see-through, which it shouldn't; large
+text, which needs only 3:1; and a dot, too small to measure. With slow, a square that
 turns dark MS milliseconds after the pointer comes into the window, and
 light again that long after it leaves: a known latency. With fields, an
 entry named by its mnemonic label, and a search bar not revealed, in a
-notebook with its tabs hidden."""
+notebook with its tabs hidden. With dot, a "." and nothing else."""
 
 import sys
 
@@ -45,9 +46,13 @@ if sys.argv[2:] == ["contrast"]:
     notes.get_accessible().set_name("Notes")
     frame = Gtk.Frame()
     frame.add(notes)
-    for widget in (light, dim, switch, frame):
+    big = Gtk.Label()
+    big.set_markup('<span size="xx-large" weight="bold" foreground="#808080">Heading</span>')
+    for widget in (light, dim, switch, frame, big, Gtk.Label(label=".")):
         box.add(widget)
     w.add(box)
+elif sys.argv[2:] == ["dot"]:
+    w.add(Gtk.Label(label="."))
 elif sys.argv[2:] == ["fields"]:
     # GTK 3 names a field by its label as labelled-by, not as its own name;
     # an unrevealed bar's unnamed button is visible, but not showing; a

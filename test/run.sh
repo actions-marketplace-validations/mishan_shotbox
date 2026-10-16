@@ -738,10 +738,12 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     && grep -q '^panel "" \[focusable, focused\]  <- focus not shown' "$tmp/walk" \
     && ok "a11y: tabwalk --visible finds the drawing area that shows no focus" \
     || { fail "a11y: tabwalk --visible ($st)"; cat "$tmp/walk"; }
-  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" \
+  "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' &
+    '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" \
     && ok "a11y: contrast passes libadwaita's own" || { fail "a11y: contrast"; cat "$tmp/contrast"; }
   # Rows scrolled out of view are showing, to GTK, and not measured.
-  "$sb" run --a11y -- sh -c "'$app' long & '$sb' a11y contrast --window a11y-test" \
+  "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' long &
+    '$sb' a11y contrast --window a11y-test" \
     > "$tmp/contrast" 2>&1 \
     && ok "a11y: contrast leaves out what's scrolled out of view" \
     || { fail "a11y: contrast, scrolled"; cat "$tmp/contrast"; }
@@ -767,29 +769,49 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     '$sb' a11y click Corner --window corner >/dev/null && sleep 0.5" \
     && [ "$(cat "$tmp/corner" 2>/dev/null)" = clicked ] \
     && ok "a11y: click finds a GTK 3 button in its window's corner" || fail "a11y: click, GTK 3 corner"
+  # GTK 4 says where its widgets are wrong: they're not measured, and
+  # with nothing measured, that's exit 2, and why. Told to trust it (a
+  # GTK whose bounds are right), it finds faint text and its colors, but
+  # not a disabled button's label.
   set +e
-  "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
+  "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" \
+    > "$tmp/contrast" 2> "$tmp/err"
+  st=$?; set -e
+  [ $st = 2 ] && grep -q '/label\[[0-9]*\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+    && ! grep -qv ': [a-z]* not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+    && grep -q '^shotbox: nothing measured: [0-9]* not measured\. GTK 4\.[0-9.]* reports where its widgets are' "$tmp/err" \
+    && ok "a11y: contrast leaves GTK 4 unmeasured, saying why: nothing measured, exit 2" \
+    || { fail "a11y: contrast, GTK 4 unmeasured ($st)"; cat "$tmp/contrast" "$tmp/err"; }
+  set +e
+  "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' faint &
+    '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
   st=$?; set -e
   [ $st = 1 ] && [ "$(wc -l < "$tmp/contrast")" = 1 ] \
     && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5)$' "$tmp/contrast" \
-    && ok "a11y: contrast finds faint text, and its colors" || { fail "a11y: contrast, faint ($st)"; cat "$tmp/contrast"; }
+    && ok "a11y: contrast finds faint text, and its colors, but not a disabled button's" \
+    || { fail "a11y: contrast, faint ($st)"; cat "$tmp/contrast"; }
   set +e
-  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y contrast --edges 3 --window a11y-test" > "$tmp/contrast"
+  "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' &
+    '$sb' a11y contrast --edges 3 --window a11y-test" > "$tmp/contrast"
   st=$?; set -e
   [ $st = 1 ] && grep -q '/[a-z ]*button\[0\]: edge 1\.[0-9]*:1' "$tmp/contrast" \
     && ok "a11y: contrast --edges finds buttons with no edge to speak of" \
     || { fail "a11y: contrast --edges ($st)"; cat "$tmp/contrast"; }
   # GTK 3 calls a switch a toggle button; a frame draws a text view's
   # edge; light text, which can measure short of its color (by how much
-  # depends on the font), is said to be that color.
+  # depends on the font), is said to be that color; a large heading needs
+  # 3:1; a dot is too small to measure, which passes.
   set +e
   "$sb" run --a11y -- sh -c "'$here/window.py' g3 contrast &
-    '$sb' a11y contrast --edges 3 --window g3" > "$tmp/contrast"
+    '$sb' a11y contrast --edges 3 --window g3" > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
   [ $st = 1 ] && grep -q '/label\[1\]: text ' "$tmp/contrast" \
-    && ! grep -q 'toggle button\|/text\[0\]' "$tmp/contrast" \
+    && ! grep -q 'toggle button\|/text\[0\]\|/label\[4\]' "$tmp/contrast" \
+    && grep -q '/label\[5\]: text too small to measure' "$tmp/contrast" \
     && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'drawn lighter than its color, #5f5670, which is 6\.5[0-9]:1' \
-    && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text's color said" \
+    && "$sb" run --a11y -- sh -c "'$here/window.py' dot dot & '$sb' a11y contrast --window dot" \
+      2>/dev/null | grep -q '/label\[0\]: text too small to measure' \
+    && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text, large text, a dot, which passes alone" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
   # GTK 4.16 and later: thin text, spaced by a fraction of a pixel, drawn
   # at its color, which GTK's automatic font rendering doesn't; and a
@@ -798,9 +820,9 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
   if [ "$minor" -ge 16 ]; then
     mkdir -p "$tmp/auto/.config/gtk-4.0"
     printf '[Settings]\ngtk-font-rendering = automatic\n' > "$tmp/auto/.config/gtk-4.0/settings.ini"
-    "$sb" run --a11y -- sh -c "'$app' thin & '$sb' a11y contrast --text 99 --window a11y-test" \
-      > "$tmp/contrast" || true
-    "$sb" run --a11y --seed "$tmp/auto" -- sh -c "'$app' thin &
+    "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' thin &
+      '$sb' a11y contrast --text 99 --window a11y-test" > "$tmp/contrast" || true
+    "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 --seed "$tmp/auto" -- sh -c "'$app' thin &
       '$sb' a11y contrast --text 99 --window a11y-test" > "$tmp/contrast-auto" || true
     grep -q '/label\[7\]: text 6\.59:1, #5f5670 ' "$tmp/contrast" \
       && grep '/label\[7\]: text ' "$tmp/contrast-auto" | grep -qv '#5f5670 ' \

@@ -914,18 +914,22 @@ def at_node(name, role, window, timeout, act):
     return n
 
 
-def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=()):
+def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=(),
+             large=3.0):
     """What's drawn with too little contrast, as (node, what), measured on a
     picture of the screen, `window` raised, in each node's bounds: text, and
     a button, link, tab or menu item, which may draw text or an icon and
-    can't be told apart, against its background (at least `text`); an
-    image against its own (`graphics`); and with `edges`, a control's
-    edge against what's round it. Disabled nodes are left out, as WCAG
-    leaves them, and so are a switch, slider, check box or the like, and
-    what's outside its window (scrolled out of view); text is taken as
-    normal size. A node that can't be placed, and
-    text with nothing drawn on its background, are problems too: nothing
-    says they can be read. But for those ignored() leaves out."""
+    can't be told apart, against its background (at least `text`, or
+    `large` for large text); an image against its own (`graphics`); and
+    with `edges`, a control's edge against what's round it. Disabled nodes
+    and what's in them are left out, as WCAG leaves them, and so are a
+    switch, slider, check box or the like, and what's outside its window
+    (scrolled out of view). A node that can't be placed, and text with
+    nothing drawn on its background, are problems too: nothing says they
+    can be read. But for those ignored() leaves out. (problems, what
+    wasn't measured but doesn't fail, as (node, what): text too small
+    to, and GTK 4's, see GTK4_BOUNDS; why GTK 4's weren't, a line each;
+    how many were measured)."""
     skip = ignored(ignore)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -942,9 +946,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                                roles(Atspi, EDGED))
     parents = {n.path: n for n in nodes}
 
+    def disabled(n):
+        path = n.path
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            if path in parents and "disabled" in parents[path].states:
+                return True
+        return "disabled" in n.states
+
     def kind(n):
         if (not n._showing or not n.name or "editable" in n.states
-                or "disabled" in n.states or n._role in textless or gtk3_switch(Atspi, n)):
+                or disabled(n) or n._role in textless or gtk3_switch(Atspi, n)):
             return None
         if n._role in images:
             return "graphics"
@@ -1009,31 +1021,55 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return False
 
     measured = [n for n in nodes if kind(n)]
-    problems = []
+    problems, notes, whys, count = [], [], [], 0
+
+    def wrong(n, k):
+        """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
+        version = gtk4(n)
+        if (not version or version in GTK4_BOUNDS
+                or os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"):
+            return False
+        notes.append((n, f"{k} not measured: GTK 4 reports its position wrong"))
+        why = (f"GTK {version} reports where its widgets are without their containers' "
+               "padding and borders, and a stack's child with its place in the stack counted "
+               "twice, so their contrast can't be measured from what it reports; see "
+               "docs/accessibility.md.")
+        n["_why"] = why
+        if why not in whys:
+            whys.append(why)
+        return True
+
     for n in measured:
         # A button with a label in it: the label's text is what's measured.
         if any(o.path.startswith(n.path + "/") for o in measured):
             continue
         k = kind(n)
+        # GTK 4 puts a label in a control that draws text, so one with none
+        # draws an icon: a graphic, held to graphics' ratio.
+        if n._role in controls and gtk4(n):
+            k = "graphics"
+        if wrong(n, k):
+            continue
         if not n.bounds:
             problems.append((n, f"{k} not measured: can't tell where it is"))
             continue
         box = shown(n)
         if not box:
             continue
-        # GTK 4 puts a label in a control that draws text, so one with none
-        # draws an icon: a graphic, held to graphics' ratio.
-        if n._role in controls and gtk4(n):
-            k = "graphics"
-        least = text if k == "text" else graphics
+        big = k == "text" and large_text(Atspi, n)
+        least = large if big else text if k == "text" else graphics
+        at = f"at least {least:g}" + (", large text" if big else "")
         got = picture.text_contrast(pic, box)
-        if got is None and (k == "text" or n._role in controls):
+        count += bool(got and got[3] >= SMALLEST)
+        if got and got[3] < SMALLEST:
+            notes.append((n, f"{k} too small to measure, {got[3]} pixels"))
+        elif got is None and (k == "text" or n._role in controls):
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
             # A control can be drawn only when the pointer's over it: a tab's
             # close button. Say how it is then, to tell.
             over = n._role in controls and picture.text_contrast(hovered(box), box)
             then = (f"; with the pointer over it, {ratio_text(over[0])}:1, "
-                    f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} (at least {least:g})"
+                    f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} ({at})"
                     if over else "")
             problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
         elif got and got[0] < least:
@@ -1045,21 +1081,70 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
             problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
-                                f"{picture.hex_of(got[2])} (at least {least:g}){meant}"))
+                                f"{picture.hex_of(got[2])} ({at}){meant}"))
     if edges:
         for n in nodes:
-            if not (n._showing and "disabled" not in n.states and (
+            if not (n._showing and not disabled(n) and (
                     n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))
-                    ) or gtk3_switch(Atspi, n):
+                    ) or gtk3_switch(Atspi, n) or wrong(n, "edge"):
                 continue
             box = shown(n)
             got = box and picture.edge_contrast(pic, box)
+            count += bool(got)
             # A field's edge can be what it's in: a frame's.
             field = n._role in (Atspi.Role.TEXT, Atspi.Role.COMBO_BOX)
             if got and got[0] < edges and not (field and framed(n, box)):
                 problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
                                     f"{picture.hex_of(got[2])} (at least {edges:g})"))
-    return [(n, what) for n, what in problems if not skip(n, what)]
+    notes = [(n, what) for n, what in notes if not skip(n, what)]
+    return ([(n, what) for n, what in problems if not skip(n, what)], notes,
+            [w for w in whys if any(n.get("_why") == w for n, _ in notes)], count)
+
+
+# Fewer pixels than this, a glyph (a ".") has no core of its own color.
+SMALLEST = 16
+
+# The GTK 4 releases that say where their widgets are: none yet. Others
+# leave out each container's padding and border, count a stack's child
+# twice, and set a label's text a character short, none of which can be
+# undone from what they say (docs/accessibility.md, "GTK 4's positions").
+GTK4_BOUNDS = ()
+
+
+def large_text(Atspi, n):
+    """Whether all of `n`'s text is large, as WCAG has it: 18pt, or 14pt
+    bold, run by run of its font. GTK says each run's size and scale (GTK
+    4 in whole pixels, rounded down, so 14pt, 18.67px, is said as 18 and
+    taken as up to a pixel more; GTK 3 in points) and weight; Chromium
+    its size with a unit ("18pt") and weight; Qt no size."""
+    acc = n._acc
+    runs, i = [], 0
+    try:
+        count = Atspi.Text.get_character_count(acc) if "Text" in acc.get_interfaces() else 0
+        while i < count and len(runs) < 50:
+            attrs, _, end = Atspi.Text.get_attribute_run(acc, i, True)
+            runs.append(attrs or {})
+            i = max(end, i + 1)
+    except Exception:   # gone since the walk
+        return False
+    return bool(runs) and all(large_run(attrs, bool(gtk4(n))) for attrs in runs)
+
+
+def large_run(attrs, pixels):
+    """Whether a run, by its attributes, is large text. A size with no unit
+    is GTK's: in pixels if `pixels` (GTK 4's), else points."""
+    size = re.fullmatch(r"([\d.]+)(px|pt)?", attrs.get("size", attrs.get("font-size", "")))
+    try:
+        n = size and float(size[1]) * float(attrs.get("scale", 1))
+    except ValueError:
+        return False
+    if not n:
+        return False
+    px = size[2] == "px" or (pixels and not size[2])
+    pt, most = (n * 0.75, (n + (not size[2])) * 0.75) if px else (n, n)
+    weight = attrs.get("weight", attrs.get("font-weight", ""))
+    bold = weight == "bold" or (weight.isdigit() and int(weight) >= 700)
+    return pt >= 18 or (most >= 14 and bold)
 
 
 def grow_box(box, by):
@@ -1067,9 +1152,17 @@ def grow_box(box, by):
 
 
 def gtk4(n):
-    app = n._acc.get_application()
-    return bool(app) and app.get_toolkit_name() == "GTK" and (
-        app.get_toolkit_version() or "").startswith("4.")
+    """The GTK 4 version `n`'s program is, or None. Asked once a program:
+    get_application() asks its way up the tree."""
+    bus = n._acc.app.bus_name if n._acc.app else None
+    if bus not in GTK4:
+        app = n._acc.get_application()
+        version = app and app.get_toolkit_name() == "GTK" and app.get_toolkit_version() or ""
+        GTK4[bus] = version if version.startswith("4.") else None
+    return GTK4[bus]
+
+
+GTK4 = {}
 
 
 def gtk3_switch(Atspi, n):
@@ -1215,6 +1308,8 @@ def main(argv):
     ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
                     help="text, buttons, links and tabs against their background, at least (4.5)")
+    ct.add_argument("--large", type=float, default=3.0, metavar="RATIO",
+                    help="large text (18pt, or 14pt bold), at least (3)")
     ct.add_argument("--graphics", type=float, default=3.0, metavar="RATIO",
                     help="images against their background, at least (3)")
     ct.add_argument("--edges", type=float, metavar="RATIO",
@@ -1250,16 +1345,30 @@ def main(argv):
                 print("  " * n.depth + n.line())
         return 0
     if a.what in ("lint", "contrast"):
+        notes, whys, count = [], [], 1
         if a.what == "lint":
             problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
         else:
-            problems = contrast(a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore)
+            problems, notes, whys, count = contrast(a.window, a.text, a.graphics, a.edges,
+                                                    a.timeout, a.ignore, a.large)
+        # Said apart from the lines, on stderr, so stdout is PATH: PROBLEM.
+        nothing = not problems and not count and whys
+        said = " ".join([f"{len(notes)} not measured"
+                         + ("." if nothing else ", which doesn't fail.")] + whys) if notes else ""
         if a.json:
-            print(json.dumps([dict(public(n), problem=what) for n, what in problems]))
-            return 0
-        for n, what in problems:
-            print(f"{n.path}: {what}")
-        return 1 if problems else 0
+            print(json.dumps([dict(public(n), problem=what, fails=fails,
+                                   **({"why": n._why} if "_why" in n else {}))
+                              for found, fails in ((problems, True), (notes, False))
+                              for n, what in found]))
+        else:
+            for n, what in problems + notes:
+                print(f"{n.path}: {what}")
+        if nothing:
+            sys.stderr.write(f"shotbox: nothing measured: {said}\n")
+            return 2
+        if said and not a.json:
+            sys.stderr.write(said + "\n")
+        return 1 if problems and not a.json else 0
     if a.what in ("click", "scroll"):
         n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout) if a.what == "click"
              else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout))

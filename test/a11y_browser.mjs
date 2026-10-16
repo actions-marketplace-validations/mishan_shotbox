@@ -30,6 +30,8 @@ try
     await page.setContent(`<title>a11y-browser</title>
         <button onclick="this.dataset.clicked = 'yes'">Save</button>
         <p style="color: #999">Faint words</p>
+        <p style="color: #8a8a8a; font-size: 18pt">Large words</p>
+        <p style="color: #8a8a8a; font-size: 14pt; font-weight: bold">Bold words</p>
         <div role="status" id="polite"></div>
         <div aria-live="assertive" id="rude"></div>
         <div id="quiet"></div>
