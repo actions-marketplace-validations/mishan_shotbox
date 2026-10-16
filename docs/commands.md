@@ -501,6 +501,9 @@ session with `--clock` fails without it. It covers what's dynamically
 linked and asks the C library: GTK, Qt, Emacs, irssi, Python, git. Static
 binaries and Go programs read the clock themselves, and setuid ones (with
 `--no-sandbox`) drop the preload: they see the real time. Monotonic clocks
-aren't moved, and file times are what's on disk: the dates of files a test
+aren't moved, though libfaketime moves a timer set to a time on one by
+the offset: with TIME behind the real time it goes off that much late,
+ahead of it at once. `--audio`'s sound server, which sets them, runs on
+the real clock. File times are what's on disk: the dates of files a test
 makes are its own to set (`touch -d`). From Python, `Session(clock=...,
 tz=...)`; over MCP, `start_session`'s `clock` and `tz`.
