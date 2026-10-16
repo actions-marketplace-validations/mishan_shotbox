@@ -1,0 +1,9 @@
+record ${OUT} --sound --seconds 10 &
+0.3   focus shotbox-term
+0.3   type "player; shotbox record chime.wav --seconds 3.5"
+0.9   key Return
+wait line --from-start "chime\.wav\s+[0-9]" term.log
+5.2   focus shotbox-term
+5.2   type "shotbox listen chime.wav"
+5.7   key Return
+wait line --from-start "gap" term.log

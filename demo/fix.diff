@@ -1,0 +1,19 @@
+--- a/sketchpad.py
++++ b/sketchpad.py
+@@ -7,14 +7,14 @@
+ gi.require_version("Adw", "1")
+ from gi.repository import Adw, Gdk, Gtk  # noqa: E402
+ 
+-CSS = ".status { color: #a8a8a8; }"
++CSS = ".status { color: #5e5e5e; }"
+ 
+ TOOLS = (
+     ("document-edit-symbolic", "Draw"),
+     ("insert-text-symbolic", "Text"),
+     ("edit-undo-symbolic", "Undo"),
+     ("edit-redo-symbolic", "Redo"),
+-    ("edit-delete-symbolic", None),
++    ("edit-delete-symbolic", "Delete"),
+ )
+ 
+ 

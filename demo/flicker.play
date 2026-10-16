@@ -1,0 +1,12 @@
+record ${OUT} --seconds 10 &
+0.3   focus shotbox-term
+0.3   type viewer
+0.6   key Return
+wait window Viewer
+1.6   focus shotbox-term
+1.6   type "shotbox flicker --window Viewer --save sheets"
+2.2   key Return
+wait line --from-start "watched" term.log
+5.5   focus shotbox-term
+5.5   type "show sheets/1-*.png"
+5.9   key Return
