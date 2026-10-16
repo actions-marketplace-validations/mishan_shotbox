@@ -801,7 +801,9 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
       && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi
-  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
+  # The window's own buttons, out of the Tab order, left out by name.
+  "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \
+    --ignore 'button \"(Minimize|Maximize|Close)\"'" > "$tmp/walk" \
     && sed -n 1p "$tmp/walk" | grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]' \
     && grep -q '"Save" \[focusable, focused\]$' "$tmp/walk" \
     && [ "$(tail -1 "$tmp/walk")" = "round again after 6" ] \
@@ -817,11 +819,39 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     && [ "$(tail -1 "$tmp/walk")" = "round again after 1" ] \
     && ok "a11y: tabwalk, with one thing to take the focus, is round in one" \
     || { fail "a11y: one"; cat "$tmp/walk"; }
+  # A button Tab can't reach is said, and fails only when asked.
   set +e
-  "$sb" run --a11y -- sh -c "'$app' trap & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk"
+  "$sb" run --a11y -- sh -c "'$app' unfocusable & '$sb' a11y tabwalk --window a11y-test &&
+    ! '$sb' a11y tabwalk --reach-all --window a11y-test >/dev/null" > "$tmp/walk"
   st=$?; set -e
-  [ $st = 1 ] && grep -q '^stuck' "$tmp/walk" && ok "a11y: tabwalk finds a focus trap" \
-    || { fail "a11y: trap ($st)"; cat "$tmp/walk"; }
+  [ $st = 0 ] && grep -Eqx 'not reached by Tab: (push )?button "Play"' "$tmp/walk" \
+    && [ "$(tail -1 "$tmp/walk")" = "round again after 1; 1 not reached by Tab" ] \
+    && ok "a11y: tabwalk says what Tab never reaches, and --reach-all fails on it" \
+    || { fail "a11y: unreached ($st)"; cat "$tmp/walk"; }
+  # A text view takes Tab: the walk doesn't press it there, nothing is
+  # typed, and GTK's ctrl+Tab leaves it.
+  "$sb" run --a11y -- sh -c "'$app' notes > '$tmp/typed' & '$sb' a11y tabwalk --window a11y-test" \
+    > "$tmp/walk" \
+    && grep -q '^began in text "Notes" .*  <- a text view: ctrl+Tab leaves it$' "$tmp/walk" \
+    && grep -q '^round again after' "$tmp/walk" && [ ! -s "$tmp/typed" ] \
+    && ok "a11y: tabwalk leaves a text view by ctrl+Tab, typing nothing into it" \
+    || { fail "a11y: notes"; cat "$tmp/walk" "$tmp/typed"; }
+  # One nothing gets out of is a trap; in a dialog, Escape, which would
+  # close it, isn't tried, nor GTK's shift+Tab, which types a tab. A
+  # field Tab never reached is said.
+  set +e
+  "$sb" run --a11y -- sh -c "'$app' trap > '$tmp/typed' & '$sb' a11y tabwalk --window a11y-test" \
+    > "$tmp/walk"
+  st=$?
+  "$sb" run --a11y -- sh -c "'$app' dialog >> '$tmp/typed' & '$sb' a11y tabwalk --window a11y-test" \
+    > "$tmp/dialog"
+  st2=$?; set -e
+  [ $st = 1 ] && grep -qx 'stuck in a text view, which takes Tab: ctrl+Tab, Escape and F6 leave the focus there' "$tmp/walk" \
+    && grep -q '^not reached by Tab: text "File name"' "$tmp/walk" \
+    && [ $st2 = 1 ] && grep -qx 'stuck in a text view, which takes Tab: ctrl+Tab and F6 leave the focus there' "$tmp/dialog" \
+    && [ ! -s "$tmp/typed" ] \
+    && ok "a11y: tabwalk finds a focus trap: a text view nothing gets out of, in a dialog too" \
+    || { fail "a11y: trap ($st, $st2)"; cat "$tmp/walk" "$tmp/dialog" "$tmp/typed"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
@@ -1034,6 +1064,12 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
       '$sb' wait announce 'notes\.md' --timeout 10" \
       && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
+    # GTK 4 says where the focus is only once a key's been pressed.
+    "$sb" run --wayland --a11y -- sh -c "'$app' notes > '$tmp/wl-typed' & '$sb' wait window a11y-test >/dev/null &&
+      '$sb' a11y tabwalk --window a11y-test" > "$tmp/wl-walk" \
+      && grep -q '^round again after' "$tmp/wl-walk" && [ ! -s "$tmp/wl-typed" ] \
+      && ok "wayland: a11y: tabwalk, from a text view, typing nothing" \
+      || { fail "wayland: a11y: tabwalk"; cat "$tmp/wl-walk" "$tmp/wl-typed"; }
   fi
   pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
     || ok "wayland: sway stops with the session"

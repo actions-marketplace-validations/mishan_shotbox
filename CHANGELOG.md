@@ -39,6 +39,15 @@
   session, from Python and MCP too, and for one started inside a session,
   for a Dockerfile or CI job to set once (`false` and `0` too). `shotbox
   doctor` says whether sessions have a sandbox, and why not.
+- `shotbox key shift`: a modifier alone.
+- `a11y tabwalk` says what Tab never reached (`not reached by Tab`): the
+  showing, sensitive controls and fields, and tables and lists whose
+  items take the focus; the last line counts them. `--reach-all` fails
+  on them; without it they don't fail the walk, since arrows or
+  shortcuts may reach them and a window's own buttons are out of the
+  Tab order. `--ignore RE` leaves out those it's found in.
+  `Screen.tab_walk(reach_all=True, ignore=...)`; MCP's `tab_walk` says
+  them too, and takes `ignore`.
 
 ### Changed
 
@@ -64,6 +73,18 @@
   running when its stdin closes, rather than finishing it, and sends `notifications/progress` every 5 seconds to
   a call with a `progressToken`. docs/mcp.md says which calls run long,
   and how to raise a client's timeout.
+- `a11y tabwalk` no longer presses Tab in a text view, where it typed a
+  tab into the document: it tries ctrl+Tab, shift+Tab in Qt (GTK's
+  types a tab), Escape (not in a dialog, which it would close) and F6 to
+  leave it, and fails as a trap only if none does. One it begins in,
+  nothing leaving, or leaves backward, it leaves by giving the focus to
+  what's after it, so the rest is walked. It presses Shift first, as
+  GTK 4 on Wayland says where the focus is only after a key; with no
+  node focused even then, it presses nothing, and says so; focus gone
+  after a press is said as that, not as Tab leaving it where it was.
+  The docs no longer say ctrl+Tab always gets out: an editor's own
+  shortcuts can take it. MCP's `tab_walk` answers in `tabwalk`'s lines
+  (`round again after 6`, where it said `Round again after 6.`).
 - `a11y lint` and `tree` take a field's label as its name, as a screen
   reader does: a GTK 3 field with a mnemonic label passes, and is
   `text "Name:"` in the tree; `a11y click Name:` (and `scroll`) takes the

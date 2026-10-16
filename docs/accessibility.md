@@ -15,10 +15,10 @@ Inside a session with `--a11y`:
   reader would say: [Reading the tree](#reading-the-tree).
 - **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
   for what has no name to say: [Lint](#lint).
-- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--window RE]`** presses
-  the key until the focus lands somewhere it has been, printing where it
-  lands each time, and fails on a trap: [Walking the Tab
-  order](#walking-the-tab-order).
+- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--window RE]`**
+  presses the key until the focus lands somewhere it has been, printing
+  where it lands each time and what it never reached, and fails on a
+  trap: [Walking the Tab order](#walking-the-tab-order).
 - **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
   node named NAME, exactly or as a regex matched in full: a button by
   its label rather than where it is. [Clicking by name](#clicking-by-name).
@@ -178,20 +178,67 @@ scroller), so the rest can be held to in CI.
 
 `tabwalk` notes where the focus is, presses the key (over XTEST, or
 sway's virtual keyboard), and waits up to two seconds for the focus to
-land somewhere new. It stops:
+land somewhere new. It presses Shift first, since GTK 4 on Wayland says
+where the focus is only once a key has been pressed. Few programs act
+on Shift alone, but an input method can (Chinese ones, ibus-libpinyin,
+fcitx5 and rime, switch modes on it), and so can a program's own
+binding for it. If no node has the focus even then, it presses nothing
+more, since it can't tell what a key would do there, and says so, exit
+1: on X11 with no window manager a window can lack the keyboard
+(`shotbox focus` gives it). It stops:
 
 - when it lands on a node it has been on: where it began, or any stop
   since, since focus can settle into a round (through a list's rows,
-  say) that never passes where it began. A cycle, exit 0, the last line
+  say) that never passes where it began. A cycle, exit 0, the last node
   printed being the stop it came back to;
 - when a press leaves the focus where it was. Focus alone can't tell a
   trap from a window with one thing in it to focus, so it looks: if
   nothing else on screen is sensitive and focusable, but for containers,
-  it's a cycle of one, exit 0; otherwise a trap, exit 1. A text view that
-  takes Tab for itself is one; `--key ctrl+Tab` is how GTK gets out of
-  it. A window whose only other focusable nodes are ones Tab can't reach
-  (a header bar's buttons, say) counts as a trap too;
+  it's a cycle of one, exit 0; otherwise a trap, exit 1. A window whose
+  only other focusable nodes are ones Tab can't reach (a header bar's
+  buttons, say) counts as a trap too;
+- when a press leaves no node with the focus, exit 1;
 - after `--max` presses, exit 1.
+
+A text view one writes in (editable, multi-line) takes Tab for itself
+and types a tab, as it should: what WCAG asks is that something gets
+the focus out. So the walk doesn't press Tab there, which would change
+the document: it tries ctrl+Tab, which GTK's text views take to move
+on, then in Qt shift+Tab, Qt's (GTK's text views type a tab for it),
+Escape (not in a dialog or alert, which it would close, libadwaita's in
+its window's frame too), and F6, a pane's key, last, since Kate and
+KWrite show a view with it. shift+Tab leaves backward, so the walk then
+gives the focus to the first thing after the text view that takes it
+(AT-SPI's `grab_focus`, which Qt does) and goes on from there. The
+first that moves the focus is said on the node, `a text view: ctrl+Tab
+leaves it`, and the walk goes on; if none does, it's a trap, exit 1,
+`stuck in a text view`. One that changes the text is said on the node
+too, and if the text view is gone after
+one, the walk stops there, exit 1. An editor's own shortcuts can take
+ctrl+Tab: gedit's moves the focus somewhere no node says, and Tab goes
+on from there; gnome-text-editor keeps it for all of them. A walk that
+begins in a text view nothing leaves gives the focus to the first thing
+outside it (AT-SPI's `grab_focus`; GTK 3 and Qt do that, GTK 4 doesn't),
+so the rest of the window is walked before the walk comes back to it, a
+trap.
+
+Then it lists what Tab never reached: each showing, sensitive control
+(those lint holds to a name) or field it never landed on, nor on
+anything round it or in it (but a container's, as a window's frame),
+nor on another of its group beside it (a tab or radio button, one of
+which takes a stop, the rest arrows'), but for a menu bar's (F10's),
+`not reached by Tab: button "Play"`; and each table or list with an
+item that takes the focus, the focus never in it, once. The last line
+counts them: `round again after 6; 3 not reached by Tab`. They don't
+fail the walk unless `--reach-all` is given: arrow keys or shortcuts
+may reach them, and a window's own buttons (Minimize, Maximize, Close,
+in GTK 4's and GTK 3's title bars alike) are out of the Tab order, with
+nothing in the tree to tell them from a toolbar's that Tab should
+reach (VLC's take no focus at all), so failing by default would fail
+every stock GTK window. `--ignore RE` leaves out each one, as lint's
+does, whose `PATH: not reached by Tab`, or `NODE: not reached by Tab`
+with its tree line, the regex is found in: `--ignore 'button
+"(Minimize|Maximize|Close)"'`.
 
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each

@@ -791,25 +791,32 @@ class Screen:
                 *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx)]
         return Node(self._a11y("scroll", *args, timeout=90 + timeout))
 
-    def tab_walk(self, key="Tab", most=50, window=None, visible=False):
+    def tab_walk(self, key="Tab", most=50, window=None, visible=False, reach_all=False,
+                 ignore=()):
         """Press `key` until the focus lands somewhere it has been: the node
-        it lands on after each press, the last being that one. Fails if a
-        press leaves it where it was (unless it's the one thing that could
-        take it), or after `most` presses; with `visible`, if the focus
-        doesn't show on a node it lands on."""
-        from .a11y import Node, unseen
-        args = ["tabwalk", f"--key={key}", "--max", str(most), *(["--visible"] if visible else [])]
+        it lands on after each press, the last being that one. Fails, as
+        `shotbox a11y tabwalk` says, unless it comes round: on a trap (but
+        for the one thing that could take the focus, or a text view
+        ctrl+Tab, shift+Tab, Escape or F6 leaves), where no node has the
+        focus, or after `most` presses; with `visible`, if the focus
+        doesn't show on a node it lands on; with `reach_all`, on a control
+        it never reaches, but those whose "PATH: not reached by KEY", or
+        with its tree line for the path, one of the regexes in `ignore` is
+        found in."""
+        from .a11y import Node, unseen, walk_end
+        args = ["tabwalk", f"--key={key}", "--max", str(most), *(["--visible"] if visible else []),
+                *[f"--ignore={i}" for i in ignore]]
         got = self._a11y(*args, *([f"--window={window}"] if window else []),
                          timeout=90 + most * 5)
         seen = [Node(n) for n in got["focus"]]
-        if got["end"] == "trap":
-            where = seen[-1].line() if seen else "nothing"
-            self.fail(f"{key} leaves the focus where it was, on {where}")
-        if got["end"] == "max":
-            self.fail(f"the focus isn't round again after {most} presses of {key}")
+        if got["end"] != "cycle":
+            where = f", on {seen[-1].line()}" if seen and got["end"] == "trap" else ""
+            self.fail(walk_end(key, most, seen, got["end"], []) + where)
         hidden = [n for n in seen if unseen(n)]
         if hidden:
             self.fail("the focus doesn't show on " + "; ".join(n.line() for n in hidden))
+        if reach_all and got["unreached"]:
+            self.fail(f"{key} never reaches " + "; ".join(Node(n).line() for n in got["unreached"]))
         return seen
 
     # --- windows and pictures -------------------------------------------------

@@ -60,7 +60,7 @@ def keymap():
         symbols.append(f"modifier_map {name} {{ <K{code}> }};")
         mods[sym] = code
         code += 1
-    keys = {}
+    keys = {sym: (c, False) for sym, c in mods.items()}
     for low, high in PAIRS + [(sym, None) for sym in SINGLES]:
         codes.append(f"<K{code}> = {code};")
         levels = f"0x{low:x}" + (f", 0x{high:x}" if high else "")
