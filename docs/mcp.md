@@ -8,6 +8,9 @@ in them, and the tools to look at them, drive them and check them.
 
 It speaks the Model Context Protocol on stdin and stdout, so a client
 starts it and talks to it for as long as it's connected.
+As it connects, it gives the agent a short note on how the tools go
+together (the protocol's `instructions`): start a session, spawn, read the
+tree before clicking, wait rather than sleep, stop it after.
 
 ## What it's for
 
@@ -23,8 +26,8 @@ can:
 - **reproduce a report.** Follow the steps in a session that is the same
   each time, and show the state it ends in.
 
-The accessible tree is the cheap way to look. A few hundred tokens of
-text say what's on screen, what each thing is called and what can be
+The accessible tree is the cheap way to look. A thousand or two tokens
+of text say what's on screen, what each thing is called and what can be
 clicked, and the tree is what someone who can't see the screen gets. A
 screenshot costs far more, and is for what only pixels say: colors,
 layout, what's drawn.
