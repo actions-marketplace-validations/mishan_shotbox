@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `record --until-line RE FILE [--tail SECS]`: a recording that ends on
+  an event, once a line matching RE is written to FILE, as `wait line`
+  waits for one, and SECS after it; `--seconds` is then the most it
+  lasts. It prints the line, or says it was stopped or ran its
+  `--seconds` first. `Screen.record(until=(re, path), tail=...)`, whose
+  Recording says the `line` and whether it was `stopped`; MCP's `record`
+  takes `until_line`, `file` and `tail`, its file in the `--allow` file's
+  directory, as `wait_for`'s line is.
+
 ## 0.6.0 — 2026-10-15
 
 Sound, and video with it, on X11 and Wayland; flicker, latency and what a

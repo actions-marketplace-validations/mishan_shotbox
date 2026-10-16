@@ -32,9 +32,11 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
 - Pictures: `capture(out, window=None, crop=None, park=False,
   vision=None)`, `burst(out, count, every=0, ..., sheet=None)`, and
   `window(re)` for where one is. `record(out, seconds=None, window=None,
-  ..., sound=False)` takes a video, or a `.wav` of the sound, and returns
-  a Recording: its `path` and, with `sound`, `heard` (as
-  `shotbox.sound.hear` says) and `problems()`.
+  ..., sound=False, until=None, tail=0)` takes a video, or a `.wav` of the
+  sound, ended with `until=(re, path)` by a line, as `wait_line` waits for
+  one, `tail` seconds after it, and returns a Recording: its `path`, the
+  `line` that ended it (or None), whether it was `stopped`, and with
+  `sound`, `heard` (as `shotbox.sound.hear` says) and `problems()`.
 - Scripts: `play(script, vars=None, name=None, verbose=False)` plays one
   as `shotbox play` does: a string is its text, a `Path` its file. `vars`
   (a dict) is over the session's variables for `${NAME}`, so values

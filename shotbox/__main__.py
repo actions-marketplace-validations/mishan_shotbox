@@ -531,12 +531,19 @@ def cmd_record(argv):
     p = argparse.ArgumentParser(prog="shotbox record",
                                 description="Inside `shotbox run`: record a video of the "
                                             "display or one window, or with --audio, a "
-                                            ".wav of what plays, for --seconds, or "
+                                            ".wav of what plays, for --seconds, till "
+                                            "a line in a file says (--until-line), or "
                                             "until stopped (Ctrl-C, or kill, which ends "
                                             "the file properly). Needs ffmpeg, and "
                                             "on Wayland, wf-recorder.")
     p.add_argument("out", metavar="OUT", help="an .mp4, .webm, .gif or .wav")
-    p.add_argument("--seconds", type=seconds, metavar="SECS")
+    p.add_argument("--seconds", type=seconds, metavar="SECS",
+                   help="how long, or with --until-line, the most it lasts")
+    p.add_argument("--until-line", nargs=2, metavar=("RE", "FILE"),
+                   help="stop once a line matching RE is written to FILE, as `wait line` "
+                        "waits for one, and print it")
+    p.add_argument("--tail", type=seconds, default=0, metavar="SECS",
+                   help="with --until-line: record this long after the line (0)")
     p.add_argument("--window", metavar="RE",
                    help="where this window is when it starts: what's drawn over it is "
                         "recorded too, and it isn't followed if it moves")
@@ -555,6 +562,8 @@ def cmd_record(argv):
     a = listening(p).parse_args(argv)
     if a.seconds == 0:
         p.error("--seconds is more than 0")
+    if a.tail and not a.until_line:
+        p.error("--tail goes with --until-line")
     if not a.sound and (a.strict or {a.gap, a.clipped, a.quiet} != {None}):
         p.error("--strict, --gap, --clipped and --quiet go with --sound")
     judgement(p, a)
@@ -564,10 +573,17 @@ def cmd_record(argv):
         p.error(f"--crop is WIDTHxHEIGHT+X+Y, not {a.crop}")
     start = time.monotonic()
     out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
-                          pointer=a.pointer, park=a.park, sound=a.sound, gap=a.gap / 1000)
+                          pointer=a.pointer, park=a.park, sound=a.sound, gap=a.gap / 1000,
+                          until=a.until_line, tail=a.tail)
     bad = out.problems(quiet=a.quiet, clipped=a.clipped)
     try:
-        print(f"{out.path}  {time.monotonic() - start:.1f}s", flush=True)
+        if out.line is not None:
+            print(out.line)
+        print(f"{out.path}  {time.monotonic() - start:.1f}s" + (
+            "" if not a.until_line or out.line is not None else
+            "  stopped before the line" if out.stopped else
+            "  no line in its --seconds" if a.seconds else "  no line: its session went"),
+            flush=True)
         if out.heard:
             print("\n".join(sound.describe(out.heard) + bad), flush=True)
     except OSError:     # stopped by its terminal closing, with nowhere to say so

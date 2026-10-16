@@ -332,11 +332,17 @@ class Server:
             raise Refused(f"{above} is a file, not a directory to save in")
         return out
 
-    def record(self, session, seconds, window=None, crop=None, sound=False, path=None):
+    def record(self, session, seconds=None, window=None, crop=None, sound=False, path=None,
+               until_line=None, file=None, tail=None):
         s = self.session(session)
         seconds = within(seconds, "seconds", 0.1, RECORD_SECONDS)
-        if seconds is None:
-            raise Refused(f"record needs seconds: how long to record, 0.1 to {RECORD_SECONDS}")
+        if seconds is None and until_line is None:
+            raise Refused(f"record needs seconds: how long to record, 0.1 to {RECORD_SECONDS}, "
+                          "or until_line")
+        seconds = seconds or RECORD_SECONDS
+        until = None if until_line is None else (str(until_line),
+                                                 self.log(file, "record until_line"))
+        tail = within(tail, "tail", 0, RECORD_SECONDS) or 0
         if flag(sound) and not s.audio:
             raise Refused(f"{str(session)!r} has no sound: start a session with audio")
         out = self.clip(path) if path is not None else next(
@@ -345,7 +351,8 @@ class Server:
         # Recorded in the scratch dir, and only a whole clip saved at path.
         took = Path(tempfile.mkdtemp(prefix="record-", dir=s.scratch))
         rec = s.record(took / "clip.mp4", seconds=seconds, window=text(window),
-                       crop=text(crop), sound=flag(sound), size=RECORD_SIZE)
+                       crop=text(crop), sound=flag(sound), size=RECORD_SIZE, until=until,
+                       tail=tail, within=until and Path(self.home).resolve())
         try:
             if path is None:
                 rec.path.rename(out)
@@ -387,10 +394,14 @@ class Server:
         times = ", ".join(f"{packets[i]:.2f}" for i in picked)
         said = [f"Saved {out}, {length:.2f} seconds of {what}. {len(picked)} frames from it in "
                 f"rows of four, left to right, at {times} seconds."]
-        if length < seconds - 0.2:
+        if rec.line is not None:
+            said.append(f"It ended on the line: {rec.line}")
+        elif length < seconds - 0.2:
             said.append(f"It stopped short of the {seconds:g} seconds asked for: "
                         + ("it reached 100 MB." if out.stat().st_size >= RECORD_SIZE
                            else "the session's display or sound server went."))
+        elif until:
+            said.append(f"No line matching {until_line!r} came in its {seconds:g} seconds.")
         if rec.heard:
             said += (describe(rec.heard)
                      + (rec.problems() or ["No gaps, clipping or silence."]))
@@ -494,19 +505,19 @@ class Server:
                           f"there; there's no file {value!r} in it")
         return path
 
-    def log(self, file):
-        """The file a line wait reads: in the allow file's directory, where
-        the programs start, and nowhere else an agent could have it read. It
-        needn't be there yet."""
+    def log(self, file, who="wait_for line"):
+        """The file a line wait (`who`) reads: in the allow file's
+        directory, where the programs start, and nowhere else an agent could
+        have it read. It needn't be there yet."""
         if file is None:
-            raise Refused("wait_for line needs a file: the one the line is written to")
+            raise Refused(f"{who} needs a file: the one the line is written to")
         if self.home is None:
-            raise Refused("wait_for line reads a file in the --allow file's directory, "
+            raise Refused(f"{who} reads a file in the --allow file's directory, "
                           "and shotbox mcp was given no --allow file")
         home = Path(self.home).resolve()
         path = (home / str(file)).resolve()
         if not path.is_relative_to(home) or path.is_dir():
-            raise Refused(f"wait_for line reads a file in {home}, by its path from there, "
+            raise Refused(f"{who} reads a file in {home}, by its path from there, "
                           f"not {file!r}")
         return path
 
@@ -711,17 +722,22 @@ TOOLS = [
      "path, how long the clip is, and up to 8 frames from it RETURNED AS ONE IMAGE in rows of "
      "four, with the times they show: you can't play the clip, but a person or another "
      "tool can. A clip stops at 100 MB. sound, in a session started with audio, records "
-     "what plays too, and says what it heard, as the sound tool does. For a few moments "
-     "of motion, screenshot's burst is cheaper.",
+     "what plays too, and says what it heard, as the sound tool does. until_line ends it "
+     "at an event instead: tail seconds (0) after a line matching it (a regex) is written "
+     "to file, as wait_for's line reads one, seconds then the most it lasts (60); the "
+     "answer gives the line. For a few moments of motion, screenshot's burst is cheaper.",
      schema({"session": SESSION,
-             "seconds": {"type": "number", "description": "How long, 0.1 to 60"},
+             "seconds": {"type": "number", "description": "How long, 0.1 to 60; with "
+                         "until_line, the most"},
              "window": WINDOW,
              "crop": CROP,
              "sound": {"type": "boolean", "description": "What plays too, and what was "
                        "heard in it, in a session started with audio"},
              "path": {"type": "string", "description": "Where to save it, an .mp4, by its "
-                      "path from the allow file's directory"}},
-            ["session", "seconds"])),
+                      "path from the allow file's directory"},
+             "until_line": {"type": "string"}, "file": {"type": "string"},
+             "tail": {"type": "number"}},
+            ["session"])),
     ("click",
      "Click a node by its name, as the accessible tree gives it (a regex, matched in "
      "full; role narrows it, like \"button\" or \"(push )?button\"), or a point by x and "

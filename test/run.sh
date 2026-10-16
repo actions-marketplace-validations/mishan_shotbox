@@ -1089,6 +1089,17 @@ PY
       && grep -q "go with --sound" "$tmp/err" \
       && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
       || fail "$say: $(probe "$tmp/$pre.mp4"); $(probe "$tmp/$pre.webm"); $(probe "$tmp/$pre.gif"); $(probe "$tmp/$pre-k.mp4")"
+    # --until-line: ended by a line written 1.5 s in, and --tail after it,
+    # not by the one already there; with no line, by --seconds. Each said.
+    echo run_end 0 > "$tmp/$pre-ev"
+    "$sb" run $opt -- sh -c "{ sleep 1.5; echo run_end 1 >> '$tmp/$pre-ev'; } &
+      '$sb' record '$tmp/$pre-u.mp4' --until-line 'run_\w+' '$tmp/$pre-ev' --tail 0.5 --seconds 10 &&
+      '$sb' record '$tmp/$pre-u1.mp4' --until-line run_end '$tmp/$pre-ev' --seconds 1" > "$tmp/$pre-u" \
+      && d=$(probe "$tmp/$pre-u.mp4" | cut -d' ' -f2) && awk "BEGIN { exit !($d >= 1.2 && $d < 3) }" \
+      && [ "$(probe "$tmp/$pre-u1.mp4" | cut -d' ' -f2)" = 1.000000 ] \
+      && sed -n 1p "$tmp/$pre-u" | grep -qx "run_end 1" && sed -n 3p "$tmp/$pre-u" | grep -q "  no line in its --seconds$" \
+      && ok "$say --until-line: ended by a new line, and --tail after it; or by --seconds; said" \
+      || { fail "$say --until-line: ${d-}"; cat "$tmp/$pre-u"; }
     # A GIF whose session is stopped (run killed) is finished all the same,
     # leaving nothing behind in the temp dir.
     rm -rf "$tmp/$pre-tmp"; mkdir "$tmp/$pre-tmp"
@@ -1147,7 +1158,8 @@ PY
     # frame), each tone starting within 0.1 s of its flash, and
     # what `listen` would say of it said: with --strict, its gaps fail it,
     # unless --gap is longer than they are. Stopped by kill, before its
-    # --seconds or with none, or by the session's PipeWire going (said),
+    # --seconds or with none, by --until-line's line (a file not there
+    # yet), or by the session's PipeWire going (said),
     # the sound as long as the picture, and as long as it ran.
     if audio; then
       rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
@@ -1157,6 +1169,8 @@ PY
         '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
         { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; } &&
         { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; sleep 2; kill \$r; wait \$r; } &&
+        { { sleep 2; echo go > '$tmp/$pre-go-ev'; } &
+          '$sb' record '$tmp/$pre-su.mp4' --window beep --sound --seconds 10 --until-line go '$tmp/$pre-go-ev'; } &&
         : > '$tmp/$pre-go' && '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound > '$tmp/$pre-heard3'" \
         > /dev/null 2>&1 & r=$!
       n=0; until [ -e "$tmp/$pre-go" ] || [ $n -ge 600 ]; do sleep 0.1; n=$((n + 1)); done; sleep 2
@@ -1166,10 +1180,10 @@ PY
       wait $r \
         && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
         && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-sp.mp4" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-st.mp4" >> "$tmp/$pre-av" \
+        && python3 "$tmp/av.py" "$tmp/$pre-st.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-su.mp4" >> "$tmp/$pre-av" \
         && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | awk '$1 == "h264" && $2 == 3 && $3 == "aac" &&
              $4 >= 3 && $4 < 3.022 && $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
-        && [ "$(sed -n '5p;7p;9p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < 0.01' | wc -l)" = 3 ] \
+        && [ "$(sed -n '5p;7p;9p;11p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < 0.01' | wc -l)" = 4 ] \
         && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
         && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -Eq "gaps? of silence" "$tmp/$pre-heard" \
         && ! grep -q gap "$tmp/$pre-heard2" && grep -q "^the sound server stopped" "$tmp/$pre-heard3" \
