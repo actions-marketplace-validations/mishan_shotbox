@@ -71,7 +71,8 @@ and nothing in `/run/user/UID` or `XDG_RUNTIME_DIR`), it doesn't say so;
 `shotbox doctor` still says why there's no sandbox. `SHOTBOX_SANDBOX=off`
 in the environment is `--no-sandbox` for every session, from Python and
 MCP too, and for one started inside a session: for a Dockerfile or a CI
-job to set once.
+job to set once. `false` and `0` are off too (YAML makes an unquoted
+`off` false), and `on`, `true` and `1` on.
 With a `TMPDIR` in `/run/user/UID`, which the session's scratch dir is
 made in, your desktop's sockets there stay reachable; it says that too.
 `--gamepads` needs it, and fails instead, and has it with `--no-sandbox`

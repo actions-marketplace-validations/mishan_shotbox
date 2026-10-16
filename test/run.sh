@@ -68,6 +68,9 @@ if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
   [ -z "$in" ] && [ -n "$out" ] && [ "$off" = "$out" ] \
     && ok "no sound devices or desktop sockets inside, but with --no-sandbox or SHOTBOX_SANDBOX=off" \
     || fail "inside: [$in], with --no-sandbox: [$out], SHOTBOX_SANDBOX=off: [$off]"
+  set +e; SHOTBOX_SANDBOX=bogus "$sb" run -- true 2> "$tmp/err"; st=$?; set -e
+  [ $st != 0 ] && grep -qx "shotbox: SHOTBOX_SANDBOX is on or off, not 'bogus'" "$tmp/err" \
+    && ok "SHOTBOX_SANDBOX=bogus, refused" || fail "SHOTBOX_SANDBOX=bogus ($st): $(cat "$tmp/err")"
   # Run from inside it, where the program wouldn't be: refused, saying so.
   hid="/run/user/$(id -u)/shotbox-test-$$"
   if mkdir "$hid" 2>/dev/null; then

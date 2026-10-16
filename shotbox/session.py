@@ -394,7 +394,21 @@ def nothing_to_hide():
     return True
 
 
+def sandbox_env():
+    """Whether SHOTBOX_SANDBOX leaves sessions a sandbox. YAML reads an
+    unquoted off as false, which a CI job's env then sets."""
+    on = os.environ.get("SHOTBOX_SANDBOX", "on")
+    if on.lower() not in ("on", "true", "1", "off", "false", "0"):
+        raise SessionError(f"SHOTBOX_SANDBOX is on or off, not {on!r}")
+    return on.lower() in ("on", "true", "1")
+
+
 def sandbox_off():
+    try:
+        if not sandbox_env():
+            return "off, by SHOTBOX_SANDBOX"
+    except SessionError as e:
+        return str(e)
     why = sandbox_needs()
     if why and nothing_to_hide():
         why += "; nothing here for it to hide, so sessions don't say so"
@@ -528,10 +542,7 @@ class Session(Screen):
         self._up = False
         unsandboxed = "--no-sandbox"
         if sandbox is None:
-            on = os.environ.get("SHOTBOX_SANDBOX", "on")
-            if on not in ("on", "off"):
-                raise SessionError(f"SHOTBOX_SANDBOX is on or off, not {on!r}")
-            sandbox, unsandboxed = on == "on", "SHOTBOX_SANDBOX=off"
+            sandbox, unsandboxed = sandbox_env(), "SHOTBOX_SANDBOX=off"
         if net not in (None, "loopback"):
             raise SessionError(f"net is loopback or nothing, not {net!r}")
         if net and not sandbox:
@@ -1116,8 +1127,9 @@ class Session(Screen):
         if why and not nothing_to_hide():
             self.unsealed = ("programs run without a sandbox, so they can reach the "
                              f"machine's sound devices and the desktop's sockets: {why}; "
-                             "--no-sandbox or SHOTBOX_SANDBOX=off runs them so without "
-                             "saying this")
+                             "to run them so on purpose, and not be told, set "
+                             "SHOTBOX_SANDBOX=off in shotbox's environment, or give "
+                             "--no-sandbox on the command line")
         elif kept:
             self.unsealed = (f"the session's scratch dir is in {kept[0]}, so programs can "
                              "reach the desktop's sockets there: set TMPDIR elsewhere")

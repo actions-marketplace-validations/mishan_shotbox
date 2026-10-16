@@ -14,8 +14,8 @@
   directory, as `wait_for`'s line is.
 - `SHOTBOX_SANDBOX=off` in the environment: `--no-sandbox` for every
   session, from Python and MCP too, and for one started inside a session,
-  for a Dockerfile or CI job to set once. `shotbox doctor` says whether
-  bubblewrap can make a sandbox, and why not.
+  for a Dockerfile or CI job to set once (`false` and `0` too). `shotbox
+  doctor` says whether sessions have a sandbox, and why not.
 
 ### Changed
 
