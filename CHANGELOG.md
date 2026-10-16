@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-10-15
+
+Sound, and video with it, on X11 and Wayland; flicker, latency and what a
+session used, measured; a session's own clock, identity and network;
+timed scripts of input; and checks that a picture comes out the same
+twice. Pictures of GTK 4 programs change: see the first note below.
 
 ### Changes to check when upgrading
 
@@ -8,9 +13,9 @@
   so text is drawn at its color rather than fainter, by however much
   automatic rendering draws it on that GTK release. Every GTK 4 picture
   with text changes, its widths too, so layout can shift, and `a11y
-  contrast` measures thin text higher. A
-  seeded home whose GTK 4 `settings.ini` sets `gtk-font-rendering` keeps
-  its own.
+  contrast` measures thin text higher: take committed GTK 4 pictures
+  again. A seeded home whose GTK 4 `settings.ini` sets
+  `gtk-font-rendering` keeps its own.
 - Under bubblewrap, a program can't gain privileges, its supplementary
   groups show as `nogroup`, and one killed by a signal exits with 128
   plus the signal's number. `--no-sandbox` runs it as before.
