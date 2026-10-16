@@ -267,13 +267,16 @@ try:
     said, bad, _ = tool("scroll", session="l", name="Row 0", dy=10)
     tool("wait_for", session="l", what="stable", window="a11y-test")
     after, after_bad, _ = tool("click", session="l", name="Row 25")
+    back, back_bad, _ = tool("scroll", session="l", name="Row 25", dy=-10)
     refused = [tool("scroll", session="l", name="Row 0")[:2],
                tool("scroll", session="l", x=5, y=5, dy=1000)[:2]]
     check(before_bad and "outside its window" in before and not bad
-          and said.startswith('Scrolled 10 down and 0 right over label "Row 0"') and not after_bad
-          and all(bad for _, bad in refused) and "-100 to 100, not 1000" in refused[1][0],
-          f"scroll: by a node's name, a row past the end into view; none or too far, refused "
-          f"({said})")
+          and said.startswith('Scrolled 10 down over label "Row 0"') and not after_bad
+          and not back_bad and back.startswith('Scrolled 10 up over label "Row 25"')
+          and all(bad for _, bad in refused) and "nothing to scroll" in refused[0][0]
+          and "-100 to 100, not 1000" in refused[1][0],
+          f"scroll: by a node's name, a row past the end into view, and back; none or too "
+          f"far, refused ({said}; {back})")
     tool("stop_session", session="l")
     if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap") and subprocess.run(
             ["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0:

@@ -25,7 +25,7 @@ from collections import Counter
 from functools import cache
 
 from . import picture, x
-from .screen import Screen, SessionError, wait_for
+from .screen import Screen, SessionError, wait_for, wheel
 from .session import ATSPI, bindings
 
 # The states worth a line in the tree: what a screen reader says about a
@@ -604,6 +604,7 @@ def click(name, role=None, window=None, button=1, double=False, timeout=10):
 
 def scroll(name, dy, dx=0, role=None, window=None, timeout=10):
     """Turn the wheel over the node `at_node` finds; that node."""
+    wheel(dy, dx)
     return at_node(name, role, window, timeout, lambda s, x, y: s.scroll(x, y, dy, dx))
 
 
@@ -933,8 +934,9 @@ def main(argv):
     c.add_argument("--double", action="store_true", help="click twice")
     sc = sub.add_parser("scroll", help="turn the mouse wheel over a node, found by its name")
     sc.add_argument("name", metavar="NAME", help="its name, a regex matched in full")
-    sc.add_argument("dy", type=int, help="clicks down; up if negative")
-    sc.add_argument("dx", type=int, nargs="?", default=0, help="clicks right; left if negative")
+    sc.add_argument("dy", type=int, metavar="DY", help="clicks down; up if negative")
+    sc.add_argument("dx", type=int, nargs="?", default=0, metavar="DX",
+                    help="clicks right; left if negative")
     sc.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
     ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",

@@ -24,7 +24,9 @@ Inside a session with `--a11y`:
   its label rather than where it is. [Clicking by name](#clicking-by-name).
 - **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE]`** turns
   the mouse wheel over that node, found as `click` finds it, DY clicks
-  down and DX right (negative, up and left): a list by one of its rows.
+  down and DX right (negative, up and left): a list by itself or by a
+  row still in view (one scrolled out of it is refused, as `click`
+  refuses it).
 - **`shotbox a11y contrast [--window RE]`** measures the contrast of
   what each node draws against its background, and fails, a line each:
   `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.

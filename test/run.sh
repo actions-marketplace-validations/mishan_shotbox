@@ -733,12 +733,22 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     > "$tmp/contrast" 2>&1 \
     && ok "a11y: contrast leaves out what's scrolled out of view" \
     || { fail "a11y: contrast, scrolled"; cat "$tmp/contrast"; }
-  # Scrolled over a row, by its name, a row past the window's end comes into it.
-  "$sb" run --a11y -- sh -c "'$app' long & '$sb' wait window a11y-test >/dev/null &&
-    ! '$sb' a11y click 'Row 25' --window a11y-test 2>/dev/null &&
-    '$sb' a11y scroll 'Row 0' 10 --window a11y-test >/dev/null &&
-    '$sb' wait stable --window a11y-test && '$sb' a11y click 'Row 25' --window a11y-test >/dev/null" \
-    && ok "a11y: scroll by a node's name brings a row past the end into view" || fail "a11y: scroll"
+  # Scrolled over a row, by its name, the last row comes into the window,
+  # then the first again; on Wayland too, where GTK 4 crashes on a scroll
+  # whose pointer is gone before its next frame.
+  by_name() {
+    "$sb" run --a11y "$@" -- sh -c "'$app' long & '$sb' wait window a11y-test >/dev/null &&
+      ! '$sb' a11y click 'Row 199' --window a11y-test 2>/dev/null &&
+      '$sb' a11y scroll 'Row 0' 150 --window a11y-test >/dev/null &&
+      '$sb' wait stable --window a11y-test && '$sb' a11y click 'Row 199' --window a11y-test >/dev/null &&
+      '$sb' a11y scroll 'Row 199' -150 --window a11y-test >/dev/null &&
+      '$sb' wait stable --window a11y-test && '$sb' a11y click 'Row 0' --window a11y-test >/dev/null"
+  }
+  by_name && ok "a11y: scroll by a node's name, to the last row and back" || fail "a11y: scroll"
+  if command -v sway >/dev/null && command -v grim >/dev/null; then
+    by_name --wayland && ok "wayland: a11y: scroll by a node's name, to the last row and back" \
+      || fail "wayland: a11y: scroll"
+  fi
   # GTK 3 places a window's first child where it is, even at the corner.
   rm -f "$tmp/corner"
   "$sb" run --a11y -- sh -c "'$here/window.py' corner '$tmp/corner' corner &

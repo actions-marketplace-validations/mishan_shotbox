@@ -44,7 +44,7 @@ from pathlib import Path
 
 from . import __version__, sound, usage
 from .a11y import Node, unseen
-from .screen import SessionError
+from .screen import SessionError, wheel
 from .session import Session
 from .sound import describe
 from .x import VISION, ended, recording, sheet, stop
@@ -64,7 +64,7 @@ and with net: loopback, not the network either.
 Start with start_session (with audio, for sound), then spawn a program from the \
 person's allow list (start_session's answer lists them) and wait_for its window. Read accessible_tree before clicking: \
 it says what's on screen and what each thing is called, in far fewer tokens than \
-a screenshot, and click takes a name. Take a screenshot only for what pixels say (colors, \
+a screenshot, and click and scroll take a name. Take a screenshot only for what pixels say (colors, \
 layout); record for motion and sound. After acting, wait_for stable rather than \
 sleeping. lint, contrast, tab_walk, announcements and sound check what a person \
 would meet. stop_session when done; every session stops with the server."""
@@ -465,9 +465,9 @@ class Server:
                window=None):
         s = self.session(session)
         dy, dx = (within(v, k, -100, 100, whole=True) or 0 for v, k in ((dy, "dy"), (dx, "dx")))
-        if not dy and not dx:
-            raise Refused("scroll takes dy, dx or both: clicks of the wheel down and right")
-        turned = f"Scrolled {dy} down and {dx} right"
+        wheel(dy, dx)
+        turned = "Scrolled " + " and ".join(f"{abs(n)} {ways[n < 0]}" for n, ways in (
+            (dy, ("down", "up")), (dx, ("right", "left"))) if n)
         if name is not None:
             n = self.a11y_session(session).scroll_node(str(name), dy, dx, role=text(role),
                                                        window=text(window))

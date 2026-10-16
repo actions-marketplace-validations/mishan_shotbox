@@ -54,7 +54,7 @@ import wave
 from pathlib import Path
 
 from . import a11y, kept, mcp, pad, sound, term, usage, x, xtest
-from .screen import Screen, SessionError
+from .screen import Screen, SessionError, wheel
 from .session import NEEDS, Session
 
 
@@ -729,6 +729,7 @@ def pointer_command(name, what):
             held_here(inside(), a).click(a.x, a.y, window=a.window, button=a.button,
                                          double=a.double, hold=a.hold, state=a.state)
         elif name == "scroll":
+            wheel(a.dy, a.dx)
             inside().scroll(a.x, a.y, a.dy, a.dx, window=a.window)
         else:
             inside().move(a.x, a.y, window=a.window)

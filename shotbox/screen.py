@@ -36,6 +36,12 @@ class SessionError(RuntimeError):
     pass
 
 
+def wheel(dy, dx):
+    """Refuse a scroll of no clicks either way."""
+    if not dy and not dx:
+        raise SessionError("nothing to scroll: no clicks down or across")
+
+
 def wait_for(what, test, timeout, interval=0.1, alive=None):
     """Poll `test()` until it returns something true, or fail saying what."""
     end = time.monotonic() + timeout
@@ -1105,6 +1111,7 @@ class Screen:
     def scroll(self, px, py, dy, dx=0, window=None):
         """Turn the mouse wheel at X, Y on the screen, or inside `window`:
         `dy` clicks down (up if negative), `dx` right (left)."""
+        wheel(dy, dx)
         self.xt.scroll(*self._at(px, py, window), dy, dx)
 
     def drag(self, x1, y1, x2, y2, window=None, button=1):

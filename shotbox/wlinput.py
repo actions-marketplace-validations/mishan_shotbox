@@ -334,6 +334,10 @@ class Display:
                                                         step * 15 * 256, step))
                 self._frame()
         self.sync()
+        # GTK 4 holds scroll events till its next frame, and crashes on
+        # one whose pointer has gone by then, as this one does when the
+        # connection closes (it's sway's only pointer): a dozen frames.
+        time.sleep(0.2)
 
     def drag(self, x1, y1, x2, y2, button=1, steps=10):
         """Press at one point, move to another in steps, release there."""
