@@ -146,8 +146,8 @@ with other keys shifts them too, and a key held past the repeat delay
 ## play
 
 `shotbox play SCRIPT` plays a script of input, a step a line, on one
-clock in one process, so a demo plays out the same way each time it's
-recorded:
+clock, with no command started for each step, so a demo plays out the
+same way each time it's recorded:
 
 ```
 record demo.mp4 --seconds 8 &       # all of it, as it's played
@@ -164,20 +164,32 @@ given after `shotbox`: `key`, `type`, `click`, `move`, `drag`, `park`,
 `flicker` (not `a11y`). A time is seconds from the script's start, or
 `+SECS` after the step before ended, so a wait that runs long holds back
 the `+` steps after it, but not those timed from the start; with none,
-the step runs right after the one before. A step whose time has passed
-runs at once, saying how late, if it's more than a tenth of a second. A
-step ending in `&` runs on behind those after it, and the script waits for
-it at its end. `${NAME}` is the session's variable (`--env THEME=dark`),
-so one script serves two sessions; one not set is an error. `#` starts a
-comment, and words are quoted as in the shell.
+the step runs right after the one before. A line with only a time is a
+pause. A step whose time has passed runs at once, saying how late, if
+it's more than a tenth of a second.
 
-Every step is checked, its command, its options and its names, before the
-first starts. A step that fails (a wait giving up, leaving its picture as
-ever) stops the script, saying the file and line, and what runs in the
-background is stopped as Ctrl-C would stop it: a recording finishes its
-file, a hold lets go. `-` reads the script from stdin, `--verbose` says
-each step as it starts and when, and `shotbox --session NAME play SCRIPT`
-plays it in a lasting session. From Python, it's `Screen.play`.
+A step ending in a bare `&` runs on behind those after it, in a process
+of its own, and the script waits for it at its end; for a `+` time after
+it, it ended as it started. What it prints is dropped, but for why it
+failed. If it fails, the script stops before its next step, but a step
+already running (a long wait, a hold) runs to its end first.
+
+Words are split and quoted as in the shell, and `#` at the start of a
+word starts a comment. `${NAME}` is the session's variable (`--env
+THEME=dark`), so one script serves two sessions; one not set is an
+error. A value with spaces stays one word, and in single quotes, or as
+`\${`, it's left as written.
+
+Before the first step starts, each one's options are checked, as its
+command checks them before it starts, with key and gamepad button names,
+a recording's kind and its `--crop`; what's on the screen (a window, a
+picture to match) is looked for when the step runs. A step that fails
+(a wait giving up, leaving its picture as ever) stops the script, saying
+the file and line, and what runs in the background is stopped as kill
+stops it: a recording finishes its file, a hold lets go. `-` reads the
+script from stdin, `--verbose` says each step as it starts and when, and
+`shotbox --session NAME play SCRIPT` plays it in a lasting session. From
+Python, it's `Screen.play`.
 
 ## latency
 

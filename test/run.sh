@@ -587,30 +587,34 @@ got=$(awk '$1 == "mark" { printf "| "; next }
 set +e; "$sb" key ctrl+comma 2>/dev/null; st=$?; set -e
 [ $st != 0 ] && ok "input needs a session" || fail "key ran outside a session"
 
-# play: a script typed into an entry, ${NAME} from the session's --env;
-# every line checked before the first starts, so one that's wrong is said
-# by its number with nothing done; a step that fails says its line, leaves
-# its picture, and stops what runs behind it, at once.
+# play: a script typed into an entry, ${NAME} from the session's --env,
+# its words split as the shell splits them; every line checked before the
+# first starts, so one that's wrong is said by its number with nothing
+# done; a step that fails says its line, leaves its picture, and stops
+# what runs behind it, at once; and one behind that fails stops the script.
 cat > "$tmp/play" <<'EOF'
 wait window entry --timeout 10   # a comment
 
 focus entry
 click 100 60 --window entry
-type ${WORD}
+type ${WORD}#'&'
 key BackSpace
+type '${WORD}'
 EOF
 printf 'key a\ntype ${NOPE}\n' > "$tmp/play-unset"
 printf 'click 1 1 --hold 10 &\n0.2 wait window nope --timeout 0.3 --failed %s\n' \
   "$tmp/play-failed.png" > "$tmp/play-fails"
+printf 'wait window nope --timeout 0.3 &\n10 park\n' > "$tmp/play-behind"
 "$sb" run --env WORD=hello -- sh -c "'$here/window.py' entry '$tmp/entry.log' &
   '$sb' play '$tmp/play' && sleep 0.3 && ! '$sb' play '$tmp/play-unset' 2> '$tmp/play.err' &&
-  s=\$(date +%s%N) && ! '$sb' play '$tmp/play-fails' 2>> '$tmp/play.err' &&
-  echo \$(((\$(date +%s%N) - s) / 1000000)) > '$tmp/play.ms'" \
-  && [ "$(cat "$tmp/entry.log")" = hell ] \
+  for f in fails behind; do s=\$(date +%s%N) && ! '$sb' play '$tmp/play-'\$f 2>> '$tmp/play.err' &&
+    echo \$(((\$(date +%s%N) - s) / 1000000)) >> '$tmp/play.ms' || exit 1; done" \
+  && [ "$(cat "$tmp/entry.log")" = 'hello#${WORD}' ] \
   && grep -qx "shotbox: $tmp/play-unset:2: \${NOPE} isn't set" "$tmp/play.err" \
   && grep -q "^shotbox: $tmp/play-fails:2: gave up waiting .*; the screen then: $tmp/play-failed.png$" "$tmp/play.err" \
-  && [ -s "$tmp/play-failed.png" ] && [ "$(cat "$tmp/play.ms")" -lt 3000 ] \
-  && ok "play: a script typed in, \${NAME} set; checked first; a step failing, by its line, stops what's behind it" \
+  && grep -qx "shotbox: $tmp/play-behind:1: gave up waiting for a window named 'nope' after 0.3s" "$tmp/play.err" \
+  && [ -s "$tmp/play-failed.png" ] && [ "$(sort -n "$tmp/play.ms" | tail -1)" -lt 3000 ] \
+  && ok "play: a script typed in, \${NAME} set; checked first; a step failing, by its line, stops what's behind it, or behind, the script" \
   || fail "play: $(cat "$tmp/entry.log" "$tmp/play.err" "$tmp/play.ms" 2>/dev/null)"
 # Its clock, in a lasting session, the script from stdin: a key at 1 s,
 # the next 0.5 s after it; a wait (for a key pressed behind it at 2.5 s)

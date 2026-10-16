@@ -36,7 +36,6 @@ session in a lasting one. `shotbox COMMAND --help` for each one's options.
 
 import argparse
 import contextlib
-import ctypes
 import io
 import json
 import math
@@ -45,6 +44,7 @@ import re
 import shlex
 import signal
 import statistics
+import subprocess
 import sys
 import tempfile
 import threading
@@ -52,7 +52,7 @@ import time
 import wave
 from pathlib import Path
 
-from . import a11y, kept, mcp, sound, term, usage, x, xtest
+from . import a11y, kept, mcp, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError
 from .session import NEEDS, Session
 
@@ -556,6 +556,10 @@ def cmd_record(argv):
     if not a.sound and (a.strict or {a.gap, a.clipped, a.quiet} != {None}):
         p.error("--strict, --gap, --clipped and --quiet go with --sound")
     judgement(p, a)
+    if Path(a.out).suffix.lower() not in (*x.VIDEO, ".gif", ".wav"):
+        p.error(f"OUT is an .mp4, .webm, .gif or .wav, not {a.out}")
+    if a.crop and not re.fullmatch(r"\d+x\d+\+\d+\+\d+", a.crop):
+        p.error(f"--crop is WIDTHxHEIGHT+X+Y, not {a.crop}")
     start = time.monotonic()
     out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
                           pointer=a.pointer, park=a.park, sound=a.sound, gap=a.gap / 1000)
@@ -643,6 +647,8 @@ def cmd_key(argv):
     p.add_argument("chords", nargs="+", metavar="CHORD")
     held_options(p, "the chords", "them")
     a = p.parse_args(argv)
+    for c in a.chords:
+        xtest.parse_chord(c)
     held_here(inside(), a).key(*a.chords, hold=a.hold, state=a.state)
     return 0
 
@@ -859,6 +865,11 @@ def cmd_pad(argv):
                        help="for this long, then let go (else it stays there)")
     sub.add_parser("neutral", help="let go of everything: buttons up, sticks centered")
     a = p.parse_args(argv)
+    if a.what == "press":
+        try:
+            pad.check_names(a.buttons)
+        except pad.PadError as e:
+            p.error(str(e))
     s = inside()
     if a.what == "press":
         s.pad_press(a.buttons, a.pad, hold=a.hold, state=a.state)
@@ -874,15 +885,17 @@ def cmd_pad(argv):
 def cmd_play(argv):
     p = argparse.ArgumentParser(prog="shotbox play",
                                 description="Inside `shotbox run`: play a script, a step a "
-                                            "line, all on one clock in this one process. "
+                                            "line, all on one clock in this one process "
+                                            "(but for those in the background). "
                                             "A step is an optional time, then a command "
                                             "for inside a session as it's given after "
                                             "`shotbox`. A time is seconds from the start, "
                                             "or +SECS after the step before ended; with "
                                             "none, right after it. A step ending in & "
                                             "runs on behind those after it, and the "
-                                            "script waits for it at its end. ${NAME} is "
-                                            "the session's variable; # starts a comment.")
+                                            "script waits for it at its end. Words are "
+                                            "quoted as in the shell; ${NAME} is the "
+                                            "session's variable; # starts a comment.")
     p.add_argument("script", metavar="SCRIPT", help="the file, or - to read it from stdin")
     p.add_argument("--verbose", action="store_true",
                    help="say each step on stderr as it starts, and when")
@@ -893,10 +906,44 @@ def cmd_play(argv):
     return 0
 
 
-def play(script, screen, verbose=False, source=None):
-    """Play `script`, its text, or with a path, the file, on `screen`. Every
-    step is checked before the first starts; SessionError, naming the line,
-    if one is wrong or fails, once what runs in the background is stopped."""
+# A part of a word: single-quoted, double-quoted, or neither.
+PART = re.compile(r"""'([^']*)'|"((?:[^"\\]|\\.)*)"|((?:\\.|[^\s'"\\])+|\\)""")
+
+
+def words_of(line, env):
+    """A script line's words, each with whether any of it was quoted, split
+    as the shell splits them: quotes, backslashes, `#` starting a comment
+    at the start of a word, and ${NAME} from `env`, but not in single
+    quotes. ValueError for a quote not closed, KeyError for a name not set."""
+    def expand(escaped, text):
+        return re.sub(escaped + r"|\$\{(\w+)\}",
+                      lambda m: str(env[m[2]]) if m[1] is None else m[1], text)
+    words, at = [], 0
+    while True:
+        at = len(line) - len(line[at:].lstrip())
+        if at == len(line) or line[at] == "#":
+            return words
+        word, quoted = "", False
+        while at < len(line) and not line[at].isspace():
+            m = PART.match(line, at)
+            if not m:
+                raise ValueError(f"no closing quote: {line[at:]}")
+            if m[1] is not None:
+                word += m[1]
+            elif m[2] is not None:
+                word += expand(r'\\([\\"$`])', m[2])
+            else:
+                word += expand(r"\\(.)", m[3])
+            quoted, at = quoted or m[3] is None or "\\" in m[3], m.end()
+        words.append((word, quoted))
+
+
+def play(script, screen, verbose=False, source=None, vars=None):
+    """Play `script`, its text, or with a path, the file, on `screen`, with
+    `vars` over the session's variables for ${NAME}. Each step's options are
+    checked before the first starts; SessionError, naming the line (in
+    `source`), if one is wrong or fails, once what runs in the background
+    is stopped."""
     if isinstance(script, os.PathLike):
         source = str(script)
         try:
@@ -905,21 +952,24 @@ def play(script, screen, verbose=False, source=None):
             raise SessionError(f"can't read {source}: {e.strerror}") from None
     # a11y isn't one: it starts before it can be stopped to be checked.
     played = [c for c in INSIDE if c not in ("a11y", "play")]
+    env = {**screen.env, **(vars or {})}
     steps = []
     for n, line in enumerate(script.splitlines(), 1):
         where = f"{source}:{n}" if source else f"line {n}"
         try:
-            words = shlex.split(line, comments=True)
-            at = words.pop(0) if words and re.fullmatch(r"\+?(\d+\.?\d*|\.\d+)", words[0]) else None
-            back = words[-1:] == ["&"]
-            words = [re.sub(r"\$\{(\w+)\}", lambda m: screen.env[m[1]], w)
-                     for w in words[:len(words) - back]]
+            words = words_of(line, env)
         except ValueError as e:
             raise SessionError(f"{where}: {e}") from None
         except KeyError as e:
             raise SessionError(f"{where}: ${{{e.args[0]}}} isn't set") from None
+        at = (words.pop(0)[0] if words and not words[0][1]
+              and re.fullmatch(r"\+?(\d+\.?\d*|\.\d+)", words[0][0]) else None)
+        back = words[-1:] == [("&", False)]
+        words = [w for w, _ in words[:len(words) - back]]
         if words and words[0] not in played:
             raise SessionError(f"{where}: {words[0]} isn't a step: {', '.join(played)}")
+        if {"-h", "--help"} & set(words):
+            raise SessionError(f"{where}: --help isn't a step")
         if back and not words:
             raise SessionError(f"{where}: & with nothing to run")
         if at or words:
@@ -946,77 +996,82 @@ def play(script, screen, verbose=False, source=None):
     finally:
         playing.checking = False
 
-    errors, threads, lock = [], [], threading.Lock()
+    errors, behind, woke = [], [], threading.Event()
+    # This shotbox, wherever it is, run for a step in the background.
+    here = str(Path(__file__).resolve().parent.parent)
+    path = os.pathsep.join(filter(None, (here, screen.env.get("PYTHONPATH"))))
+    again = "import sys; del sys.path[0]; from shotbox.__main__ import main; sys.exit(main())"
 
-    def run(where, words):
-        """The step, on this thread's screen: what went wrong, or None."""
-        failed = playing.screen.failed      # a wait's --failed is its own
-        try:
-            if COMMANDS[words[0]](words[1:]):
-                return f"{where}: {words[0]} failed"
-        except (SessionError, xtest.XError) as e:
-            return said(where, e)
-        except SystemExit as e:
-            return said(where, e.code)
-        finally:
-            playing.screen.failed = failed
-        return None
-
-    def behind(where, words):
-        # A screen of its own: one input connection isn't for two threads.
-        playing.screen = Screen(screen.env, screen.failed)
-        try:
-            try:
-                why = run(where, words)
-            finally:
-                with lock:
-                    threading.current_thread().live = False
-        except KeyboardInterrupt:
-            why = None
-        playing.screen.close()
-        if why:
-            errors.append(why)
+    def watch(where, proc):
+        err = proc.communicate()[1].decode(errors="replace").strip()
+        if proc.returncode and not stopping:
+            errors.append(said(where, err.rpartition("\n")[2] or f"status {proc.returncode}"))
+        woke.set()
 
     def stop():
-        """Stop what runs in the background as Ctrl-C stops a command, and
-        wait while it finishes: a recording, its file; a hold, letting go."""
-        with lock:
-            for t in threads:
-                if t.live:
-                    ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                        ctypes.c_ulong(t.ident), ctypes.py_object(KeyboardInterrupt))
-        for t in threads:
+        """Stop what runs in the background as SIGTERM stops a command (a
+        recording finishes its file, a hold lets go), and wait while it does."""
+        nonlocal stopping
+        stopping = True
+        for proc, _ in behind:
+            if proc.poll() is None:
+                proc.terminate()
+        for _, t in behind:
             t.join()
 
+    def until(due):
+        """Wait till `due`, or a step in the background failing, if sooner."""
+        while not errors and (left := due - time.monotonic()) > 0:
+            woke.wait(left)
+            woke.clear()
+
     start = last = time.monotonic()
+    stopping = False
     try:
         for where, at, words, back in steps:
-            if errors:
-                break
             if at:
                 due = (last if at[0] == "+" else start) + float(at)
                 if at[0] != "+" and time.monotonic() - due > 0.1:
                     sys.stderr.write(f"shotbox: {where}: {time.monotonic() - due:.2f}s late\n")
-                time.sleep(max(due - time.monotonic(), 0))
+                until(due)
+            if errors:
+                break
             if verbose and words:
                 sys.stderr.write(f"{time.monotonic() - start:.3f}s  {shlex.join(words)}"
                                  f"{' &' * back}\n")
             if back:
-                threads.append(threading.Thread(target=behind, args=(where, words)))
-                threads[-1].live = True
-                threads[-1].start()
-            elif words and (why := run(where, words)):
-                errors.append(why)
+                # Its own process, in its own session: Ctrl-C at a terminal
+                # is for this one, which stops it; and gone if this goes.
+                proc = subprocess.Popen([sys.executable, "-c", again, *words],
+                                        env={**screen.env, "PYTHONPATH": path, **(
+                                            {"SHOTBOX_FAILED": str(screen.failed)}
+                                            if screen.failed else {})},
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.PIPE, start_new_session=True,
+                                        preexec_fn=x.tied(signal.SIGTERM))
+                behind.append((proc, threading.Thread(target=watch, args=(where, proc))))
+                behind[-1][1].start()
+            elif words:
+                failed = screen.failed      # a wait's --failed is its own
+                try:
+                    if COMMANDS[words[0]](words[1:]):
+                        errors.append(f"{where}: {words[0]} failed")
+                except (SessionError, xtest.XError) as e:
+                    errors.append(said(where, e))
+                except SystemExit as e:
+                    errors.append(said(where, e.code))
+                finally:
+                    screen.failed = failed
             last = time.monotonic()
-        if errors:
-            stop()
-        for t in threads:
-            t.join()
+        while not errors and any(proc.returncode is None for proc, _ in behind):
+            woke.wait()
+            woke.clear()
     except KeyboardInterrupt:
         stop()
         raise
     finally:
         playing.screen = None
+    stop()
     if errors:
         raise SessionError("; ".join(errors))
 

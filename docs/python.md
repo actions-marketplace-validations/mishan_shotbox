@@ -35,8 +35,13 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   ..., sound=False)` takes a video, or a `.wav` of the sound, and returns
   a Recording: its `path` and, with `sound`, `heard` (as
   `shotbox.sound.hear` says) and `problems()`.
-- Scripts: `play(script, verbose=False)` plays one as `shotbox play`
-  does: a string is its text, a `Path` its file. An error names the line.
+- Scripts: `play(script, vars=None, name=None, verbose=False)` plays one
+  as `shotbox play` does: a string is its text, a `Path` its file. `vars`
+  (a dict) is over the session's variables for `${NAME}`, so values
+  needn't be put in the text and quoted; `name` is what an error calls it
+  (`$EXPLORE:2: ...`). Text starting with a newline, as a triple-quoted
+  string does, is numbered from the line after. What its steps print (a
+  `wait line`'s line, a recording's path) goes to stdout.
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
   screen there first, and says where.
