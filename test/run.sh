@@ -12,14 +12,15 @@ ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
 
 # One version: the Python package's, the Node package's and its lockfile's,
-# and the changelog's newest release.
+# the MCP registry's entry, and the changelog's newest release.
 root=$here/..
 py=$(python3 -c "import sys; sys.path.insert(0, '$root'); import shotbox; print(shotbox.__version__)")
 js=$(node -p "require('$root/package.json').version")
 lock=$(node -p "require('$root/package-lock.json').version")
 log=$(grep -m1 -o '^## [0-9][0-9.]*' "$root/CHANGELOG.md" | cut -c4-)
-[ "$py" = "$js" ] && [ "$js" = "$lock" ] && [ "$lock" = "$log" ] \
-  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log"
+mcp=$(python3 -c "import json; s = json.load(open('$root/server.json')); print(*{s['version'], *(p['version'] for p in s['packages'])})")
+[ "$py" = "$js" ] && [ "$js" = "$lock" ] && [ "$lock" = "$log" ] && [ "$log" = "$mcp" ] \
+  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp"
 
 # The session: none of ours gets in, and it cleans up after itself.
 out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 SSH_AUTH_SOCK=/nope SECRET=x \
