@@ -8,6 +8,9 @@ in them, and the tools to look at them, drive them and check them.
 
 It speaks the Model Context Protocol on stdin and stdout, so a client
 starts it and talks to it for as long as it's connected.
+As it connects, it gives the agent a short note on how the tools go
+together (the protocol's `instructions`): start a session, spawn, read the
+tree before clicking, wait rather than sleep, stop it after.
 
 ## What it's for
 

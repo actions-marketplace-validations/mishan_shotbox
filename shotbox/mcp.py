@@ -53,6 +53,21 @@ from .xtest import XError
 # Newest first: a client asking for one of these gets it; any other, the newest.
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
+# Given to the agent as it connects: how the tools go together, which
+# each tool's own description can't say.
+INSTRUCTIONS = """\
+shotbox runs graphical programs in sealed sessions of their own, X11 or Wayland, \
+where you can look at them, drive them and check them; nothing in one reaches the \
+person's desktop or speakers, and with net: loopback, not the network either.
+
+Start with start_session, then spawn a program from the person's allow list (the \
+error lists them) and wait_for its window. Read accessible_tree before clicking: \
+it says, in a few hundred tokens, what's on screen and what each thing is called, \
+and click takes a name. Take a screenshot only for what pixels say (colors, \
+layout); record for motion and sound. After acting, wait_for stable rather than \
+sleeping. lint, contrast, tab_walk, announcements and sound check what a person \
+would meet. stop_session when done; every session stops with the server."""
+
 
 class Refused(Exception):
     """A call that can't be done as asked, said as a sentence the agent can
@@ -890,7 +905,8 @@ def handle(server, msg):
         asked = params.get("protocolVersion")
         result = {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
                   "capabilities": {"tools": {}},
-                  "serverInfo": {"name": "shotbox", "version": __version__}}
+                  "serverInfo": {"name": "shotbox", "version": __version__},
+                  "instructions": INSTRUCTIONS}
     elif method == "ping":
         result = {}
     elif method == "tools/list":
