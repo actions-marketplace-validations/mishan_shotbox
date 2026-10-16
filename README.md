@@ -6,6 +6,8 @@
 [![npm](https://img.shields.io/npm/v/shotbox)](https://www.npmjs.com/package/shotbox)
 [![CI](https://github.com/mishan/shotbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mishan/shotbox/actions/workflows/ci.yml)
 
+<img align="right" width="112" alt="" src="https://raw.githubusercontent.com/mishan/shotbox/main/docs/logo.png">
+
 Eyes, ears and hands on a real graphical program, for an AI agent, a
 script or CI.
 
