@@ -341,15 +341,19 @@ def keep_recording(cmd, out, grab, heard, size="0"):
     makes it quit unfinished): when a line comes on stdin or stdin closes,
     as when what started this goes however it goes, or when the display
     goes (the sound server, for a .wav; sway, on Wayland), or when what
-    it writes reaches `size` bytes (0 for no end). Then make the GIF, for a
-    .gif. Status 0, or 1 and why on stderr."""
+    it writes reaches `size` bytes (0 for no end); killed if it's still
+    opening what it records 10 seconds in. Then make the GIF, for a .gif.
+    Status 0, or 1 and why on stderr."""
     cmd, out, grab, heard = json.loads(cmd), Path(out), json.loads(grab), json.loads(heard)
     gif = out.suffix.lower() == ".gif"
     # Files with no names, which ffmpeg writes by their fds: nothing is left
     # behind however this goes, even killed outright.
     clip = tempfile.TemporaryFile() if gif else None
     sound_file = tempfile.TemporaryFile() if heard else None
-    fds = [f.fileno() for f in (clip, sound_file) if f]
+    # Where ffmpeg reports its progress, which it does from when what it
+    # records is open, whatever it holds back of the file.
+    progress = tempfile.TemporaryFile()
+    fds = [f.fileno() for f in (clip, sound_file, progress) if f]
     video = Path(f"/dev/fd/{clip.fileno()}") if gif else out
     wav = Path(f"/dev/fd/{sound_file.fileno()}") if heard else None
     feed = None
@@ -364,7 +368,8 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             feed = subprocess.Popen(grab, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=grab_err, preexec_fn=tied(signal.SIGKILL))
         # SIGTERM, so ffmpeg finishes the file.
-        proc = subprocess.Popen(cmd + (["-f", "mp4"] if gif else []) + [str(video)]
+        proc = subprocess.Popen(cmd[:1] + ["-progress", f"/dev/fd/{progress.fileno()}"]
+                                + cmd[1:] + (["-f", "mp4"] if gif else []) + [str(video)]
                                 + (heard["options"] + [str(wav)] if heard else []),
                                 stderr=subprocess.PIPE, pass_fds=fds,
                                 stdin=feed.stdout if feed else subprocess.DEVNULL,
@@ -374,12 +379,20 @@ def keep_recording(cmd, out, grab, heard, size="0"):
         sound = out.suffix.lower() == ".wav"
         pulse = os.environ["PULSE_SERVER"].removeprefix("unix:") if sound or heard else None
         sock = feed and str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
+        # With no progress reported by then, ffmpeg's stuck opening what it
+        # records (a sound server whose graph doesn't run, say), and deaf to
+        # SIGTERM there.
+        deadline = time.monotonic() + 10
+
+        def begun():
+            return os.fstat(progress.fileno()).st_size > 0
         while proc.poll() is None:
             up = source_up(os.environ, sound, heard)
             # Stopped, not cut off as ffmpeg's -fs would: the sound heard
             # ends with the picture.
             full = int(size) and video.exists() and video.stat().st_size >= int(size)
-            if select.select([sys.stdin], [], [], 0.5)[0] or not up or full:
+            late = time.monotonic() > deadline and not begun()
+            if select.select([sys.stdin], [], [], 0.5)[0] or not up or full or late:
                 proc.send_signal(signal.SIGTERM)
                 break
         # Whether the sound server had gone when it ended, not later.
@@ -397,7 +410,15 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             # waits for good on a frame: an end to the pipe ends both.
             feed.kill()
             feed.wait()
-        _, err = proc.communicate()
+        try:
+            _, err = proc.communicate(
+                timeout=None if begun() else max(deadline - time.monotonic(), 2))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            sys.stderr.write("ffmpeg couldn't record: it was still opening what it records "
+                             "after 10 seconds\n")
+            return 1
         if proc.returncode not in (0, 255) or not video.exists():
             tool, said = "ffmpeg", err.decode(errors="replace").strip()
             if feed and feed.returncode > 0:        # what ffmpeg says is only that it had nothing

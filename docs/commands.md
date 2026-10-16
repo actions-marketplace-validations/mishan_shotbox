@@ -82,7 +82,9 @@ an animation, a transition, something moving. `shotbox record OUT.mp4
 stopped: Ctrl-C, `kill` when it runs in the background with `&`, its
 session's display stopping. However it stops, even killed outright, the
 file is finished, by a process of its own, which can still be making a
-GIF after `shotbox run` returns. `--until-line RE FILE` stops it at an
+GIF after `shotbox run` returns. An ffmpeg still opening what it records
+10 seconds in is stuck there, and is killed, `record` failing saying so.
+`--until-line RE FILE` stops it at an
 event instead: once a line matching RE is written to FILE, as `wait line`
 waits for one (from the end the file has when it starts, followed if it
 isn't there yet or is replaced), and `--tail SECS` after it, so the clip
@@ -501,6 +503,9 @@ session with `--clock` fails without it. It covers what's dynamically
 linked and asks the C library: GTK, Qt, Emacs, irssi, Python, git. Static
 binaries and Go programs read the clock themselves, and setuid ones (with
 `--no-sandbox`) drop the preload: they see the real time. Monotonic clocks
-aren't moved, and file times are what's on disk: the dates of files a test
+aren't moved, though libfaketime moves a timer set to a time on one by
+the offset: with TIME behind the real time it goes off that much late,
+ahead of it at once. `--audio`'s sound server, which sets them, runs on
+the real clock. File times are what's on disk: the dates of files a test
 makes are its own to set (`touch -d`). From Python, `Session(clock=...,
 tz=...)`; over MCP, `start_session`'s `clock` and `tz`.

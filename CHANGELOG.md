@@ -34,6 +34,13 @@
 - `record --sound --seconds N` whose session's sound server stops first,
   as a lasting session's does when it's stopped: the picture ends with
   the sound, rather than running on for up to a second past it.
+- `--audio` with `--clock`: the sound server runs on the real clock, so
+  sound plays and records. libfaketime moved the timer it plays by (late
+  by the offset, or at once, as TIME was behind or ahead of now), and
+  nothing in the session could read it.
+- `record` whose ffmpeg is still opening what it records 10 seconds in
+  kills it and fails saying so, rather than waiting on it for good,
+  Ctrl-C and all.
 
 ## 0.6.0 — 2026-10-15
 

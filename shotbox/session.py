@@ -982,7 +982,14 @@ class Session(Screen):
         conf = self.scratch / "pipewire.conf"
         conf.write_text(PIPEWIRE_CONFIG)
         log = self.scratch / "pipewire.log"
-        proc = subprocess.Popen(["pipewire", "-c", str(conf)], env=self.env,
+        # Not on the session's clock: libfaketime moves a timer set to a
+        # time on the monotonic clock by the offset too, and PipeWire's
+        # driver sets one each cycle, so its graph would never run.
+        env = dict(self.env)
+        if self._faketime:
+            env["LD_PRELOAD"] = ":".join(p for p in env["LD_PRELOAD"].split(":")
+                                         if p != self._faketime)
+        proc = subprocess.Popen(["pipewire", "-c", str(conf)], env=env,
                                 stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
                                 start_new_session=True)
         self._procs.append(proc)
