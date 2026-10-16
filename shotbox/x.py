@@ -179,6 +179,11 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
         pass
     except KeyboardInterrupt:
         stopped = True
+    except RuntimeError as e:      # the file couldn't be followed
+        stop(proc)
+        if not proc.returncode:
+            e.args = (f"{e}; what was recorded is kept, at {out}",)
+        raise
     finally:
         if proc.poll() is None:
             stop(proc)
@@ -367,16 +372,9 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             feed.stdout.close()
         sound = out.suffix.lower() == ".wav"
         pulse = os.environ["PULSE_SERVER"].removeprefix("unix:") if sound or heard else None
-        if sound:
-            sock = pulse
-        elif feed:
-            sock = str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
-        else:
-            sock = None
+        sock = feed and str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
         while proc.poll() is None:
-            up = socket_up(sock) if sock else display_up(os.environ["DISPLAY"])
-            # With sound, the sound server going ends the picture too.
-            up = up and (not heard or socket_up(pulse))
+            up = source_up(os.environ, sound, heard)
             # Stopped, not cut off as ffmpeg's -fs would: the sound heard
             # ends with the picture.
             full = int(size) and video.exists() and video.stat().st_size >= int(size)
@@ -443,6 +441,18 @@ def keep_recording(cmd, out, grab, heard, size="0"):
         if feed:
             feed.kill()
             feed.wait()
+
+
+def source_up(env, wav=False, sound=False):
+    """Whether what a recording records is still there: the display (on
+    Wayland, sway), or for a .wav the sound server; with `sound`, the
+    sound server too, whose going ends the picture as well."""
+    pulse = env.get("PULSE_SERVER", "").removeprefix("unix:")
+    if wav:
+        return socket_up(pulse)
+    up = (socket_up(str(Path(env["XDG_RUNTIME_DIR"], env["WAYLAND_DISPLAY"])))
+          if env.get("SWAYSOCK") else display_up(env["DISPLAY"]))
+    return up and (not sound or socket_up(pulse))
 
 
 def display_up(display):

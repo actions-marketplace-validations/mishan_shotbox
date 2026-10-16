@@ -154,7 +154,10 @@ class Screen:
     def _follow(self, pattern, path, from_start=False, within=None):
         """wait_line's test, from now: the line in a list once one comes,
         else None."""
-        found, chunk = re.compile(pattern), 1 << 20
+        try:
+            found, chunk = re.compile(pattern), 1 << 20
+        except re.error as e:
+            raise SessionError(f"{pattern!r} isn't a regex: {e}") from None
         # `seen`: the bytes just before `pos`, to tell the file written again.
         ino, pos, seen, rest, old = None, 0, b"", b"", False
         if not from_start:

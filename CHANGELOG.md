@@ -13,6 +13,11 @@
   takes `until_line`, `file` and `tail`, its file in the `--allow` file's
   directory, as `wait_for`'s line is.
 
+### Fixed
+
+- `wait line` with a pattern that isn't a regex says so, rather than
+  with a traceback.
+
 ## 0.6.0 — 2026-10-15
 
 Sound, and video with it, on X11 and Wayland; flicker, latency and what a

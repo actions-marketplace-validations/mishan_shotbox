@@ -343,6 +343,8 @@ class Server:
         until = None if until_line is None else (str(until_line),
                                                  self.log(file, "record until_line"))
         tail = within(tail, "tail", 0, RECORD_SECONDS) or 0
+        if tail and not until:
+            raise Refused("tail goes with until_line: how long to record after its line")
         if flag(sound) and not s.audio:
             raise Refused(f"{str(session)!r} has no sound: start a session with audio")
         out = self.clip(path) if path is not None else next(

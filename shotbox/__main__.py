@@ -572,7 +572,9 @@ def cmd_record(argv):
     if a.crop and not re.fullmatch(r"\d+x\d+\+\d+\+\d+", a.crop):
         p.error(f"--crop is WIDTHxHEIGHT+X+Y, not {a.crop}")
     start = time.monotonic()
-    out = inside(display=Path(a.out).suffix.lower() != ".wav").record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
+    wav = Path(a.out).suffix.lower() == ".wav"
+    screen = inside(display=not wav)
+    out = screen.record(a.out, seconds=a.seconds, window=a.window, crop=a.crop, fps=a.fps,
                           pointer=a.pointer, park=a.park, sound=a.sound, gap=a.gap / 1000,
                           until=a.until_line, tail=a.tail)
     bad = out.problems(quiet=a.quiet, clipped=a.clipped)
@@ -582,7 +584,8 @@ def cmd_record(argv):
         print(f"{out.path}  {time.monotonic() - start:.1f}s" + (
             "" if not a.until_line or out.line is not None else
             "  stopped before the line" if out.stopped else
-            "  no line in its --seconds" if a.seconds else "  no line: its session went"),
+            "  no line in its --seconds" if a.seconds and x.source_up(screen.env, wav, a.sound)
+            else "  no line: its session went"),
             flush=True)
         if out.heard:
             print("\n".join(sound.describe(out.heard) + bad), flush=True)

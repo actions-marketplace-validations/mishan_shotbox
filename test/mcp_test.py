@@ -226,7 +226,8 @@ try:
           and said.endswith("It ended on the line: run_end 3")
           and not capped_bad and "No line matching 'nope' came in its 0.5 seconds" in capped
           and "outside" in refused[0][0] and "by its path from there" in refused[1][0]
-          and "needs a file" in refused[2][0] and all(bad for _, bad in refused),
+          and "needs a file" in refused[2][0] and all(bad for _, bad in refused)
+          and "tail goes with until_line" in tool("record", session="h", seconds=1, tail=1)[0],
           f"record: until_line, ended by a new line, and tail; else by seconds; its file in "
           f"the allow file's directory only ({said})")
     steps = [("click", dict(x=50, y=50, window="held")),
