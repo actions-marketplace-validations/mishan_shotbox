@@ -191,8 +191,8 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
                 break
             if until and not line and (line := until()):
                 end = time.monotonic() + tail
-            # Not time.sleep: under libfaketime 0.9.10 (a --clock session's
-            # programs, this one too) Python 3.11+'s fails with EINVAL.
+            # Not time.sleep: under libfaketime 0.9.10, as the Python API is
+            # in a --clock session's program, Python 3.11's fails (EINVAL).
             select.select([], [], [], 0.1)
     except KeyboardInterrupt:
         stopped = True

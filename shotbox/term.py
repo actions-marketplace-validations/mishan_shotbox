@@ -38,7 +38,7 @@ import shlex
 import sys
 from pathlib import Path
 
-from .session import NEEDS
+from .session import NEEDS, on_the_clock
 
 SIZE = re.compile(r"(\d+)x(\d+)")
 
@@ -186,7 +186,8 @@ def main(argv):
     if args.log:
         cmd = ["script", "-q", "-f", "-e", "-O", os.path.abspath(args.log),
                "-c", shlex.join(cmd)]
-    term.spawn_async(Vte.PtyFlags.DEFAULT, None, cmd, None,
+    env = [f"{k}={v}" for k, v in on_the_clock(os.environ).items()]
+    term.spawn_async(Vte.PtyFlags.DEFAULT, None, cmd, env,
                      GLib.SpawnFlags.SEARCH_PATH, None, None, -1, None, None)
 
     def text():

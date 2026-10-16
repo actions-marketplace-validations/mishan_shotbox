@@ -294,6 +294,12 @@ from shotbox.session import faketime; faketime()" 2>/dev/null; then
     timeout 60 "$sb" run --audio --clock 2026-09-26T18:40:00 -- "$sb" record "$tmp/clocked.wav" --seconds 1 >/dev/null \
       && ok "--audio --clock: sound recorded" || fail "--audio --clock: no sound recorded"
   fi
+  # shotbox's own waits and holds run off the session's clock, which
+  # libfaketime 0.9.10 breaks Python 3.11's sleep on; its programs keep it.
+  out=$(timeout 60 "$sb" run --clock 2026-09-26T18:40:00 -- sh -c "'$sb' wait stable --timeout 10 &&
+    '$sb' key --hold 0.1 a && date +%F" 2>&1) \
+    && [ "$out" = 2026-09-26 ] && ok "--clock: shotbox's own wait and key --hold inside, its program on the clock" \
+    || fail "--clock, shotbox inside: $out"
 else
   set +e; "$sb" exec --clock 2026-09-26T18:40:00 -- true 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && [ "$(cat "$tmp/err")" = "shotbox: the session's clock needs libfaketime, and there's no libfaketime.so.1 here" ] \

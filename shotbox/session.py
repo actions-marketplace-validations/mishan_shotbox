@@ -456,6 +456,36 @@ def faketime():
             return lib
 
 
+def unclocked(env):
+    """Take the session's libfaketime out of `env`'s LD_PRELOAD (the loader
+    splits it at colons and spaces), keeping it in SHOTBOX_FAKETIME for
+    on_the_clock(); whether there was one."""
+    preload = re.split(r"[:\s]+", env.get("LD_PRELOAD", ""))
+    fake = [p for p in preload if os.path.basename(p).startswith("libfaketime")]
+    if fake:
+        env["LD_PRELOAD"] = ":".join(p for p in preload if p and p not in fake)
+        env["SHOTBOX_FAKETIME"] = ":".join(fake)
+    return bool(fake)
+
+
+def off_the_clock():
+    """Run this shotbox again without the session's libfaketime, if it's
+    preloaded: a --clock session's clock is for its programs, and under
+    libfaketime 0.9.10 the time.sleep of Python 3.11 and later fails, and
+    every wait with it. Before 3.11, sleep isn't hurt."""
+    if sys.version_info >= (3, 11) and unclocked(os.environ):
+        os.execv(sys.executable, [sys.executable, *sys.orig_argv[1:]])
+
+
+def on_the_clock(env):
+    """`env`, for a program started for the session, with the libfaketime
+    off_the_clock() took off this process put back."""
+    if not env.get("SHOTBOX_FAKETIME"):
+        return env
+    return dict(env, LD_PRELOAD=":".join(filter(None, (env["SHOTBOX_FAKETIME"],
+                                                       env.get("LD_PRELOAD")))))
+
+
 def free_display(skip=()):
     """The lowest display number with neither a lock nor a socket."""
     for n in range(99, 1000):

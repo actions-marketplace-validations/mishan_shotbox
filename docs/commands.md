@@ -510,6 +510,13 @@ binaries and Go programs read the clock themselves, and setuid ones (with
 aren't moved, though libfaketime moves a timer set to a time on one by
 the offset: with TIME behind the real time it goes off that much late,
 ahead of it at once. `--audio`'s sound server, which sets them, runs on
-the real clock. File times are what's on disk: the dates of files a test
-makes are its own to set (`touch -d`). From Python, `Session(clock=...,
-tz=...)`; over MCP, `start_session`'s `clock` and `tz`.
+the real clock, and so do shotbox's own commands run inside the session
+(`wait`, `key`, `record`...): each runs itself again without the
+preload, which under libfaketime 0.9.10 (Ubuntu 24.04's) breaks the
+`time.sleep` of Python 3.11 and later, and every wait with it. What they
+start for the session, `term`'s program, gets the preload back. A Python
+program in the session using shotbox's API can't shed it: there, on
+that libfaketime, its waits fail as its own `time.sleep` does. File
+times are what's on disk: the dates of files a test makes are its own to
+set (`touch -d`). From Python, `Session(clock=..., tz=...)`; over MCP,
+`start_session`'s `clock` and `tz`.
