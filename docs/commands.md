@@ -130,13 +130,16 @@ WAV, it's refused. A wait that gives up takes a
 picture of the screen with `--failed FILE`, or wherever `$SHOTBOX_FAILED`
 says (`--env SHOTBOX_FAILED=...`).
 
-## key, type, click, move, drag, park and focus
+## key, type, click, move, scroll, drag, park and focus
 
 Inside, `shotbox key CHORD...` presses keys (`ctrl+comma`, `Return`,
 `alt+shift+Tab`), `shotbox type TEXT` types ASCII text, and `shotbox click
-X Y`, `shotbox move X Y` and `shotbox drag X1 Y1 X2 Y2` work the pointer,
-at a point on the screen or, with `--window RE`, inside a window (`click
---button 3`, `--double`). `shotbox park` moves the pointer to the screen's
+X Y`, `shotbox move X Y`, `shotbox scroll X Y DY [DX]` and `shotbox drag
+X1 Y1 X2 Y2` work the pointer, at a point on the screen or, with `--window
+RE`, inside a window (`click --button 3`, `--double`). `scroll` turns the
+mouse wheel there, DY clicks down and DX right, negative for up and left;
+`shotbox a11y scroll NAME DY [DX]` does it over a node found by its name.
+`shotbox park` moves the pointer to the screen's
 bottom-right corner, off whatever it was hovering, and waits (up to
 `--settle`, 2s) for the repaint; a screen that keeps changing is taken as it
 is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
@@ -179,7 +182,7 @@ wait line "beacon_claimed" logs/events.csv
 ```
 
 A step is an optional time, then a command for inside a session as it's
-given after `shotbox`: `key`, `type`, `click`, `move`, `drag`, `park`,
+given after `shotbox`: `key`, `type`, `click`, `move`, `scroll`, `drag`, `park`,
 `focus`, `pad`, `wait` of every kind, `capture`, `record`, `latency` or
 `flicker` (not `a11y`). A time is seconds from the script's start, or
 `+SECS` after the step before ended, so a wait that runs long holds back

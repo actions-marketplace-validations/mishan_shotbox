@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
-[corner], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
+[corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
 edge, gray, busy, icon, dropout or beep. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
-left corner, and writes "clicked" there when it's clicked. With contrast,
+left corner, and writes "clicked" there when it's clicked; with list, rows
+longer and more of them than fit, and writes where they're scrolled to,
+down and across, there. With contrast,
 a switch and a text view in a frame with an edge, which `a11y contrast
 --edges 3` should pass; light text whose color is dark enough, which it
 may measure short; and a label drawn see-through, which it shouldn't. With slow, a square that
@@ -529,6 +531,17 @@ elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)
     button.connect("clicked", lambda b: open(sys.argv[2], "w").write("clicked"))
     w.add(button)
+elif sys.argv[3:] == ["list"]:
+    rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    for i in range(100):
+        rows.add(Gtk.Label(label=f"Row {i} " + "and on " * 30, xalign=0))
+    pane = Gtk.ScrolledWindow()
+    pane.add(rows)
+    down, across = pane.get_vadjustment(), pane.get_hadjustment()
+    for adjustment in (down, across):
+        adjustment.connect("value-changed", lambda a: open(sys.argv[2], "w").write(
+            f"{down.get_value():.0f} {across.get_value():.0f}\n"))
+    w.add(pane)
 elif len(sys.argv) > 2:
     entry = Gtk.Entry()
     entry.connect("changed", lambda e: open(sys.argv[2], "w").write(e.get_text()))

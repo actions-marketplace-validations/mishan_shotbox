@@ -461,6 +461,23 @@ class Server:
         done = {"down": "Pressed and left down", "up": "Let go"}.get(state, "Clicked")
         return f"{done} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
+    def scroll(self, session, dy=None, dx=None, name=None, role=None, x=None, y=None,
+               window=None):
+        s = self.session(session)
+        dy, dx = (within(v, k, -100, 100, whole=True) or 0 for v, k in ((dy, "dy"), (dx, "dx")))
+        if not dy and not dx:
+            raise Refused("scroll takes dy, dx or both: clicks of the wheel down and right")
+        turned = f"Scrolled {dy} down and {dx} right"
+        if name is not None:
+            n = self.a11y_session(session).scroll_node(str(name), dy, dx, role=text(role),
+                                                       window=text(window))
+            return f"{turned} over {n.line()}, at the middle of {n.bounds}."
+        if x is None or y is None:
+            raise Refused("scroll takes a node's name, or x and y")
+        px, py = int(number(x, "x")), int(number(y, "y"))
+        s.scroll(px, py, dy, dx, window=text(window))
+        return f"{turned} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
+
     def press_keys(self, session, keys, hold=None, state=None):
         chords = words(keys)
         if not chords:
@@ -768,6 +785,15 @@ TOOLS = [
              "button": {"type": "integer", "description": "1 left, 2 middle, 3 right"},
              "double": {"type": "boolean"},
              "hold": HOLD, "state": STATE}, ["session"])),
+    ("scroll",
+     "Turn the mouse wheel over a node by its name, found as click finds it, or at a point "
+     "by x and y: dy clicks down (negative, up), dx right (negative, left), up to 100 "
+     "each. For what's past a list's, a page's or a window's edge; then wait_for stable "
+     "and look again.",
+     schema({"session": SESSION, "dy": {"type": "integer"}, "dx": {"type": "integer"},
+             "name": {"type": "string"}, "role": {"type": "string"},
+             "x": {"type": "integer"}, "y": {"type": "integer"}, "window": WINDOW},
+            ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. "
      "They go to whatever has the keyboard; click a window first if nothing does. hold "

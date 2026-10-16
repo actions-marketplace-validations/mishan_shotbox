@@ -733,6 +733,12 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     > "$tmp/contrast" 2>&1 \
     && ok "a11y: contrast leaves out what's scrolled out of view" \
     || { fail "a11y: contrast, scrolled"; cat "$tmp/contrast"; }
+  # Scrolled over a row, by its name, a row past the window's end comes into it.
+  "$sb" run --a11y -- sh -c "'$app' long & '$sb' wait window a11y-test >/dev/null &&
+    ! '$sb' a11y click 'Row 25' --window a11y-test 2>/dev/null &&
+    '$sb' a11y scroll 'Row 0' 10 --window a11y-test >/dev/null &&
+    '$sb' wait stable --window a11y-test && '$sb' a11y click 'Row 25' --window a11y-test >/dev/null" \
+    && ok "a11y: scroll by a node's name brings a row past the end into view" || fail "a11y: scroll"
   # GTK 3 places a window's first child where it is, even at the corner.
   rm -f "$tmp/corner"
   "$sb" run --a11y -- sh -c "'$here/window.py' corner '$tmp/corner' corner &
@@ -874,6 +880,19 @@ focus() {
   [ "$(cat "$tmp/f1" 2>/dev/null)" = one ] && [ "$(cat "$tmp/f2" 2>/dev/null)" = two ]
 }
 focus && ok "focus gives a window the keyboard" || fail "focus: f1=$(cat "$tmp/f1" 2>/dev/null) f2=$(cat "$tmp/f2" 2>/dev/null)"
+# The wheel: down and right, then (a step in play) back up and left to
+# the start. What a list is scrolled to, down and across, is in LOG.
+scrolled() {
+  rm -f "$tmp/list" "$tmp/list-there"
+  "$sb" run "$@" -- sh -c "'$win' list '$tmp/list' list & '$sb' wait window list >/dev/null &&
+    '$sb' wait stable --window list && '$sb' scroll 50 50 5 3 --window list &&
+    '$sb' wait stable --window list && cp '$tmp/list' '$tmp/list-there' &&
+    echo 'scroll 50 50 -5 -3 --window list' | '$sb' play - && '$sb' wait stable --window list"
+  read -r down across < "$tmp/list-there" && [ "$down" -gt 0 ] && [ "$across" -gt 0 ] \
+    && [ "$(cat "$tmp/list")" = "0 0" ]
+}
+scrolled && ok "scroll: down and right, then back" \
+  || fail "scroll: $(cat "$tmp/list-there" "$tmp/list" 2>/dev/null)"
 xwayland() { command -v Xwayland >/dev/null; }
 xwayland_skip() {
   [ "${SHOTBOX_WAYLAND-}" = required ] && fail "$1 skipped: no Xwayland" || echo "skip  $1: no Xwayland"
@@ -890,6 +909,8 @@ ours_xwayland() {
 }
 if command -v sway >/dev/null && command -v grim >/dev/null; then
   focus --wayland && ok "wayland: focus gives a window the keyboard" || fail "wayland: focus"
+  scrolled --wayland && ok "wayland: scroll: down and right, then back" \
+    || fail "wayland: scroll: $(cat "$tmp/list-there" "$tmp/list" 2>/dev/null)"
   export TMPDIR=$wl
   out=$(WAYLAND_DISPLAY=outside DISPLAY=:0 "$sb" run --wayland -- \
     sh -c 'echo "W=$WAYLAND_DISPLAY D=${DISPLAY-} S=$SWAYSOCK R=$XDG_RUNTIME_DIR"')

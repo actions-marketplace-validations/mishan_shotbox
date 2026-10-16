@@ -5,6 +5,7 @@ reader sees it, for a session started with --a11y.
     shotbox a11y lint [--window RE]     controls and images with no name
     shotbox a11y tabwalk [--key Tab]    where the keyboard focus goes
     shotbox a11y click NAME             click a node, by its name
+    shotbox a11y scroll NAME DY [DX]    turn the wheel over a node, by its name
     shotbox a11y contrast               text and controls against their backgrounds
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
@@ -596,10 +597,22 @@ def ratio_text(r):
 
 
 def click(name, role=None, window=None, button=1, double=False, timeout=10):
-    """Click the middle of the node whose name matches `name` (a regex,
-    matched in full), and role `role` (a regex too) if given, waiting up to
-    `timeout` for it to show, its window raised. A match inside
-    another (a button's label) is the outer one. The node clicked."""
+    """Click the node `at_node` finds; that node."""
+    return at_node(name, role, window, timeout,
+                   lambda s, x, y: s.click(x, y, button=button, double=double))
+
+
+def scroll(name, dy, dx=0, role=None, window=None, timeout=10):
+    """Turn the wheel over the node `at_node` finds; that node."""
+    return at_node(name, role, window, timeout, lambda s, x, y: s.scroll(x, y, dy, dx))
+
+
+def at_node(name, role, window, timeout, act):
+    """Do `act` (a Screen, x, y) at the middle of the node whose name
+    matches `name` (a regex, matched in full), and role `role` (a regex
+    too) if given, waiting up to `timeout` for it to show, its window
+    raised. A match inside another (a button's label) is the outer one.
+    The node."""
     Atspi = atspi()
 
     def matches():
@@ -624,7 +637,7 @@ def click(name, role=None, window=None, button=1, double=False, timeout=10):
         raise SessionError(f"{n.line()} is outside its window")
     try:
         screen.backend.focus(screen.env, origins[n._top][2])
-        screen.click(x + w // 2, y + h // 2, button=button, double=double)
+        act(screen, x + w // 2, y + h // 2)
     finally:
         screen.close()
     n["bounds"] = box
@@ -900,7 +913,7 @@ def main(argv):
                                 description="Inside `shotbox run --a11y`: read the "
                                             "accessible tree, as a screen reader does.")
     sub = p.add_subparsers(dest="what", required=True,
-                           metavar="{tree,lint,tabwalk,click,contrast}")
+                           metavar="{tree,lint,tabwalk,click,scroll,contrast}")
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
     ignore = dict(action="append", default=[], metavar="RE",
@@ -918,6 +931,11 @@ def main(argv):
     c.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
     c.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
     c.add_argument("--double", action="store_true", help="click twice")
+    sc = sub.add_parser("scroll", help="turn the mouse wheel over a node, found by its name")
+    sc.add_argument("name", metavar="NAME", help="its name, a regex matched in full")
+    sc.add_argument("dy", type=int, help="clicks down; up if negative")
+    sc.add_argument("dx", type=int, nargs="?", default=0, help="clicks right; left if negative")
+    sc.add_argument("--role", metavar="RE", help="and its role, a regex matched in full")
     ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
                     help="text, buttons, links and tabs against their background, at least (4.5)")
@@ -927,7 +945,7 @@ def main(argv):
                     help="also a button's or field's edge against what's round it, "
                          "at least this (3 is WCAG's)")
     ct.add_argument("--ignore", **ignore)
-    for s in (t, lt, w, c, ct):
+    for s in (t, lt, w, c, sc, ct):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
@@ -935,7 +953,7 @@ def main(argv):
                             "one picked), waiting for it")
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
                        help="how long to wait for the --window (10), or the node")
-    for s in (t, lt, w, c, ct):
+    for s in (t, lt, w, c, sc, ct):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     rec = sub.add_parser("record")
     rec.add_argument("out")
@@ -966,8 +984,9 @@ def main(argv):
         for n, what in problems:
             print(f"{n.path}: {what}")
         return 1 if problems else 0
-    if a.what == "click":
-        n = click(a.name, a.role, a.window, a.button, a.double, a.timeout)
+    if a.what in ("click", "scroll"):
+        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout) if a.what == "click"
+             else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout))
         print(json.dumps(public(n)) if a.json else n.line())
         return 0
     seen, how = tab_walk(a.key, a.max, a.window, timeout=a.timeout, visible=a.visible)

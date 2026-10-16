@@ -16,6 +16,7 @@
     shotbox click X Y [--window RE]                 (inside a session) click there
     shotbox move X Y [--window RE]                  (inside a session) point there
     shotbox drag X1 Y1 X2 Y2 [--window RE]          (inside a session) drag
+    shotbox scroll X Y DY [DX] [--window RE]        (inside a session) turn the wheel there
     shotbox park                                    (inside a session) pointer out of the way
     shotbox focus RE                                (inside a session) give a window the keyboard
     shotbox play SCRIPT                             (inside a session) timed steps, on one clock
@@ -719,10 +720,16 @@ def pointer_command(name, what):
             p.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
             g = held_options(p, "the button", "it")
             g.add_argument("--double", action="store_true", help="click twice")
+        if name == "scroll":
+            p.add_argument("dy", type=int, help="clicks down; up if negative")
+            p.add_argument("dx", type=int, nargs="?", default=0,
+                           help="clicks right; left if negative")
         a = p.parse_args(argv)
         if name == "click":
             held_here(inside(), a).click(a.x, a.y, window=a.window, button=a.button,
                                          double=a.double, hold=a.hold, state=a.state)
+        elif name == "scroll":
+            inside().scroll(a.x, a.y, a.dy, a.dx, window=a.window)
         else:
             inside().move(a.x, a.y, window=a.window)
         return 0
@@ -1195,6 +1202,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "vision": cmd_vision, "listen": cmd_listen, "key": cmd_key,
             "type": cmd_type, "click": pointer_command("click", "move the pointer and click"),
             "move": pointer_command("move", "move the pointer, for a hover"),
+            "scroll": pointer_command("scroll", "turn the mouse wheel there"),
             "drag": cmd_drag, "park": cmd_park, "focus": cmd_focus, "latency": cmd_latency,
             "flicker": cmd_flicker, "pad": cmd_pad, "play": cmd_play,
             "a11y": a11y.main,
@@ -1203,8 +1211,8 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "sessions": cmd_sessions, "doctor": cmd_doctor}
 
 # What --session puts inside a lasting session.
-INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "drag", "park", "focus",
-          "pad", "a11y", "latency", "flicker", "play")
+INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "scroll", "drag", "park",
+          "focus", "pad", "a11y", "latency", "flicker", "play")
 
 
 def main(argv=None):

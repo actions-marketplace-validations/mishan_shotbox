@@ -262,6 +262,16 @@ class Display:
         self._fake(BUTTON_PRESS if state == "down" else BUTTON_RELEASE, button)
         self.sync()
 
+    def scroll(self, x, y, dy, dx=0):
+        """Move to x, y and turn the wheel dy clicks down (up if negative)
+        and dx right (left): buttons 5 and 4, 7 and 6."""
+        self.move(x, y)
+        for n, back, on in ((dy, 4, 5), (dx, 6, 7)):
+            for _ in range(abs(n)):
+                self._fake(BUTTON_PRESS, on if n > 0 else back)
+                self._fake(BUTTON_RELEASE, on if n > 0 else back)
+        self.sync()
+
     def drag(self, x1, y1, x2, y2, button=1, steps=10):
         """Press at one point, move to another in steps, release there: a
         divider, a slider, a drag and drop. Each step is synced, so the

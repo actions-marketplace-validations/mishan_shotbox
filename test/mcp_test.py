@@ -37,6 +37,7 @@ tmp = Path(tempfile.mkdtemp())
 allow = tmp / "programs"
 # `where` says where its session is, and takes a second to go when told to.
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
+                 f"long = {here / 'a11y_app.py'} long\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -259,6 +260,21 @@ try:
     said, bad, _ = tool("click", session="h", x=5, y=5, double=True, hold=1)
     check(bad and "not together" in said, "click: double with hold, refused")
     tool("stop_session", session="h")
+    tool("start_session", name="l")
+    tool("spawn", session="l", program="long")
+    tool("wait_for", session="l", what="window", value="a11y-test", timeout="20")
+    before, before_bad, _ = tool("click", session="l", name="Row 25")
+    said, bad, _ = tool("scroll", session="l", name="Row 0", dy=10)
+    tool("wait_for", session="l", what="stable", window="a11y-test")
+    after, after_bad, _ = tool("click", session="l", name="Row 25")
+    refused = [tool("scroll", session="l", name="Row 0")[:2],
+               tool("scroll", session="l", x=5, y=5, dy=1000)[:2]]
+    check(before_bad and "outside its window" in before and not bad
+          and said.startswith('Scrolled 10 down and 0 right over label "Row 0"') and not after_bad
+          and all(bad for _, bad in refused) and "-100 to 100, not 1000" in refused[1][0],
+          f"scroll: by a node's name, a row past the end into view; none or too far, refused "
+          f"({said})")
+    tool("stop_session", session="l")
     if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap") and subprocess.run(
             ["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0:
         said, bad, _ = tool("start_session", name="g", a11y=False, gamepads=1)
