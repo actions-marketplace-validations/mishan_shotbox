@@ -125,7 +125,10 @@ try:
           and any(c["type"] == "image" for c in content), "screenshot: with a kind of color vision")
     said, bad, content = tool("screenshot", session="t", window="a11y-test", burst=3, every=0.1)
     png = [c for c in content if c["type"] == "image"]
-    check(not bad and len(png) == 1 and said.startswith("3 pictures") and "0.10" in said,
+    # every is the least gap: under load, more. Times to two places.
+    times = [float(t) for t in re.search(r"taken at (.*) seconds", said)[1].split(", ")]
+    check(not bad and len(png) == 1 and said.startswith("3 pictures") and len(times) == 3
+          and all(b - a >= 0.09 for a, b in zip(times, times[1:])),
           f"screenshot: a burst, as one sheet ({said})")
     said, bad, content = tool("screenshot", session="t", burst=12, crop="20x800+0+0")
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
