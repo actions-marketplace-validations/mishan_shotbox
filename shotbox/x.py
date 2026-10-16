@@ -376,8 +376,9 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             # With sound, a moment for ffmpeg to stop both itself: ended by
             # the pipe, the picture stops while the sound runs on until
             # ffmpeg sees the signal, and timed, no -shortest ends it there.
+            # Not with sway gone: ffmpeg can't stop the picture without it.
             try:
-                proc.wait(timeout=2 if heard else 0)
+                proc.wait(timeout=2 if heard and socket_up(sock) else 0)
             except subprocess.TimeoutExpired:
                 pass
             # ffmpeg waits on its input, and with sway gone, wf-recorder
