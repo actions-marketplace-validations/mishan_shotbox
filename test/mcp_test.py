@@ -428,10 +428,15 @@ proc, answers = serve({"jsonrpc": "2.0", "id": 1, "method": "initialize", "param
                       call_q(2, "start_session", name="io"),
                       call_q(3, "spawn", session="io", program="reader"),
                       call_q(4, "spawn", session="io", program="app"),
+                      {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": [1]},
+                      {"jsonrpc": "2.0", "method": "notifications/cancelled",
+                       "params": {"requestId": [2]}},
+                      {"jsonrpc": "2.0", "id": [1], "method": "tools/list"},
                       {"jsonrpc": "2.0", "id": 5, "method": "ping"})
-check([a["id"] for a in answers] == [1, 2, 3, 4, 5]
+check([a["id"] for a in answers] == [1, 2, 3, 4, [1], 5]
       and not any(a["result"].get("isError") for a in answers[1:4]),
-      "over stdio: an answer a request, a program reading stdin notwithstanding")
+      "over stdio: an answer a request, a program reading stdin notwithstanding, and "
+      "malformed cancellations and ids taken in stride")
 pid = int(re.search(r"pid (\d+)", answers[3]["result"]["content"][0]["text"])[1])
 proc.stdin.close()
 proc.wait(60)
@@ -476,6 +481,52 @@ for how in ("claude", "kill"):
     check(onlooker.poll() is None, "the watchdog leaves a process that's only in its dir")
     onlooker.kill()
     onlooker.wait()
+# A long call, cancelled: a ping on the way answered at once, progress
+# while it waits, no answer to it, and the session still there after.
+proc, _ = serve(call_q(1, "start_session", name="long"))
+wait_q = call_q(2, "wait_for", session="long", what="window", value="never", timeout=20)
+wait_q["params"]["_meta"] = {"progressToken": "w"}
+sent = time.monotonic()
+for q in (wait_q, {"jsonrpc": "2.0", "id": 3, "method": "ping"}):
+    proc.stdin.write(json.dumps(q) + "\n")
+proc.stdin.flush()
+got = []
+while select.select([proc.stdout], [], [], 7)[0]:
+    got.append((json.loads(proc.stdout.readline()), time.monotonic() - sent))
+    if got[-1][0].get("method") == "notifications/progress":
+        break
+proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                             "params": {"requestId": 2}}) + "\n")
+proc.stdin.write(json.dumps(call_q(4, "wait_for", session="long", what="stable")) + "\n")
+proc.stdin.flush()
+while select.select([proc.stdout], [], [], 30)[0]:
+    got.append((json.loads(proc.stdout.readline()), time.monotonic() - sent))
+    if got[-1][0].get("id") == 4:
+        break
+ids = [m.get("id", m.get("method")) for m, _ in got]
+check(ids == [3, "notifications/progress", 4] and got[0][1] < 1
+      and got[1][0]["params"]["progressToken"] == "w" and got[1][1] < 10
+      and not got[2][0]["result"].get("isError") and got[2][1] < 15,
+      f"over stdio: a ping answered during a long call, progress, and a cancelled call "
+      f"unanswered, its session left usable ({got})")
+# Requests piped in, stdin closed after them: each answered, a null line too.
+piped = subprocess.run([sys.argv[1], "mcp"], capture_output=True, text=True, timeout=120,
+                       input="".join(json.dumps(q) + "\n" for q in (
+                           {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                           None, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                           call_q(3, "start_session", name="piped"))))
+ids = [json.loads(line).get("id") for line in piped.stdout.splitlines()]
+check(ids == [1, None, 2, 3] and "is up" in piped.stdout,
+      f"over stdio: requests piped in before stdin closes are all answered ({ids})")
+# stdin closed during a long click by name: called off, not waited out.
+proc.stdin.write(json.dumps(call_q(5, "click", session="long", name="never", timeout=60)) + "\n")
+proc.stdin.flush()
+time.sleep(1)
+sent = time.monotonic()
+proc.stdin.close()
+proc.wait(60)
+check(time.monotonic() - sent < 20, f"over stdio: stdin closed during a long call stops the "
+      f"server then ({time.monotonic() - sent:.1f} s)")
 proc, answers = serve(call_q(1, "start_session", name="hup"),
                       call_q(2, "spawn", session="hup", program="app"))
 pid = int(re.search(r"pid (\d+)", answers[1]["result"]["content"][0]["text"])[1])

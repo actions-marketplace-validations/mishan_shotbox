@@ -58,6 +58,12 @@
   takes a `timeout`.
 - MCP's `wait_for` with a `what` there isn't names the choices, rather
   than asking for a value.
+- `shotbox mcp` answers `ping` at once during a long call, takes
+  `notifications/cancelled`, calling off the request's waits, click,
+  check or recording and sending no answer to it, calls off the call
+  running when its stdin closes, rather than finishing it, and sends `notifications/progress` every 5 seconds to
+  a call with a `progressToken`. docs/mcp.md says which calls run long,
+  and how to raise a client's timeout.
 - `wait line` with a pattern that isn't a regex says so, rather than
   with a traceback.
 - `record --sound --seconds N` whose session's sound server stops first,

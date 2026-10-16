@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -42,10 +43,17 @@ def wheel(dy, dx):
         raise SessionError("nothing to scroll: no clicks down or across")
 
 
+# Set from another thread to call off every wait in the process, as shotbox
+# mcp does for a request its client has cancelled; cleared by whoever set it.
+_CANCEL = threading.Event()
+
+
 def wait_for(what, test, timeout, interval=0.1, alive=None):
     """Poll `test()` until it returns something true, or fail saying what."""
     end = time.monotonic() + timeout
     while True:
+        if _CANCEL.is_set():
+            raise SessionError(f"stopped waiting for {what}: cancelled")
         got = test()
         if got:
             return got
@@ -83,6 +91,8 @@ class Screen:
         try:
             return wait_for(what, test, timeout, alive=alive)
         except SessionError as e:
+            if _CANCEL.is_set():
+                raise
             self.fail(str(e))
 
     # --- waiting --------------------------------------------------------------
@@ -687,17 +697,26 @@ class Screen:
         not be this session's. It has a watchdog of its own; `timeout` is
         for one that never even gets that far."""
         from .__main__ import self_command
-        try:
-            # Options as --name=VALUE, and a name after --: an agent's regex can
-            # start with a dash.
-            r = subprocess.run([*self_command(), "a11y", args[0], "--json", *args[1:]],
-                               env=self.env, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self.fail(f"shotbox a11y {args[0]} got no answer in {timeout}s")
-        if r.returncode:
-            self.fail(r.stderr.strip().removeprefix("shotbox: ")
-                      or f"shotbox a11y {args[0]} failed")
-        return json.loads(r.stdout)
+        # Options as --name=VALUE, and a name after --: an agent's regex can
+        # start with a dash.
+        proc = subprocess.Popen([*self_command(), "a11y", args[0], "--json", *args[1:]],
+                                env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        end = time.monotonic() + timeout
+        while True:
+            try:
+                out, err = proc.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                if _CANCEL.is_set() or time.monotonic() > end:
+                    proc.kill()
+                    proc.communicate()
+                    if _CANCEL.is_set():
+                        raise SessionError(f"shotbox a11y {args[0]}: cancelled") from None
+                    self.fail(f"shotbox a11y {args[0]} got no answer in {timeout}s")
+        if proc.returncode:
+            self.fail(err.strip().removeprefix("shotbox: ") or f"shotbox a11y {args[0]} failed")
+        return json.loads(out)
 
     def a11y_tree(self, window=None):
         """Every node a screen reader sees, depth first: dicts (and
