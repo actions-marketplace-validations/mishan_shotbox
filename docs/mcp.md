@@ -70,7 +70,7 @@ with:
 A command with a slash that isn't absolute is relative to the file, and
 every program starts in the file's directory, with nothing on its stdin. Without `--allow`, nothing
 can be spawned, and the tools say so. A program's output goes to a log in
-the session, which `program_output` reads: the answer to a window that
+the session, which `get_program_output` reads: the answer to a window that
 never came up.
 
 **Sealing is the safety.** A session reaches nothing of the desktop the
@@ -78,7 +78,7 @@ server runs on: not its display, its session bus, its home, its settings,
 its sound, or its screen reader. The program is the person's, from their
 list, and what it can reach of the machine is up to it. What the agent
 adds is clicks and keys on a display no one else is looking at. The one
-thing it writes outside a session is `record`'s clips, new .mp4 files
+thing it writes outside a session is `record_video`'s clips, new .mp4 files
 in the `--allow` file's directory, never over a file that's there.
 
 ## The tools
@@ -86,18 +86,18 @@ in the `--allow` file's directory, never over a file that's there.
 | | |
 |---|---|
 | `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size, gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
-| `spawn`, `program_output` | a program from the list, and how it's doing |
-| `accessible_tree` | the tree, a node a line, with bounds if asked |
-| `screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |
-| `record` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
-| `click` | by a node's name (and role), or a point, the button held a while or left down if asked |
-| `scroll` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
+| `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
+| `get_accessible_tree` | the tree, a node a line, with bounds if asked |
+| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |
+| `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
+| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked |
+| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
-| `gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
+| `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
-| `lint`, `contrast`, `tab_walk` | the checks `shotbox a11y` makes |
-| `announcements` | what's been announced to a screen reader |
-| `sound` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
+| `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes |
+| `list_announcements` | what's been announced to a screen reader |
+| `record_audio` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
 
 Each description says what the tool is for, what to read in its answer,
 and what to use instead when it's the wrong one: an agent knows a tool
@@ -107,13 +107,13 @@ A failure is an answer, marked `isError`, in a sentence saying what to do
 instead: a program not on the list says what is, a session that isn't
 there names the ones that are, and an argument a tool doesn't take is
 named, as is a choice that isn't one before what a call lacks. A node's
-name, for `click` and `wait_for`'s focus, is taken as it is, and failing
+name, for `click_element` and `wait_for`'s focus, is taken as it is, and failing
 that as a regex: `+` and `(Draft)` are labels, not regexes, as in
 [Clicking by name](accessibility.md#clicking-by-name). Two nodes matching
-are listed as `accessible_tree` lines with their bounds; none, the
-nearest names. `lint` and `contrast` answer in tree lines too, with
-bounds, and an `ignore` regex leaves out a problem it's found in, the
-tree line's or the node's path's, as `shotbox a11y lint --ignore` does.
+are listed as `get_accessible_tree` lines with their bounds; none, the
+nearest names. `check_accessible_names` and `check_contrast` answer in
+tree lines too, with bounds, and an `ignore` regex leaves out a problem
+it's found in, the tree line's or the node's path's, as `shotbox a11y lint --ignore` does.
 Arguments are taken however the client sends them, since clients
 don't pass them through as typed. A number can come as text, and a list
 as text with commas or spaces: `"Tab Tab"` for `["Tab", "Tab"]`.
@@ -158,9 +158,9 @@ Calls are answered one at a time, in turn, and the waits are bounded: a
 timeout of at most 300 seconds, and a Tab walk of at most 200 presses. A
 thread reads stdin as requests come, so `ping` is answered at once, even
 during a long call, and `notifications/cancelled` calls off the request
-it names: its waits stop, as do a click by name, `tab_walk`, `lint`,
-`contrast` or a recording it's in the middle of (the clip is finished
-short), its answer isn't sent, and the session is left as it was. When
+it names: its waits stop, as do a click by name, `check_focus_order`,
+`check_accessible_names`, `check_contrast` or a recording it's in the
+middle of (the clip is finished short), its answer isn't sent, and the session is left as it was. When
 stdin closes, the call running is called off the same way, those sent
 after it are answered, and then the sessions stop. A call given a `progressToken` (in `params._meta`) sends
 `notifications/progress` every 5 seconds until it's answered, its
@@ -170,9 +170,9 @@ for that request, not the end of the server.
 Most calls take a second or two. Those that can run long:
 
 - `wait_for`, up to its `timeout`, 300 seconds at most;
-- `record`, up to 60 seconds and then a few for its frames;
-- `tab_walk`, a few seconds a press, up to 200 presses;
-- `click` by name, up to its `timeout`, while the node doesn't show.
+- `record_video`, up to 60 seconds and then a few for its frames;
+- `check_focus_order`, a few seconds a press, up to 200 presses;
+- `click_element` by name, up to its `timeout`, while the node doesn't show.
 
 Many clients give up on a call after about 60 seconds, and cancel it.
 Some count from the last progress (the TypeScript SDK's

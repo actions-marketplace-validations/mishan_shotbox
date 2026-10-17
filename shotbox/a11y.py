@@ -1389,8 +1389,9 @@ def main(argv):
     return 0 if how == "cycle" and not hidden and not (a.reach_all and missed) else 1
 
 
-def walk_lines(key, most, seen, how, missed, began):
-    """What a walk found, a line each, as `shotbox a11y tabwalk` says it."""
+def walk_lines(key, most, seen, how, missed, began, focus="shotbox focus"):
+    """What a walk found, a line each, as `shotbox a11y tabwalk` says it;
+    `focus`, how to give a window the keyboard, for whoever reads it."""
     def marked(n):
         said = []
         if unseen(n):
@@ -1408,14 +1409,14 @@ def walk_lines(key, most, seen, how, missed, began):
     lines = [f"began in {marked(began)}"] if began else []
     lines += [marked(n) for n in seen]
     lines += [f"not reached by {key}: {n.line()}" for n in missed]
-    lines.append(walk_end(key, most, seen, how, missed))
+    lines.append(walk_end(key, most, seen, how, missed, focus))
     hidden = [n for n in seen if unseen(n)]
     if hidden:
         lines.append(f"focus not shown on {len(hidden)}")
     return lines
 
 
-def walk_end(key, most, seen, how, missed):
+def walk_end(key, most, seen, how, missed, focus="shotbox focus"):
     """How a walk ended, as a line."""
     tried = seen[-1].get("tried") if seen else None
     unreached = f"; {len(missed)} not reached by {key}" if missed else ""
@@ -1427,7 +1428,7 @@ def walk_end(key, most, seen, how, missed):
         "lost": f"lost: after {key}, no node has the focus",
         "closed": f"stopped: after {tried and tried[-1]}, the text view isn't there",
         "unfocused": "no node has the focus to begin with: give the window the keyboard "
-                     "(shotbox focus)",
+                     f"({focus})",
         "max": f"not round again after {most}{unreached}",
     }[how]
 

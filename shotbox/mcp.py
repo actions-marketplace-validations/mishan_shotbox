@@ -63,13 +63,15 @@ where you can look at them, drive them and check them; nothing in one is meant t
 reach the person's desktop or speakers (start_session's answer says when it can't), \
 and with net: loopback, not the network either.
 
-Start with start_session (with audio, for sound), then spawn a program from the \
-person's allow list (start_session's answer lists them) and wait_for its window. Read accessible_tree before clicking: \
+Start with start_session (with audio, for sound), then start a program from the \
+person's allow list with spawn_program (start_session's answer lists them) and wait_for \
+its window. Read get_accessible_tree before clicking: \
 it says what's on screen and what each thing is called, in far fewer tokens than \
-a screenshot, and click and scroll take a name. Take a screenshot only for what pixels say (colors, \
-layout); record for motion and sound. After acting, wait_for stable rather than \
-sleeping. lint, contrast, tab_walk, announcements and sound check what a person \
-would meet. stop_session when done; every session stops with the server."""
+a screenshot, and click_element and scroll_wheel take a name. Use take_screenshot only \
+for what pixels say (colors, layout); record_video for motion and sound. After acting, \
+wait_for stable rather than sleeping. check_accessible_names, check_contrast, \
+check_focus_order, list_announcements and record_audio check what a person would \
+meet. stop_session when done; every session stops with the server."""
 
 
 class Refused(Exception):
@@ -170,7 +172,7 @@ def within(v, what, least, most, whole=False):
 
 
 def held(hold, state):
-    """press_keys' and click's hold (seconds) and state (down or up). A hold
+    """press_keys' and click_element's hold (seconds) and state (down or up). A hold
     holds up the server, so it's kept short."""
     hold = number(hold, "hold")
     if hold is not None and not 0 <= hold <= 60:
@@ -204,7 +206,7 @@ def tree_text(nodes, bounds=False):
 
 
 def problems(nodes):
-    """lint's and contrast's answer: a line a node, as the tree has it, and
+    """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
     what's wrong."""
     return "\n".join(f"{n.line(bounds=True)}: {n.problem}" for n in nodes) or "No problems."
 
@@ -269,7 +271,7 @@ class Server:
         used = f" It {usage.line(s.used)}." if s.used else ""
         return f"Session {session!r} stopped, and everything in it.{used}"
 
-    def spawn(self, session, program):
+    def spawn_program(self, session, program):
         session = str(session)
         s = self.session(session)
         if program not in self.allowed:
@@ -284,7 +286,7 @@ class Server:
         self.spawned[session].append((program, proc, log))
         return f"Started {program} (pid {program_pid(proc)}) in {session!r}."
 
-    def program_output(self, session, program, lines=40):
+    def get_program_output(self, session, program, lines=40):
         session = str(session)
         self.session(session)
         runs = [r for r in self.spawned[session] if r[0] == program]
@@ -300,8 +302,8 @@ class Server:
 
     # --- looking -------------------------------------------------------------
 
-    def screenshot(self, session, window=None, crop=None, park=False, vision=None,
-                   burst=None, every=None):
+    def take_screenshot(self, session, window=None, crop=None, park=False, vision=None,
+                        burst=None, every=None):
         s = self.session(session)
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
@@ -332,36 +334,36 @@ class Server:
                 {"type": "text", "text": said}]
 
     def clip(self, path):
-        """Where record saves to: a new file in the allow file's directory,
+        """Where record_video saves to: a new file in the allow file's directory,
         as a line wait reads one, and nowhere else an agent could have one
         written. Nothing of the person's is written over."""
         if self.home is None:
-            raise Refused("record saves a path in the --allow file's directory, and shotbox "
+            raise Refused("record_video saves a path in the --allow file's directory, and shotbox "
                           "mcp was given no --allow file; without path, it saves in the "
                           "session's scratch directory")
         home = Path(self.home).resolve()
         out = (home / str(path)).resolve()
         if not out.is_relative_to(home) or out.suffix.lower() != ".mp4":
-            raise Refused(f"record saves an .mp4 in {home}, by its path from there, "
+            raise Refused(f"record_video saves an .mp4 in {home}, by its path from there, "
                           f"not {path!r}")
         if out.exists():
             raise Refused(f"there's a {'directory' if out.is_dir() else 'file'} at {out} "
-                          "already: record saves only a new file")
+                          "already: record_video saves only a new file")
         above = next(p for p in out.parents if p.exists())
         if not above.is_dir():
             raise Refused(f"{above} is a file, not a directory to save in")
         return out
 
-    def record(self, session, seconds=None, window=None, crop=None, sound=False, path=None,
-               until_line=None, file=None, tail=None):
+    def record_video(self, session, seconds=None, window=None, crop=None, sound=False,
+                     path=None, until_line=None, file=None, tail=None):
         s = self.session(session)
         seconds = within(seconds, "seconds", 0.1, RECORD_SECONDS)
         if seconds is None and until_line is None:
-            raise Refused(f"record needs seconds: how long to record, 0.1 to {RECORD_SECONDS}, "
-                          "or until_line")
+            raise Refused(f"record_video needs seconds: how long to record, 0.1 to "
+                          f"{RECORD_SECONDS}, or until_line")
         seconds = seconds or RECORD_SECONDS
         until = None if until_line is None else (str(until_line),
-                                                 self.log(file, "record until_line"))
+                                                 self.log(file, "record_video until_line"))
         tail = within(tail, "tail", 0, RECORD_SECONDS) or 0
         if tail and not until:
             raise Refused("tail goes with until_line: how long to record after its line")
@@ -431,7 +433,7 @@ class Server:
                  "mimeType": "image/png"},
                 {"type": "text", "text": "\n".join(said)}]
 
-    def accessible_tree(self, session, window=None, bounds=False):
+    def get_accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
         return tree_text(s.a11y_tree(text(window)), flag(bounds))
 
@@ -444,8 +446,8 @@ class Server:
 
     # --- acting --------------------------------------------------------------
 
-    def click(self, session, name=None, role=None, x=None, y=None, window=None,
-              button=1, double=False, hold=None, state=None, timeout=None):
+    def click_element(self, session, name=None, role=None, x=None, y=None, window=None,
+                      button=1, double=False, hold=None, state=None, timeout=None):
         s = self.session(session)
         button, double = int(number(button, "button") or 1), flag(double)
         hold, state = held(hold, state)
@@ -460,15 +462,15 @@ class Server:
                 timeout=10 if timeout is None else timeout)
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
-            raise Refused("click takes a node's name, or x and y")
+            raise Refused("click_element takes a node's name, or x and y")
         px, py = int(number(x, "x")), int(number(y, "y"))
         s.click(px, py, window=text(window), button=button, double=double, hold=hold,
                 state=state)
         done = {"down": "Pressed and left down", "up": "Let go"}.get(state, "Clicked")
         return f"{done} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
-    def scroll(self, session, dy=None, dx=None, name=None, role=None, x=None, y=None,
-               window=None):
+    def scroll_wheel(self, session, dy=None, dx=None, name=None, role=None, x=None, y=None,
+                     window=None):
         s = self.session(session)
         dy, dx = (within(v, k, -100, 100, whole=True) or 0 for v, k in ((dy, "dy"), (dx, "dx")))
         wheel(dy, dx)
@@ -479,7 +481,7 @@ class Server:
                                                        window=text(window))
             return f"{turned} over {n.line()}, at the middle of {n.bounds}."
         if x is None or y is None:
-            raise Refused("scroll takes a node's name, or x and y")
+            raise Refused("scroll_wheel takes a node's name, or x and y")
         px, py = int(number(x, "x")), int(number(y, "y"))
         s.scroll(px, py, dy, dx, window=text(window))
         return f"{turned} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
@@ -494,8 +496,8 @@ class Server:
             state, f"Held for {hold:g} s" if hold is not None else "Pressed")
         return f"{done} " + ", ".join(chords) + "."
 
-    def gamepad(self, session, action, pad=1, buttons=None, which=None, x=None, y=None,
-                value=None, hold=None, state=None):
+    def use_gamepad(self, session, action, pad=1, buttons=None, which=None, x=None, y=None,
+                    value=None, hold=None, state=None):
         s = self.session(session)
         n = within(pad, "pad", 1, 4, whole=True) or 1
         hold, state = held(hold, state)
@@ -601,11 +603,11 @@ class Server:
 
     # --- checking ------------------------------------------------------------
 
-    def lint(self, session, window=None, ignore=None):
+    def check_accessible_names(self, session, window=None, ignore=None):
         return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)))
 
-    def contrast(self, session, window=None, text_ratio=4.5, graphics=3.0, edges=None,
-                 ignore=None):
+    def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
+                       edges=None, ignore=None):
         nodes = self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
@@ -617,7 +619,8 @@ class Server:
                             if notes else [])
                          + whys)
 
-    def tab_walk(self, session, key="Tab", window=None, visible=False, most=50, ignore=None):
+    def check_focus_order(self, session, key="Tab", window=None, visible=False, most=50,
+                          ignore=None):
         s = self.a11y_session(session)
         most = int(number(most, "most", 1, 200) or 50)
         args = ["tabwalk", f"--key={key or 'Tab'}", "--max", str(most),
@@ -627,14 +630,15 @@ class Server:
         got = s._a11y(*args, timeout=90 + most * 5)
         return "\n".join(walk_lines(key or "Tab", most, [Node(n) for n in got["focus"]],
                                     got["end"], [Node(n) for n in got["unreached"]],
-                                    got["began"] and Node(got["began"])))
+                                    got["began"] and Node(got["began"]),
+                                    focus="click it with click_element"))
 
-    def announcements(self, session):
+    def list_announcements(self, session):
         log = Path(self.a11y_session(session).env["SHOTBOX_ANNOUNCEMENTS"])
         said = log.read_text().strip() if log.exists() else ""
         return said or "Nothing announced yet."
 
-    def sound(self, session, action, gap=None):
+    def record_audio(self, session, action, gap=None):
         s = self.session(session)
         name = str(session)
         if action == "start":
@@ -689,7 +693,7 @@ STATE = {"type": "string", "enum": ["down", "up"],
 CROP = {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"}
 WINDOW = {"type": "string", "description":
           "A window's title, exactly or a regex matched in full, or app=RE for its app id"}
-NAME = {"type": "string", "description": "A node's name, as accessible_tree gives it: "
+NAME = {"type": "string", "description": "A node's name, as get_accessible_tree gives it: "
         "exactly, or a regex matched in full"}
 ROLE = {"type": "string", "description": "Narrows name: exactly, or a regex"}
 X = {"type": "integer", "description": "Pixels from the left"}
@@ -706,8 +710,8 @@ TOOLS = [
      "Start a sealed session: a display of its own (X11 under Xvfb, or Wayland under a "
      "headless sway), its own D-Bus and accessibility bus, and a scratch home. Nothing in it "
      "reaches the desktop of the person you're working for, and nothing of theirs reaches "
-     "it. The answer gives its name, display and size, the programs spawn can start in it, "
-     "and anything it couldn't seal. It lasts until stop_session.",
+     "it. The answer gives its name, display and size, the programs spawn_program can start "
+     "in it, and anything it couldn't seal. It lasts until stop_session.",
      schema({"name": {"type": "string", "description": "What to call it (s1, s2... by default)"},
              "a11y": {"type": "boolean", "description": "An accessibility bus (default true)"},
              "wayland": {"type": "boolean", "description": "Wayland, not X11"},
@@ -720,7 +724,7 @@ TOOLS = [
              "audio": {"type": "boolean", "description": "A sound server whose sink plays "
                        "to nowhere"},
              "gamepads": {"type": "integer", "minimum": 0, "maximum": 4,
-                          "description": "Virtual Xbox 360 pads, for the gamepad tool"},
+                          "description": "Virtual Xbox 360 pads, for use_gamepad"},
              "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"},
              "net": {"type": "string", "enum": ["loopback"], "description": "A network its "
                      "programs share and nothing else is on: nothing reaches in or out"},
@@ -735,16 +739,16 @@ TOOLS = [
     ("stop_session",
      "Stop a session start_session made, when you're done with it: every program in it is "
      "killed, unsaved work and all, and its scratch directory is deleted, with any clip "
-     "record saved there (one saved at a path is kept). In a session started with usage, "
-     "the answer says its programs' peak memory and CPU time. You needn't stop sessions "
-     "before the server ends: they all stop with it.",
+     "record_video saved there (one saved at a path is kept). In a session started with "
+     "usage, the answer says its programs' peak memory and CPU time. You needn't stop "
+     "sessions before the server ends: they all stop with it.",
      schema({"session": SESSION}, ["session"])),
-    ("spawn",
+    ("spawn_program",
      "Start one of the programs the person allowed this server to run, by its name, in a "
      "session; nothing else can run. The answer gives its pid. Then wait_for its window "
-     "before looking at it. If it doesn't come up, program_output says why.",
+     "before looking at it. If it doesn't come up, get_program_output says why.",
      schema({"session": SESSION, "program": PROGRAM}, ["session", "program"])),
-    ("program_output",
+    ("get_program_output",
      "Read the last lines (40, or lines) a spawned program wrote to stdout and stderr, after "
      "a line saying whether it's still running or exited, with its status. It works after "
      "the program has exited, until the session stops; for a program spawned more than once, "
@@ -754,19 +758,19 @@ TOOLS = [
              "lines": {"type": "integer", "minimum": 1, "maximum": 2000,
                        "description": "How many lines from the end (40)"}},
             ["session", "program"])),
-    ("accessible_tree",
+    ("get_accessible_tree",
      "Read what a screen reader would find: every visible node, a line each, indented, with "
      "its role, name, description and the states a screen reader says (focusable, focused, "
      "checked...). The cheapest way to see what's on screen and what can be clicked by name. "
      "A node with an empty name (\"\") is one a screen reader can say nothing for. Use "
-     "screenshot for how it looks.",
+     "take_screenshot for how it looks.",
      schema({"session": SESSION, "window": WINDOW,
              "bounds": {"type": "boolean", "description": "Add @x,y WIDTHxHEIGHT to each line"}},
             ["session"])),
-    ("screenshot",
+    ("take_screenshot",
      "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "
      "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
-     "accessible_tree; take the window rather than the screen, and crop when you need a "
+     "get_accessible_tree; take the window rather than the screen, and crop when you need a "
      "part. vision checks nothing is told apart by color alone; burst, as one image in rows "
      "of four, is for motion, an animation or a transition.",
      schema({"session": SESSION, "window": WINDOW,
@@ -781,14 +785,14 @@ TOOLS = [
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"}},
             ["session"])),
-    ("record",
-     "Record a clip of the screen, or of one window, and save it as an .mp4: in the "
+    ("record_video",
+     "Record a video of the screen, or of one window, and save it as an .mp4: in the "
      "session's scratch directory, gone when the session stops, or at path. The answer is "
      "the saved path, how long the clip is, and up to 8 frames from it RETURNED AS ONE "
      "IMAGE in rows of four, with the times they show: you can't play the clip, but a "
      "person or another tool can. A clip stops at 100 MB. sound also says what it heard, "
-     "as the sound tool does. until_line ends it at an event instead; the answer gives the "
-     "line. For a few moments of motion, screenshot's burst is cheaper.",
+     "as record_audio does. until_line ends it at an event instead; the answer gives the "
+     "line. For a few moments of motion, take_screenshot's burst is cheaper.",
      schema({"session": SESSION,
              "seconds": {"type": "number", "minimum": 0.1, "maximum": RECORD_SECONDS,
                          "description": "How long; with until_line, the most (60)"},
@@ -805,7 +809,7 @@ TOOLS = [
              "tail": {"type": "number", "minimum": 0, "maximum": RECORD_SECONDS,
                       "description": "Seconds to go on after the line (0)"}},
             ["session"])),
-    ("click",
+    ("click_element",
      "Click an element by its accessible name, or a point by x and y, on the screen or "
      "inside a window. By name is the one to use: it waits up to timeout seconds for the "
      "node, raises its window and clicks its middle, and the answer gives the node and its "
@@ -820,11 +824,11 @@ TOOLS = [
              "timeout": {"type": "number", "minimum": 0, "maximum": 300,
                          "description": "By name, seconds to wait for the node (10)"}},
             ["session"])),
-    ("scroll",
-     "Turn the mouse wheel over a node by its name, found as click finds it (waiting for it, "
-     "its window raised), or at a point by x and y, leaving the pointer there. Use it for "
-     "what's past a list's, a page's or a window's edge, then wait_for stable and look "
-     "again; to move the keyboard focus, use press_keys.",
+    ("scroll_wheel",
+     "Turn the mouse wheel over a node by its name, found as click_element finds it (waiting "
+     "for it, its window raised), or at a point by x and y, leaving the pointer there. Use "
+     "it for what's past a list's, a page's or a window's edge, then wait_for stable and "
+     "look again; to move the keyboard focus, use press_keys.",
      schema({"session": SESSION,
              "dy": {"type": "integer", "minimum": -100, "maximum": 100,
                     "description": "Clicks down; negative, up"},
@@ -834,20 +838,21 @@ TOOLS = [
             ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. They "
-     "go to whatever has the keyboard; click a window first if nothing does. hold "
-     "presses them all together and keeps them down that long (walking while running); state "
-     "down leaves them down, across calls, until a call with state up (move or click while a "
-     "key is held). The answer says what it pressed.",
+     "go to whatever has the keyboard; click a window first with click_element if nothing "
+     "does. hold presses them all together and keeps them down that long (walking while "
+     "running); state down leaves them down, across calls, until a call with state up (move "
+     "or click while a key is held). The answer says what it pressed.",
      schema({"session": SESSION,
              "keys": {"type": "array", "items": {"type": "string"},
                       "description": "Chords, pressed one after another"},
              "hold": HOLD, "state": STATE}, ["session", "keys"])),
-    ("gamepad",
+    ("use_gamepad",
      "Work a virtual gamepad, in a session started with gamepads: press buttons together, "
      "tapped, held for hold seconds, or with state down left down until a call with state "
      "up; push a stick to x, y; pull a trigger to value; or neutral, letting go of "
      "everything. A stick or trigger stays where it's put, unless hold says for how long. "
-     "Programs in the session see a real Xbox 360 controller, and none of the machine's.",
+     "Programs in the session see a real Xbox 360 controller, and none of the machine's. "
+     "For keys and the mouse, press_keys and click_element.",
      schema({"session": SESSION,
              "action": {"type": "string", "enum": ["press", "stick", "trigger", "neutral"],
                         "description": "Press buttons, push a stick, pull a trigger, "
@@ -877,7 +882,7 @@ TOOLS = [
      "app=RE), stable (the screen, or the window, unchanged for value seconds, 0.5, up to "
      "60: after a click, for the repaint), an announcement (value: a regex in what was "
      "announced to a screen reader; each announcement is waited for once), focus (value: the name of the node with the keyboard focus, as "
-     "click takes one), match (value: a PNG, by its path from the allow file's directory, "
+     "click_element takes one), match (value: a PNG, by its path from the allow file's directory, "
      "that the screen, or the window, cropped to crop, should look like), "
      "change (from how it looked when the wait started), or "
      "line (value: a regex found in a line of file, written after the wait starts, or "
@@ -900,13 +905,13 @@ TOOLS = [
                       "file's directory"},
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},
             ["session", "what"])),
-    ("lint",
+    ("check_accessible_names",
      "Lint the accessibility tree for nodes a screen reader has no name to say for: "
      "controls, images (not inside a named control) and anything else that takes the focus. "
      "The answer: a tree line each, with bounds, then what's wrong; or \"No problems.\". Use "
-     "it to check labels after a change; for colors, use contrast.",
+     "it to check labels after a change; for colors, use check_contrast.",
      schema({"session": SESSION, "window": WINDOW, "ignore": IGNORE}, ["session"])),
-    ("contrast",
+    ("check_contrast",
      "Check that text, buttons, links and images stand out from their background: WCAG's "
      "4.5:1 for text (3 for large text) and 3:1 for images unless text_ratio and graphics "
      "say otherwise, and with edges, a button's or field's edge too. It raises the window "
@@ -915,22 +920,22 @@ TOOLS = [
      "it couldn't measure, which doesn't fail (too small, or GTK 4's, whose positions are "
      "wrong), and why. A window where nothing can be measured, as GTK 4's, is an error, not "
      "a pass. Switches, sliders, check boxes, disabled nodes and what's scrolled out of view "
-     "are skipped. For missing names, use lint.",
+     "are skipped. For missing names, use check_accessible_names.",
      schema({"session": SESSION, "window": WINDOW,
              "text_ratio": {"type": "number", "description": "Least for text (4.5)"},
              "graphics": {"type": "number", "description": "Least for images (3)"},
              "edges": {"type": "number", "description": "Least for edges (unchecked)"},
              "ignore": IGNORE}, ["session"])),
-    ("tab_walk",
+    ("check_focus_order",
      "Check the keyboard focus order in one call: press Tab, or key, until the focus comes "
      "back round, and list where it went, a tree line each, after a \"began in\" line. Then "
      "the controls the key never reached, and how it ended: round again (fine), stuck (a "
      "trap, or a text view nothing leaves), not round after most presses, lost (no node has "
      "the focus), stopped (a text view closed as it was left), or nothing focused to begin "
-     "with (click the window first). With visible, \"focus not shown on N\" "
-     "counts stops that don't show it. A text view that takes Tab is left as a person would, "
-     "with ctrl+Tab, shift+Tab, Escape or F6. The focus stays where it ended. To press a few "
-     "keys yourself, use press_keys.",
+     "with (click the window with click_element first). With visible, \"focus not shown on "
+     "N\" counts stops that don't show it. A text view that takes Tab is left as a person "
+     "would, with ctrl+Tab, shift+Tab, Escape or F6. The focus stays where it ended. To "
+     "press a few keys yourself, use press_keys.",
      schema({"session": SESSION,
              "key": {"type": "string", "description": "The chord to press (Tab)"},
              "window": WINDOW,
@@ -940,21 +945,22 @@ TOOLS = [
                       "description": "Presses at most (50)"},
              "ignore": {**IGNORE, "description": "Regexes for unreached controls to leave "
                         "out"}}, ["session"])),
-    ("announcements",
-     "List what programs in the session have announced to a screen reader since it started, "
-     "oldest first, a line each with its politeness: \"polite: Saved\", \"assertive: "
-     "Error\". That's GTK's announcements and a browser's live regions. Reading doesn't "
-     "clear them; \"Nothing announced yet.\" means none so far. Use it to check what a "
-     "screen reader user heard after an action; to wait for one, use wait_for announcement.",
+    ("list_announcements",
+     "List what programs in the session have announced to a screen reader since it "
+     "started, oldest first, a line each with its politeness: \"polite: Saved\", "
+     "\"assertive: Error\". That's GTK's announcements and a browser's live regions. "
+     "Reading doesn't clear them; \"Nothing announced yet.\" means none so far. Use it to "
+     "check what a screen reader user heard after an action; to wait for one, use wait_for "
+     "announcement.",
      schema({"session": SESSION}, ["session"])),
-    ("sound",
+    ("record_audio",
      "Record what a session started with audio plays, from a call with action start to one "
      "with action stop, across the calls between that make the sound. stop's answer: the "
      "sound's length, peak and RMS level (dBFS), samples clipped, and each gap of exact "
      "silence between the first sound and the last, as a program that falls behind leaves; "
      "then what's wrong, if anything (gaps, clipping, silence). Sounds meant to be apart, "
      "two beeps say, need a gap longer than the silence between them. For a video of the "
-     "screen with its sound, up to a minute, use record with sound.",
+     "screen with its sound, up to a minute, use record_video with sound.",
      schema({"session": SESSION,
              "action": {"type": "string", "enum": ["start", "stop"],
                         "description": "start, then stop"},
@@ -963,16 +969,18 @@ TOOLS = [
             ["session", "action"])),
 ]
 
-# Not screenshot (park moves the pointer) or contrast (it raises the window).
-READ_ONLY = {"program_output", "accessible_tree", "wait_for", "lint", "announcements"}
+# Not take_screenshot (park moves the pointer) or check_contrast (it raises the window).
+READ_ONLY = {"get_program_output", "get_accessible_tree", "wait_for", "check_accessible_names",
+             "list_announcements"}
 # Called again, these change nothing more: a stopped session's stop is refused.
-IDEMPOTENT = {"stop_session", "screenshot", "contrast"}
+IDEMPOTENT = {"stop_session", "take_screenshot", "check_contrast"}
 # What the agent spawns and drives may be a browser on the host's network.
-OPEN_WORLD = {"spawn", "click", "scroll", "press_keys", "gamepad", "type_text", "tab_walk"}
+OPEN_WORLD = {"spawn_program", "click_element", "scroll_wheel", "press_keys", "use_gamepad",
+              "type_text", "check_focus_order"}
 
 
 def tool_list(allowed=()):
-    """The tools, with spawn's and program_output's program one of `allowed`."""
+    """The tools, with spawn_program's and get_program_output's program one of `allowed`."""
     program = {**PROGRAM, "enum": list(allowed)} if allowed else PROGRAM
     return [{"name": name, "description": desc,
              "inputSchema": ({**params, "properties": {**params["properties"],
@@ -995,12 +1003,21 @@ def hints(name):
         got["openWorldHint"] = False
     return got
 
+# The names the tools had up to 0.7.1, for an agent or a client's settings that still uses one.
+RENAMED = {"spawn": "spawn_program", "program_output": "get_program_output",
+           "accessible_tree": "get_accessible_tree", "screenshot": "take_screenshot",
+           "record": "record_video", "click": "click_element", "scroll": "scroll_wheel",
+           "gamepad": "use_gamepad", "lint": "check_accessible_names",
+           "contrast": "check_contrast", "tab_walk": "check_focus_order",
+           "announcements": "list_announcements", "sound": "record_audio"}
+
 
 def call(server, name, args):
     """A tool call's result: its content, and isError if it failed."""
     known = {t[0]: t[2] for t in TOOLS}
     if name not in known:
-        return {"content": [{"type": "text", "text": f"There's no tool called {name!r}."}],
+        now = f": it's {RENAMED[name]} now" if name in RENAMED else ""
+        return {"content": [{"type": "text", "text": f"There's no tool called {name!r}{now}."}],
                 "isError": True}
     if args is None:
         args = {}
