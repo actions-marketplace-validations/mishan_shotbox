@@ -45,8 +45,8 @@ doesn't need.
 
 The agent can't run a command, only a program named in an allow file,
 which the person chooses. Ask them which programs they want it to work
-on, and write one `NAME = COMMAND` per line, for example to
-`~/.config/shotbox/programs`:
+on before writing the file (at least one, for step 5), and write one
+`NAME = COMMAND` per line, for example to `~/.config/shotbox/programs`:
 
 ```
 # NAME = COMMAND ARGS..., split as a shell would
@@ -83,7 +83,9 @@ doesn't find it, use its full path (`command -v shotbox`, usually
 
 ## 5. Check it
 
-Call `start_session`, then `spawn` one of the person's programs and
+If the client doesn't list shotbox's tools yet, ask the person to reload
+it (in VS Code, Developer: Reload Window), then go on. Call
+`start_session`, then `spawn` one of the person's programs and
 `wait_for` its window, then `accessible_tree` or `screenshot`, then
 `stop_session`. The server's instructions, sent as it connects, say how
 the tools fit together.
