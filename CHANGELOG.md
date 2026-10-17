@@ -4,6 +4,9 @@
 
 ### Changes to check when upgrading
 
+- **An unknown MCP tool is a protocol error**: a tools/call of a tool
+  shotbox doesn't have is a JSON-RPC error, -32602, as the spec has it,
+  not an `isError` answer.
 - **MCP's tools are named verb_noun**, so an agent can guess what each
   does from its name. A client's permission list that names them
   (Claude Code's `mcp__shotbox__click`, say) needs the new names; a call
@@ -29,6 +32,10 @@
   `start_session`, `stop_session`, `press_keys`, `type_text` and
   `wait_for` keep theirs. The commands (`shotbox click`, `a11y lint`...)
   are as they were.
+
+### Added
+
+- MCP revisions 2025-11-25 and 2026-07-28, with `server/discover`.
 
 ### Changed
 

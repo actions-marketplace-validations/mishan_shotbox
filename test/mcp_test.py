@@ -81,6 +81,45 @@ check(init["protocolVersion"] == "2025-03-26" and "tools" in init["capabilities"
       "initialize: the version asked for, and tools")
 check(rpc("initialize", {"protocolVersion": "1999-01-01"})["result"]["protocolVersion"]
       == mcp.PROTOCOLS[0], "initialize: an unknown version gets the newest")
+check([rpc("initialize", {"protocolVersion": v})["result"]["protocolVersion"]
+       for v in ("2025-11-25", "2025-06-18", "2024-11-05", "2026-07-28")]
+      == ["2025-11-25", "2025-06-18", "2024-11-05", "2025-11-25"]
+      and "resultType" not in init,
+      "initialize: each version it knows, as before; a stateless one gets the newest that isn't")
+
+
+def modern(method, version="2026-07-28", **params):
+    meta = {"io.modelcontextprotocol/protocolVersion": version,
+            "io.modelcontextprotocol/clientCapabilities": {}}
+    return rpc(method, {"_meta": meta, **params})
+
+
+found = modern("server/discover")["result"]
+check(found["instructions"] == mcp.INSTRUCTIONS and "tools" in found["capabilities"]
+      and found["supportedVersions"] == ["2026-07-28"]
+      and found["resultType"] == "complete" and found["cacheScope"] == "public"
+      and found["ttlMs"] > 0
+      and found["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "shotbox",
+      "server/discover: the versions, the tools, the instructions, how long to keep it")
+tools = modern("tools/list")["result"]
+called = modern("tools/call", name=mcp.TOOLS[0][0], arguments=[1])["result"]
+check(tools["resultType"] == called["resultType"] == "complete"
+      and tools["tools"] == mcp.tool_list(allowed) and tools["ttlMs"] > 0
+      and called["isError"] and "resultType" not in rpc("tools/list")["result"],
+      "2026-07-28: the version in _meta, no initialize, every result complete;"
+      " the older versions' results as they were")
+refused = modern("tools/list", "1900-01-01")["error"]
+check(refused["code"] == -32022 and refused["data"]["requested"] == "1900-01-01"
+      and refused["data"]["supported"] == list(mcp.STATELESS + mcp.PROTOCOLS)
+      and modern("server/discover", "1900-01-01")["error"]["code"] == -32022,
+      "a version it doesn't speak: refused, with the ones it does")
+check(rpc("server/discover")["error"]["code"]
+      == rpc("tools/list", {"_meta": {"io.modelcontextprotocol/protocolVersion":
+                                      "2026-07-28"}})["error"]["code"] == -32602
+      and "result" in rpc("initialize", {"protocolVersion": "2025-06-18"})
+      and modern("initialize", protocolVersion="2025-06-18")["error"]["code"] == -32601,
+      "server/discover without a version, or 2026-07-28 without capabilities: malformed;"
+      " initialize still answered after, but not as 2026-07-28, which has none")
 listed = {t["name"]: t["inputSchema"]["properties"] for t in rpc("tools/list")["result"]["tools"]}
 check({"start_session", "spawn_program", "get_accessible_tree", "take_screenshot",
        "click_element"} <= set(listed),
@@ -401,9 +440,13 @@ try:
           f"stop_session: what a session with usage used, said ({said})")
     said, bad, _ = tool("click_element", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
-    said, bad, _ = tool("click", session="t", name="Save")
-    check(bad and said == "There's no tool called 'click': it's click_element now.",
-          f"a tool by its old name: its new one said ({said!r})")
+    unknown = [rpc("tools/call", {"name": n, "arguments": {}})["error"]
+               for n in ("click", "nope", ["click"])]
+    check([e["code"] for e in unknown] == [-32602] * 3
+          and [e["message"] for e in unknown]
+          == ["Unknown tool: click; it's click_element now", "Unknown tool: nope",
+              "Unknown tool: ['click']"],
+          f"a tool it doesn't have: a protocol error, an old name's new one said ({unknown})")
     said, bad, _ = tool("get_program_output", session="t", program="app")
     check(not bad and "still running" in said, "get_program_output")
     scratch = server.sessions["t"].scratch
