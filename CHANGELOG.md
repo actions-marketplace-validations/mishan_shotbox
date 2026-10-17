@@ -17,6 +17,17 @@ hints as the spec reads them.
 - MCP's `wait_for` takes a `timeout` of 0 as 0 seconds, not 10, and
   `start_session` refuses a `text_scale` under 0.1.
 
+### Fixed
+
+- `flicker` doesn't take text scrolling smoothly past, lines apart, for
+  flicker: the background between lines comes back, but only every
+  other look, and a look drawn plain between frames of a scene has to be
+  plain each time it comes back.
+- `flicker`'s docs say what it can't tell from flicker: text scrolled
+  by fractions of a pixel (GTK 4's or kinetic scrolling, a browser at a
+  fractional scale), whose rows repeat, as it's never the same picture
+  shifted.
+
 ## 0.7.0 — 2026-10-16
 
 Accessibility checks you can gate on: lint and tabwalk agree with Orca

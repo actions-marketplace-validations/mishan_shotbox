@@ -281,8 +281,11 @@ changes is said.
 A caret's half-second blink is neither, nor is something moving through,
 a thin line's steps crawling, an edge between two faces a little apart
 sweeping past, text scrolling past (as many of its looks as not in the
-picture before or after, up or down), or a frozen frame that isn't one
-color between live ones. `--ignore G` leaves out a box that flickers on
+picture before or after, up or down, pixel for pixel), or a frozen frame
+that isn't one color between live ones. Text scrolled by fractions of a
+pixel, as GTK 4's or kinetic scrolling or a browser at a fractional
+scale may, is drawn anew each picture, and where its rows repeat can be
+called flicker. `--ignore G` leaves out a box that flickers on
 purpose. Pictures are kept as they're taken and looked at after, a tile
 again only where it changed: a busy screen, every picture different, is
 pictured more slowly, kept at about 150 MB a second of watching, and

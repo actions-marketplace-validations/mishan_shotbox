@@ -19,14 +19,18 @@ the pixels most changes change are most of what most of them do, and no
 fewer than a line across the tile, which text, or a line's steps,
 moving through aren't. Its looks come back as the same pictures most
 times, nearer than A is to B, A as A and B as B, which anything moving
-through doesn't; or one of them does, and is one color where they
+through doesn't; or one of them does, one color each time where they
 differ, a band drawn black between frames of a scene that moves on, not
 one color, or a shape of it, as pages of text over their background
 aren't. A flash is to one color where it differs, a shape of it, from a
 picture that held still and back to it, and not a thin line gone to
 the color beside it; and the tiles round it don't change about then, as
 they do when something moves through. A look that's in the picture
-before or after, up or down the screen, is text scrolling, and neither.
+before or after, up or down the screen, the same pixel for pixel, is
+text scrolling, and neither. Text scrolled by fractions of a pixel (GTK
+4's or kinetic scrolling, a browser at a fractional scale) is drawn anew
+each picture, never the same, and can be called flicker where its rows
+repeat.
 """
 
 import functools
@@ -250,13 +254,15 @@ def find(held, brief, times, fuzz, pixels, wide):
         # text, missing a stroke the others have, isn't at all of it.
         first = where & changed(a, b, fuzz / 4) or where
         plains = [plain(a, first, fuzz), plain(b, first, fuzz)]
-        # Both looks coming back as the same pictures; or one, a color all over,
-        # as a frame drawn black between frames of a scene that moves on,
-        # which isn't one color, or is a shape of it, as a wall is and
-        # pages of text over their background aren't.
+        # Both looks coming back as the same pictures; or one, a color all over
+        # each time, as a frame drawn black between frames of a scene that
+        # moves on, which isn't one color, or is a shape of it, as a wall is and
+        # pages of text over their background aren't. The white between lines
+        # of text scrolling smoothly past comes back, but as every other look.
         if changes >= times and (all(back) or any(
-                r and p and (not q or filled(first, wide, high))
-                for r, p, q in zip(back, plains, plains[::-1]))):
+                r and all(plain(s, first, fuzz) for s in shown[side::2])
+                and (not q or filled(first, wide, high))
+                for side, r, q in zip((0, 1), back, plains[::-1]))):
             brief_ones = [s[2] for s in seq[1:] if s[2] <= brief]
             run = (seq[1][1], changes, sum(brief_ones) / len(brief_ones), *looks,
                    [st[3] for st in seq[1:]])
