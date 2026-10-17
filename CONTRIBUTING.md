@@ -4,7 +4,9 @@
 
 `test/run.sh` checks the session, the terminal, the pictures, the Python
 API (`test/api.py`, which needs GTK 3's PyGObject) and the Node helpers, and
-takes a few seconds. The helpers that need a browser use Playwright's
+takes about eight minutes; `SHOTBOX_PART=a11y test/run.sh` runs one of its
+parts (`core`, `input`, `a11y`, `record`), as CI does, each on its own
+runner. The helpers that need a browser use Playwright's
 Chromium (`npm install && npx playwright install chromium`) and skip
 without it, the Wayland sessions need sway, grim and Xwayland and skip
 without them, the accessibility checks need GTK 4, libadwaita and

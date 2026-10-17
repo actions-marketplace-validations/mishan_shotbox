@@ -3,6 +3,15 @@
 # the Node helpers. Needs what shotbox needs: Xvfb, xauth, dbus-daemon,
 # ImageMagick, and PyGObject with VTE for the terminal.
 set -eu
+# SHOTBOX_PART=NAME runs only what follows each "#: part NAME", besides
+# what's before the first part and after "#: end": CI runs each part at
+# once, on runners of their own.
+if [ -n "${SHOTBOX_PART-}" ]; then
+  p=$SHOTBOX_PART; unset SHOTBOX_PART
+  grep -qx "#: part $p" "$0" || { echo "no part $p in $0" >&2; exit 2; }
+  exec sh -c "$(awk -v p="$p" '/^#: part / { parted = 1; on = $3 == p; next }
+    /^#: end$/ { on = 1; next } !parted || on' "$0")" "$0"
+fi
 here=$(cd "$(dirname "$0")" && pwd)
 sb=$here/../bin/shotbox
 tmp=$(mktemp -d)
@@ -10,7 +19,12 @@ trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
+atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
+  && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; }
+app=$here/a11y_app.py
 
+#: part core
 # One version: the Python package's, the Node package's and its lockfile's,
 # the MCP registry's entry, and the changelog's newest release.
 root=$here/..
@@ -215,7 +229,6 @@ printf '[D-BUS Service]\nName=org.shotbox.Probe\nExec=/bin/sh -c '"'"'echo "$HOM
   && ok "--desktop: what the bus activates is inside the session" \
   || fail "--desktop: activated with: $(cat "$tmp/activated" 2>/dev/null)"
 # Audio: PipeWire with a null sink, or skip, unless SHOTBOX_AUDIO=required.
-audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 if audio; then
   python3 -c "import wave; w = wave.open('$tmp/beep.wav', 'wb'); w.setnchannels(1)
 w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
@@ -464,6 +477,7 @@ st=$?; set -e
   && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
   && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
 
+#: part input
 # flicker: a square switching green and black every 30 ms flickers, at
 # that; one that blinks every half second, as a caret does, doesn't; one
 # black for 40 ms, once a second, flashed; one black between frames of a
@@ -665,12 +679,11 @@ cat "$tmp/focus.log"
 fails=$((fails + $(grep -c '^FAIL' "$tmp/focus.log" || true)))
 [ $st = 0 ] || grep -q "^FAIL" "$tmp/focus.log" || fail "focus_test.py: status $st"
 
+#: part a11y
 # Accessibility: a session's own AT-SPI bus, the tree, lint, the Tab
 # order and announcements, against a libadwaita window. They need GTK 4,
 # libadwaita and at-spi2-core, or they skip, unless SHOTBOX_A11Y=required.
-app=$here/a11y_app.py
-if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
-    && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; then
+if atspi; then
   # Its sessions' scratch dirs under one of ours, to tell what they leave
   # running from the desktop's own accessibility bus: the launcher, its
   # bus and the registry have the session's runtime dir, not in their
@@ -941,6 +954,7 @@ else
     || echo "skip  a11y: no GTK 4, libadwaita or at-spi2-core"
 fi
 
+#: part input
 # Wayland: a headless sway, and Xwayland in it. They need sway, grim and
 # Xwayland, or they skip, unless SHOTBOX_WAYLAND=required.
 win=$here/window.py
@@ -1080,7 +1094,7 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   else
     xwayland_skip "xwayland: input"
   fi
-  if [ -n "${a11y-}" ]; then
+  if atspi; then
     set +e
     "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y lint --window app=org.shotbox.A11yTest
       st=\$?; '$sb' click 100 140 --window a11y-test &&
@@ -1109,6 +1123,7 @@ else
     || echo "skip  wayland: no sway or grim"
 fi
 
+#: part core
 # Compare.
 "$sb" compare "$tmp/a.png" "$tmp/b.png" >/dev/null && ok "compare: the same" || fail "compare same"
 convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
@@ -1139,6 +1154,7 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
   && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
   && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
 
+#: part record
 # Recording: a window for two seconds as an MP4; the screen as a WebM at
 # 10 frames a second; a crop as a GIF, its odd sides evened; and one with
 # no length, stopped by kill, finished properly. On X11, and on Wayland,
@@ -1357,6 +1373,7 @@ else
   echo "skip  record: no ffmpeg"
 fi
 
+#: part core
 # Gamepads: only the session's in its /dev/input, read as a game reads
 # them; what's left down stays down between commands; and gone with the
 # session. Needs write access to /dev/uinput and bubblewrap, or it skips.
@@ -1617,5 +1634,6 @@ elif ! grep -q '^ℹ fail [1-9]' "$tmp/browser.log"; then
   ok "browser helpers"
 fi
 
+#: end
 echo
 [ $fails = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
