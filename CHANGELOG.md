@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 — 2026-10-17
+
+MCP tool definitions an agent or a directory can read in full: every
+parameter described with its limits, the allowed programs listed, and
+hints as the spec reads them.
 
 ### Changed
 
