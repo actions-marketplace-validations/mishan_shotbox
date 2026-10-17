@@ -53,9 +53,11 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `states`, `path`, `depth`, and `bounds` on the screen); `find(role=None,
   name=None, window=None)`, `name` as `click_node` takes it (exactly,
   else a regex); `focused()`; `wait_focus(re)`;
-  `tab_walk(key="Tab", most=50, window=None, visible=False)`, the nodes
-  the focus lands on, failing on a trap (and with `visible`, where the
-  focus doesn't show); `a11y_lint(window=None, ignore=())` and
+  `tab_walk(key="Tab", most=50, window=None, visible=False,
+  reach_all=False, ignore=())`, the nodes the focus lands on, failing as
+  `tabwalk` does (with `visible`, where the focus doesn't show; with
+  `reach_all`, on what it never reaches); `a11y_lint(window=None,
+  ignore=())` and
   `contrast(window=None, text=4.5, graphics=3, edges=None)`, the nodes
   with a `problem`; `click_node(name, role=None, window=None)` and
   `scroll_node(name, dy, dx=0, role=None, window=None)`; and

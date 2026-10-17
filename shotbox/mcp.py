@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 
 from . import __version__, sound, usage
-from .a11y import Node, unseen
+from .a11y import Node, walk_lines
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session
 from .sound import describe
@@ -606,20 +606,17 @@ class Server:
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore)))
 
-    def tab_walk(self, session, key="Tab", window=None, visible=False, most=50):
+    def tab_walk(self, session, key="Tab", window=None, visible=False, most=50, ignore=None):
         s = self.a11y_session(session)
         most = int(number(most, "most", 1, 200) or 50)
         args = ["tabwalk", f"--key={key or 'Tab'}", "--max", str(most),
                 *(["--visible"] if flag(visible) else []),
+                *[f"--ignore={i}" for i in words(ignore)],
                 *([f"--window={window}"] if window else [])]
         got = s._a11y(*args, timeout=90 + most * 5)
-        seen = [Node(n) for n in got["focus"]]
-        lines = [n.line() + (f"  <- focus not shown: {n.changed} pixels changed, "
-                             f"{n.needed} needed" if unseen(n) else "") for n in seen]
-        lines.append({"cycle": f"Round again after {len(seen)}.",
-                      "trap": f"Stuck: {key} leaves the focus where it was.",
-                      "max": f"Not round again after {most}."}[got["end"]])
-        return "\n".join(lines)
+        return "\n".join(walk_lines(key or "Tab", most, [Node(n) for n in got["focus"]],
+                                    got["end"], [Node(n) for n in got["unreached"]],
+                                    got["began"] and Node(got["began"])))
 
     def announcements(self, session):
         log = Path(self.a11y_session(session).env["SHOTBOX_ANNOUNCEMENTS"])
@@ -870,10 +867,14 @@ TOOLS = [
     ("tab_walk",
      "Press a key (Tab) until the keyboard focus comes back round, and say where it went "
      "each time: the Tab order. It ends in a cycle (fine), a trap (a press that leaves "
-     "the focus where it was), or after most presses. visible also checks that each place "
-     "it lands shows it has the focus. Leaves the focus where it ends.",
+     "the focus where it was), or after most presses. A text view that takes Tab is left "
+     "with ctrl+Tab, shift+Tab, Escape or F6, Tab not pressed there; the controls Tab "
+     "never reached are said (ignore takes regexes for those that can be left out, as "
+     "lint's does). visible also checks that each place it lands shows it has the focus. Leaves "
+     "the focus where it ends.",
      schema({"session": SESSION, "key": {"type": "string"}, "window": WINDOW,
-             "visible": {"type": "boolean"}, "most": {"type": "integer"}}, ["session"])),
+             "visible": {"type": "boolean"}, "most": {"type": "integer"},
+             "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),
     ("announcements",
      "Everything programs have announced to a screen reader in the session, a line each, "
      "\"polite: Saved\": GTK's announcements, a browser's live regions.",

@@ -40,8 +40,11 @@ class Closed(XError):
 
 def parse_chord(spec):
     """A chord's (keysym, modifier keysyms): `ctrl+comma`, `Return`,
-    `alt+shift+Tab`. A lone `+` is the plus key."""
+    `alt+shift+Tab`. A lone `+` is the plus key, a lone modifier (`shift`)
+    that key."""
     *mods, key = spec.split("+") if spec != "+" else ["+"]
+    if not mods and key.lower() in MODIFIERS:
+        return MODIFIERS[key.lower()], []
     for m in mods:
         if m.lower() not in MODIFIERS:
             raise XError(f"unknown modifier {m!r} in {spec!r}")

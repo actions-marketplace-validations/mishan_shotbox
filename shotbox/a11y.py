@@ -367,37 +367,116 @@ def undrawn(Atspi, n):
     return e.width < 0 or e.height < 0
 
 
+# The ways out of a text view, which takes Tab for itself: GTK's key
+# (forward, so the walk goes on), Qt's (back: GTK's types a tab), Escape
+# (an editor's search bar), and a pane's, last: Kate and KWrite show a
+# view with it.
+ESCAPES = ("ctrl+Tab", "shift+Tab", "Escape", "F6")
+
+
 def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=False):
     """Press `key` up to `most` times and note where the focus lands each
-    time. (nodes, how it ended): "cycle" once it lands somewhere it has
-    been (where it began, or a stop since), "trap" if a press leaves it
-    where it was, "max" if neither. A press that leaves it on the one
-    thing in the window that could take it is a cycle of one. With
+    time. (nodes, how it ended, what it never reached, the text view it
+    began in or None): "cycle" once it lands somewhere it has been
+    (where it began, or a stop since), "trap" if a press leaves it where
+    it was, "lost" if no node has it after one, "max" if none of those;
+    "unfocused" if no node has it to begin with (X11 with no window
+    manager), and nothing is pressed into that. Shift is pressed first:
+    GTK 4 on Wayland says where the focus is only once a key has been (an
+    input method may switch modes on it). A press that leaves it on the one thing in the
+    window that could take it is a cycle of one. `key` isn't pressed in a
+    text view one writes in, which takes Tab for itself: ESCAPES are,
+    noted on it as `tried`, the one that moves the focus as `left_by`,
+    one after which its text changed as `edited`; none is a trap, and
+    one after which the text view isn't there ends the walk, "closed".
+    Escape isn't tried in a dialog, which it would close, nor shift+Tab
+    but in Qt; once that leaves, backward, the walk goes on from the first
+    thing after the text view that takes the focus (grab_focus). Where the walk
+    began in one nothing leaves, it gives the focus to the first thing
+    outside it that takes it (AT-SPI's grab_focus, which GTK 4 doesn't
+    do), so the rest of the window is walked before the trap. With
     `visible`, each node says how much of the screen round it changed as
     it took the focus (see shown())."""
     Atspi = atspi()
     screen = Screen()
+
+    def press(k, before):
+        """Press `k`, and once the focus has left `before` for a node, or
+        after `settle`, the node it's on, or None."""
+        screen.key(k)
+        end = time.monotonic() + settle
+        while True:
+            now = focused(Atspi, window)
+            if (now is not None and (before is None or now._id != before._id)
+                    or time.monotonic() > end):
+                return now
+            time.sleep(0.05)
+
     toplevels(Atspi, window, timeout)
-    start = focused(Atspi, window)
+    start = press("shift", None)
+    if start is None:
+        screen.close()
+        return [], "unfocused", [], None
+    began = start if writing(Atspi, start) else None
     seen = []
     if visible:
         screen.park()
         look = Look(Atspi, screen, start)
-    try:
+
+    def leave(n):
+        """Try ESCAPES on `n`, a text view: where the focus went, if it
+        left (None for nowhere a node says), and None, "trap" or
+        "closed"."""
+        n["tried"], n["left_by"] = [], None
+        dialog, qt = in_dialog(Atspi, n), toolkit(n).startswith("Qt")
+        text = contents(Atspi, n)
+        for k in ESCAPES:
+            if k == key or (dialog and k == "Escape") or (k == "shift+Tab" and not qt):
+                continue
+            n["tried"].append(k)
+            now = press(k, n)
+            if not showing(Atspi, n):
+                return now, "closed"
+            if contents(Atspi, n) != text:
+                n["edited"], text = k, contents(Atspi, n)
+            if now is None or now._id != n._id:
+                n["left_by"] = k
+                if k == "shift+Tab":
+                    after = focus_outside(Atspi, window, n, settle, after=True)
+                    if after is not None:
+                        n["walked_from"], now = public(after), after
+                return now, None
+        return None, "trap"
+
+    def go():
+        nonlocal start
+        # Left a text view for what no node says has the focus (gedit's
+        # ctrl+Tab), from where the next press goes on.
+        lost = False
         for _ in range(most):
             before = seen[-1] if seen else start
-            screen.key(key)
-            end = time.monotonic() + settle
-            while True:
-                now = focused(Atspi, window)
-                moved = now is not None and (before is None or now._id != before._id)
-                if moved or time.monotonic() > end:
-                    break
-                time.sleep(0.05)
-            if not moved:
-                if now is not None and alone(Atspi, window, now):
-                    return seen or [now], "cycle"
-                return seen + ([now] if now else []), "trap"
+            if not lost and writing(Atspi, before):
+                now, end = leave(before)
+                if end == "trap" and before is began and not seen:
+                    # Walked from there, it's a trap when the walk comes back.
+                    start = now = focus_outside(Atspi, window, before, settle)
+                    if now is not None:
+                        before["walked_from"] = public(now)
+                        continue
+                if end:
+                    return seen or [before], end
+                if now is None:
+                    lost = True
+                    continue
+            else:
+                now = press(key, None if lost else before)
+                if lost and now is None:
+                    continue
+                if not lost and (now is None or now._id == before._id):
+                    if now is None:
+                        return seen, "lost"
+                    return seen or [now], "cycle" if alone(Atspi, window, now) else "trap"
+            lost = False
             been = [n._id for n in ([start] if start else []) + seen]
             if visible:
                 look.took(now)
@@ -405,8 +484,136 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             if now._id in been:
                 return seen, "cycle"
         return seen, "max"
+
+    try:
+        seen, how = go()
     finally:
         screen.close()
+    # Said only where the walk left it; else it's the trap.
+    began = began if began and (began.get("left_by") or began.get("walked_from")) else None
+    return seen, how, unreached(Atspi, window, [n for n in (start, *seen) if n]), began
+
+
+def writing(Atspi, n):
+    """Whether `n` is a text view one writes in, which takes Tab."""
+    try:
+        return n is not None and "editable" in n.states and n._acc.get_state_set().contains(
+            Atspi.StateType.MULTI_LINE)
+    except Exception:   # gone since
+        return False
+
+
+def toolkit(n):
+    try:
+        return n._acc.get_application().get_toolkit_name() or ""
+    except Exception:   # gone
+        return ""
+
+
+def contents(Atspi, n):
+    try:
+        return Atspi.Text.get_text(n._acc, 0, -1)
+    except Exception:   # gone since
+        return None
+
+
+def showing(Atspi, n):
+    try:
+        n._acc.clear_cache()
+        return n._acc.get_state_set().contains(Atspi.StateType.SHOWING)
+    except Exception:   # gone
+        return False
+
+
+def in_dialog(Atspi, n):
+    """Whether `n` is in a dialog or alert (libadwaita's, in its window's
+    frame, too)."""
+    dialogs = roles(Atspi, ("DIALOG", "ALERT", "FILE_CHOOSER"))
+    acc = n._acc
+    try:
+        while acc is not None:
+            if int(acc.get_role()) in dialogs:
+                return True
+            acc = acc.get_parent()
+    except Exception:   # gone
+        return True
+    return False
+
+
+def focus_outside(Atspi, window, n, settle, after=False):
+    """Give the focus to the first node outside `n` (`after` it) that takes
+    it (AT-SPI's grab_focus), and the node it's then on, or None."""
+    containers = roles(Atspi, CONTAINERS)
+    nodes = [o for _, o in walk(Atspi, window)]
+    if after:
+        nodes = nodes[next((i for i, o in enumerate(nodes) if o._id == n._id), len(nodes)):]
+    for o in nodes:
+        if ("focusable" in o.states and "disabled" not in o.states and o._role not in containers
+                and o._id != n._id and not o.path.startswith(n.path + "/")):
+            try:
+                Atspi.Component.grab_focus(o._acc)
+            except Exception:   # gone, or it won't
+                continue
+            end = time.monotonic() + settle
+            while time.monotonic() < end:
+                now = focused(Atspi, window)
+                if now is not None and now._id != n._id:
+                    return now
+                time.sleep(0.05)
+    return None
+
+
+# Roles a group of which takes one Tab stop, the rest reached by arrows.
+GROUPED = ("RADIO_BUTTON", "PAGE_TAB", "MENU_ITEM", "CHECK_MENU_ITEM", "RADIO_MENU_ITEM")
+
+# A table or list's focusable items, and what they're in, which takes a
+# Tab stop for them all.
+ITEMS = ("TABLE_CELL", "LIST_ITEM", "TREE_ITEM")
+LISTS = ("TABLE", "TREE_TABLE", "TREE", "LIST", "LIST_BOX")
+
+
+def unreached(Atspi, window, seen):
+    """The showing, sensitive controls and fields the focus never landed
+    on, nor on anything round them, nor in them but for a container's,
+    nor on another of their group beside them (a tab, a radio button),
+    but for a menu bar's (F10's); and each table or list with an item
+    that takes the focus, the focus never in it."""
+    controls, grouped = roles(Atspi, CONTROLS), roles(Atspi, GROUPED)
+    containers, items, lists = roles(Atspi, CONTAINERS), roles(Atspi, ITEMS), roles(Atspi, LISTS)
+    menu_bar = roles(Atspi, ("MENU_BAR",))
+    nodes = [n for _, n in walk(Atspi, window)]
+    by_path = {n.path: n for n in nodes}
+    ids = {n._id for n in seen}
+
+    def ups(n):
+        path = n.path
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            if path in by_path:
+                yield by_path[path]
+
+    def near(n, o):
+        return ((n.path.startswith(o.path + "/") and o._role not in containers)
+                or o.path.startswith(n.path + "/")
+                or (n._role in grouped and n._role == o._role
+                    and n.path.rsplit("/", 1)[0] == o.path.rsplit("/", 1)[0]))
+
+    def entered(n):
+        return n._id in ids or any(o.path.startswith(n.path + "/") for o in seen)
+
+    out = []
+    for n in nodes:
+        if "disabled" in n.states or n._id in ids:
+            continue
+        if n._role in items and "focusable" in n.states:
+            box = next((u for u in ups(n) if u._role in lists), None)
+            if box and box not in out and not entered(box):
+                out.append(box)
+        elif ((n._role in controls or (n._role == Atspi.Role.TEXT and "editable" in n.states))
+              and not any(near(n, o) for o in seen)
+              and not any(u._role in menu_bar for u in ups(n))):
+            out.append(n)
+    return out
 
 
 class Look:
@@ -985,6 +1192,10 @@ def main(argv):
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
+    w.add_argument("--reach-all", action="store_true",
+                   help="fail where a showing, sensitive control is never reached; "
+                        "without it, they're said, as arrows or shortcuts may reach them")
+    w.add_argument("--ignore", **ignore)
     w.add_argument("--visible", action="store_true",
                    help="fail where the focus doesn't show: too little of the screen "
                         "round a node changed as it took it")
@@ -1054,24 +1265,62 @@ def main(argv):
              else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout))
         print(json.dumps(public(n)) if a.json else n.line())
         return 0
-    seen, how = tab_walk(a.key, a.max, a.window, timeout=a.timeout, visible=a.visible)
+    skip = ignored(a.ignore)
+    seen, how, missed, began = tab_walk(a.key, a.max, a.window, timeout=a.timeout,
+                                        visible=a.visible)
+    missed = [n for n in missed if not skip(n, f"not reached by {a.key}")]
     if a.json:
-        print(json.dumps({"focus": [public(n) for n in seen], "end": how}))
+        print(json.dumps({"focus": [public(n) for n in seen], "end": how,
+                          "unreached": [public(n) for n in missed],
+                          "began": began and public(began)}))
         return 0
+    for line in walk_lines(a.key, a.max, seen, how, missed, began):
+        print(line)
     hidden = [n for n in seen if unseen(n)]
-    for n in seen:
-        print(n.line() + (f"  <- focus not shown: {n.changed} pixels changed, "
-                          f"{n.needed} needed" if unseen(n) else ""))
-    if how == "cycle":
-        print(f"round again after {len(seen)}")
-    elif how == "trap":
-        print(f"stuck: {a.key} leaves the focus where it was")
-    else:
-        print(f"not round again after {a.max}")
-    if hidden:
-        print(f"focus not shown on {len(hidden)}")
-    return 0 if how == "cycle" and not hidden else 1
+    return 0 if how == "cycle" and not hidden and not (a.reach_all and missed) else 1
 
+
+def walk_lines(key, most, seen, how, missed, began):
+    """What a walk found, a line each, as `shotbox a11y tabwalk` says it."""
+    def marked(n):
+        said = []
+        if unseen(n):
+            said.append(f"focus not shown: {n.changed} pixels changed, {n.needed} needed")
+        on = n.get("walked_from") and Node(n.walked_from).line()
+        if n.get("left_by"):
+            said.append(f"a text view: {n.left_by} leaves it"
+                        + (f", backward; walked on from {on}" if on else ""))
+        elif on:
+            said.append(f"a text view nothing leaves; walked from {on}")
+        if n.get("edited"):
+            said.append(f"{n.edited} changed its text")
+        return n.line() + "".join(f"  <- {s}" for s in said)
+
+    lines = [f"began in {marked(began)}"] if began else []
+    lines += [marked(n) for n in seen]
+    lines += [f"not reached by {key}: {n.line()}" for n in missed]
+    lines.append(walk_end(key, most, seen, how, missed))
+    hidden = [n for n in seen if unseen(n)]
+    if hidden:
+        lines.append(f"focus not shown on {len(hidden)}")
+    return lines
+
+
+def walk_end(key, most, seen, how, missed):
+    """How a walk ended, as a line."""
+    tried = seen[-1].get("tried") if seen else None
+    unreached = f"; {len(missed)} not reached by {key}" if missed else ""
+    return {
+        "cycle": f"round again after {len(seen)}{unreached}",
+        "trap": (f"stuck in a text view, which takes {key}: {', '.join(tried[:-1])} and "
+                 f"{tried[-1]} leave the focus there" if tried
+                 else f"stuck: {key} leaves the focus where it was"),
+        "lost": f"lost: after {key}, no node has the focus",
+        "closed": f"stopped: after {tried and tried[-1]}, the text view isn't there",
+        "unfocused": "no node has the focus to begin with: give the window the keyboard "
+                     "(shotbox focus)",
+        "max": f"not round again after {most}{unreached}",
+    }[how]
 
 if __name__ == "__main__":
     try:

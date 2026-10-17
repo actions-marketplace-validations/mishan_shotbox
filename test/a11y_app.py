@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
-[fixed] [trap] [lists] [one] [untitled] [second] [faint] [thin] [long] [keys]. Its icon-only button,
+[fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
+[thin] [long] [keys]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
-untitled second window; `trap` puts a text view first, which keeps Tab;
-`lists` is lists and a notebook instead, and `one` a single button;
+untitled second window; `notes` puts a text view first, which keeps Tab
+(and prints its text as it changes), `trap` one that keeps ctrl+Tab,
+shift+Tab, Escape and F6 too, and `dialog` that one in a dialog; `lists`
+is lists and a notebook instead, `one` a single button, and
+`unfocusable` that, and a button Tab can't reach;
 `faint` adds a label too light to read, `thin` one in small monospace
 spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a scrolled
 list running far past the window, and `keys` buttons named as a calculator's are, which
@@ -17,7 +21,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gtk  # noqa: E402
 
 
 def lists():
@@ -81,10 +85,19 @@ def activate(app):
                      accessible_role=Gtk.AccessibleRole.PRESENTATION)
     for widget in (save, delete, announce, wrap, entry, status, mark, sketch, faint, thin):
         box.append(widget)
-    if "trap" in sys.argv:
-        # A text view takes Tab for itself: Tab can't leave it.
-        notes = Gtk.TextView()
-        notes.update_property([Gtk.AccessibleProperty.LABEL], ["Notes"])
+    notes = Gtk.TextView()
+    notes.get_buffer().set_text("notes")
+    notes.get_buffer().connect("changed", lambda b: print(repr(b.props.text), flush=True))
+    notes.update_property([Gtk.AccessibleProperty.LABEL], ["Notes"])
+    if "trap" in sys.argv or "dialog" in sys.argv:
+        # As an editor's own shortcuts can.
+        keep = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keep.connect("key-pressed", lambda c, key, code, state: key in (
+            Gdk.KEY_Escape, Gdk.KEY_F6, Gdk.KEY_ISO_Left_Tab) or (key == Gdk.KEY_Tab and bool(
+                state & Gdk.ModifierType.CONTROL_MASK)))
+        notes.add_controller(keep)
+    if "notes" in sys.argv or "trap" in sys.argv:
+        # A text view takes Tab for itself; GTK's ctrl+Tab leaves it.
         box.prepend(notes)
         notes.grab_focus()
     if "lists" in sys.argv:
@@ -101,8 +114,20 @@ def activate(app):
     view = Adw.ToolbarView(content=box)
     view.add_top_bar(Adw.HeaderBar())
     # One thing to take the focus: no header bar and its buttons either.
-    w.set_content(Gtk.Button(label="Save") if "one" in sys.argv else view)
+    if "one" in sys.argv or "unfocusable" in sys.argv:
+        view = Gtk.Box()
+        view.append(Gtk.Button(label="Save"))
+        if "unfocusable" in sys.argv:
+            view.append(Gtk.Button(label="Play", focusable=False))
+    w.set_content(view)
     w.present()
+    if "dialog" in sys.argv:
+        # Escape, a way out of a text view elsewhere, closes a dialog.
+        inside = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        inside.append(notes)
+        inside.append(Gtk.Button(label="Send"))
+        Adw.Dialog(child=inside, title="Reply").present(w)
+        notes.grab_focus()
     if "second" in sys.argv:
         other = Adw.ApplicationWindow(application=app)
         other.set_content(Gtk.Label(label="second"))

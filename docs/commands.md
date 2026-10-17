@@ -134,9 +134,9 @@ says (`--env SHOTBOX_FAILED=...`).
 ## key, type, click, move, scroll, drag, park and focus
 
 Inside, `shotbox key CHORD...` presses keys (`ctrl+comma`, `Return`,
-`alt+shift+Tab`), `shotbox type TEXT` types ASCII text, and `shotbox click
-X Y`, `shotbox move X Y`, `shotbox scroll X Y DY [DX]` and `shotbox drag
-X1 Y1 X2 Y2` work the pointer, at a point on the screen or, with `--window
+`alt+shift+Tab`, a modifier alone: `shift`), `shotbox type TEXT` types
+ASCII text, and `shotbox click X Y`, `shotbox move X Y`, `shotbox scroll
+X Y DY [DX]` and `shotbox drag X1 Y1 X2 Y2` work the pointer, at a point on the screen or, with `--window
 RE`, inside a window (`click --button 3`, `--double`). `scroll` turns the
 mouse wheel there, DY clicks down and DX right, negative for up and left;
 `shotbox a11y scroll NAME DY [DX]` does it over a node found by its name.
