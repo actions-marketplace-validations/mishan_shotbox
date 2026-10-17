@@ -231,6 +231,9 @@ class Server:
                       clock=None, tz=None):
         name = text(name) or next(f"s{n}" for n in range(1, 10000)
                                   if f"s{n}" not in self.sessions)
+        text_scale = number(text_scale, "text_scale")
+        if text_scale is not None and text_scale < 0.1:
+            raise Refused(f"text_scale is at least 0.1, not {text_scale:g}")
         if name in self.sessions:
             raise Refused(f"there's a session called {name!r} already")
         m = re.fullmatch(r"(\d+)x(\d+)", str(screen))
@@ -239,7 +242,7 @@ class Server:
         s = Session(size=(int(m[1]), int(m[2])), a11y=flag(a11y), wayland=flag(wayland),
                     xwayland=flag(xwayland), dark=flag(dark),
                     high_contrast=flag(high_contrast),
-                    text_scale=number(text_scale, "text_scale"), audio=flag(audio),
+                    text_scale=text_scale, audio=flag(audio),
                     gamepads=within(gamepads, "gamepads", 0, 4, whole=True) or 0,
                     net=text(net), usage=flag(usage), identity=text(identity),
                     clock=text(clock), tz=text(tz))
@@ -566,7 +569,8 @@ class Server:
             raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
                           f"not {what!r}")
         # Each call holds the server till it's done: not for long.
-        timeout = number(timeout, "timeout", 0, 300) or 10
+        timeout = number(timeout, "timeout", 0, 300)
+        timeout = 10 if timeout is None else timeout
         if what in ("match", "change"):
             fuzz = f"{number(fuzz, 'fuzz', 0, 100) or 0:.6f}".rstrip("0").rstrip(".") + "%"
             most = int(number(most, "most", 0) or 0)
@@ -667,7 +671,7 @@ def schema(props, required=()):
     return {"type": "object", "properties": props, "required": list(required)}
 
 
-SESSION = {"type": "string", "description": "The session's name, as start_session gave it"}
+SESSION = {"type": "string", "description": "Its name, from start_session"}
 # A burst's sheet is one image: shrunk to this many pixels each way, it's
 # still readable and not a dozen screens' worth, however tall its pictures.
 SHEET_SIZE = 1920
@@ -678,13 +682,21 @@ RECORD_SECONDS, RECORD_SIZE = 60, 100_000_000
 # Clients time a call out at about 60 s, and some count from its last progress.
 PROGRESS = 5
 FRAMES = 8
-HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
+HOLD = {"type": "number", "minimum": 0, "maximum": 60,
+        "description": "Seconds to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
          "description": "Only press, leaving it down until a call with up; or only let go"}
 CROP = {"type": "string", "description": "WIDTHxHEIGHT+X+Y, inside what's taken"}
 WINDOW = {"type": "string", "description":
-          "A window by its title (exactly, or a regex matched in full), or app=RE for its "
-          "app id"}
+          "A window's title, exactly or a regex matched in full, or app=RE for its app id"}
+NAME = {"type": "string", "description": "A node's name, as accessible_tree gives it: "
+        "exactly, or a regex matched in full"}
+ROLE = {"type": "string", "description": "Narrows name: exactly, or a regex"}
+X = {"type": "integer", "description": "Pixels from the left"}
+Y = {"type": "integer", "description": "Pixels from the top"}
+IGNORE = {"type": "array", "items": {"type": "string"},
+          "description": "Regexes for lines that can't be fixed yet"}
+PROGRAM = {"type": "string", "description": "Its name in the allow list"}
 WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
@@ -696,49 +708,54 @@ TOOLS = [
      "it reaches the desktop of the person you're working for, and nothing of theirs "
      "reaches it. Start one, spawn a program in it, then look with accessible_tree (cheap, "
      "text) before screenshot (pixels). It lasts until stop_session, or until this server "
-     "stops. dark, high_contrast and text_scale (1.25) set the desktop's styles for GTK and "
-     "libadwaita; audio gives it a sound server whose sink plays to nowhere; net loopback "
-     "a network of its own, which its programs share and nothing else is on: a server "
-     "they start can't be reached from outside, nor can they reach anything. clock starts "
-     "its wall clock at a time and lets it run on, so dates in pictures don't change.",
+     "stops.",
      schema({"name": {"type": "string", "description": "What to call it (s1, s2... by default)"},
              "a11y": {"type": "boolean", "description": "An accessibility bus (default true)"},
-             "wayland": {"type": "boolean"}, "xwayland": {"type": "boolean"},
-             "dark": {"type": "boolean"}, "high_contrast": {"type": "boolean"},
-             "text_scale": {"type": "number"}, "audio": {"type": "boolean"},
-             "gamepads": {"type": "integer",
-                          "description": "Virtual Xbox 360 pads, 0 to 4, for the gamepad tool"},
+             "wayland": {"type": "boolean", "description": "Wayland, not X11"},
+             "xwayland": {"type": "boolean", "description": "Wayland, with Xwayland for X "
+                          "programs"},
+             "dark": {"type": "boolean", "description": "GTK and libadwaita's dark style"},
+             "high_contrast": {"type": "boolean", "description": "Their high contrast style"},
+             "text_scale": {"type": "number", "minimum": 0.1,
+                            "description": "Their text size, 1.25 for 125%"},
+             "audio": {"type": "boolean", "description": "A sound server whose sink plays "
+                       "to nowhere"},
+             "gamepads": {"type": "integer", "minimum": 0, "maximum": 4,
+                          "description": "Virtual Xbox 360 pads, for the gamepad tool"},
              "screen": {"type": "string", "description": "WIDTHxHEIGHT (1280x800)"},
-             "net": {"type": "string", "enum": ["loopback"]},
+             "net": {"type": "string", "enum": ["loopback"], "description": "A network its "
+                     "programs share and nothing else is on: nothing reaches in or out"},
              "identity": {"type": "string", "description": "USER@HOST: who and where its "
                           "programs are, for whoami, hostname, ls -l and $USER"},
              "usage": {"type": "boolean", "description": "Say, when it's stopped, what its "
                        "programs used: peak memory and CPU time"},
              "clock": {"type": "string", "description": "ISO 8601, 2026-09-26T18:40:00, in tz "
-                       "or UTC: where its wall clock starts (needs libfaketime)"},
+                       "or UTC: where its wall clock starts and runs on from, so dates in "
+                       "pictures don't change (needs libfaketime)"},
              "tz": {"type": "string", "description": "Its time zone, Europe/Berlin (UTC)"}})),
-    ("stop_session", "Stop a session and everything running in it.",
+    ("stop_session",
+     "Stop a session: every program in it ends, unsaved work and all, and its scratch "
+     "directory goes. With usage, it says their peak memory and CPU time.",
      schema({"session": SESSION}, ["session"])),
     ("spawn",
-     "Start one of the programs this server was allowed to run, by its name, in a "
-     "session. You can't run anything else: the list is the person's, in the file "
-     "shotbox mcp was started with, and start_session's answer says what's on it. Then "
-     "wait_for the window before looking at it. If it doesn't come up, program_output "
-     "says why.",
-     schema({"session": SESSION, "program": {"type": "string"}}, ["session", "program"])),
+     "Start one of the programs the person allowed this server to run, by its name, in a "
+     "session; nothing else can run. Then wait_for its window before looking at it. If it "
+     "doesn't come up, program_output says why.",
+     schema({"session": SESSION, "program": PROGRAM}, ["session", "program"])),
     ("program_output",
      "Whether a spawned program is still running, and the end of what it printed: for a "
      "window that never came up, or a crash.",
-     schema({"session": SESSION, "program": {"type": "string"},
-             "lines": {"type": "integer", "description": "How many lines from the end (40)"}},
+     schema({"session": SESSION, "program": PROGRAM,
+             "lines": {"type": "integer", "minimum": 1, "maximum": 2000,
+                       "description": "How many lines from the end (40)"}},
             ["session", "program"])),
     ("accessible_tree",
      "What a screen reader would find: every visible node, a line each, indented, with its "
      "role, name, description and the states a screen reader says (focusable, focused, "
      "checked...). The cheapest way to see what's on screen and what can be clicked by "
-     "name, and exactly what someone who can't see the screen gets. A node with an empty "
-     "name (\"\") is one a screen reader can say nothing for. bounds adds where each is on "
-     "the screen. Use screenshot for how it looks.",
+     "name. A node with an empty "
+     "name (\"\") is one a screen reader can say nothing for. Use screenshot for how it "
+     "looks.",
      schema({"session": SESSION, "window": WINDOW,
              "bounds": {"type": "boolean", "description": "Add @x,y WIDTHxHEIGHT to each line"}},
             ["session"])),
@@ -746,66 +763,69 @@ TOOLS = [
      "A picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look at: "
      "the only way to see colors, layout and what's drawn. Pictures cost far more than the "
      "accessible tree; take the window rather than the screen, and crop when you need a "
-     "part. park moves the pointer out of the way first, so nothing shows its hover. "
-     "vision shows it as someone with that color vision sees it, to check nothing is "
-     "told apart by color alone. burst takes several, every seconds apart, as one image "
-     "in rows of four: for motion, an animation or a transition.",
+     "part. vision checks nothing is told apart by color alone; burst, as one image in "
+     "rows of four, is for motion, an animation or a transition.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": CROP,
-             "park": {"type": "boolean"},
-             "burst": {"type": "integer", "description": "Pictures to take, 2 to 12"},
-             "every": {"type": "number", "description": "With burst, seconds between them"},
+             "park": {"type": "boolean", "description": "Move the pointer away first, so "
+                      "nothing shows its hover"},
+             "burst": {"type": "integer", "minimum": 2, "maximum": 12,
+                       "description": "Pictures to take"},
+             "every": {"type": "number", "minimum": 0, "maximum": 5,
+                       "description": "With burst, seconds between them"},
              "vision": {"type": "string", "enum": sorted(VISION),
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"}},
             ["session"])),
     ("record",
-     "Record a clip of the screen, or of one window, for seconds (up to 60), and save it as "
-     "an .mp4: in the session's scratch directory, gone when the session stops, or at path, "
-     "by its path from the directory of the server's allow file. The answer is the saved "
-     "path, how long the clip is, and up to 8 frames from it RETURNED AS ONE IMAGE in rows of "
-     "four, with the times they show: you can't play the clip, but a person or another "
-     "tool can. A clip stops at 100 MB. sound, in a session started with audio, records "
-     "what plays too, and says what it heard, as the sound tool does. until_line ends it "
-     "at an event instead: tail seconds (0) after a line matching it (a regex) is written "
-     "to file, as wait_for's line reads one, seconds then the most it lasts (60); the "
-     "answer gives the line. For a few moments of motion, screenshot's burst is cheaper.",
+     "Record a clip of the screen, or of one window, and save it as an .mp4: in the "
+     "session's scratch directory, gone when the session stops, or at path. The answer is "
+     "the saved path, how long the clip is, and up to 8 frames from it RETURNED AS ONE "
+     "IMAGE in rows of four, with the times they show: you can't play the clip, but a "
+     "person or another tool can. A clip stops at 100 MB. sound also says what it heard, "
+     "as the sound tool does. until_line ends it at an event instead; the answer gives the "
+     "line. For a few moments of motion, screenshot's burst is cheaper.",
      schema({"session": SESSION,
-             "seconds": {"type": "number", "description": "How long, 0.1 to 60; with "
-                         "until_line, the most"},
+             "seconds": {"type": "number", "minimum": 0.1, "maximum": RECORD_SECONDS,
+                         "description": "How long; with until_line, the most (60)"},
              "window": WINDOW,
              "crop": CROP,
-             "sound": {"type": "boolean", "description": "What plays too, and what was "
-                       "heard in it, in a session started with audio"},
-             "path": {"type": "string", "description": "Where to save it, an .mp4, by its "
+             "sound": {"type": "boolean", "description": "What plays too, in a session "
+                       "started with audio"},
+             "path": {"type": "string", "description": "Where to save it, a new .mp4, by its "
                       "path from the allow file's directory"},
-             "until_line": {"type": "string"}, "file": {"type": "string"},
-             "tail": {"type": "number"}},
+             "until_line": {"type": "string", "description": "A regex: stop tail seconds "
+                            "after a line matching it is written to file"},
+             "file": {"type": "string", "description": "until_line's, by its path from the "
+                      "allow file's directory"},
+             "tail": {"type": "number", "minimum": 0, "maximum": RECORD_SECONDS,
+                      "description": "Seconds to go on after the line (0)"}},
             ["session"])),
     ("click",
-     "Click a node by its name, as the accessible tree gives it: exactly, or failing "
-     "that, a regex matched in full (role narrows it, exactly or as a regex, like "
-     "\"button\" or \"(push )?button\"); or a point by x and y, on the screen or inside a window. By name "
-     "is the one to use: it waits up to timeout seconds (10) for the node, raises its "
+     "Click a node by its name, or a point by x and y, on the screen or inside a window. "
+     "By name is the one to use: it waits up to timeout seconds for the node, raises its "
      "window and clicks its middle. When two nodes match it lists them, with where they "
      "are; when none does, the nearest names. A click gives a window the keyboard, which "
      "nothing else does on X11. hold and state, by x and y, hold the button as press_keys "
      "holds keys.",
-     schema({"session": SESSION, "name": {"type": "string"}, "role": {"type": "string"},
-             "x": {"type": "integer"}, "y": {"type": "integer"}, "window": WINDOW,
+     schema({"session": SESSION, "name": NAME, "role": ROLE, "x": X, "y": Y,
+             "window": WINDOW,
              "button": {"type": "integer", "description": "1 left, 2 middle, 3 right"},
-             "double": {"type": "boolean"},
+             "double": {"type": "boolean", "description": "Click twice, as a double click"},
              "hold": HOLD, "state": STATE,
-             "timeout": {"type": "number", "description": "By name, how long to wait for "
-                         "the node (10 seconds)"}}, ["session"])),
+             "timeout": {"type": "number", "minimum": 0, "maximum": 300,
+                         "description": "By name, seconds to wait for the node (10)"}},
+            ["session"])),
     ("scroll",
      "Turn the mouse wheel over a node by its name, found as click finds it, or at a point "
-     "by x and y: dy clicks down (negative, up), dx right (negative, left), up to 100 "
-     "each. For what's past a list's, a page's or a window's edge; then wait_for stable "
-     "and look again.",
-     schema({"session": SESSION, "dy": {"type": "integer"}, "dx": {"type": "integer"},
-             "name": {"type": "string"}, "role": {"type": "string"},
-             "x": {"type": "integer"}, "y": {"type": "integer"}, "window": WINDOW},
+     "by x and y. For what's past a list's, a page's or a window's edge; then wait_for "
+     "stable and look again.",
+     schema({"session": SESSION,
+             "dy": {"type": "integer", "minimum": -100, "maximum": 100,
+                    "description": "Clicks down; negative, up"},
+             "dx": {"type": "integer", "minimum": -100, "maximum": 100,
+                    "description": "Clicks right; negative, left"},
+             "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW},
             ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. "
@@ -813,77 +833,100 @@ TOOLS = [
      "presses them all together and keeps them down that long (walking while running); "
      "state down leaves them down, across calls, until a call with state up (move or "
      "click while a key is held).",
-     schema({"session": SESSION, "keys": {"type": "array", "items": {"type": "string"}},
+     schema({"session": SESSION,
+             "keys": {"type": "array", "items": {"type": "string"},
+                      "description": "Chords, pressed one after another"},
              "hold": HOLD, "state": STATE}, ["session", "keys"])),
     ("gamepad",
-     "Work a virtual gamepad, in a session started with gamepads: press buttons (a b x y "
-     "lb rb back start guide ls rs, and the d-pad's up down left right) together, tapped, "
-     "held for hold seconds, or with state down left down until a call with state up; push "
-     "a stick (which: left or right) to x, y, each -1 to 1 with y down; pull a trigger to "
-     "value, 0 to 1; or neutral, letting go of everything. A stick or trigger stays where "
-     "it's put, unless hold says for how long. Programs in the session see a real Xbox 360 "
-     "controller, and none of the machine's.",
+     "Work a virtual gamepad, in a session started with gamepads: press buttons together, "
+     "tapped, held for hold seconds, or with state down left down until a call with state "
+     "up; push a stick to x, y; pull a trigger to value; or neutral, letting go of "
+     "everything. A stick or trigger stays where it's put, unless hold says for how long. "
+     "Programs in the session see a real Xbox 360 controller, and none of the machine's.",
      schema({"session": SESSION,
-             "action": {"type": "string", "enum": ["press", "stick", "trigger", "neutral"]},
-             "pad": {"type": "integer", "description": "Which pad (1)"},
-             "buttons": {"type": "array", "items": {"type": "string"}},
-             "which": {"type": "string", "enum": ["left", "right"]},
-             "x": {"type": "number"}, "y": {"type": "number"}, "value": {"type": "number"},
+             "action": {"type": "string", "enum": ["press", "stick", "trigger", "neutral"],
+                        "description": "Press buttons, push a stick, pull a trigger, "
+                        "or let go of everything"},
+             "pad": {"type": "integer", "minimum": 1, "maximum": 4,
+                     "description": "Which of the session's pads (1)"},
+             "buttons": {"type": "array", "items": {"type": "string"},
+                         "description": "a b x y lb rb back start guide ls rs, and the "
+                         "d-pad's up down left right"},
+             "which": {"type": "string", "enum": ["left", "right"],
+                       "description": "Which stick or trigger"},
+             "x": {"type": "number", "minimum": -1, "maximum": 1,
+                   "description": "The stick, left to right"},
+             "y": {"type": "number", "minimum": -1, "maximum": 1,
+                   "description": "The stick, up to down"},
+             "value": {"type": "number", "minimum": 0, "maximum": 1,
+                       "description": "The trigger, let go to pulled all the way"},
              "hold": HOLD, "state": STATE}, ["session", "action"])),
     ("type_text",
-     "Type text into whatever has the keyboard focus. ASCII only.",
-     schema({"session": SESSION, "text": {"type": "string"}}, ["session", "text"])),
+     "Type text into whatever has the keyboard focus, a key at a time. ASCII only: a "
+     "character with no key fails the call, once what's before it is typed.",
+     schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"}},
+            ["session", "text"])),
     ("wait_for",
      "Wait, instead of sleeping, for: a window (value: its title, exactly or a regex, or "
-     "app=RE), stable (the screen, or the window, unchanged for value seconds, 0.5: after "
-     "a click, for the repaint), an announcement (value: a regex in what was announced to "
-     "a screen reader), focus (value: the name of the node with the keyboard focus, as "
-     "click takes one), "
-     "match (value: a PNG in the directory of the server's allow file, by its path from "
-     "there, that the screen, or the window, cropped to crop, should look like: no more than most pixels, 0, differing by more than fuzz percent, 0), or "
-     "change (from how it looked when the wait started, by more than that), or "
-     "line (value: a regex found in a line of file, by its path from the allow file's "
-     "directory, written after the wait starts, or with from_start, anywhere in it: for a "
-     "program that logs its events, rather than a sleep; a file not there yet is waited "
-     "for, and one rotated or rewritten is read from the top). match and change say how "
-     "long they took; line answers with the line. Fails after timeout seconds (10), "
-     "saying so.",
+     "app=RE), stable (the screen, or the window, unchanged for value seconds, 0.5, up to "
+     "60: after a click, for the repaint), an announcement (value: a regex in what was "
+     "announced to a screen reader; each announcement is waited for once), focus (value: the name of the node with the keyboard focus, as "
+     "click takes one), match (value: a PNG, by its path from the allow file's directory, "
+     "that the screen, or the window, cropped to crop, should look like), "
+     "change (from how it looked when the wait started), or "
+     "line (value: a regex found in a line of file, written after the wait starts, or "
+     "with from_start, anywhere in it: for a program that logs its events, rather than a "
+     "sleep; a file not there yet is waited for, and one rotated or rewritten is read from "
+     "the top). match and change say how long they took; line answers with the line. "
+     "Fails after timeout seconds, saying so.",
      schema({"session": SESSION,
-             "what": {"type": "string", "enum": list(WAITS)},
-             "value": {"type": "string"}, "window": WINDOW, "timeout": {"type": "number"},
-             "crop": {"type": "string", "description": "WxH+X+Y"},
-             "fuzz": {"type": "number"}, "most": {"type": "integer"},
-             "file": {"type": "string"}, "from_start": {"type": "boolean"}},
+             "what": {"type": "string", "enum": list(WAITS), "description": "The kind of wait"},
+             "value": {"type": "string", "description": "What to wait for, as what says"},
+             "window": WINDOW,
+             "timeout": {"type": "number", "minimum": 0, "maximum": 300,
+                         "description": "Seconds before it fails (10)"},
+             "crop": CROP,
+             "fuzz": {"type": "number", "minimum": 0, "maximum": 100,
+                      "description": "match, change: percent a pixel may differ by (0)"},
+             "most": {"type": "integer", "minimum": 0,
+                      "description": "match, change: pixels past fuzz allowed (0)"},
+             "file": {"type": "string", "description": "line's, by its path from the allow "
+                      "file's directory"},
+             "from_start": {"type": "boolean", "description": "line: anywhere in file"}},
             ["session", "what"])),
     ("lint",
      "Nodes a screen reader has no name to say for: controls, images (not inside a named "
      "control) and anything else that takes the focus. A line each: the node, as "
-     "accessible_tree has it, then what's wrong. ignore takes regexes for lines that can't "
-     "be fixed yet.",
-     schema({"session": SESSION, "window": WINDOW,
-             "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),
+     "accessible_tree has it, then what's wrong.",
+     schema({"session": SESSION, "window": WINDOW, "ignore": IGNORE}, ["session"])),
     ("contrast",
      "Contrast measured on the screen, in each node's bounds: text, buttons and links "
-     "against their background (at least text_ratio, 4.5), images (graphics, 3), and with "
-     "edges, a button's or field's edge against what's round it; large text needs 3. A "
+     "against their background, images, and with edges, a button's or field's edge "
+     "against what's round it; large text needs 3. A "
      "line each, the node as accessible_tree has it with its bounds, then the colors; "
      "then what wasn't measured, which doesn't fail (too small, or GTK 4's, whose "
-     "positions GTK 4 reports wrong), and why. Switches, sliders, check boxes and what's "
+     "positions are wrong), and why. Switches, sliders, check boxes and what's "
      "disabled are left out, and so is what's scrolled out of view.",
-     schema({"session": SESSION, "window": WINDOW, "text_ratio": {"type": "number"},
-             "graphics": {"type": "number"}, "edges": {"type": "number"},
-             "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),
+     schema({"session": SESSION, "window": WINDOW,
+             "text_ratio": {"type": "number", "description": "Least for text (4.5)"},
+             "graphics": {"type": "number", "description": "Least for images (3)"},
+             "edges": {"type": "number", "description": "Least for edges (unchecked)"},
+             "ignore": IGNORE}, ["session"])),
     ("tab_walk",
-     "Press a key (Tab) until the keyboard focus comes back round, and say where it went "
+     "Press a key until the keyboard focus comes back round, and say where it went "
      "each time: the Tab order. It ends in a cycle (fine), a trap (a press that leaves "
      "the focus where it was), or after most presses. A text view that takes Tab is left "
      "with ctrl+Tab, shift+Tab, Escape or F6, Tab not pressed there; the controls Tab "
-     "never reached are said (ignore takes regexes for those that can be left out, as "
-     "lint's does). visible also checks that each place it lands shows it has the focus. Leaves "
-     "the focus where it ends.",
-     schema({"session": SESSION, "key": {"type": "string"}, "window": WINDOW,
-             "visible": {"type": "boolean"}, "most": {"type": "integer"},
-             "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),
+     "never reached are said. Leaves the focus where it ends.",
+     schema({"session": SESSION,
+             "key": {"type": "string", "description": "The chord to press (Tab)"},
+             "window": WINDOW,
+             "visible": {"type": "boolean", "description": "Also check each place it lands "
+                         "shows it has the focus"},
+             "most": {"type": "integer", "minimum": 1, "maximum": 200,
+                      "description": "Presses at most (50)"},
+             "ignore": {**IGNORE, "description": "Regexes for unreached controls to leave "
+                        "out"}}, ["session"])),
     ("announcements",
      "Everything programs have announced to a screen reader in the session, a line each, "
      "\"polite: Saved\": GTK's announcements, a browser's live regions.",
@@ -891,22 +934,49 @@ TOOLS = [
     ("sound",
      "Record what plays in a session started with audio: action start, then do what makes "
      "the sound, then action stop, which says what it heard: its length, peak and RMS "
-     "(dBFS), samples clipped, and each gap, exact silence gap milliseconds (1) or longer "
-     "between the first sound and the last, as a program that falls behind leaves; then "
-     "what's wrong, if anything (gaps, clipping, silence). Sounds meant to be apart, two "
-     "beeps say, need a gap longer than the silence between them.",
-     schema({"session": SESSION, "action": {"type": "string", "enum": ["start", "stop"]},
-             "gap": {"type": "number"}}, ["session", "action"])),
+     "(dBFS), samples clipped, and each gap of exact silence between the first sound and "
+     "the last, as a program that falls behind leaves; then what's wrong, if anything "
+     "(gaps, clipping, silence). Sounds meant to be apart, two beeps say, need a gap "
+     "longer than the silence between them.",
+     schema({"session": SESSION,
+             "action": {"type": "string", "enum": ["start", "stop"],
+                        "description": "start, then stop"},
+             "gap": {"type": "number", "minimum": 0.01, "maximum": 60000,
+                     "description": "Silence, in milliseconds, said as a gap (1)"}},
+            ["session", "action"])),
 ]
 
 # Not screenshot (park moves the pointer) or contrast (it raises the window).
-READ_ONLY = {"program_output", "accessible_tree", "lint", "announcements"}
+READ_ONLY = {"program_output", "accessible_tree", "wait_for", "lint", "announcements"}
+# Called again, these change nothing more: a stopped session's stop is refused.
+IDEMPOTENT = {"stop_session", "screenshot", "contrast"}
+# What the agent spawns and drives may be a browser on the host's network.
+OPEN_WORLD = {"spawn", "click", "scroll", "press_keys", "gamepad", "type_text", "tab_walk"}
 
 
-def tool_list():
-    return [{"name": name, "description": desc, "inputSchema": params,
-             "annotations": {"readOnlyHint": name in READ_ONLY}}
+def tool_list(allowed=()):
+    """The tools, with spawn's and program_output's program one of `allowed`."""
+    program = {**PROGRAM, "enum": list(allowed)} if allowed else PROGRAM
+    return [{"name": name, "description": desc,
+             "inputSchema": ({**params, "properties": {**params["properties"],
+                                                       "program": program}}
+                             if "program" in params["properties"] else params),
+             "annotations": hints(name)}
             for name, desc, params in TOOLS]
+
+
+def hints(name):
+    """A tool's annotations. The destructive and idempotent hints mean
+    nothing on a read-only tool, so it has neither."""
+    got = {"readOnlyHint": name in READ_ONLY}
+    if name not in READ_ONLY:
+        # stop_session ends the session's programs, and their unsaved work.
+        got["destructiveHint"] = name == "stop_session"
+        if name in IDEMPOTENT:
+            got["idempotentHint"] = True
+    if name not in OPEN_WORLD:
+        got["openWorldHint"] = False
+    return got
 
 
 def call(server, name, args):
@@ -957,7 +1027,7 @@ def handle(server, msg):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": tool_list()}
+        result = {"tools": tool_list(server.allowed)}
     elif method == "tools/call":
         result = call(server, params.get("name"), params.get("arguments"))
     else:

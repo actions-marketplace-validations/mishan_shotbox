@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- MCP's tools/list describes every parameter, with the limits the server
+  holds them to (`minimum`, `maximum`); `spawn`'s and `program_output`'s
+  `program` is one of the `--allow` file's names. The tools give the
+  hints clients look for: `wait_for` is read-only, `stop_session` alone
+  destructive, and only `spawn` and the tools that drive a program
+  reach an open world.
+- MCP's `wait_for` takes a `timeout` of 0 as 0 seconds, not 10, and
+  `start_session` refuses a `text_scale` under 0.1.
+
 ## 0.7.0 — 2026-10-16
 
 Accessibility checks you can gate on: lint and tabwalk agree with Orca
