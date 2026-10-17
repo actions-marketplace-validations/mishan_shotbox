@@ -541,10 +541,12 @@ elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"], ["fast"]):
             cr.rectangle(t * speed % 216 - 16, 50, side, side)
             cr.fill()
         else:
-            # Lines 14 pixels apart, or 40, with white between.
+            # Lines 14 pixels apart, scrolled by whole pixels as a terminal
+            # or a GTK 3 list is, or 40, smoothly, with white between.
             gap = 14 if sys.argv[2] == "scroll" else 40
+            dy = int(t * 200) if gap == 14 else t * 200
             for line in range(120 // gap + 2):
-                cr.move_to(4, 14 + line * gap - t * 200 % gap)
+                cr.move_to(4, 14 + line * gap - dy % gap)
                 cr.show_text(f"line {line + int(t * 200 / gap)}: the quick brown fox")
     area.connect("draw", draw)
     GLib.timeout_add(16, lambda: area.queue_draw() or True)
