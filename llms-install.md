@@ -5,6 +5,11 @@ shotbox's MCP server for a person. shotbox runs graphical programs in a
 sealed X11 or Wayland session of their own, so the agent can see, hear
 and drive them. It runs on Linux only.
 
+The setup is done when the MCP server is in the client's settings and
+answers (step 5), not when the command works: do all five steps. Kill
+only processes you started, by their PIDs: other shotbox sessions (their
+Xvfb, sway and PipeWire) may be someone else's.
+
 ## 1. The system's packages
 
 On Debian or Ubuntu:
