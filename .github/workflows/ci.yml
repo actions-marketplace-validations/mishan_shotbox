@@ -18,8 +18,14 @@ permissions:
   contents: read
 
 jobs:
+  # test/run.sh's parts, at once: a part of it each, on its own runner,
+  # so the ones that time what's on the screen aren't crowded by the rest.
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [core, input, a11y, record]
     steps:
       - uses: actions/checkout@v5
 
@@ -27,6 +33,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # The packages' downloads, kept until the runner's image changes.
+      - run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: ~/apt/*.deb
+          key: apt-${{ env.image }}-${{ hashFiles('.github/workflows/ci.yml') }}
 
       # The README's list, and what the tests use besides: GTK 3 for the
       # Python API's button, and cairo for its windows that draw, gdbus
@@ -37,8 +50,9 @@ jobs:
       # WirePlumber and pactl for --audio, and libfaketime for --clock.
       - name: Install what shotbox runs
         run: |
+          mkdir -p ~/apt/partial
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends -o Dir::Cache::Archives="$HOME/apt" \
             xvfb xauth dbus-daemon imagemagick x11-utils \
             python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-vte-2.91 \
             libglib2.0-bin ffmpeg fonts-dejavu-core \
@@ -66,6 +80,7 @@ jobs:
 
       - run: test/run.sh
         env:
+          SHOTBOX_PART: ${{ matrix.part }}
           SHOTBOX_BROWSER: required
           SHOTBOX_WAYLAND: required
           SHOTBOX_A11Y: required
