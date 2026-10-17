@@ -81,9 +81,15 @@ check(init["protocolVersion"] == "2025-03-26" and "tools" in init["capabilities"
       "initialize: the version asked for, and tools")
 check(rpc("initialize", {"protocolVersion": "1999-01-01"})["result"]["protocolVersion"]
       == mcp.PROTOCOLS[0], "initialize: an unknown version gets the newest")
-names = [t["name"] for t in rpc("tools/list")["result"]["tools"]]
-check({"start_session", "spawn", "accessible_tree", "screenshot", "click"} <= set(names),
-      f"tools/list ({len(names)} tools)")
+listed = {t["name"]: t["inputSchema"]["properties"] for t in rpc("tools/list")["result"]["tools"]}
+check({"start_session", "spawn", "accessible_tree", "screenshot", "click"} <= set(listed),
+      f"tools/list ({len(listed)} tools)")
+check(listed["spawn"]["program"]["enum"] == listed["program_output"]["program"]["enum"]
+      == list(allowed) and all("enum" not in t["inputSchema"]["properties"].get("program", {})
+                               for t in mcp.tool_list()),
+      "tools/list: program is one of the allowed programs, unless there are none")
+check(all("description" in p for t in listed.values() for p in t.values()),
+      "tools/list: every parameter described")
 check(rpc("nope")["error"]["code"] == -32601, "an unknown method is an error")
 check(mcp.handle(server, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None,
       "a notification gets no answer")
@@ -95,6 +101,9 @@ check(rpc("tools/list", "oops")["error"]["code"] == -32602
                               "params": {"name": "lint", "arguments": [1]}})
       ["result"]["isError"], "params and arguments that aren't objects: said, not fatal")
 
+said, bad, _ = tool("start_session", name="small", text_scale=0.05)
+check(bad and "at least 0.1" in said and "small" not in server.sessions,
+      "start_session: a text_scale under 0.1, refused")
 try:
     said, bad, _ = tool("start_session", name="t")
     check(not bad and "app" in said, f"start_session says what it can spawn ({said})")
@@ -105,6 +114,9 @@ try:
     check(not bad, "spawn: a program on the list")
     said, bad, _ = tool("wait_for", session="t", what="window", value="x", timeout="nan")
     check(bad and "number" in said, "wait_for: a timeout that's no number is refused")
+    began = time.monotonic()
+    said, bad, _ = tool("wait_for", session="t", what="window", value="nowhere", timeout=0)
+    check(bad and time.monotonic() - began < 5, "wait_for: a timeout of 0 gives up at once")
     said, bad, _ = tool("wait_for", session="t", what="window", value="a11y-test", timeout="20")
     check(not bad, f"wait_for: a window, its timeout given as text ({said})")
     said, bad, _ = tool("accessible_tree", session="t", window="a11y-test")
