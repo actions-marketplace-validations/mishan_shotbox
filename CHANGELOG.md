@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-10-16
+
+Accessibility checks you can gate on: lint and tabwalk agree with Orca
+and don't edit what they walk, and contrast says what it can't measure
+(GTK 4) rather than guess. Scrolling; names clicked as they are; an MCP
+server that tells agents how to use it, answers while it works and
+stops what's cancelled; and `--clock` that works on Ubuntu 24.04.
 
 ### Changes to check when upgrading
 
