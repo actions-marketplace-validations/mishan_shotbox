@@ -5,6 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/shotbox)](https://pypi.org/project/shotbox/)
 [![npm](https://img.shields.io/npm/v/shotbox)](https://www.npmjs.com/package/shotbox)
 [![CI](https://github.com/mishan/shotbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mishan/shotbox/actions/workflows/ci.yml)
+[![Glama](https://glama.ai/mcp/servers/mishan/shotbox/badges/score.svg)](https://glama.ai/mcp/servers/mishan/shotbox)
 
 <img align="right" width="112" alt="" src="https://raw.githubusercontent.com/mishan/shotbox/main/docs/logo.png">
 
