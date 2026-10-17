@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+### Changes to check when upgrading
+
+- **MCP's tools are named verb_noun**, so an agent can guess what each
+  does from its name. A client's permission list that names them
+  (Claude Code's `mcp__shotbox__click`, say) needs the new names; a call
+  by an old one is refused, naming the new one. Their arguments and
+  answers are as before.
+
+  | Was | Now |
+  |---|---|
+  | `spawn` | `spawn_program` |
+  | `program_output` | `get_program_output` |
+  | `accessible_tree` | `get_accessible_tree` |
+  | `screenshot` | `take_screenshot` |
+  | `record` | `record_video` |
+  | `click` | `click_element` |
+  | `scroll` | `scroll_wheel` |
+  | `gamepad` | `use_gamepad` |
+  | `lint` | `check_accessible_names` |
+  | `contrast` | `check_contrast` |
+  | `tab_walk` | `check_focus_order` |
+  | `announcements` | `list_announcements` |
+  | `sound` | `record_audio` |
+
+  `start_session`, `stop_session`, `press_keys`, `type_text` and
+  `wait_for` keep theirs. The commands (`shotbox click`, `a11y lint`...)
+  are as they were.
+
+### Changed
+
+- MCP's tool descriptions say when to use each tool and which to use
+  instead, what its answer holds, and its defaults: `get_program_output`
+  reads a program that has exited, `list_announcements` keeps what was
+  said, oldest first, and `check_contrast` raises the window it measures.
+- MCP's `check_focus_order`, when nothing has the focus to start from,
+  says to click the window with `click_element`, not to run
+  `shotbox focus`, which an agent can't.
+
 ## 0.7.1 — 2026-10-17
 
 MCP tool definitions an agent or a directory can read in full: every

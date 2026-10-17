@@ -408,7 +408,7 @@ is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a GTK 4 window,
 `shotbox: nothing measured: ...` (text too small to measure, alone,
 passes). With `--json` it's 0 with failures, which the lines say, and 2
-when nothing was measured. `Screen.contrast()` raises then, and MCP's `contrast`
+when nothing was measured. `Screen.contrast()` raises then, and MCP's `check_contrast`
 says so as an error.
 
 ### GTK 4's positions

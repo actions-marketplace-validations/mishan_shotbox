@@ -85,9 +85,9 @@ doesn't find it, use its full path (`command -v shotbox`, usually
 
 If the client doesn't list shotbox's tools yet, ask the person to reload
 it (in VS Code, Developer: Reload Window), then go on. Call
-`start_session`, then `spawn` one of the person's programs and
-`wait_for` its window, then `accessible_tree` or `screenshot`, then
-`stop_session`. The server's instructions, sent as it connects, say how
-the tools fit together.
+`start_session`, start one of the person's programs with
+`spawn_program`, `wait_for` its window, then `get_accessible_tree` or
+`take_screenshot`, then `stop_session`. The server's instructions, sent
+as it connects, say how the tools fit together.
 
 More: [docs/mcp.md](https://github.com/mishan/shotbox/blob/main/docs/mcp.md).
