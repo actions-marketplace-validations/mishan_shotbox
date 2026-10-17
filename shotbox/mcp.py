@@ -602,9 +602,16 @@ class Server:
 
     def contrast(self, session, window=None, text_ratio=4.5, graphics=3.0, edges=None,
                  ignore=None):
-        return problems(self.a11y_session(session).contrast(
+        nodes = self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
-            number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore)))
+            number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
+            notes=True)
+        notes = [n for n in nodes if not n.fails]
+        whys = list(dict.fromkeys(n.why for n in notes if "why" in n))
+        return "\n".join([problems([n for n in nodes if n.fails])]
+                         + ([f"{len(notes)} not measured, which doesn't fail:", problems(notes)]
+                            if notes else [])
+                         + whys)
 
     def tab_walk(self, session, key="Tab", window=None, visible=False, most=50, ignore=None):
         s = self.a11y_session(session)
@@ -858,9 +865,11 @@ TOOLS = [
     ("contrast",
      "Contrast measured on the screen, in each node's bounds: text, buttons and links "
      "against their background (at least text_ratio, 4.5), images (graphics, 3), and with "
-     "edges, a button's or field's edge against what's round it. A line each, the node "
-     "as accessible_tree has it with its bounds, then the colors. Switches, sliders and "
-     "check boxes are left out, and so is what's scrolled out of view.",
+     "edges, a button's or field's edge against what's round it; large text needs 3. A "
+     "line each, the node as accessible_tree has it with its bounds, then the colors; "
+     "then what wasn't measured, which doesn't fail (too small, or GTK 4's, whose "
+     "positions GTK 4 reports wrong), and why. Switches, sliders, check boxes and what's "
+     "disabled are left out, and so is what's scrolled out of view.",
      schema({"session": SESSION, "window": WINDOW, "text_ratio": {"type": "number"},
              "graphics": {"type": "number"}, "edges": {"type": "number"},
              "ignore": {"type": "array", "items": {"type": "string"}}}, ["session"])),

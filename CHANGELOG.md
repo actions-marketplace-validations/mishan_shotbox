@@ -4,6 +4,16 @@
 
 ### Changes to check when upgrading
 
+- **GTK 4 apps' contrast isn't checked**: GTK 4 says where its widgets
+  are without their containers' padding and borders, and a stack's
+  child with its place in the stack counted twice, so what was measured
+  was often a button's fill or a neighbor's text. `a11y contrast` says
+  each GTK 4 node is "not measured", and why on stderr; with nothing
+  measured at all, as in a GTK 4 window, it exits 2, not 0 (or 1), and
+  `Screen.contrast()` raises. GTK 3, Qt and browsers are measured as
+  before. `SHOTBOX_TRUST_GTK4_BOUNDS=1` measures GTK 4 at its bounds, for
+  a GTK whose bounds you've checked. docs/accessibility.md, "GTK 4's
+  positions".
 - **A name is taken as it is before as a regex**: `a11y click`, MCP's
   `click`, `find()` and `click_node()` pick the nodes named exactly NAME
   over those NAME matches as a regex, among those showing when they
@@ -17,6 +27,11 @@
 
 ### Added
 
+- `a11y contrast` finds large text, 18pt or 14pt bold all through, by
+  its font as GTK and Chromium say it, and holds it to WCAG's 3:1 rather
+  than 4.5:1; `--large RATIO` sets that ratio. `Screen.contrast(large=...,
+  notes=True)`, the second for what wasn't measured; MCP's `contrast`
+  lists that after the failures, and why.
 - **Scrolling**: `shotbox scroll X Y DY [DX] [--window RE]` turns the
   mouse wheel at a point, DY clicks down and DX right (negative, up and
   left), over XTEST's buttons 4 to 7 on X11 and the virtual pointer's
@@ -63,6 +78,11 @@
   session's libfaketime, which in 0.9.10 (Ubuntu 24.04's) makes the
   `time.sleep` of Python 3.11 and later fail; the programs they start for the session, as
   `term`'s, keep the session's clock.
+- `a11y contrast` leaves out a disabled control's label, as the control
+  is; says text too small to have a core of its color (a ".") is too
+  small to measure, and passes it; and takes text as the third pixel in
+  order of contrast, not the strongest color three pixels share, which
+  a thin stroke seldom draws.
 - A name, role, window title, announcement or `--ignore` that isn't a
   regex (`+`) says so in a sentence, rather than with a traceback; a name
   that isn't one is taken only as it is.

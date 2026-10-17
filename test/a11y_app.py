@@ -9,7 +9,7 @@ untitled second window; `notes` puts a text view first, which keeps Tab
 shift+Tab, Escape and F6 too, and `dialog` that one in a dialog; `lists`
 is lists and a notebook instead, `one` a single button, and
 `unfocusable` that, and a button Tab can't reach;
-`faint` adds a label too light to read, `thin` one in small monospace
+`faint` adds a label too light to read and a disabled button, `thin` one in small monospace
 spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a scrolled
 list running far past the window, and `keys` buttons named as a calculator's are, which
 aren't regexes or match more than themselves as one.
@@ -70,6 +70,8 @@ def activate(app):
     wrap = Gtk.CheckButton(label="Wrap lines", active=True)
     # On its own, not in a control: every GTK 4 places that right.
     faint = Gtk.Label(label="Faint words", visible="faint" in sys.argv)
+    # Dimmed, as a disabled button is: WCAG leaves it, and its label, out.
+    later = Gtk.Button(label="Later", sensitive=False, visible="faint" in sys.argv)
     thin = Gtk.Label(label="CONTACT", visible="thin" in sys.argv)
     css = Gtk.CssProvider()
     css.load_from_string("label.faint { color: #a0a0a0; } label.thin { color: #5f5670;"
@@ -83,7 +85,7 @@ def activate(app):
     # Decorative: no name, and left out of the tree.
     mark = Gtk.Image(icon_name="emblem-ok-symbolic",
                      accessible_role=Gtk.AccessibleRole.PRESENTATION)
-    for widget in (save, delete, announce, wrap, entry, status, mark, sketch, faint, thin):
+    for widget in (save, delete, announce, wrap, entry, status, mark, sketch, faint, thin, later):
         box.append(widget)
     notes = Gtk.TextView()
     notes.get_buffer().set_text("notes")

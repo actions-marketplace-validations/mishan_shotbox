@@ -758,20 +758,24 @@ class Screen:
         args = [f"--ignore={i}" for i in ignore]
         return [Node(n) for n in self._a11y("lint", *args, *([f"--window={window}"] if window else []))]
 
-    def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=()):
+    def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=(), large=3.0,
+                 notes=False):
         """The nodes drawn with too little contrast, each with what's wrong
         as `problem`: text, buttons and links against their background (at
-        least `text`), images (`graphics`), and with `edges`, a button's or field's edge against
-        what's round it; but those whose "PATH: PROBLEM" line, or "LINE:
-        PROBLEM" with its tree line, one of the regexes in `ignore` is found
-        in. Measured on a picture of the
-        screen, `window` raised."""
+        least `text`, or `large` for large text), images (`graphics`), and
+        with `edges`, a button's or field's edge against what's round it;
+        but those whose "PATH: PROBLEM" line, or "LINE: PROBLEM" with its
+        tree line, one of the regexes in `ignore` is found in. Measured on a
+        picture of the screen, `window` raised. With `notes`, what wasn't
+        measured and doesn't fail too, `fails` False: too small to, or
+        GTK 4's, with `why`. Fails, saying why, if nothing could be
+        measured: a GTK 4 window, its positions wrong, isn't checked."""
         from .a11y import Node
-        args = ["--text", str(text), "--graphics", str(graphics),
+        args = ["--text", str(text), "--large", str(large), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),
                 *[f"--ignore={i}" for i in ignore],
                 *([f"--window={window}"] if window else [])]
-        return [Node(n) for n in self._a11y("contrast", *args)]
+        return [Node(n) for n in self._a11y("contrast", *args) if notes or n["fails"]]
 
     def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
         """Click the middle of the node named `name`, exactly or else as a
