@@ -176,18 +176,24 @@ def record(env, out, box, seconds=None, fps=None, pointer=False, sound=False, ga
     """As `recording`, and wait for it: a Recording, or RuntimeError.
     Ctrl-C stops it, and it's finished all the same. With `until`, a test
     as wait_for polls, giving a line in a list, it's stopped as Ctrl-C
-    stops it `tail` seconds after the test passes, and that's its `line`."""
+    stops it `tail` seconds after the test passes, and that's its `line`.
+    A cancelled wait (screen._CANCEL) stops it as Ctrl-C does."""
+    from .screen import _CANCEL
     proc = recording(env, out, box, seconds=seconds, fps=fps, pointer=pointer, sound=sound,
                      gap=gap, size=size)
-    line, stopped = None, False
+    line, stopped, end = None, False, None
     try:
         # Watched here, not by the keeper: here's where the line is wanted,
         # and however this goes, the keeper's stdin closes and it stops.
-        while until and not line and proc.poll() is None:
-            line = until() or time.sleep(0.1)
-        proc.wait(timeout=tail if line else None)
-    except subprocess.TimeoutExpired:
-        pass
+        while proc.poll() is None and (end is None or time.monotonic() < end):
+            if _CANCEL.is_set():
+                stopped = True
+                break
+            if until and not line and (line := until()):
+                end = time.monotonic() + tail
+            # Not time.sleep: under libfaketime 0.9.10 (a --clock session's
+            # programs, this one too) Python 3.11+'s fails with EINVAL.
+            select.select([], [], [], 0.1)
     except KeyboardInterrupt:
         stopped = True
     except RuntimeError as e:      # the file couldn't be followed

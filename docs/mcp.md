@@ -154,10 +154,31 @@ that reads it would eat requests. The server takes both for itself, and
 points fd 1 at stderr and fd 0 at /dev/null for everything else: the
 sessions, their programs, and whatever a library prints.
 
-A call holds the server until it's done, so the waits are bounded: a
+Calls are answered one at a time, in turn, and the waits are bounded: a
 timeout of at most 300 seconds, and a Tab walk of at most 200 presses. A
-request it can't read is an error for that request, not the end of the
-server.
+thread reads stdin as requests come, so `ping` is answered at once, even
+during a long call, and `notifications/cancelled` calls off the request
+it names: its waits stop, as do a click by name, `tab_walk`, `lint`,
+`contrast` or a recording it's in the middle of (the clip is finished
+short), its answer isn't sent, and the session is left as it was. When
+stdin closes, the call running is called off the same way, those sent
+after it are answered, and then the sessions stop. A call given a `progressToken` (in `params._meta`) sends
+`notifications/progress` every 5 seconds until it's answered, its
+`progress` the seconds it has taken. A request it can't read is an error
+for that request, not the end of the server.
+
+Most calls take a second or two. Those that can run long:
+
+- `wait_for`, up to its `timeout`, 300 seconds at most;
+- `record`, up to 60 seconds and then a few for its frames;
+- `tab_walk`, a few seconds a press, up to 200 presses;
+- `click` by name, up to its `timeout`, while the node doesn't show.
+
+Many clients give up on a call after about 60 seconds, and cancel it.
+Some count from the last progress (the TypeScript SDK's
+`resetTimeoutOnProgress`); for the rest, raise the client's timeout:
+Claude Code's `MCP_TOOL_TIMEOUT` (milliseconds, in its environment), or
+Cline's `timeout` (seconds) in the server's entry in its MCP settings.
 
 The accessible tree is read in a `shotbox a11y` process for each call, as
 the Python API reads it. libatspi keeps the first bus it finds for the
@@ -172,6 +193,7 @@ process, with a real session behind it, as a client would send them:
 - each refusal: a program not on the list, a session that isn't there,
   an argument a tool doesn't take.
 
-It then runs the server over stdio, as a client runs it, and checks two
-things: that nothing but answers comes out on stdout, and that the
-session stops when stdin closes.
+It then runs the server over stdio, as a client runs it, and checks that
+nothing but answers comes out on stdout, that a ping is answered during
+a long call, which sends progress and, cancelled, no answer, and that
+the session stops when stdin closes.

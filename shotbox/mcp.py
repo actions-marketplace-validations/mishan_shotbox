@@ -32,6 +32,7 @@ import itertools
 import json
 import math
 import os
+import queue
 import re
 import shlex
 import shutil
@@ -39,12 +40,13 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
 from . import __version__, sound, usage
 from .a11y import Node, unseen
-from .screen import SessionError, wheel
+from .screen import _CANCEL, SessionError, wheel
 from .session import Session
 from .sound import describe
 from .x import VISION, ended, recording, sheet, stop
@@ -669,6 +671,8 @@ SHEET_SIZE = 1920
 # longest burst; and it stops at a size few clips of a screen reach, so the
 # disk can't fill.
 RECORD_SECONDS, RECORD_SIZE = 60, 100_000_000
+# Clients time a call out at about 60 s, and some count from its last progress.
+PROGRESS = 5
 FRAMES = 8
 HOLD = {"type": "number", "description": "Seconds (up to 60) to keep it down before letting go"}
 STATE = {"type": "string", "enum": ["down", "up"],
@@ -1046,24 +1050,94 @@ def main(argv):
         signal.signal(sig, lambda *_: os._exit(0))
     server = Server(allowed, home)
     try:
-        for line in inp:
-            if not line.strip():
-                continue
-            try:
-                msg = json.loads(line)
-            except (ValueError, RecursionError):
-                answer = {"jsonrpc": "2.0", "id": None,
-                          "error": {"code": -32700, "message": "not JSON"}}
-            else:
-                try:
-                    answer = handle(server, msg)
-                except Exception as e:   # one request gone wrong isn't the server gone
-                    answer = {"jsonrpc": "2.0",
-                              "id": msg.get("id") if isinstance(msg, dict) else None,
-                              "error": {"code": -32603, "message": repr(e)}}
-            if answer is not None:
-                out.write(json.dumps(answer) + "\n")
-                out.flush()
+        serve(server, inp, out)
     finally:
         server.close()
     return 0
+
+
+def serve(server, inp, out):
+    """Answer requests from `inp` on `out` in turn, while a thread reads
+    `inp`: it answers ping at once, and notes a cancelled request, whose
+    waits are called off and whose answer isn't sent. A call with a
+    progressToken says how long it's been every PROGRESS seconds. When
+    `inp` closes, the call running is called off as if cancelled, and
+    those sent after it are answered."""
+    lock, requests, cancelled, running = threading.RLock(), queue.Queue(), set(), [None]
+    end = object()   # not None: a line can be JSON's null
+
+    def key(rid):
+        return json.dumps(rid)   # an id can be anything, as a client sends it
+
+    def send(msg):
+        with lock:
+            out.write(json.dumps(msg) + "\n")
+            out.flush()
+
+    def read():
+        try:
+            for line in inp:
+                if not line.strip():
+                    continue
+                try:
+                    msg = json.loads(line)
+                except (ValueError, RecursionError):
+                    send({"jsonrpc": "2.0", "id": None,
+                          "error": {"code": -32700, "message": "not JSON"}})
+                    continue
+                method = msg.get("method") if isinstance(msg, dict) else None
+                if method == "ping" and "id" in msg:
+                    send(handle(server, msg))
+                elif method == "notifications/cancelled":
+                    params = msg.get("params")
+                    rid = key(params.get("requestId") if isinstance(params, dict) else None)
+                    with lock:
+                        cancelled.add(rid)
+                        if rid == running[0]:
+                            _CANCEL.set()
+                else:
+                    requests.put(msg)
+        except OSError:   # stdout gone: the server ends as it would at EOF
+            pass
+        finally:
+            with lock:
+                if running[0] is not None:
+                    cancelled.add(running[0])
+                    _CANCEL.set()
+            requests.put(end)
+
+    threading.Thread(target=read, daemon=True).start()
+    while (msg := requests.get()) is not end:
+        rid = msg.get("id") if isinstance(msg, dict) else None
+        params = msg.get("params") if isinstance(msg, dict) else None
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        token = meta.get("progressToken") if isinstance(meta, dict) else None
+        done, start = threading.Event(), time.monotonic()
+        with lock:
+            skip = key(rid) in cancelled
+            cancelled.discard(key(rid))
+            running[0] = None if skip else key(rid)
+            _CANCEL.clear()
+        if skip:
+            continue
+
+        def tick():
+            while not done.wait(PROGRESS):
+                with lock:
+                    if not (done.is_set() or key(rid) in cancelled):
+                        send({"jsonrpc": "2.0", "method": "notifications/progress",
+                              "params": {"progressToken": token,
+                                         "progress": round(time.monotonic() - start)}})
+        if token is not None:
+            threading.Thread(target=tick, daemon=True).start()
+        try:
+            answer = handle(server, msg)
+        except Exception as e:   # one request gone wrong isn't the server gone
+            answer = {"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": repr(e)}}
+        done.set()
+        with lock:
+            if answer is not None and key(rid) not in cancelled:
+                send(answer)
+            running[0] = None
+            cancelled.discard(key(rid))
+    _CANCEL.clear()   # for the sessions' stopping, which waits too
