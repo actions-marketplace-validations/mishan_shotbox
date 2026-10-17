@@ -14,3 +14,19 @@ at-spi2-core and skip without them, `--audio` needs PipeWire,
 WirePlumber and `pactl` and skips without them, `--gamepads` needs
 bubblewrap and a writable `/dev/uinput` and skips without them, and
 `--clock` needs libfaketime and skips without it.
+
+## Help from AI
+
+AI tools are welcome to help with shotbox, but the attribution they add
+by default isn't. CI's `no-ai-marks` check fails on it in commit
+messages and authors, the pull request's title and description, its
+branch name, and the lines it adds: a `Co-authored-by:` trailer naming an
+AI, a "Generated with …" footer, a 🤖 or `[AI]` tag, a link back to the
+session, a branch named `claude/…`, `copilot/…` or the like, and hidden
+characters such as zero-width spaces. Its
+[README](https://github.com/mishan/no-ai-marks#what-it-checks) has the
+full list.
+
+If it fails, take the mark out: amend or reword the commits, rename the
+branch, or edit the description, which runs the check again. Agents
+working on shotbox: leave these out from the start.
