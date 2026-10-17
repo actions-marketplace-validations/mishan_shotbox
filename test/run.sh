@@ -711,6 +711,12 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
   "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
     && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
+  "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' a11y lint --window fields &&
+    '$sb' a11y click Name: --window fields >/dev/null && sleep 0.5 &&
+    '$sb' a11y tree --window fields" > "$tmp/lint" && ! grep -q button "$tmp/lint" \
+    && grep -q '^ *text "Name:" \[focusable, focused, editable\]$' "$tmp/lint" \
+    && ok "a11y: lint, tree and click, GTK 3: a field named by its label, a bar not revealed left out" \
+    || { fail "a11y: lint, GTK 3 fields"; cat "$tmp/lint"; }
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y lint --window a11y-test --ignore 'image\[' --ignore 'panel with'" > "$tmp/lint"
   st=$?; set -e

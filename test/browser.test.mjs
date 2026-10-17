@@ -374,6 +374,8 @@ test('Chromium on an --a11y session: its tree, a click by name, contrast, live r
     const { tree, clicked, contrast, said } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
+    /* Scrolled out of view: not showing, but still in a page's tree. */
+    assert.match(tree, /button "Below"/);
     assert.equal(clicked, 'yes');
     assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff/);
     assert.equal(contrast.trim().split('\n').length, 1);

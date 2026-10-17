@@ -32,7 +32,8 @@ try
         <p style="color: #999">Faint words</p>
         <div role="status" id="polite"></div>
         <div aria-live="assertive" id="rude"></div>
-        <div id="quiet"></div>`);
+        <div id="quiet"></div>
+        <button style="margin-top: 3000px">Below</button>`);
 
     /* The page's part of the tree comes a moment after the window's. */
     let tree = '';
