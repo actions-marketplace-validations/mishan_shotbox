@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
-[fixed] [trap] [lists] [one] [untitled] [second] [faint] [thin] [long]. Its icon-only button,
+[fixed] [trap] [lists] [one] [untitled] [second] [faint] [thin] [long] [keys]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `trap` puts a text view first, which keeps Tab;
 `lists` is lists and a notebook instead, and `one` a single button;
 `faint` adds a label too light to read, `thin` one in small monospace
-spaced by a fraction of a pixel, whose stems are thinner than one, and `long` is a scrolled
-list running far past the window.
+spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a scrolled
+list running far past the window, and `keys` buttons named as a calculator's are, which
+aren't regexes or match more than themselves as one.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -93,6 +94,10 @@ def activate(app):
         for i in range(200):
             rows.append(Gtk.Label(label=f"Row {i}"))
         box = Gtk.ScrolledWindow(child=rows, vexpand=True)
+    if "keys" in sys.argv:
+        box = Gtk.Box()
+        for label in ("1", "2", ".", "+", "(Draft)"):
+            box.append(Gtk.Button(label=label))
     view = Adw.ToolbarView(content=box)
     view.add_top_bar(Adw.HeaderBar())
     # One thing to take the focus: no header bar and its buttons either.

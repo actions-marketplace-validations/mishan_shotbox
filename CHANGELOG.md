@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- **A name is taken as it is before as a regex**: `a11y click`, MCP's
+  `click`, `find()` and `click_node()` pick the nodes named exactly NAME
+  over those NAME matches as a regex, among those showing when they
+  look, so a calculator's `.` is its button rather than every
+  one-character one, and `(Draft)` is itself. A window's title, a role
+  and a focus wait match a name as it is too, or as a regex: `Foo (1)`
+  now finds the window titled that.
+- MCP's `lint` and `contrast` answer with each node as `accessible_tree`
+  has it, with its bounds, rather than its path. An `--ignore` (`ignore`)
+  regex is found in either.
+
 ### Added
 
 - **Scrolling**: `shotbox scroll X Y DY [DX] [--window RE]` turns the
@@ -36,6 +49,15 @@
 
 ### Fixed
 
+- A name, role, window title, announcement or `--ignore` that isn't a
+  regex (`+`) says so in a sentence, rather than with a traceback; a name
+  that isn't one is taken only as it is.
+- `a11y click` and MCP's `click`, when more than one node matches, list
+  them as tree lines with where they are, and how to narrow it, rather
+  than by their paths; when none does, the nearest names. MCP's `click`
+  takes a `timeout`.
+- MCP's `wait_for` with a `what` there isn't names the choices, rather
+  than asking for a value.
 - `wait line` with a pattern that isn't a regex says so, rather than
   with a traceback.
 - `record --sound --seconds N` whose session's sound server stops first,

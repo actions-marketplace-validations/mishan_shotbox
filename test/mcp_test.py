@@ -38,6 +38,7 @@ allow = tmp / "programs"
 # `where` says where its session is, and takes a second to go when told to.
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
                  f"long = {here / 'a11y_app.py'} long\n"
+                 f"keys = {here / 'a11y_app.py'} keys\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -124,7 +125,10 @@ try:
           and any(c["type"] == "image" for c in content), "screenshot: with a kind of color vision")
     said, bad, content = tool("screenshot", session="t", window="a11y-test", burst=3, every=0.1)
     png = [c for c in content if c["type"] == "image"]
-    check(not bad and len(png) == 1 and said.startswith("3 pictures") and "0.10" in said,
+    # every is the least gap: under load, more. Times to two places.
+    times = [float(t) for t in re.search(r"taken at (.*) seconds", said)[1].split(", ")]
+    check(not bad and len(png) == 1 and said.startswith("3 pictures") and len(times) == 3
+          and all(b - a >= 0.09 for a, b in zip(times, times[1:])),
           f"screenshot: a burst, as one sheet ({said})")
     said, bad, content = tool("screenshot", session="t", burst=12, crop="20x800+0+0")
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
@@ -173,8 +177,14 @@ try:
     said, bad, _ = tool("screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
     said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")
-    check(len(said.splitlines()) == 2 and "with no name" in said,
-          f"lint, ignoring images given as text ({said!r})")
+    check(len(said.splitlines()) == 2
+          and all(re.fullmatch(r'[a-z ]+ "" .*@\d+,\d+ \d+x\d+: [a-z ]+ with no name',
+                               line) for line in said.splitlines())
+          and "isn't one" in tool("lint", session="t", ignore="(")[0],
+          f"lint: tree lines with bounds, ignoring images given as text ({said!r})")
+    said, _, _ = tool("lint", session="t", window="a11y-test", ignore=["image", '^panel ""'])
+    check(len(said.splitlines()) == 1 and "button with no name" in said,
+          f"lint: ignore found in a tree line, by a path ({said!r})")
     said, _, _ = tool("contrast", session="t", window="a11y-test")
     check(said == "No problems.", f"contrast ({said!r})")
     said, _, _ = tool("tab_walk", session="t", window="a11y-test", visible=True)
@@ -339,6 +349,30 @@ try:
         check(bad and "start a session with audio" in said, "sound: no audio, refused")
     else:
         print("skip  sound: no PipeWire, WirePlumber or paplay")
+    # Names as a calculator's buttons have them: as they are first, then as regexes.
+    tool("start_session", name="n")
+    tool("spawn", session="n", program="keys")
+    tool("wait_for", session="n", what="window", value="a11y-test", timeout=20)
+    said = [tool("click", session="n", name=v, timeout=0.5)[:2] for v in (".", "+", "(Draft)")]
+    check(all(not bad and f'button {json.dumps(v)} ' in got
+              for (got, bad), v in zip(said, (".", "+", "(Draft)"))),
+          f"click: a name as it is, before it as a regex ({said})")
+    refused = [tool("click", session="n", timeout=0.5, **a)[:2]
+               for a in (dict(name="[12]"), dict(name="Draft"), dict(name="*"),
+                         dict(name="1", role="("))]
+    check(all(bad for _, bad in refused)
+          and re.search(r'2 nodes match.*\n  [a-z ]*button "1" .*@\d+,\d+ \d+x\d+\n  '
+                        r'[a-z ]*button "2" .*@.*\nNarrow it with a role or a window', refused[0][0])
+          and 'The nearest names: "(Draft)"' in refused[1][0]
+          and "'*' (exactly: it isn't a regex" in refused[2][0]
+          and "role '(' (exactly: it isn't a regex" in refused[3][0]
+          and "nearest" not in refused[3][0],
+          f"click: two matches with where they are, the nearest names to none, and what "
+          f"isn't a regex, said ({refused})")
+    said, bad, _ = tool("wait_for", session="n", what="sleep")
+    check(bad and said.startswith("wait_for waits for window") and "not 'sleep'" in said,
+          f"wait_for: a choice there isn't, said before what it lacks ({said})")
+    tool("stop_session", session="n")
     tool("start_session", name="u", a11y=False, usage=True)
     said, bad, _ = tool("stop_session", session="u")
     check(not bad and "used, over" in said and "peak memory" in said,

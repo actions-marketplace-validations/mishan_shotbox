@@ -25,7 +25,8 @@ missing and how to get it, as `Session` and MCP's `start_session` do.
 **`shotbox shoot OUT.png [options] -- COMMAND...`** starts the command in a
 sealed session, waits, takes the picture and stops everything.
 
-- `--window RE` takes that window (its title, a regex matched in full)
+- `--window RE` takes that window (its title, as it is or as a regex
+  matched in full)
   rather than the whole display, and waits for it to appear. `app=RE`
   matches its app id instead: a Wayland window's `app_id`, or an X
   window's `WM_CLASS`, instance or class. Every `--window` and every
