@@ -704,11 +704,10 @@ WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
 TOOLS = [
     ("start_session",
      "Start a sealed session: a display of its own (X11 under Xvfb, or Wayland under a "
-     "headless sway), its own D-Bus and accessibility bus, and a scratch home. Nothing in "
-     "it reaches the desktop of the person you're working for, and nothing of theirs "
-     "reaches it. Start one, spawn a program in it, then look with accessible_tree (cheap, "
-     "text) before screenshot (pixels). It lasts until stop_session, or until this server "
-     "stops.",
+     "headless sway), its own D-Bus and accessibility bus, and a scratch home. Nothing in it "
+     "reaches the desktop of the person you're working for, and nothing of theirs reaches "
+     "it. The answer gives its name, display and size, the programs spawn can start in it, "
+     "and anything it couldn't seal. It lasts until stop_session.",
      schema({"name": {"type": "string", "description": "What to call it (s1, s2... by default)"},
              "a11y": {"type": "boolean", "description": "An accessibility bus (default true)"},
              "wayland": {"type": "boolean", "description": "Wayland, not X11"},
@@ -734,37 +733,42 @@ TOOLS = [
                        "pictures don't change (needs libfaketime)"},
              "tz": {"type": "string", "description": "Its time zone, Europe/Berlin (UTC)"}})),
     ("stop_session",
-     "Stop a session: every program in it ends, unsaved work and all, and its scratch "
-     "directory goes. With usage, it says their peak memory and CPU time.",
+     "Stop a session start_session made, when you're done with it: every program in it is "
+     "killed, unsaved work and all, and its scratch directory is deleted, with any clip "
+     "record saved there (one saved at a path is kept). In a session started with usage, "
+     "the answer says its programs' peak memory and CPU time. You needn't stop sessions "
+     "before the server ends: they all stop with it.",
      schema({"session": SESSION}, ["session"])),
     ("spawn",
      "Start one of the programs the person allowed this server to run, by its name, in a "
-     "session; nothing else can run. Then wait_for its window before looking at it. If it "
-     "doesn't come up, program_output says why.",
+     "session; nothing else can run. The answer gives its pid. Then wait_for its window "
+     "before looking at it. If it doesn't come up, program_output says why.",
      schema({"session": SESSION, "program": PROGRAM}, ["session", "program"])),
     ("program_output",
-     "Whether a spawned program is still running, and the end of what it printed: for a "
-     "window that never came up, or a crash.",
+     "Read the last lines (40, or lines) a spawned program wrote to stdout and stderr, after "
+     "a line saying whether it's still running or exited, with its status. It works after "
+     "the program has exited, until the session stops; for a program spawned more than once, "
+     "it reads the latest. Use it when a window never comes up or a program seems to have "
+     "crashed; to wait for a line in a log file, use wait_for line.",
      schema({"session": SESSION, "program": PROGRAM,
              "lines": {"type": "integer", "minimum": 1, "maximum": 2000,
                        "description": "How many lines from the end (40)"}},
             ["session", "program"])),
     ("accessible_tree",
-     "What a screen reader would find: every visible node, a line each, indented, with its "
-     "role, name, description and the states a screen reader says (focusable, focused, "
-     "checked...). The cheapest way to see what's on screen and what can be clicked by "
-     "name. A node with an empty "
-     "name (\"\") is one a screen reader can say nothing for. Use screenshot for how it "
-     "looks.",
+     "Read what a screen reader would find: every visible node, a line each, indented, with "
+     "its role, name, description and the states a screen reader says (focusable, focused, "
+     "checked...). The cheapest way to see what's on screen and what can be clicked by name. "
+     "A node with an empty name (\"\") is one a screen reader can say nothing for. Use "
+     "screenshot for how it looks.",
      schema({"session": SESSION, "window": WINDOW,
              "bounds": {"type": "boolean", "description": "Add @x,y WIDTHxHEIGHT to each line"}},
             ["session"])),
     ("screenshot",
-     "A picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look at: "
-     "the only way to see colors, layout and what's drawn. Pictures cost far more than the "
-     "accessible tree; take the window rather than the screen, and crop when you need a "
-     "part. vision checks nothing is told apart by color alone; burst, as one image in "
-     "rows of four, is for motion, an animation or a transition.",
+     "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "
+     "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
+     "accessible_tree; take the window rather than the screen, and crop when you need a "
+     "part. vision checks nothing is told apart by color alone; burst, as one image in rows "
+     "of four, is for motion, an animation or a transition.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": CROP,
              "park": {"type": "boolean", "description": "Move the pointer away first, so "
@@ -802,12 +806,12 @@ TOOLS = [
                       "description": "Seconds to go on after the line (0)"}},
             ["session"])),
     ("click",
-     "Click a node by its name, or a point by x and y, on the screen or inside a window. "
-     "By name is the one to use: it waits up to timeout seconds for the node, raises its "
-     "window and clicks its middle. When two nodes match it lists them, with where they "
-     "are; when none does, the nearest names. A click gives a window the keyboard, which "
-     "nothing else does on X11. hold and state, by x and y, hold the button as press_keys "
-     "holds keys.",
+     "Click an element by its accessible name, or a point by x and y, on the screen or "
+     "inside a window. By name is the one to use: it waits up to timeout seconds for the "
+     "node, raises its window and clicks its middle, and the answer gives the node and its "
+     "bounds. When two nodes match it lists them, with where they are; when none does, the "
+     "nearest names. A click gives a window the keyboard, which nothing else does on X11. "
+     "hold and state, by x and y, hold the button as press_keys holds keys.",
      schema({"session": SESSION, "name": NAME, "role": ROLE, "x": X, "y": Y,
              "window": WINDOW,
              "button": {"type": "integer", "description": "1 left, 2 middle, 3 right"},
@@ -817,9 +821,10 @@ TOOLS = [
                          "description": "By name, seconds to wait for the node (10)"}},
             ["session"])),
     ("scroll",
-     "Turn the mouse wheel over a node by its name, found as click finds it, or at a point "
-     "by x and y. For what's past a list's, a page's or a window's edge; then wait_for "
-     "stable and look again.",
+     "Turn the mouse wheel over a node by its name, found as click finds it (waiting for it, "
+     "its window raised), or at a point by x and y, leaving the pointer there. Use it for "
+     "what's past a list's, a page's or a window's edge, then wait_for stable and look "
+     "again; to move the keyboard focus, use press_keys.",
      schema({"session": SESSION,
              "dy": {"type": "integer", "minimum": -100, "maximum": 100,
                     "description": "Clicks down; negative, up"},
@@ -828,11 +833,11 @@ TOOLS = [
              "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW},
             ["session"])),
     ("press_keys",
-     "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. "
-     "They go to whatever has the keyboard; click a window first if nothing does. hold "
-     "presses them all together and keeps them down that long (walking while running); "
-     "state down leaves them down, across calls, until a call with state up (move or "
-     "click while a key is held).",
+     "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. They "
+     "go to whatever has the keyboard; click a window first if nothing does. hold "
+     "presses them all together and keeps them down that long (walking while running); state "
+     "down leaves them down, across calls, until a call with state up (move or click while a "
+     "key is held). The answer says what it pressed.",
      schema({"session": SESSION,
              "keys": {"type": "array", "items": {"type": "string"},
                       "description": "Chords, pressed one after another"},
@@ -863,7 +868,8 @@ TOOLS = [
              "hold": HOLD, "state": STATE}, ["session", "action"])),
     ("type_text",
      "Type text into whatever has the keyboard focus, a key at a time. ASCII only: a "
-     "character with no key fails the call, once what's before it is typed.",
+     "character with no key fails the call, once what's before it is typed. For keys and "
+     "shortcuts (Return, ctrl+s), use press_keys.",
      schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"}},
             ["session", "text"])),
     ("wait_for",
@@ -895,29 +901,36 @@ TOOLS = [
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},
             ["session", "what"])),
     ("lint",
-     "Nodes a screen reader has no name to say for: controls, images (not inside a named "
-     "control) and anything else that takes the focus. A line each: the node, as "
-     "accessible_tree has it, then what's wrong.",
+     "Lint the accessibility tree for nodes a screen reader has no name to say for: "
+     "controls, images (not inside a named control) and anything else that takes the focus. "
+     "The answer: a tree line each, with bounds, then what's wrong; or \"No problems.\". Use "
+     "it to check labels after a change; for colors, use contrast.",
      schema({"session": SESSION, "window": WINDOW, "ignore": IGNORE}, ["session"])),
     ("contrast",
-     "Contrast measured on the screen, in each node's bounds: text, buttons and links "
-     "against their background, images, and with edges, a button's or field's edge "
-     "against what's round it; large text needs 3. A "
-     "line each, the node as accessible_tree has it with its bounds, then the colors; "
-     "then what wasn't measured, which doesn't fail (too small, or GTK 4's, whose "
-     "positions are wrong), and why. Switches, sliders, check boxes and what's "
-     "disabled are left out, and so is what's scrolled out of view.",
+     "Check that text, buttons, links and images stand out from their background: WCAG's "
+     "4.5:1 for text (3 for large text) and 3:1 for images unless text_ratio and graphics "
+     "say otherwise, and with edges, a button's or field's edge too. It raises the window "
+     "and measures a picture of the screen in each node's bounds. The answer: each node that "
+     "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; then what "
+     "it couldn't measure, which doesn't fail (too small, or GTK 4's, whose positions are "
+     "wrong), and why. A window where nothing can be measured, as GTK 4's, is an error, not "
+     "a pass. Switches, sliders, check boxes, disabled nodes and what's scrolled out of view "
+     "are skipped. For missing names, use lint.",
      schema({"session": SESSION, "window": WINDOW,
              "text_ratio": {"type": "number", "description": "Least for text (4.5)"},
              "graphics": {"type": "number", "description": "Least for images (3)"},
              "edges": {"type": "number", "description": "Least for edges (unchecked)"},
              "ignore": IGNORE}, ["session"])),
     ("tab_walk",
-     "Press a key until the keyboard focus comes back round, and say where it went "
-     "each time: the Tab order. It ends in a cycle (fine), a trap (a press that leaves "
-     "the focus where it was), or after most presses. A text view that takes Tab is left "
-     "with ctrl+Tab, shift+Tab, Escape or F6, Tab not pressed there; the controls Tab "
-     "never reached are said. Leaves the focus where it ends.",
+     "Check the keyboard focus order in one call: press Tab, or key, until the focus comes "
+     "back round, and list where it went, a tree line each, after a \"began in\" line. Then "
+     "the controls the key never reached, and how it ended: round again (fine), stuck (a "
+     "trap, or a text view nothing leaves), not round after most presses, lost (no node has "
+     "the focus), stopped (a text view closed as it was left), or nothing focused to begin "
+     "with (click the window first). With visible, \"focus not shown on N\" "
+     "counts stops that don't show it. A text view that takes Tab is left as a person would, "
+     "with ctrl+Tab, shift+Tab, Escape or F6. The focus stays where it ended. To press a few "
+     "keys yourself, use press_keys.",
      schema({"session": SESSION,
              "key": {"type": "string", "description": "The chord to press (Tab)"},
              "window": WINDOW,
@@ -928,16 +941,20 @@ TOOLS = [
              "ignore": {**IGNORE, "description": "Regexes for unreached controls to leave "
                         "out"}}, ["session"])),
     ("announcements",
-     "Everything programs have announced to a screen reader in the session, a line each, "
-     "\"polite: Saved\": GTK's announcements, a browser's live regions.",
+     "List what programs in the session have announced to a screen reader since it started, "
+     "oldest first, a line each with its politeness: \"polite: Saved\", \"assertive: "
+     "Error\". That's GTK's announcements and a browser's live regions. Reading doesn't "
+     "clear them; \"Nothing announced yet.\" means none so far. Use it to check what a "
+     "screen reader user heard after an action; to wait for one, use wait_for announcement.",
      schema({"session": SESSION}, ["session"])),
     ("sound",
-     "Record what plays in a session started with audio: action start, then do what makes "
-     "the sound, then action stop, which says what it heard: its length, peak and RMS "
-     "(dBFS), samples clipped, and each gap of exact silence between the first sound and "
-     "the last, as a program that falls behind leaves; then what's wrong, if anything "
-     "(gaps, clipping, silence). Sounds meant to be apart, two beeps say, need a gap "
-     "longer than the silence between them.",
+     "Record what a session started with audio plays, from a call with action start to one "
+     "with action stop, across the calls between that make the sound. stop's answer: the "
+     "sound's length, peak and RMS level (dBFS), samples clipped, and each gap of exact "
+     "silence between the first sound and the last, as a program that falls behind leaves; "
+     "then what's wrong, if anything (gaps, clipping, silence). Sounds meant to be apart, "
+     "two beeps say, need a gap longer than the silence between them. For a video of the "
+     "screen with its sound, up to a minute, use record with sound.",
      schema({"session": SESSION,
              "action": {"type": "string", "enum": ["start", "stop"],
                         "description": "start, then stop"},
