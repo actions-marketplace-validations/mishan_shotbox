@@ -1273,8 +1273,9 @@ PY
     # unless --gap is longer than they are. Stopped by kill, before its
     # --seconds or with none, by --until-line's line (a file not there
     # yet), or by the session's PipeWire going, before its --seconds (said)
-    # or with none, the sound as long as the picture, within 0.05 s for
-    # those, and as long as it ran.
+    # or with none, the sound as long as the picture, within a frame of
+    # each for those (33 ms of picture and 21 of AAC: 0.055 s), and as
+    # long as it ran.
     if audio; then
       rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
       TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
@@ -1299,7 +1300,7 @@ PY
         && python3 "$tmp/av.py" "$tmp/$pre-sp0.mp4" >> "$tmp/$pre-av" \
         && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | awk '$1 == "h264" && $2 == 3 && $3 == "aac" &&
              $4 >= 3 && $4 < 3.022 && $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
-        && [ "$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < (NR == 2 || NR == 5 ? 0.0025 : 0.01)' | wc -l)" = 5 ] \
+        && [ "$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < (NR == 2 || NR == 5 ? 0.003 : 0.01)' | wc -l)" = 5 ] \
         && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
         && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -Eq "gaps? of silence" "$tmp/$pre-heard" \
         && ! grep -q gap "$tmp/$pre-heard2" && grep -q "^the sound server stopped" "$tmp/$pre-heard3" \
