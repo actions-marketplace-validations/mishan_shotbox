@@ -58,6 +58,11 @@
 
 ### Fixed
 
+- shotbox's own commands inside a `--clock` session (`wait`, `key
+  --hold`, `record`...) run on the real clock, rather than under the
+  session's libfaketime, which in 0.9.10 (Ubuntu 24.04's) makes the
+  `time.sleep` of Python 3.11 and later fail; the programs they start for the session, as
+  `term`'s, keep the session's clock.
 - A name, role, window title, announcement or `--ignore` that isn't a
   regex (`+`) says so in a sentence, rather than with a traceback; a name
   that isn't one is taken only as it is.

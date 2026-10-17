@@ -55,7 +55,7 @@ from pathlib import Path
 
 from . import a11y, kept, mcp, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError, wheel
-from .session import NEEDS, Session
+from .session import NEEDS, Session, off_the_clock, unclocked
 
 
 def scale(s):
@@ -1217,6 +1217,8 @@ INSIDE = ("wait", "capture", "record", "key", "type", "click", "move", "scroll",
 
 
 def main(argv=None):
+    if argv is None:
+        off_the_clock()
     argv = sys.argv[1:] if argv is None else argv
     session = None
     if argv[:1] == ["--session"]:
@@ -1240,6 +1242,7 @@ def main(argv=None):
                 raise SessionError(f"--session is for the commands used inside a "
                                    f"session ({', '.join(INSIDE)}), not {argv[0]}")
             kept.enter(session)
+            unclocked(os.environ)   # its env has the preload, for its programs
         return COMMANDS[argv[0]](argv[1:])
     except (SessionError, xtest.XError) as e:
         sys.stderr.write(f"shotbox: {e}\n")
