@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-10-18
+
+MCP tools named for what they do (verb_noun: renamed, see below), with
+descriptions that say when to use each; MCP revisions 2025-11-25 and
+2026-07-28; pictures sized for the model looking at them, bounded
+answers, and a program's text marked as its own. Waiting for a spawned
+program's window by its name, window waits that say what's there, and
+sessions killed outright cleaned up, with `sessions --stale` and
+`--clean` for what was left before.
 
 ### Changes to check when upgrading
 
