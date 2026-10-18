@@ -641,9 +641,9 @@ printf 'wait window nope --timeout 0.3 &\n10 park\n' > "$tmp/play-behind"
   && [ "$(cat "$tmp/entry.log")" = 'hello#${WORD}' ] \
   && grep -qx "shotbox: $tmp/play-unset:2: \${NOPE} isn't set" "$tmp/play.err" \
   && grep -q "^shotbox: $tmp/play-fails:2: gave up waiting .*; the screen then: $tmp/play-failed.png$" "$tmp/play.err" \
-  && grep -qx "shotbox: $tmp/play-behind:1: gave up waiting for a window named 'nope' after 0.3s" "$tmp/play.err" \
+  && grep -qx "shotbox: $tmp/play-behind:1: gave up waiting for a window named 'nope' after 0.3s; there are: \"entry\"" "$tmp/play.err" \
   && [ -s "$tmp/play-failed.png" ] && [ "$(sort -n "$tmp/play.ms" | tail -1)" -lt 3000 ] \
-  && ok "play: a script typed in, \${NAME} set; checked first; a step failing, by its line, stops what's behind it, or behind, the script" \
+  && ok "play: a script typed in, \${NAME} set; checked first; a step failing, by its line, stops what's behind it, or behind, the script, saying the windows there are" \
   || fail "play: $(cat "$tmp/entry.log" "$tmp/play.err" "$tmp/play.ms" 2>/dev/null)"
 # Its clock, in a lasting session, the script from stdin: a key at 1 s,
 # the next 0.5 s after it; a wait (for a key pressed behind it at 2.5 s)
@@ -1016,8 +1016,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   set +e
   "$sb" shoot "$tmp/w4.png" --wayland --window never --timeout 2 -- "$win" wl-test 2> "$tmp/err"
   st=$?; set -e
-  [ $st != 0 ] && [ -s "$tmp/w4-failed.png" ] && ok "wayland: a failed wait leaves a picture" \
-    || fail "wayland: no -failed.png ($st)"
+  [ $st != 0 ] && [ -s "$tmp/w4-failed.png" ] && grep -q '; there are: "wl-test" (app id window.py);' "$tmp/err" \
+    && ok "wayland: a failed wait leaves a picture, and says the windows there are" \
+    || fail "wayland: no -failed.png, or no windows said ($st): $(cat "$tmp/err")"
   if xwayland; then
     "$sb" run --xwayland -- sh -c "[ -n \"\$DISPLAY\" ] && GDK_BACKEND=x11 '$win' wl-x11 &
       '$sb' wait window wl-x11 && '$sb' wait stable --window wl-x11 &&

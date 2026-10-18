@@ -35,6 +35,11 @@
 
 ### Added
 
+- MCP's `wait_for` a window takes the name a program was spawned by, and
+  waits for a window of that program's, whatever its title, on X11 and
+  Wayland, over one titled the name (`^name$` still waits for that),
+  which is taken if the program has none of its own, as a daemon's
+  window is; `spawn_program`'s answer says so.
 - MCP revisions 2025-11-25 and 2026-07-28, with `server/discover`.
 
 ### Changed
@@ -46,6 +51,10 @@
 - MCP's `check_focus_order`, when nothing has the focus to start from,
   says to click the window with `click_element`, not to run
   `shotbox focus`, which an agent can't.
+- A window wait that gives up (`wait window`, `Screen.wait_window`, a
+  `--window` that waits, MCP's `wait_for`) lists the windows there are,
+  the nearest first, with their app ids on Wayland, as a click by name
+  lists the nearest names; so does a `--window` with no such window.
 
 ## 0.7.1 — 2026-10-17
 

@@ -114,7 +114,10 @@ def toplevels(Atspi, window=None, timeout=10):
     if not window:
         return find_toplevels(Atspi)
     what = f"an accessible {x.matcher(window)[1]}"
-    return wait_for(what, lambda: find_toplevels(Atspi, window), timeout)
+    try:
+        return wait_for(what, lambda: find_toplevels(Atspi, window), timeout)
+    except SessionError as e:
+        raise SessionError(f"{e}{Screen().there(window)}") from None
 
 
 def find_toplevels(Atspi, window=None):

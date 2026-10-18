@@ -286,7 +286,8 @@ class Server:
         proc = s.spawn(self.allowed[program], log=log, cwd=self.home,
                        stdin=subprocess.DEVNULL)
         self.spawned[session].append((program, proc, log))
-        return f"Started {program} (pid {program_pid(proc)}) in {session!r}."
+        return (f"Started {program} (pid {program_pid(proc)}) in {session!r}. wait_for window "
+                f"{program!r} waits for its window, whatever its title.")
 
     def get_program_output(self, session, program, lines=40):
         session = str(session)
@@ -587,7 +588,11 @@ class Server:
         if value is None and what != "stable":
             raise Refused(f"wait_for {what} needs a value: what to wait for")
         if what == "window":
-            w = s.wait_window(str(value), timeout=timeout)
+            # A program's name over a title it may share: the agent named
+            # what it spawned, and a regex (^name$) still asks for the title.
+            # Each process spawned is a process session's leader.
+            sids = {proc.pid for name, proc, _ in self.spawned[session] if name == value}
+            w = s.wait_window(str(value), timeout=timeout, sids=sids)
             return f"{w[1]!r} is up: {w[2]}x{w[3]} at {w[4]},{w[5]}."
         if what == "stable":
             s.wait_stable(number(value, "value", 0, 60) or 0.5, window=text(window),
@@ -747,8 +752,9 @@ TOOLS = [
      schema({"session": SESSION}, ["session"])),
     ("spawn_program",
      "Start one of the programs the person allowed this server to run, by its name, in a "
-     "session; nothing else can run. The answer gives its pid. Then wait_for its window "
-     "before looking at it. If it doesn't come up, get_program_output says why.",
+     "session; nothing else can run. The answer gives its pid. Then wait_for its window, by "
+     "the program's name, before looking at it. If it doesn't come up, get_program_output "
+     "says why.",
      schema({"session": SESSION, "program": PROGRAM}, ["session", "program"])),
     ("get_program_output",
      "Read the last lines (40, or lines) a spawned program wrote to stdout and stderr, after "
@@ -881,7 +887,9 @@ TOOLS = [
             ["session", "text"])),
     ("wait_for",
      "Wait, instead of sleeping, for: a window (value: its title, exactly or a regex, or "
-     "app=RE), stable (the screen, or the window, unchanged for value seconds, 0.5, up to "
+     "app=RE, or the name of a program spawn_program started, for a window of that "
+     "program's, whatever its title; giving up, it lists the windows there are), "
+     "stable (the screen, or the window, unchanged for value seconds, 0.5, up to "
      "60: after a click, for the repaint), an announcement (value: a regex in what was "
      "announced to a screen reader; each announcement is waited for once), focus (value: the name of the node with the keyboard focus, as "
      "click_element takes one), match (value: a PNG, by its path from the allow file's directory, "

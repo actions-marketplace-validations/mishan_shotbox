@@ -18,6 +18,7 @@ $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 """
 
 import contextlib
+import difflib
 import fcntl
 import functools
 import json
@@ -87,13 +88,38 @@ class Screen:
     def until(self, what, test, timeout=30, alive=None):
         """Poll `test()` until it returns something true, and return that;
         or fail, saying it gave up waiting for `what`. With `alive` (a
-        process), fail sooner if it exits."""
+        process), fail sooner if it exits. A test with `there`, what to add
+        to that: the windows there are, for one that waits on a window."""
         try:
             return wait_for(what, test, timeout, alive=alive)
         except SessionError as e:
             if _CANCEL.is_set():
                 raise
-            self.fail(str(e))
+            self.fail(str(e) + (test.there() if hasattr(test, "there") else ""))
+
+    def there(self, name, sids=()):
+        """What to add to giving up on the window wait_window(name, sids=sids)
+        waits for, if it isn't there: the windows there are, their titles,
+        and with app=RE or on Wayland, their app ids, the nearest to `name`
+        first (by app id with app=RE), ten at most."""
+        if self.find_window(name, sids):
+            return ""
+        app = name.startswith("app=") and not sids
+        key = name[4:] if app else name
+        seen = {}
+        for w in self.backend.shown(self.env):
+            line = json.dumps(w[1], ensure_ascii=False)
+            apps = list(dict.fromkeys(w[6]))
+            if apps and (app or self.wayland):
+                line += f" ({'app id' if len(apps) == 1 else 'app ids'} {', '.join(apps)})"
+            near = max(difflib.SequenceMatcher(None, key, k).ratio()
+                       for k in (w[6] if app else (w[1],)) or ("",))
+            seen[line] = max(near, seen.get(line, 0))
+        if not seen:
+            return "; there are none"
+        lines = sorted(seen, key=seen.get, reverse=True)
+        more = f", and {len(lines) - 10} more" if len(lines) > 10 else ""
+        return "; there are: " + ", ".join(lines[:10]) + more
 
     # --- waiting --------------------------------------------------------------
 
@@ -102,7 +128,10 @@ class Screen:
         its title, or app=RE for its app id), port,
         file, ready, or stable (seconds; `window` to watch just that one)."""
         if kind == "window":
-            return f"a {x.matcher(arg)[1]}", lambda: self.backend.find_window(self.env, arg)
+            def found():
+                return self.backend.find_window(self.env, arg)
+            found.there = lambda: self.there(arg)
+            return f"a {x.matcher(arg)[1]}", found
         if kind == "port":
             return f"port {arg}", lambda: x.port_open(int(arg),
                                                       net_pid=self.env.get("SHOTBOX_NET_PID"))
@@ -141,16 +170,35 @@ class Screen:
         if kind == "stable":
             quiet = float(arg) if arg else 0.5
             where = f"the window {window!r}" if window else "the display"
-            return (f"{where} to hold still for {quiet:g}s",
-                    x.Still(self.env, window, quiet, self.backend))
+            still = x.Still(self.env, window, quiet, self.backend)
+            if window:
+                still.there = lambda: self.there(window)
+            return f"{where} to hold still for {quiet:g}s", still
         raise SessionError(f"don't know how to wait for {kind!r} "
                            "(window, port, file, ready, stable or announce)")
 
-    def wait_window(self, name, timeout=30):
+    def wait_window(self, name, timeout=30, sids=()):
         """Wait for a viewable window whose title matches `name` (a regex,
-        matched in full), or, with app=RE, whose app id does; its (id, name,
-        width, height, x, y)."""
-        return self.until(*self.test("window", name), timeout)
+        matched in full), or, with app=RE, whose app id does; or with `sids`,
+        as find_window has them, `name` a program's. Its (id, name, width,
+        height, x, y)."""
+        if not sids:
+            return self.until(*self.test("window", name), timeout)
+
+        def found():
+            return self.find_window(name, sids)
+        found.there = lambda: self.there(name, sids)
+        return self.until(f"a window of {name!r}, or one titled that", found, timeout)
+
+    def find_window(self, name, sids=()):
+        """The window `name` asks for, as the backend's find_window; or with
+        `sids`, process sessions, one of a process in one of them, else one
+        titled exactly `name`: a program's, whose window a process it didn't
+        start may make (D-Bus activation, a daemon)."""
+        if not sids:
+            return self.backend.find_window(self.env, name)
+        return (self.backend.find_window(self.env, sids=sids)
+                or self.backend.find_window(self.env, re.escape(name)))
 
     def wait_port(self, port, timeout=30):
         self.until(*self.test("port", port), timeout)
@@ -329,6 +377,8 @@ class Screen:
                 e = f"{e}; the crop isn't inside the window, {small}"
             elif match and sizes:
                 e = f"{e}; {name} is {sizes[0]}, the picture taken {sizes[1]}"
+            elif window:
+                e = f"{e}{self.there(window)}"
             self.fail(str(e))
         finally:
             now.unlink(missing_ok=True)
@@ -829,12 +879,7 @@ class Screen:
         """The window `name` asks for (a title regex, or app=RE), or fail."""
         w = self.backend.find_window(self.env, name)
         if not w:
-            app = name.startswith("app=")
-            names = sorted({a for v in self.backend.windows(self.env)
-                            for a in (v[6] if app else [v[1]]) if a})
-            self.fail(f"no {x.matcher(name)[1]}, matched in full; the "
-                      + ("app ids" if app else "titles") + " there are "
-                      + (", ".join(map(repr, names)) or "none"))
+            self.fail(f"no {x.matcher(name)[1]}, matched in full{self.there(name)}")
         return w
 
     def focus_window(self, name):

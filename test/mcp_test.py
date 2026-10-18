@@ -38,6 +38,8 @@ allow = tmp / "programs"
 # `where` says where its session is, and takes a second to go when told to.
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
                  f"long = {here / 'a11y_app.py'} long\n"
+                 f"wrapped = /bin/sh -c '{here / 'a11y_app.py'}; exit $?'\n"
+                 f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
@@ -348,6 +350,26 @@ try:
           f"scroll_wheel: by a node's name, a row past the end into view, and back; none or too "
           f"far, refused ({said}; {back})")
     tool("stop_session", session="l")
+    # By the name it was spawned by, a program behind a shell, whose window's
+    # title isn't that; and a title that isn't there, the window that is said.
+    for wayland in (False, True):
+        tool("start_session", name="w", wayland=wayland)
+        said, _, _ = tool("spawn_program", session="w", program="wrapped")
+        up, up_bad, _ = tool("wait_for", session="w", what="window", value="wrapped",
+                             timeout=20)
+        none, none_bad, _ = tool("wait_for", session="w", what="window", value="a11y",
+                                 timeout=0)
+        tool("spawn_program", session="w", program="daemon")
+        daemon, daemon_bad, _ = tool("wait_for", session="w", what="window", value="daemon",
+                                     timeout=20)
+        tool("stop_session", session="w")
+        check("wait_for window 'wrapped'" in said and not up_bad
+              and up.startswith("'a11y-test' is up") and none_bad
+              and 'there are: "a11y-test"' in none
+              and not daemon_bad and daemon.startswith("'daemon' is up"),
+              f"wait_for window{' on Wayland' if wayland else ''}: by the name spawned, or a "
+              f"daemon's by its title, and giving up, the windows there are "
+              f"({up}; {none}; {daemon})")
     if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap") and subprocess.run(
             ["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0:
         said, bad, _ = tool("start_session", name="g", a11y=False, gamepads=1)
