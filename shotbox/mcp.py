@@ -1084,18 +1084,18 @@ TOOLS = [
      "announcement.",
      schema({"session": SESSION}, ["session"])),
     ("record_audio",
-     "Record what a session started with audio plays, from a call with action start to one "
-     "with action stop, across the calls between that make the sound. stop's answer: the "
-     "sound's length, peak and RMS level (dBFS), samples clipped, and each gap of exact "
-     "silence between the first sound and the last, as a program that falls behind leaves; "
-     "then what's wrong, if anything (gaps, clipping, silence). Sounds meant to be apart, "
-     "two beeps say, need a gap longer than the silence between them. For a video of the "
-     "screen with its sound, up to a minute, use record_video with sound.",
+     "Record a session's sound and say how it was: call with action start, have the "
+     "program play, then call with action stop. The session must have been started with "
+     "audio. stop answers with the sound's length, its peak and RMS level in dBFS, the "
+     "samples clipped, and each gap of silence between the first sound and the last (what "
+     "a program that falls behind leaves), then any problem found. The sound itself isn't "
+     "returned or kept; to keep it, use record_video with sound. Raise gap when the "
+     "program is meant to fall silent between sounds, as between two beeps.",
      schema({"session": SESSION,
              "action": {"type": "string", "enum": ["start", "stop"],
                         "description": "start, then stop"},
              "gap": {"type": "number", "minimum": 0.01, "maximum": 60000,
-                     "description": "Silence, in milliseconds, said as a gap (1)"}},
+                     "description": "The shortest silence, in milliseconds, reported as a gap (1)"}},
             ["session", "action"])),
 ]
 
