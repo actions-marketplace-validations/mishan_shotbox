@@ -554,7 +554,11 @@ releases. Checked with Orca 51.1 (Debian's), and 50.3, 48.0 and 46.1
 (Ubuntu's packages, run from the package's files): they say the same
 things, but for a period at the end before 51 (`"Save button."`), a
 mnemonic said (`"N opens popup"`) from 50, and a checked box said
-checked twice by 46. Checked on X11 and Wayland, with GTK 4's windows.
+checked twice by 46 here (not with Ubuntu 24.04's own libraries, as CI
+runs it). A role is said as at-spi2-core names it, as the tree shows it:
+before 2.54 (Ubuntu 24.04's 2.52), a button is a `push button`
+(`"Save push button."`). Checked on X11 and Wayland, with GTK 4's
+windows.
 
 ## Announcements
 
