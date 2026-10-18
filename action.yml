@@ -15,6 +15,9 @@ inputs:
   a11y:
     description: For --a11y and `shotbox a11y`, an accessibility bus and its checks
     default: "false"
+  speak:
+    description: For `shotbox a11y speak`, Orca, with what a11y installs
+    default: "false"
   wayland:
     description: For --wayland and --xwayland, a headless sway
     default: "false"
@@ -40,6 +43,7 @@ runs:
     - shell: bash
       env:
         A11Y: ${{ inputs.a11y }}
+        SPEAK: ${{ inputs.speak }}
         WAYLAND: ${{ inputs.wayland }}
         AUDIO: ${{ inputs.audio }}
         RECORD: ${{ inputs.record }}
@@ -49,6 +53,7 @@ runs:
       run: |
         set -euo pipefail
         pkgs="xvfb xauth dbus-daemon imagemagick x11-utils bubblewrap libglib2.0-bin fonts-dejavu-core"
+        [ "$SPEAK" != true ] || { A11Y=true; pkgs="$pkgs orca"; }
         [ "$A11Y" != true ] || pkgs="$pkgs at-spi2-core gir1.2-atspi-2.0 python3-gi"
         [ "$WAYLAND" != true ] || pkgs="$pkgs sway grim xwayland"
         [ "$AUDIO" != true ] || pkgs="$pkgs pipewire pipewire-bin wireplumber"

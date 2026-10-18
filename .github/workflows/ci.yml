@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./
         with:
-          a11y: true
+          speak: true
           wayland: true
           audio: true
           record: true
@@ -119,6 +119,7 @@ jobs:
           shotbox run --wayland -- shotbox record way.mp4 --seconds 1 > /dev/null
           test -s way.mp4
           shotbox run --a11y -- shotbox a11y tree > /dev/null
+          shotbox run --a11y -- shotbox a11y speak --keys Tab > /dev/null
           shotbox exec --audio -- shotbox record quiet.wav --seconds 1 > /dev/null
           test -s quiet.wav
           shotbox run --gamepads 1 -- sh -c 'ls /dev/input | grep -q event'

@@ -11,7 +11,8 @@
   node with the focus, then what Orca said (`button "Save" [focusable,
   focused]  says "Save button"`), or `says nothing`. `Screen.speak()`
   in Python, and MCP's `get_speech`. Needs Orca, which `shotbox doctor`
-  lists; checked with Orca 46.1, 48.0, 50.3 and 51.1.
+  lists; checked with Orca 46.1, 48.0, 50.3 and 51.1. The Action's
+  `speak: true` installs Orca, and what `a11y: true` does.
 
 ### Changed
 
