@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `shotbox a11y tabwalk` (and `Screen.tab_walk()`, MCP's
+  `check_focus_order`) reads the tree after each press only as far as
+  the node with the focus, not all of it: 50 presses through a GTK 4
+  list of 300 rows take 5 seconds, not 90, and through a GTK 3 one of
+  400, a second, not 11. Every read of the tree asks each node for its
+  role once, not three times, and one that isn't showing for nothing
+  more than its states: `a11y tree`, `lint` and `contrast` make a
+  quarter fewer calls on the accessibility bus, and under half as many
+  in a list mostly scrolled out of view. What they find is as before.
+
 ## 0.8.0 — 2026-10-18
 
 MCP tools named for what they do (verb_noun: renamed, see below), with

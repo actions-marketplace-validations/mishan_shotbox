@@ -218,7 +218,15 @@ def place(Atspi, n, shown, origins):
     return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height]
 
 
-def node(Atspi, acc, states, path):
+def role_name(Atspi, acc, role):
+    """`acc.get_role_name()` for its `role`, without asking for that again:
+    libatspi names the roles it knows itself."""
+    if 0 <= role <= Atspi.Role.LAST_DEFINED and role != Atspi.Role.EXTENDED:
+        return Atspi.role_get_name(role)
+    return acc.get_role_name()
+
+
+def node(Atspi, acc, states, role, path):
     shown = [s for s in STATES
              if states.contains(getattr(Atspi.StateType, s.upper().replace("-", "_")))]
     if states.contains(Atspi.StateType.EXPANDABLE) and not states.contains(
@@ -230,47 +238,58 @@ def node(Atspi, acc, states, path):
     name = acc.get_name() or ""
     if not name and "focusable" in shown:
         name = " ".join(t.get_name() for t in related(Atspi, acc, "LABELLED_BY") if t.get_name())
-    return Node(role=acc.get_role_name(), name=name,
+    return Node(role=role_name(Atspi, acc, role), name=name,
                 description=acc.get_description() or "", states=shown, path=path,
-                _role=int(acc.get_role()),
+                _role=int(role),
                 _showing=states.contains(Atspi.StateType.SHOWING),
                 # Paths alone collide: GTK 3 numbers its objects per program.
                 _id=f"{acc.app.bus_name if acc.app else ''}{acc.path}",
                 _acc=acc)
 
 
-def walk(Atspi, window=None, timeout=10, bounds=False):
+def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
     """Every showing node (in a page, visible) under the toplevels `window`
-    picks, depth first, as (depth, Node). With `bounds`, each has its
-    bounds on the screen, or None where they can't be told."""
+    picks, depth first, as (depth, Node); with `until`, up to the first
+    it's true of. With `bounds`, each has its bounds on the screen, or
+    None where they can't be told."""
     out = []
 
-    def visit(acc, depth, path, web=False):
+    def done():
+        return until and out and until(out[-1][1])
+
+    def visit(acc, role, depth, path, web=False):
         if len(out) > 20000 or depth > 200:
-            return
-        try:
-            states = acc.get_state_set()
-            n = node(Atspi, acc, states, path)
-        except Exception:   # gone while we looked: a closing popover, a toast
             return
         # A toolkit's widget can be visible and not on the screen (in a
         # revealer not revealed); a page's is not showing only scrolled
-        # out of view, as a toolkit's list row is still showing.
-        web = web or n._role == Atspi.Role.DOCUMENT_WEB
-        if not states.contains(Atspi.StateType.VISIBLE if web else Atspi.StateType.SHOWING):
+        # out of view, as a toolkit's list row is still showing. Each
+        # call is a round trip, so what isn't shown isn't asked more.
+        web = web or role == Atspi.Role.DOCUMENT_WEB
+        try:
+            states = acc.get_state_set()
+            if not states.contains(Atspi.StateType.VISIBLE if web else Atspi.StateType.SHOWING):
+                return
+            n = node(Atspi, acc, states, role, path)
+        except Exception:   # gone while we looked: a closing popover, a toast
             return
         n["_top"] = top
         out.append((depth, n))
         for i in range(acc.get_child_count()):
+            if done():
+                return
             child = acc.get_child_at_index(i)
             if child is not None:
-                visit(child, depth + 1, f"{path}/{child.get_role_name()}[{i}]", web)
+                role = child.get_role()
+                visit(child, role, depth + 1, f"{path}/{role_name(Atspi, child, role)}[{i}]", web)
 
     for _, top in toplevels(Atspi, window, timeout):
+        if done():
+            break
         # libatspi caches states, and hears they've changed only from
         # events, which nothing here dispatches.
         top.clear_cache()
-        visit(top, 0, f"{top.get_role_name()} {json.dumps(top.get_name() or '')}")
+        role = top.get_role()
+        visit(top, role, 0, f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}")
     if bounds:
         screen, origins = Screen(), {}
         shown = screen.backend.windows(screen.env)
@@ -287,10 +306,8 @@ def tree(window=None, timeout=10, bounds=False):
 
 def focused(Atspi, window=None):
     """The node with the keyboard focus, or None."""
-    for _, n in walk(Atspi, window):
-        if "focused" in n.states:
-            return n
-    return None
+    out = walk(Atspi, window, until=lambda n: "focused" in n.states)
+    return out[-1][1] if out and "focused" in out[-1][1].states else None
 
 
 def roles(Atspi, names):
