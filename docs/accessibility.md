@@ -511,12 +511,13 @@ the focus is still heard.
 Without `--keys` it presses Tab until the focus lands where it has
 been, at most `--max` times, as `tabwalk` does, but never in a text view
 one writes in, which would take the tab as typing: it stops before one,
-saying so, and nothing is typed. `--keys Tab Tab space alt+n` presses
-those, in turn, a line each, whatever the focus does: what Orca says as
-a check box is toggled, or a mnemonic used (`ctrl+Tab` leaves a GTK text
-view). `--json` gives `start` and each of `presses` as `key`, `focus` (a
-node, as `tree --json` has it, or null), `moved` and `speech` (a list),
-and `text_view`, whether Tab stopped at one. From Python,
+saying which key leaves it (`ctrl+Tab`, or in Qt `shift+Tab`), and
+nothing is typed. `--keys Tab Tab space alt+n` presses those, in turn,
+a line each, whatever the focus does: what Orca says as a check box is
+toggled, or a mnemonic used. `--json` gives `start` and each of
+`presses` as `key`, `focus` (a node, as `tree --json` has it, or null),
+`moved` and `speech` (a list), and `text_view`, if Tab stopped at one,
+the key that leaves it. From Python,
 `Screen.speak()`; from MCP, `get_speech`.
 
 It needs Orca (`orca` on Debian and Fedora), which takes a few seconds
@@ -542,6 +543,10 @@ pressed. Orca is run so it stays in the session:
   refuse to start, or kill it: it's run by its interpreter
   (`python3 /usr/bin/orca`) and names itself through a stand-in for
   `setproctitle`.
+
+All but the `pgrep` are a `sitecustomize.py` on Orca's `PYTHONPATH`, so
+an Orca whose interpreter is told to leave those out (`-I`, `-E`, `-s`
+or `-S` in its `#!` line) isn't started: it's refused, saying why.
 
 What's read of Orca's debug log is its `SPEECH OUTPUT: 'TEXT'` entries and
 nothing else, as the log isn't an interface and changes between

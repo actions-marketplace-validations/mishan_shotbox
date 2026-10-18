@@ -65,8 +65,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `speak(keys=None, window=None, most=50)`, what Orca says as `a11y
   speak` has it, with Orca installed: a dict, its `start` and each of
   its `presses` with the `focus` (a node, or None), whether it `moved`,
-  and the `speech` (a list), and `text_view`, whether Tab stopped at
-  one; and
+  and the `speech` (a list), and `text_view`, if Tab stopped at one,
+  the key that leaves it; and
   `wait_announce(re)`. `focus_window(re)` gives a window the keyboard.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and
   `scratch`. It takes the session options as arguments: `a11y`,

@@ -995,6 +995,17 @@ if atspi; then
     && [ ! -s "$tmp/typed" ] \
     && ok "a11y: tabwalk finds a focus trap: a text view nothing gets out of, in a dialog too" \
     || { fail "a11y: trap ($st, $st2)"; cat "$tmp/walk" "$tmp/dialog" "$tmp/typed"; }
+  # An Orca whose Python leaves out PYTHONPATH or site would run as it
+  # is, out loud: it isn't started.
+  mkdir -p "$tmp/isolated"
+  for flags in -I -Es; do
+    printf '#!/usr/bin/python3 %s\nopen("%s/ran", "w")\n' "$flags" "$tmp" > "$tmp/isolated/orca"
+    chmod +x "$tmp/isolated/orca"
+    set +e; "$sb" run --a11y -- sh -c "PATH='$tmp/isolated':\$PATH '$sb' a11y speak" 2> "$tmp/err"; st=$?; set -e
+    [ $st != 0 ] && grep -q "won't start Orca: its interpreter, /usr/bin/python3 $flags, ignores" "$tmp/err" \
+      && [ ! -e "$tmp/ran" ] && ok "a11y: speak refuses an Orca run with $flags, which would leave out its stubs" \
+      || fail "a11y: speak with $flags ($st): $(cat "$tmp/err")"
+  done
   # What a real Orca says: as it starts, and at each stop, a button by its
   # name and role, one with no name by its role alone, a field by its
   # mnemonic label, a label over two lines; named so a desktop's Orca

@@ -78,6 +78,16 @@ class Orca:
         with open(orca, "rb") as f:
             first = f.readline()
         run = first[2:].decode().split() if first.startswith(b"#!") else []
+        args = run[1:]
+        if run and Path(run[0]).name == "env":
+            args = [a for a in args if a != "-S"][1:]
+        # -I, -E, -s and -S leave out PYTHONPATH or site, and with them
+        # sitecustomize: Orca would speak, and be named orca.
+        if any(a.startswith("-") and not a.startswith("--") and set(a[1:]) & set("IEsS")
+               for a in args):
+            raise SessionError(f"a11y speak won't start Orca: its interpreter, {' '.join(run)}, "
+                               "ignores PYTHONPATH or site, which keep it from speaking out "
+                               "loud and from being taken for the desktop's Orca")
         scratch = os.environ["SHOTBOX_SCRATCH"]
         if not Path(os.environ.get("HOME", "/")).resolve().is_relative_to(Path(scratch).resolve()):
             raise SessionError("a11y speak runs only in a session's own home")
@@ -155,7 +165,8 @@ def speak(keys=None, most=50, window=None, timeout=10, settle=2.0):
     has the focus as Orca starts and what it says, "presses": after each
     press, the key, where the focus is once it has left where it was (or
     after `settle`), whether it moved, and what Orca said, "text_view":
-    whether Tab stopped at one}; the focus a Node, or None."""
+    if Tab stopped at one, the key that leaves it, else None}; the focus a
+    Node, or None."""
     Atspi = a11y.atspi()
     screen = Screen()
     for k in keys or ():
@@ -167,11 +178,13 @@ def speak(keys=None, most=50, window=None, timeout=10, settle=2.0):
     try:
         before = a11y.focused(Atspi, window)
         got = {"start": {"focus": before, "speech": orca.started}, "presses": [],
-               "text_view": False}
+               "text_view": None}
         seen = {before._id} if before else set()
         for k in keys or ["Tab"] * most:
             if not keys and a11y.writing(Atspi, before):
-                got["text_view"] = True
+                # As tabwalk tries them: GTK's way out, and Qt's (GTK's types a tab).
+                qt = a11y.toolkit(before).startswith("Qt")
+                got["text_view"] = "shift+Tab" if qt else "ctrl+Tab"
                 break
             at = orca.size()
             screen.key(k)
@@ -214,8 +227,8 @@ def lines(got):
                    or "nothing"))
     out = ["(start) " + said(got["start"])] + [said(p) for p in got["presses"]]
     if got["text_view"]:
-        out.append("stopped before Tab in a text view, which would type it: --keys can "
-                   "leave it (GTK's ctrl+Tab)")
+        out.append("stopped before Tab in a text view, which would type it: "
+                   f"--keys {got['text_view']} leaves it")
     return out
 
 

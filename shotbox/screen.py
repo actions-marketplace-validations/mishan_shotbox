@@ -880,8 +880,8 @@ class Screen:
         text view, which takes Tab. A dict: `start`, what has the `focus`
         as Orca starts (a node, or None) and its `speech`, a list of what
         it said; `presses`, the same after each press, with its `key` and
-        whether the focus `moved`; and `text_view`, whether Tab stopped at
-        one. Needs Orca, which takes a few seconds to start."""
+        whether the focus `moved`; and `text_view`, if Tab stopped at
+        one, the key that leaves it, else None. Needs Orca, which takes a few seconds to start."""
         from .a11y import Node
         args = ["speak", "--max", str(most), *([f"--window={window}"] if window else []),
                 *(["--keys", *keys] if keys else [])]
