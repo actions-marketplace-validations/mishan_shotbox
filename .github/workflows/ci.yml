@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./
         with:
-          speak: true
+          a11y: true
           wayland: true
           audio: true
           record: true
@@ -119,11 +119,25 @@ jobs:
           shotbox run --wayland -- shotbox record way.mp4 --seconds 1 > /dev/null
           test -s way.mp4
           shotbox run --a11y -- shotbox a11y tree > /dev/null
-          shotbox run --a11y -- shotbox a11y speak --keys Tab > /dev/null
           shotbox exec --audio -- shotbox record quiet.wav --seconds 1 > /dev/null
           test -s quiet.wav
           shotbox run --gamepads 1 -- sh -c 'ls /dev/input | grep -q event'
           shotbox exec --clock 2026-09-26T18:40:00 -- date | grep -q 18:40
+
+  # speak on its own, so a11y alone is tried above without Orca, and here
+  # speak brings what a11y does: Orca starts from what the Action installed.
+  action-speak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          speak: true
+      - name: Use it
+        working-directory: /tmp
+        run: |
+          shotbox run --a11y -- shotbox a11y tree > /dev/null
+          shotbox run --a11y -- shotbox a11y speak --keys Tab | grep -q '^(start) '
 
   # What gets published, built and used the way someone who installs it
   # would: the wheel in a fresh venv (with the system's PyGObject, as the

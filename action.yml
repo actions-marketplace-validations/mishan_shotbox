@@ -16,7 +16,7 @@ inputs:
     description: For --a11y and `shotbox a11y`, an accessibility bus and its checks
     default: "false"
   speak:
-    description: For `shotbox a11y speak`, Orca, with what a11y installs
+    description: For `shotbox a11y speak`, Orca (about 130 packages, 34 MB), with what a11y installs
     default: "false"
   wayland:
     description: For --wayland and --xwayland, a headless sway
