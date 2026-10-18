@@ -47,7 +47,9 @@ jobs:
       # ffmpeg for the gif and record, xdotool to move a window off the
       # screen, a monospace font for the terminal, and GTK 4
       # and libadwaita for the accessibility checks' window, and PipeWire,
-      # WirePlumber and pactl for --audio, and libfaketime for --clock.
+      # WirePlumber and pactl for --audio, libfaketime for --clock, and
+      # Orca for a11y speak: Ubuntu 24.04's is 46.1, one of those it's
+      # been checked with.
       - name: Install what shotbox runs
         run: |
           mkdir -p ~/apt/partial
@@ -58,7 +60,7 @@ jobs:
             libglib2.0-bin ffmpeg fonts-dejavu-core \
             sway grim xwayland wf-recorder \
             at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1 \
-            pipewire wireplumber pulseaudio-utils bubblewrap xdotool libfaketime
+            pipewire wireplumber pulseaudio-utils bubblewrap xdotool libfaketime orca
 
       # For --gamepads: uinput, and its pads, for this user (a desktop's
       # udev gives them to the seat's user; a runner has no seat), and
@@ -87,6 +89,7 @@ jobs:
           SHOTBOX_AUDIO: required
           SHOTBOX_GAMEPAD: required
           SHOTBOX_CLOCK: required
+          SHOTBOX_ORCA: required
 
   # The Action, as another project's job would use it: from a runner with
   # nothing of shotbox's on it, each feature it installs for, sandboxed.

@@ -275,6 +275,10 @@ try:
                       ignore=['button "(Minimize|Maximize|Close)"'])
     check("focus not shown" in said and said.endswith("round again after 6\nfocus not shown on 1"),
           "check_focus_order: the order, and where the focus doesn't show")
+    if shutil.which("orca"):
+        said, bad, _ = tool("get_speech", session="t", window="a11y-test")
+        check(not bad and re.search(r'^(push )?button "Save" .*  says "Save button\.?"$', said, re.M),
+              f"get_speech: what Orca says at each stop ({said!r})")
     said, bad, _ = tool("press_keys", session="t", keys="Tab Tab")
     check(not bad and said == "Pressed Tab, Tab.", "press_keys: keys given as text")
     # Held keys and buttons, across calls: on Wayland too, since a session

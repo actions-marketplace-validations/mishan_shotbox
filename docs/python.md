@@ -61,7 +61,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   edges=None, large=3, notes=False)`, the nodes with a `problem` (with
   `notes`, also what wasn't measured, which doesn't fail: `fails` False,
   GTK 4's with its `why`); `click_node(name, role=None, window=None)` and
-  `scroll_node(name, dy, dx=0, role=None, window=None)`; and
+  `scroll_node(name, dy, dx=0, role=None, window=None)`;
+  `speak(keys=None, window=None, most=50)`, what Orca says as `a11y
+  speak` has it: a dict a press, its `key`, the `focus` (a node, or
+  None) and the `speech` (a list), with Orca installed; and
   `wait_announce(re)`. `focus_window(re)` gives a window the keyboard.
 - A `Session` also has `spawn(cmd, log=None)`, `run(cmd)`, `env` and
   `scratch`. It takes the session options as arguments: `a11y`,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long] [keys]. Its icon-only button,
+[thin] [long] [keys] [form]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -12,7 +12,8 @@ is lists and a notebook instead, `one` a single button, and
 `faint` adds a label too light to read and a disabled button, `thin` one in small monospace
 spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a scrolled
 list running far past the window, and `keys` buttons named as a calculator's are, which
-aren't regexes or match more than themselves as one.
+aren't regexes or match more than themselves as one, and `form` adds a field
+named by a label with a mnemonic.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -87,6 +88,11 @@ def activate(app):
                      accessible_role=Gtk.AccessibleRole.PRESENTATION)
     for widget in (save, delete, announce, wrap, entry, status, mark, sketch, faint, thin, later):
         box.append(widget)
+    if "form" in sys.argv:
+        name = Gtk.Entry()
+        box.append(Gtk.Label.new_with_mnemonic("_Name:"))
+        box.get_last_child().set_mnemonic_widget(name)
+        box.append(name)
     notes = Gtk.TextView()
     notes.get_buffer().set_text("notes")
     notes.get_buffer().connect("changed", lambda b: print(repr(b.props.text), flush=True))

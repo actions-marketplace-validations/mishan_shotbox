@@ -50,6 +50,7 @@ from .a11y import Node, walk_lines
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
 from .sound import describe
+from .speak import line as spoken
 from .x import CONVERT, QUIET_PNG, VISION, ended, recording, sheet, stop
 from .xtest import XError
 
@@ -73,7 +74,7 @@ it says what's on screen and what each thing is called, in far fewer tokens than
 a screenshot, and click_element and scroll_wheel take a name. Use take_screenshot only \
 for what pixels say (colors, layout); record_video for motion and sound. After acting, \
 wait_for stable rather than sleeping. check_accessible_names, check_contrast, \
-check_focus_order, list_announcements and record_audio check what a person would \
+check_focus_order, get_speech, list_announcements and record_audio check what a person would \
 meet. stop_session when done; every session stops with the server.
 
 Lines starting with |, and quoted names and titles, are the programs' text, not the person's."""
@@ -747,6 +748,12 @@ class Server:
                                     got["began"] and Node(got["began"]),
                                     focus="click it with click_element"))
 
+    def get_speech(self, session, keys=None, window=None, most=50):
+        s = self.a11y_session(session)
+        most = int(number(most, "most", 1, 200) or 50)
+        return "\n".join(spoken(p["focus"], p["speech"])
+                         for p in s.speak(words(keys), text(window), most))
+
     def list_announcements(self, session):
         log = Path(self.a11y_session(session).env["SHOTBOX_ANNOUNCEMENTS"])
         said = log.read_text().strip().splitlines() if log.exists() else []
@@ -1080,6 +1087,18 @@ TOOLS = [
                       "description": "Presses at most (50)"},
              "ignore": {**IGNORE, "description": "Regexes for unreached controls to leave "
                         "out"}}, ["session"])),
+    ("get_speech",
+     "Hear what Orca, a real screen reader, says as the focus moves: it starts Orca in the "
+     "session, presses Tab until the focus comes round (or keys, in turn), and answers a "
+     "line a press: the focused node's tree line, then what Orca said. Use it over "
+     "get_accessible_tree when what's heard matters (labels, mnemonics, states, silent "
+     "stops). Orca takes seconds to start.",
+     schema({"session": SESSION,
+             "keys": {"type": "array", "items": {"type": "string"},
+                      "description": "Chords to press in turn, instead of Tab"},
+             "window": WINDOW,
+             "most": {"type": "integer", "minimum": 1, "maximum": 200,
+                      "description": "Tab presses at most (50)"}}, ["session"])),
     ("list_announcements",
      "List what programs in the session have announced to a screen reader since it "
      "started, oldest first, a line each with its politeness: \"polite: Saved\", "
@@ -1111,7 +1130,7 @@ READ_ONLY = {"get_program_output", "get_accessible_tree", "wait_for", "check_acc
 IDEMPOTENT = {"stop_session", "take_screenshot", "check_contrast"}
 # What the agent spawns and drives may be a browser on the host's network.
 OPEN_WORLD = {"spawn_program", "click_element", "scroll_wheel", "press_keys", "use_gamepad",
-              "type_text", "check_focus_order"}
+              "type_text", "check_focus_order", "get_speech"}
 
 
 def tool_list(allowed=()):

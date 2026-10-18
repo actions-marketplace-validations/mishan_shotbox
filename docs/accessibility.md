@@ -31,6 +31,10 @@ Inside a session with `--a11y`:
   what each node draws against its background, and fails, a line each:
   `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
   [Contrast](#contrast).
+- **`shotbox a11y speak [--keys KEY...] [--max 50] [--window RE]`**
+  starts Orca in the session, presses Tab until the focus comes round
+  (or the keys, in turn), and prints what Orca said after each press,
+  with what has the focus: [What a screen reader says](#what-a-screen-reader-says).
 - **`shotbox wait announce RE`** waits for a program to announce
   something matching RE (found anywhere in it) to a screen reader:
   GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
@@ -471,6 +475,66 @@ for a GTK whose bounds you've checked, which needs all three fixed (one
 with the padding alone fixed still has gnome-calculator's keypad 12
 pixels off). libadwaita's view stack and tab view pages take their
 bounds from their child, as GTK's stack pages do.
+
+## What a screen reader says
+
+The tree says what a screen reader finds, not what it makes of it: a
+field's mnemonic, the label it's named by, a description, a state, all
+come out as the reader puts them, and a node can have a name and still
+say nothing. `shotbox a11y speak` asks a real one, Orca:
+
+```
+$ shotbox run --a11y -- sh -c 'test/a11y_app.py form &
+    shotbox a11y speak --window a11y-test'
+button "" [focusable, focused]  says "button"
+button "Announce" [focusable, focused]  says "Announce button"
+check box "Wrap lines" [focusable, focused, checked]  says "Wrap lines check box checked"
+text "File name" [focusable, focused, editable]  says "File name text", "opens popup"
+panel "" [focusable, focused]  says nothing
+text "Name:" [focusable, focused, editable]  says "Name: text", "N opens popup"
+button "Save" [focusable, focused]  says "Save button"
+```
+
+A line a press: the node with the focus, as the tree has it, then each
+thing Orca said, or `says nothing` (the drawing area above, which a
+person tabbing through hears nothing of); `(no node has the focus)`
+where none has it, as on X11 with no window manager until the window is
+given the keyboard (`shotbox focus`). Without `--keys` it presses
+Tab until the focus lands where it has been, at most `--max` times, as
+`tabwalk` does, but without leaving a text view: Tab in one types a tab,
+and ends the walk there. `--keys Tab Tab space alt+n` presses those,
+in turn, a line each, whatever the focus does: what Orca says as a
+check box is toggled, or a mnemonic used. `--json` gives each press's
+`key`, `focus` (a node, as `tree --json` has it, or null) and `speech`
+(a list). From Python, `Screen.speak()`; from MCP, `get_speech`.
+
+It needs Orca (`orca` on Debian and Fedora), which takes a few seconds
+to start, and is stopped, with what it started, once the keys are
+pressed. A press is done once Orca's log has been still for half a
+second. Orca is run so it stays in the session:
+
+- with a home of its own in the session's scratch dir
+  (`XDG_CONFIG_HOME` and `XDG_DATA_HOME`), so it starts from its
+  defaults and never reads or writes your settings, and its GSettings
+  in a keyfile there;
+- with no speech or braille: speech-dispatcher's, Spiel's and BrlAPI's
+  Python modules are taken out as it starts, so it says nothing out
+  loud nor on a braille display, and its debug log has what it would
+  have said, which is what's read;
+- with no key echo, which would say each key before what it moved the
+  focus to;
+- past its check for another Orca: it won't start while any of your
+  user's runs, your desktop's own included, so the `pgrep` it asks
+  finds none. `--replace`, which kills every Orca of yours, isn't
+  passed.
+
+What's read of Orca's debug log is its `SPEECH OUTPUT: 'TEXT'` lines and
+nothing else, as the log isn't an interface and changes between
+releases. Checked with Orca 51.1 (Debian's), and 50.3, 48.0 and 46.1
+(Ubuntu's packages, run from the package's files): they say the same
+things, but for a period at the end before 51 (`"Save button."`), a
+mnemonic said (`"N opens popup"`) from 50, and a checked box said
+checked twice by 46. Checked on X11 and Wayland, with GTK 4's windows.
 
 ## Announcements
 

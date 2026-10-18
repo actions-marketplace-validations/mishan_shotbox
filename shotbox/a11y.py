@@ -7,6 +7,7 @@ reader sees it, for a session started with --a11y.
     shotbox a11y click NAME             click a node, by its name
     shotbox a11y scroll NAME DY [DX]    turn the wheel over a node, by its name
     shotbox a11y contrast               text and controls against their backgrounds
+    shotbox a11y speak [--keys KEY...]  what Orca says as the focus moves (speak.py)
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
 refuses to run without it: otherwise libatspi would go looking for the
@@ -1372,11 +1373,14 @@ def record(out):
 
 
 def main(argv):
+    if argv[:1] == ["speak"]:
+        from . import speak
+        return speak.main(argv[1:])
     p = argparse.ArgumentParser(prog="shotbox a11y",
                                 description="Inside `shotbox run --a11y`: read the "
                                             "accessible tree, as a screen reader does.")
     sub = p.add_subparsers(dest="what", required=True,
-                           metavar="{tree,lint,tabwalk,click,scroll,contrast}")
+                           metavar="{tree,lint,tabwalk,click,scroll,contrast,speak}")
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
     ignore = dict(action="append", default=[], metavar="RE",
@@ -1427,6 +1431,7 @@ def main(argv):
                        help="how long to wait for the --window (10), or the node")
     for s in (t, lt, w, c, sc, ct):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
+    sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
     rec = sub.add_parser("record")
     rec.add_argument("out")
     a = p.parse_args(argv)
