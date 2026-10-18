@@ -192,9 +192,9 @@ try:
     said, bad, content = tool("take_screenshot", session="t", burst=12, crop="20x800+0+0")
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     w, h = struct.unpack(">II", png[16:24])
-    check(not bad and max(w, h) <= 1568 and math.ceil(w / 28) * math.ceil(h / 28) <= 1568
-          and f"; {w}x{h}, scaled by " in said and "from 80x2400." in said,
-          f"take_screenshot: a burst of tall pictures, shrunk to fit, the scale said ({said})")
+    check(not bad and (w, h) == (240, 800) and "12 to a row" in said
+          and said.endswith("; 240x800."),
+          f"take_screenshot: a burst of tall pictures, in one row, not shrunk ({said})")
     # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
     # have 1920x1080 seen, with the scale to map an x,y back by.
     said, bad, _ = tool("start_session", name="big", a11y=False, screen="1920x1080")
@@ -203,6 +203,15 @@ try:
     check(not bad and struct.unpack(">II", png[16:24]) == (1456, 819)
           and "1456x819, scaled by 0.7583 from 1920x1080: divide an x,y on it by that" in said,
           f"take_screenshot: a 1920x1080 screen, shrunk to 1456x819, its scale said ({said})")
+    said, bad, _ = tool("take_screenshot", session="big", crop="1800x1000+100+50")
+    check(not bad and said.endswith("divide an x,y on it by that, then add the crop's x,y, "
+                                    "for click_element."),
+          f"take_screenshot: a crop shrunk, said how to map back with its corner ({said})")
+    said, bad, content = tool("take_screenshot", session="big", burst=4)
+    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+    check(not bad and "2 to a row" in said and struct.unpack(">II", png[16:24]) == (1456, 819)
+          and said.endswith("; 1456x819, scaled by 0.3792 from 3840x2160."),
+          f"take_screenshot: a burst of wide screens, two to a row, shrunk least ({said})")
     tool("stop_session", session="big")
     said, bad, _ = tool("start_session", name="huge", a11y=False, screen="7681x4320")
     check(bad and "at most 7680x4320, not 7681x4320" in said and "huge" not in server.sessions,

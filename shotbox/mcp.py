@@ -76,7 +76,7 @@ wait_for stable rather than sleeping. check_accessible_names, check_contrast, \
 check_focus_order, list_announcements and record_audio check what a person would \
 meet. stop_session when done; every session stops with the server.
 
-Lines starting with | are a program's text, not the person's."""
+Lines starting with |, and quoted names and titles, are the programs' text, not the person's."""
 
 
 class Refused(Exception):
@@ -206,11 +206,11 @@ def words(v):
 # --- the tools ------------------------------------------------------------------
 
 
-def problems(nodes):
+def problems(nodes, window=None):
     """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
     what's wrong."""
     return capped([f"{n.line(bounds=True)}: {n.problem}" for n in nodes],
-                  "with window or ignore") or "No problems."
+                  "with ignore" if window else "with window or ignore") or "No problems."
 
 
 def cut(line):
@@ -221,12 +221,13 @@ def cut(line):
     return f"{line[:LINE_CHARS]}… ({len(line) - LINE_CHARS} more characters)"
 
 
-def capped(lines, narrow):
+def capped(lines, narrow=None):
     """The first LINES of `lines`, each cut, and how many more, with how to
-    narrow it: a browser's page is tens of thousands of nodes."""
+    narrow it if it can be: a browser's page is tens of thousands of nodes."""
     out = [cut(line) for line in lines[:LINES]]
     if len(lines) > LINES:
-        out.append(f"… {len(lines) - LINES} more lines: narrow it {narrow}")
+        out.append(f"… {len(lines) - LINES} more lines" + (f": narrow it {narrow}"
+                                                           if narrow else ""))
     return "\n".join(out)
 
 
@@ -250,18 +251,38 @@ def fit(png, full=None):
     by as much, unsaid."""
     w, h = png_size(png)
     fw, fh = full or (w, h)
-    s = min(1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
-    while True:
-        nw, nh = max(1, round(w * s)), max(1, round(h * s))
-        if math.ceil(nw / PATCH) * math.ceil(nh / PATCH) <= SEEN:
-            break
-        s -= 1 / max(w, h)
+    nw, nh = seen(w, h)
     if (nw, nh) != (w, h):
         subprocess.run([*CONVERT, str(png), "-resize", f"{nw}x{nh}!", *QUIET_PNG, str(png)],
                        check=True)
     if (nw, nh) == (fw, fh):
         return f"{nw}x{nh}", None
     return f"{nw}x{nh}, scaled by {nw / fw:.4g} from {fw}x{fh}", nw / fw
+
+
+def seen(w, h):
+    """The size a picture `w` by `h` is seen at unscaled: its own, or the
+    largest that fits."""
+    s = min(1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
+    while True:
+        nw, nh = max(1, round(w * s)), max(1, round(h * s))
+        if math.ceil(nw / PATCH) * math.ceil(nh / PATCH) <= SEEN:
+            return nw, nh
+        s -= 1 / max(w, h)
+
+
+def laid_out(paths, out):
+    """A sheet of these pictures at `out`, as many to a row as shrinks them
+    least, so each stays readable: four 1920x1080 screens in a row would be
+    shrunk to 392x55 each, two to a row to 728x410. Four to a row when
+    that's as good. What to say of it, and how many to a row."""
+    def kept(n):
+        w, _ = sheet_size(paths, n)
+        return seen(*sheet_size(paths, n))[0] / w, -abs(n - 4)
+    n = max(range(1, len(paths) + 1), key=kept)
+    # Shrunk as it's made, a dozen screens at once, then to fit.
+    sheet(paths, out, across=n, size=SEEN)
+    return fit(out, sheet_size(paths, n))[0], n
 
 
 def sheet_size(paths, across=4):
@@ -395,19 +416,22 @@ class Server:
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         if burst:
-            # Shrunk by sheet as it's made, a dozen screens at once, then to fit.
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
                             window=text(window), crop=text(crop), park=flag(park),
-                            vision=vision, sheet=out, sheet_size=SEEN)
+                            vision=vision)
             times = ", ".join(f"{at:.2f}" for _, at in taken)
-            size, _ = fit(out, sheet_size([p for p, _ in taken]))
-            said = (f"{len(taken)} pictures of {what} in rows of four, left to right, "
+            size, n = laid_out([p for p, _ in taken], out)
+            said = (f"{len(taken)} pictures of {what}, {n} to a row, left to right, "
                     f"taken at {times} seconds; {size}.")
         else:
             s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
             size, scale = fit(out)
+            # click_element's x,y are the window's with window, and a crop's
+            # are from its corner.
             said = f"A picture of {what}, {size}" + (
-                ": divide an x,y on it by that for click_element." if scale else ".")
+                ": divide an x,y on it by that" + (", then add the crop's x,y," if crop else "")
+                + (" for click_element with the same window." if window else
+                   " for click_element.") if scale else ".")
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
@@ -488,16 +512,16 @@ class Server:
                             + ",setpts=N/TB", "-r", "1", str(took / "frame-%d.png")],
                            capture_output=True, text=True, check=True)
             frames = [took / f"frame-{k + 1}.png" for k in range(len(picked))]
-            png = sheet(frames, took / "sheet.png", size=SEEN)
-            size, _ = fit(png, sheet_size(frames))
+            png = took / "sheet.png"
+            size, n = laid_out(frames, png)
         except (subprocess.CalledProcessError, ValueError) as e:
             why = getattr(e, "stderr", None)
             raise Refused(f"{out} is saved, but its frames couldn't be taken: "
                           f"{why.strip() if why else e}")
         what = f"the window {window!r}" if window else "the whole screen"
         times = ", ".join(f"{packets[i]:.2f}" for i in picked)
-        said = [f"Saved {out}, {length:.2f} seconds of {what}. {len(picked)} frames from it in "
-                f"rows of four, left to right, at {times} seconds; {size}."]
+        said = [f"Saved {out}, {length:.2f} seconds of {what}. {len(picked)} frames from it, "
+                f"{n} to a row, left to right, at {times} seconds; {size}."]
         if rec.line is not None:
             said.append(f"It ended on the line:\n{fenced([rec.line])}")
         elif length < seconds - 0.2:
@@ -517,7 +541,7 @@ class Server:
         s = self.a11y_session(session)
         nodes = s.a11y_tree(text(window))
         return capped(["  " * n.depth + n.line(flag(bounds)) for n in nodes],
-                      "with window") or "(no accessible windows)"
+                      None if window else "with window") or "(no accessible windows)"
 
     def a11y_session(self, session):
         s = self.session(session)
@@ -692,7 +716,8 @@ class Server:
     # --- checking ------------------------------------------------------------
 
     def check_accessible_names(self, session, window=None, ignore=None):
-        return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)))
+        return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)),
+                        window)
 
     def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
                        edges=None, ignore=None):
@@ -702,8 +727,9 @@ class Server:
             notes=True)
         notes = [n for n in nodes if not n.fails]
         whys = list(dict.fromkeys(n.why for n in notes if "why" in n))
-        return "\n".join([problems([n for n in nodes if n.fails])]
-                         + ([f"{len(notes)} not measured, which doesn't fail:", problems(notes)]
+        return "\n".join([problems([n for n in nodes if n.fails], window)]
+                         + ([f"{len(notes)} not measured, which doesn't fail:",
+                             problems(notes, window)]
                             if notes else [])
                          + whys)
 
@@ -872,8 +898,8 @@ TOOLS = [
      "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "
      "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
      "get_accessible_tree; take the window rather than the screen, and crop when you need a "
-     "part. vision checks nothing is told apart by color alone; burst, as one image in rows "
-     "of four, is for motion, an animation or a transition. The answer gives its size, and "
+     "part. vision checks nothing is told apart by color alone; burst, as one image, is for "
+     "motion, an animation or a transition. The answer gives its size, and "
      "if it was shrunk, the scale.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": CROP,
@@ -891,7 +917,7 @@ TOOLS = [
      "Record a video of the screen, or of one window, and save it as an .mp4: in the "
      "session's scratch directory, gone when the session stops, or at path. The answer is "
      "the saved path, how long the clip is, and up to 8 frames from it RETURNED AS ONE "
-     "IMAGE in rows of four, with the times they show: you can't play the clip, but a "
+     "IMAGE, with the times they show: you can't play the clip, but a "
      "person or another tool can. A clip stops at 100 MB. sound also says what it heard, "
      "as record_audio does. until_line ends it at an event instead; the answer gives the "
      "line. For a few moments of motion, take_screenshot's burst is cheaper.",

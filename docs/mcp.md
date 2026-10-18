@@ -112,28 +112,32 @@ by nothing else.
 
 **A picture is what the model sees.** Claude scales an image past a
 long edge of 1568 px, or past 1568 patches of 28x28 px, so an x,y read
-off a 1920x1080 screen would be off by a third when given to
-`click_element`. `take_screenshot` and `record_video` shrink a picture
+off a 1920x1080 screen would be off by a factor of 1.32 when given
+to `click_element`. `take_screenshot` and `record_video` shrink a picture
 past that themselves (1920x1080 to 1456x819) and say its size and the
-scale: divide an x,y by it, or click by name.
+scale: divide an x,y by it (and add a crop's corner) for `click_element`
+with the same window, or click by name. A burst's or a clip's pictures
+are laid out as many to a row as shrinks them least: two 1920x1080
+screens to a row, 728x410 each.
 
 **Answers are bounded.** A screen is at most 7680x4320. The tree, the
 checks' answers and `list_announcements` (its latest) stop at 500 lines,
-saying how many more and how to narrow it; GTK apps' whole windows
+saying how many more and how to narrow it, if it can be; GTK apps' whole windows
 measured 63 to 314. A line a program wrote, and a tree line, stops at
 500 characters, saying how many more.
 
 **A program's text is marked.** What a program wrote, in
 `get_program_output`, `wait_for` line's and `until_line`'s line and
-`list_announcements`, comes a line each after `| `, and the instructions
-say such lines are the program's, not the person's: a log line can say
-anything. A title or a node's name is quoted.
+`list_announcements`, comes a line each after `| `, and a title or a
+node's name is quoted; the instructions say both are the programs', not
+the person's: a log line or a web page can say anything.
 
 **Without PyGObject**, as plain `pipx install` or uvx installs it,
 `start_session` still starts, without the accessibility bus, and its
 answer says which tools won't work and how to fix it
 (`pipx install --force --system-site-packages shotbox`, or the system's
-packages), as it says what it couldn't seal.
+packages; uv's tools can't see them, so from uvx, pipx with it), as it
+says what it couldn't seal.
 
 A tool it doesn't have is a protocol error, -32602, naming a renamed
 tool's new name. Any other failure is an answer, marked `isError`, in a
