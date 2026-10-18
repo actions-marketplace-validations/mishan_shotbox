@@ -457,7 +457,12 @@ each, as for later GTK 4. Nor, a line each:
 - a stack's page no longer shown, still said to be where it was: a node
   on a stack's page where GTK, asked what's at its middle, says another
   node of that stack (or one it's in), `not measured: GTK says another
-  node is at its middle`.
+  node is at its middle`. A shown page's own child that can't be
+  clicked (`can_target` off) comes out the same.
+
+Close popovers before measuring on these versions: what's under an
+open one is measured against the popover's pixels, since GTK doesn't
+say where the popover really is.
 
 Large text and disabled nodes don't come into it for GTK 4.14 and later,
 since nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the

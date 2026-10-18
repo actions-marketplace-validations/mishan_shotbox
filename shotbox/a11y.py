@@ -1029,7 +1029,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         """Whether `n` is on a stack's page that isn't shown, which GTK 4
         before 4.14 still says is where it was: asked what's at its
         middle, GTK says a node of that stack, or one it's in, but not
-        on `n`'s page (a stack's pages are the nodes with no bounds)."""
+        on `n`'s page (a stack's pages are the nodes with no bounds). A
+        shown page's own child GTK can't pick answers the stack, so it's
+        left out too, with its line."""
         page = n.path
         while "/" in page:
             page = page.rsplit("/", 1)[0]
