@@ -11,7 +11,7 @@ sessions are this process's: they all stop when it does, which is when
 the client goes.
 
 JSON-RPC by hand, the few methods MCP's tools need, as liverykit does it:
-the SDK would be shotbox's first Python dependency, for four methods.
+the SDK would be shotbox's first Python dependency, for five methods.
 The accessible tree is read in a `shotbox a11y` process for each call,
 as the Python API reads it: libatspi keeps the first bus it finds, and
 each session has its own.
@@ -52,8 +52,10 @@ from .sound import describe
 from .x import VISION, ended, recording, sheet, stop
 from .xtest import XError
 
-# Newest first: a client asking for one of these gets it; any other, the newest.
-PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
+# Newest first: a client asking initialize for one of these gets it; any other, the newest.
+PROTOCOLS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+# Versions with no initialize, named in each request's _meta instead.
+STATELESS = ("2026-07-28",)
 
 # Given to the agent as it connects: how the tools go together, which
 # each tool's own description can't say.
@@ -1015,10 +1017,6 @@ RENAMED = {"spawn": "spawn_program", "program_output": "get_program_output",
 def call(server, name, args):
     """A tool call's result: its content, and isError if it failed."""
     known = {t[0]: t[2] for t in TOOLS}
-    if name not in known:
-        now = f": it's {RENAMED[name]} now" if name in RENAMED else ""
-        return {"content": [{"type": "text", "text": f"There's no tool called {name!r}{now}."}],
-                "isError": True}
     if args is None:
         args = {}
     if not isinstance(args, dict):
@@ -1052,21 +1050,53 @@ def handle(server, msg):
     if not isinstance(params, dict):
         return {"jsonrpc": "2.0", "id": rid,
                 "error": {"code": -32602, "message": "params are an object"}}
-    if method == "initialize":
+    meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+    version = meta.get("io.modelcontextprotocol/protocolVersion")
+    stateless = version in STATELESS
+    info = {"name": "shotbox", "version": __version__}
+    # A client of both eras probes with server/discover: -32022 keeps it
+    # stateless, and any other error sends it to initialize.
+    if version is not None or method == "server/discover":
+        if not isinstance(version, str) or stateless and not isinstance(
+                meta.get("io.modelcontextprotocol/clientCapabilities"), dict):
+            return {"jsonrpc": "2.0", "id": rid, "error": {
+                "code": -32602, "message": "_meta needs io.modelcontextprotocol/"
+                                           "protocolVersion and clientCapabilities"}}
+        if version not in STATELESS + PROTOCOLS:
+            return {"jsonrpc": "2.0", "id": rid, "error": {
+                "code": -32022, "message": "Unsupported protocol version",
+                "data": {"supported": list(STATELESS + PROTOCOLS), "requested": version}}}
+    if method == "server/discover":
+        # The same for every caller, and for the server's life.
+        result = {"supportedVersions": list(STATELESS),
+                  "capabilities": {"tools": {}}, "instructions": INSTRUCTIONS,
+                  "ttlMs": 3600000, "cacheScope": "public"}
+    elif method == "initialize" and not stateless:
         asked = params.get("protocolVersion")
         result = {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
                   "capabilities": {"tools": {}},
-                  "serverInfo": {"name": "shotbox", "version": __version__},
+                  "serverInfo": info,
                   "instructions": INSTRUCTIONS}
     elif method == "ping":
         result = {}
     elif method == "tools/list":
         result = {"tools": tool_list(server.allowed)}
+        if stateless:
+            # The allow file is read once; its names are the person's own.
+            result.update(ttlMs=3600000, cacheScope="private")
     elif method == "tools/call":
-        result = call(server, params.get("name"), params.get("arguments"))
+        name = params.get("name")
+        if not isinstance(name, str) or name not in {t[0] for t in TOOLS}:
+            new = RENAMED.get(str(name))
+            now = f"; it's {new} now" if new else ""
+            return {"jsonrpc": "2.0", "id": rid,
+                    "error": {"code": -32602, "message": f"Unknown tool: {name}{now}"}}
+        result = call(server, name, params.get("arguments"))
     else:
         return {"jsonrpc": "2.0", "id": rid,
                 "error": {"code": -32601, "message": f"no method {method!r}"}}
+    if stateless or method == "server/discover":
+        result.update(resultType="complete", _meta={"io.modelcontextprotocol/serverInfo": info})
     return {"jsonrpc": "2.0", "id": rid, "result": result}
 
 

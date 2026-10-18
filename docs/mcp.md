@@ -103,9 +103,10 @@ Each description says what the tool is for, what to read in its answer,
 and what to use instead when it's the wrong one: an agent knows a tool
 by nothing else.
 
-A failure is an answer, marked `isError`, in a sentence saying what to do
-instead: a program not on the list says what is, a session that isn't
-there names the ones that are, and an argument a tool doesn't take is
+A tool it doesn't have is a protocol error, -32602, naming a renamed
+tool's new name. Any other failure is an answer, marked `isError`, in a
+sentence saying what to do instead: a program not on the list says
+what is, a session that isn't there names the ones that are, and an argument a tool doesn't take is
 named, as is a choice that isn't one before what a call lacks. A node's
 name, for `click_element` and `wait_for`'s focus, is taken as it is, and failing
 that as a regex: `+` and `(Draft)` are labels, not regexes, as in
@@ -142,11 +143,16 @@ From a checkout, the command is the checkout's `bin/shotbox`.
 ## How it's built
 
 JSON-RPC 2.0 over newline-delimited stdin and stdout, by hand: the
-methods MCP's tools need (`initialize`, `ping`, `tools/list`,
-`tools/call`), as liverykit does it. The SDK would be shotbox's first
-Python dependency, for four methods. `initialize` answers with the
-protocol version the client asked for, when it's one it knows, and
-otherwise its newest.
+methods MCP's tools need (`server/discover`, `initialize`, `ping`,
+`tools/list`, `tools/call`), as liverykit does it. The SDK would be
+shotbox's first Python dependency, for five methods. It speaks the MCP
+revisions 2024-11-05, 2025-03-26, 2025-06-18 and 2025-11-25, which open
+with `initialize`: it answers with the version the client asked for,
+when it's one of those, and otherwise 2025-11-25. And it speaks
+2026-07-28, which has no `initialize`: each request names its version in
+`_meta`, and one it doesn't speak is refused with -32022 and the
+versions it does. `server/discover` gives 2026-07-28, the tools
+capability and the instructions.
 
 Nothing but the protocol goes to stdout, since one stray line there ends
 the connection, and nothing but the server reads stdin, where a program
