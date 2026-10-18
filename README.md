@@ -140,7 +140,7 @@ feature needs asked for by name (all off unless set), and lets
 bubblewrap make its sandbox, which Ubuntu's AppArmor holds back:
 
 ```yaml
-- uses: mishan/shotbox@v0.6.0
+- uses: mishan/shotbox@v0.8.0
   with:
     a11y: true        # --a11y and `shotbox a11y`
     term: true        # `shotbox term`

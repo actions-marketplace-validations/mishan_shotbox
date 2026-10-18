@@ -34,9 +34,11 @@ lock=$(node -p "require('$root/package-lock.json').version")
 log=$(grep -m1 -o '^## [0-9][0-9.]*' "$root/CHANGELOG.md" | cut -c4-)
 mcp=$(python3 -c "import json; s = json.load(open('$root/server.json')); print(*{s['version'], *(p['version'] for p in s['packages'])})")
 cli=$("$sb" --version)
+# The Action's uses: lines in the docs name the release they'd get.
+action=$(grep -ho 'mishan/shotbox@v[0-9][0-9.]*' "$root/README.md" "$root"/docs/*.md | sort -u | cut -d@ -f2 | tr '\n' ' ')
 [ "$py" = "$js" ] && [ "$js" = "$lock" ] && [ "$lock" = "$log" ] && [ "$log" = "$mcp" ] \
-  && [ "$cli" = "shotbox $py" ] \
-  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp, --version $cli"
+  && [ "$cli" = "shotbox $py" ] && [ "$action" = "v$py " ] \
+  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp, --version $cli, Action docs $action"
 
 # The session: none of ours gets in, and it cleans up after itself.
 out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 SSH_AUTH_SOCK=/nope SECRET=x \
