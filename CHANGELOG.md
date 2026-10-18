@@ -42,6 +42,13 @@
 ### Added
 
 - `shotbox --version`: which shotbox this is.
+- `shotbox sessions --stale` lists scratch dirs whose sessions have gone,
+  with each one's size and the command, pid and time that made it, which
+  a `shotbox.json` in it now says, and lasting sessions unused for a day;
+  `shotbox sessions --clean` removes those dirs, with what's left running
+  of their sessions (an older shotbox's, which say nothing, only with
+  `--unmarked`). `shotbox doctor` says how many there are, and their
+  size.
 - MCP's `wait_for` a window takes the name a program was spawned by, and
   waits for a window of that program's, whatever its title, on X11 and
   Wayland, over one titled the name (`^name$` still waits for that),
@@ -60,6 +67,13 @@
 
 ### Changed
 
+- A session killed outright (SIGKILL) no longer leaves its scratch dir
+  in `$TMPDIR`, nor its X server, bus and programs running, nor those of
+  a session started in it: a watchdog process of its own stops them,
+  letting a recording finish its file
+  within 5 seconds, and removes the dir (not one kept
+  with `--keep`), as `shotbox mcp`'s does for its sessions, which it now
+  stops with SIGTERM too, before SIGKILL 5 seconds on.
 - MCP's answers are bounded: `start_session`'s screen is at most
   7680x4320; `get_accessible_tree`, the checks and `list_announcements`
   stop at 500 lines, saying how many more and to narrow it with window;

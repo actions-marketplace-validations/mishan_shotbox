@@ -226,6 +226,79 @@ kill -0 $other 2>/dev/null && [ ! -e "$d/$kept.json" ] \
   && ok "stop: a session that's gone, forgotten, and its pid left alone" \
   || fail "stop: killed $other, someone else's"
 kill $other 2>/dev/null || true
+# Killed outright, a run's watchdog stops what's left of its session and
+# removes its scratch dir: a session's started in it too, and a recording
+# is finished first; with --keep, the dir stays. Killed with it, as a whole
+# process tree can be, the dir is left for `sessions --stale` to find and
+# `--clean` to remove, with what's left running, and a live session's, a
+# kept one's and, without --unmarked, an older shotbox's are left be.
+st=$tmp/st; mkdir "$st"
+up() { i=0; while [ ! -s "$1" ] && [ $i -lt 200 ]; do sleep 0.1; i=$((i + 1)); done; cat "$1"; }
+left() {
+  for p in $(pgrep -u "$(id -u)" .); do
+    { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -qx "SHOTBOX_SCRATCH=$1" && echo "$p"
+  done
+  true
+}
+scratch_to='echo "$SHOTBOX_SCRATCH" > "$1"; exec sleep 600'
+until_none() { i=0; while [ -n "$(left "$1")" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; }
+TMPDIR=$st "$sb" run -- sh -c "$scratch_to" sh "$tmp/killed" & run=$!
+d1=$(up "$tmp/killed")
+TMPDIR=$st "$sb" run -- "$sb" run -- sh -c "$scratch_to" sh "$tmp/inner" & outer=$!
+inner=$(up "$tmp/inner")
+TMPDIR=$st "$sb" run --keep -- sh -c "$scratch_to" sh "$tmp/kept" > /dev/null & keeping=$!
+dk=$(up "$tmp/kept")
+kill -9 $run $outer $keeping; wait $run $outer $keeping 2>/dev/null || true
+for d in "$d1" "$inner" "$dk"; do until_none "$d"; done
+i=0; while [ -e "$d1" ] || [ -e "$inner" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+for d in "$d1" "$inner"; do
+  what=$([ "$d" = "$d1" ] && echo "its scratch dir" || echo "a session's started in it")
+  [ -n "$d" ] && [ ! -e "$d" ] && [ -z "$(left "$d")" ] \
+    && ok "a run killed outright: its watchdog removes $what, and what ran" \
+    || fail "a run killed outright left $d: $(left "$d")"
+done
+[ -n "$dk" ] && [ -d "$dk/home" ] && [ -z "$(left "$dk")" ] \
+  && ok "a run with --keep killed outright: what ran stops, the dir stays" \
+  || fail "--keep killed outright: $dk, $(left "$dk")"
+if command -v ffmpeg >/dev/null; then
+  TMPDIR=$st "$sb" run -- sh -c 'echo "$SHOTBOX_SCRATCH" > "$1"; exec "$2" record "$3" --seconds 20' \
+    sh "$tmp/rec" "$sb" "$tmp/cut.mp4" > /dev/null & run=$!
+  dr=$(up "$tmp/rec"); sleep 3; kill -9 $run; wait $run 2>/dev/null || true
+  until_none "$dr"
+  case $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$tmp/cut.mp4" 2>&1) in
+    [1-9]*) ok "a run killed outright while it records: the clip is finished" ;;
+    *) fail "a run killed while it records: $(ffprobe -v error "$tmp/cut.mp4" 2>&1)" ;;
+  esac
+fi
+TMPDIR=$st "$sb" run -- sh -c "$scratch_to" sh "$tmp/killed2" & run=$!
+d2=$(up "$tmp/killed2"); watch=$(pgrep -u "$(id -u)" -fx ".* mcp --watch $d2")
+kill -9 $run $watch; wait $run 2>/dev/null || true
+TMPDIR=$st "$sb" run -- sh -c "$scratch_to" sh "$tmp/live" & live=$!
+d3=$(up "$tmp/live")
+TMPDIR=$st "$sb" sessions --stale > "$tmp/stale"
+TMPDIR=$st "$sb" doctor > "$tmp/doctor1" || true
+TMPDIR=$st "$sb" sessions --clean > "$tmp/clean"
+TMPDIR=$st "$sb" doctor > "$tmp/doctor2" || true
+[ "$(cut -d' ' -f1 "$tmp/stale")" = "$d2" ] && grep -q "  shotbox run -- sh -c .*, pid $run, " "$tmp/stale" \
+  && ok "sessions --stale: a run killed with its watchdog, what made it, and not a live one" \
+  || fail "sessions --stale: $(cat "$tmp/stale")"
+[ ! -e "$d2" ] && [ -z "$(left "$d2")" ] && grep -q "^removed $d2 " "$tmp/clean" \
+  && [ -e "$d3" ] && kill -0 $live && [ -e "$dk" ] \
+  && ok "sessions --clean: it goes, with what it left running; a live and a kept one stay" \
+  || fail "sessions --clean: $(cat "$tmp/clean"); left $(left "$d2")"
+grep -q "^no    scratch dirs: 1 stale in $st, [0-9.]* [kM]B (" "$tmp/doctor1" \
+  && grep -qx "ok    scratch dirs: none stale in $st" "$tmp/doctor2" \
+  && ok "doctor: stale scratch dirs, and their size" \
+  || fail "doctor: $(grep 'scratch dirs' "$tmp/doctor1" "$tmp/doctor2")"
+kill $live; wait $live 2>/dev/null || true
+old=$st/shotbox-0lder123; mkdir "$old"; touch -d '1 hour ago' "$old"
+TMPDIR=$st "$sb" sessions --stale > "$tmp/stale"
+TMPDIR=$st "$sb" sessions --clean > "$tmp/clean"
+TMPDIR=$st "$sb" sessions --clean --unmarked > "$tmp/clean2"
+grep -qx "$old  0 kB  made by an older shotbox" "$tmp/stale" && grep -q "^left $old " "$tmp/clean" \
+  && grep -q "^removed $old " "$tmp/clean2" && [ ! -e "$old" ] \
+  && ok "sessions: an older shotbox's dir, listed, and removed only with --unmarked" \
+  || fail "sessions, an unmarked dir: $(cat "$tmp/stale" "$tmp/clean" "$tmp/clean2")"
 # What a --desktop session's bus activates gets the session's environment,
 # and its own service files, not the caller's.
 mkdir -p "$tmp/seed/.local/share/dbus-1/services"

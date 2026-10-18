@@ -45,8 +45,10 @@ that, and one session can take longer to stop than that.
 So every session lives in a directory of the server's, and a watchdog
 (`shotbox mcp --watch DIR`, in a process session of its own, out of the
 client's reach) holds a pipe from the server. However the server ends,
-SIGKILL included, the pipe closes. The watchdog then kills every process
-it knows for a session's by its environment, and removes the directory.
+SIGKILL included, the pipe closes. The watchdog then stops every process
+it knows for a session's by its environment (SIGTERM, so a recording
+finishes its file if it can, and SIGKILL for what's left 5 seconds on), and removes
+the directory.
 A session's process has its scratch dir, runtime dir or home in the
 directory, or the server's own `SHOTBOX_MCP` naming it, for what inherits
 the server's environment (Xvfb). Nothing else is killed: not a shell

@@ -19,7 +19,7 @@ each session has its own.
 Every session lives in a directory of the server's, and a watchdog
 (`shotbox mcp --watch DIR`, in a process session of its own) holds a
 pipe from the server: however the server ends, the pipe closes, and the
-watchdog kills every process it knows for a session's by its environment
+watchdog stops every process it knows for a session's by its environment
 (see MARKS), and removes it.
 Clients stop a server faster than a session stops (Claude Code: SIGINT,
 SIGTERM 100ms on, SIGKILL 400ms after that), so a signal ends the server
@@ -45,7 +45,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import __version__, sound, usage
+from . import __version__, kept, sound, usage
 from .a11y import Node, walk_lines
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
@@ -1245,39 +1245,50 @@ def ours(environ, root):
     return False
 
 
-def reap(root):
-    """Kill every process of ours that is a session's under `root`, until
-    none is left; then remove it."""
+def reap(root, keep=False, grace=5):
+    """Stop every process of ours that is a session's under `root`, until
+    none is left: TERM, so a recording finishes its file, and KILL for what
+    hasn't gone `grace` seconds on. Then remove it, but with `keep`. TERM
+    goes to a process only once its parent has gone: a recording's keeper
+    stops ffmpeg with a TERM of its own, and a second makes it quit with
+    the file unfinished."""
     me, mark = os.getpid(), str(root).encode()
-    for _ in range(50):
-        found = []
+    deadline, told, killing = time.monotonic() + grace, set(), 0
+    while killing < 50:
+        found = {}
         for d in Path("/proc").glob("[0-9]*"):
             if int(d.name) == me:
                 continue
             try:
                 if d.stat().st_uid == os.getuid() and ours((d / "environ").read_bytes(), mark):
-                    found.append(int(d.name))
-            except OSError:   # gone, or not ours to read
+                    found[int(d.name)] = int((d / "stat").read_text().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):   # gone, or not ours to read
                 continue
         if not found:
             break
-        for pid in found:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
+        late = time.monotonic() > deadline
+        killing += late
+        for pid, parent in found.items():
+            if late or pid not in told and parent not in found:
+                try:
+                    os.kill(pid, signal.SIGKILL if late else signal.SIGTERM)
+                except OSError:
+                    pass
+                told.add(pid)
         time.sleep(0.05)
-    shutil.rmtree(root, ignore_errors=True)
+    if not keep:
+        shutil.rmtree(root, ignore_errors=True)
 
 
-def watch(root):
+def watch(root, keep=False):
     """The watchdog: wait for the server's end of the pipe on stdin to
-    close, then reap what's left of its sessions. Signals meant for the
+    close, then reap what's left of its sessions, unless it said something
+    first, as a session that stops itself does. Signals meant for the
     server aren't for it."""
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, signal.SIG_IGN)
-    sys.stdin.buffer.read()
-    reap(root)
+    if not sys.stdin.buffer.read():
+        reap(root, keep)
     return 0
 
 
@@ -1289,14 +1300,16 @@ def main(argv):
     p.add_argument("--allow", metavar="FILE",
                    help="the programs it may spawn: NAME = COMMAND a line (none without it)")
     p.add_argument("--watch", metavar="DIR", help=argparse.SUPPRESS)
+    p.add_argument("--keep", action="store_true", help=argparse.SUPPRESS)
     a = p.parse_args(argv)
     if a.watch:
-        return watch(a.watch)
+        return watch(a.watch, a.keep)
     allowed, home = programs(a.allow)
     from .__main__ import self_command
     # Short: a session's sockets are under it, and a Unix socket's path has
     # 108 bytes.
     root = Path(tempfile.mkdtemp(prefix="sbm-"))
+    kept.mark(root)
     tempfile.tempdir = str(root)   # where Session makes each scratch dir
     # What a session starts with the server's environment (Xvfb, its bus)
     # has this, for the watchdog to know it by.

@@ -61,7 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import pad, usage, wl
+from . import kept, pad, usage, wl
 from .x import CONVERT
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
@@ -647,6 +647,7 @@ class Session(Screen):
         self.failed = failed
         self._x = None
         self._procs = []
+        self._watch = None
 
     # --- setup ----------------------------------------------------------------
 
@@ -684,6 +685,8 @@ class Session(Screen):
                                "a shorter one")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
+            kept.mark(self.scratch, **({"kept": True} if self.keep else {}))
+            self._start_watchdog()
             if self.measure:
                 self._start_usage()
             if self.identity:
@@ -730,6 +733,22 @@ class Session(Screen):
             self.__exit__(None, None, None)
             raise
         return self
+
+    def _start_watchdog(self):
+        """A process of its own that, if this one goes without stopping the
+        session (killed outright, say), stops what's left of it and, but with
+        keep, removes the scratch dir, as `shotbox mcp`'s watchdog does for its server's."""
+        from .__main__ import self_command
+        from .mcp import MARKS
+        r, self._watch = os.pipe()
+        # Not marked as a session's itself, as it would be started in one,
+        # so that one's watchdog leaves it to clean up after this one.
+        env = {k: v for k, v in os.environ.items() if os.fsencode(k) not in MARKS}
+        subprocess.Popen([*self_command(), "mcp", "--watch", str(self.scratch),
+                          *["--keep"] * self.keep], stdin=r, env=env,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        os.close(r)
 
     def _start_usage(self):
         """Count what the session's programs use, in a systemd slice of
@@ -832,6 +851,11 @@ class Session(Screen):
         run = self.scratch / "run"
         run.mkdir(mode=0o700)
 
+    def _known_env(self):
+        """The caller's environment, with the scratch dir in it: for a process
+        that has no other, to be known as the session's by the watchdog."""
+        return {**os.environ, "SHOTBOX_SCRATCH": str(self.scratch)}
+
     def _start_x(self):
         # Two sessions starting at once can pick the same free number; the
         # second Xvfb then fails to take it. Move on to the next one.
@@ -855,7 +879,7 @@ class Session(Screen):
                  "-screen", "0", f"{w_}x{h}x24", "-nolisten", "tcp", "-noreset"],
                 pass_fds=(w,), stdout=subprocess.DEVNULL,
                 stderr=open(self.scratch / "Xvfb.log", "wb"),
-                start_new_session=True)
+                env=self._known_env(), start_new_session=True)
             os.close(w)
             with os.fdopen(r) as f:
                 got = f.readline().strip()   # blocks until Xvfb listens or exits
@@ -1138,7 +1162,7 @@ class Session(Screen):
                                  "--unshare-net", "--info-fd", str(w), "--", "sleep", "infinity"],
                                 pass_fds=(w,), stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                start_new_session=True)
+                                env=self._known_env(), start_new_session=True)
         os.close(w)
         self._procs.append(proc)
         pid = sandboxed_pid(r, proc)
@@ -1320,6 +1344,13 @@ class Session(Screen):
             self.used = self.usage()
         for proc in reversed(self._procs):
             kill_group(proc)
+        if self._watch is not None:
+            # Its processes stopped, the session needs no watchdog, and a
+            # Ctrl-C cutting what's left short mustn't set it on a
+            # recording that's finishing.
+            os.write(self._watch, b"stopped")
+            os.close(self._watch)
+            self._watch = None
         for meter in (self._sampler, self._slice):
             if meter:
                 meter.close()
