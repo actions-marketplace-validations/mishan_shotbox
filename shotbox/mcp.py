@@ -50,7 +50,7 @@ from .a11y import Node, walk_lines
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
 from .sound import describe
-from .speak import line as spoken
+from .speak import lines as spoken
 from .x import CONVERT, QUIET_PNG, VISION, ended, recording, sheet, stop
 from .xtest import XError
 
@@ -751,8 +751,7 @@ class Server:
     def get_speech(self, session, keys=None, window=None, most=50):
         s = self.a11y_session(session)
         most = int(number(most, "most", 1, 200) or 50)
-        return "\n".join(spoken(p["focus"], p["speech"])
-                         for p in s.speak(words(keys), text(window), most))
+        return "\n".join(spoken(s.speak(words(keys), text(window), most)))
 
     def list_announcements(self, session):
         log = Path(self.a11y_session(session).env["SHOTBOX_ANNOUNCEMENTS"])
@@ -1090,7 +1089,8 @@ TOOLS = [
     ("get_speech",
      "Hear what Orca, a real screen reader, says as the focus moves: it starts Orca in the "
      "session, presses Tab until the focus comes round (or keys, in turn), and answers a "
-     "line a press: the focused node's tree line, then what Orca said. Use it over "
+     "(start) line, then a line a press: the focused node's tree line, then what Orca "
+     "said. Tab stops before a text view, which would take it as typing. Use it over "
      "get_accessible_tree when what's heard matters (labels, mnemonics, states, silent "
      "stops). Orca takes seconds to start.",
      schema({"session": SESSION,

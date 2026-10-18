@@ -7,9 +7,11 @@
 - `shotbox a11y speak [--keys KEY...]`: what a screen reader says, from
   a real Orca started in the session for it, with a home of its own
   there and no speech or braille output. It presses Tab until the
-  focus comes round, or the keys given, and prints a line a press: the
-  node with the focus, then what Orca said (`button "Save" [focusable,
-  focused]  says "Save button"`), or `says nothing`. `Screen.speak()`
+  focus comes round (stopping before a text view, which would take it as
+  typing), or the keys given, and prints what Orca said as it started,
+  then a line a press: the node with the focus, then what Orca said
+  (`button "Save" [focusable, focused]  says "Save button"`), or `says
+  nothing`. `Screen.speak()`
   in Python, and MCP's `get_speech`. Needs Orca, which `shotbox doctor`
   lists; checked with Orca 46.1, 48.0, 50.3 and 51.1. The Action's
   `speak: true` installs Orca, and what `a11y: true` does.

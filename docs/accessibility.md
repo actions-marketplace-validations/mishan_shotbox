@@ -486,6 +486,7 @@ say nothing. `shotbox a11y speak` asks a real one, Orca:
 ```
 $ shotbox run --a11y -- sh -c 'test/a11y_app.py form &
     shotbox a11y speak --window a11y-test'
+(start) button "Save" [focusable, focused]  says "Screen reader on.", "a11y-test", "Save button"
 button "" [focusable, focused]  says "button"
 button "Announce" [focusable, focused]  says "Announce button"
 check box "Wrap lines" [focusable, focused, checked]  says "Wrap lines check box checked"
@@ -495,23 +496,32 @@ text "Name:" [focusable, focused, editable]  says "Name: text", "N opens popup"
 button "Save" [focusable, focused]  says "Save button"
 ```
 
-A line a press: the node with the focus, as the tree has it, then each
-thing Orca said, or `says nothing` (the drawing area above, which a
-person tabbing through hears nothing of); `(no node has the focus)`
+First, `(start)`: what has the focus as Orca starts, and what it says
+then (a dialog's title and text, say). Then a line a press: the node
+with the focus, as the tree has it, then each thing Orca said (a line
+break in one as `\n`), or `says nothing` (the drawing area above, which
+a person tabbing through hears nothing of); `(no node has the focus)`
 where none has it, as on X11 with no window manager until the window is
-given the keyboard (`shotbox focus`). Without `--keys` it presses
-Tab until the focus lands where it has been, at most `--max` times, as
-`tabwalk` does, but without leaving a text view: Tab in one types a tab,
-and ends the walk there. `--keys Tab Tab space alt+n` presses those,
-in turn, a line each, whatever the focus does: what Orca says as a
-check box is toggled, or a mnemonic used. `--json` gives each press's
-`key`, `focus` (a node, as `tree --json` has it, or null) and `speech`
-(a list). From Python, `Screen.speak()`; from MCP, `get_speech`.
+given the keyboard (`shotbox focus`); `(the focus didn't move)` where
+the press left it where it was. A press is done once the focus has left
+where it was (or after two seconds, if it doesn't), and then once
+Orca's log has been still for half a second, so a program slow to move
+the focus is still heard.
+
+Without `--keys` it presses Tab until the focus lands where it has
+been, at most `--max` times, as `tabwalk` does, but never in a text view
+one writes in, which would take the tab as typing: it stops before one,
+saying so, and nothing is typed. `--keys Tab Tab space alt+n` presses
+those, in turn, a line each, whatever the focus does: what Orca says as
+a check box is toggled, or a mnemonic used (`ctrl+Tab` leaves a GTK text
+view). `--json` gives `start` and each of `presses` as `key`, `focus` (a
+node, as `tree --json` has it, or null), `moved` and `speech` (a list),
+and `text_view`, whether Tab stopped at one. From Python,
+`Screen.speak()`; from MCP, `get_speech`.
 
 It needs Orca (`orca` on Debian and Fedora), which takes a few seconds
 to start, and is stopped, with what it started, once the keys are
-pressed. A press is done once Orca's log has been still for half a
-second. Orca is run so it stays in the session:
+pressed. Orca is run so it stays in the session:
 
 - with a home of its own in the session's scratch dir
   (`XDG_CONFIG_HOME` and `XDG_DATA_HOME`), so it starts from its
@@ -526,9 +536,14 @@ second. Orca is run so it stays in the session:
 - past its check for another Orca: it won't start while any of your
   user's runs, your desktop's own included, so the `pgrep` it asks
   finds none. `--replace`, which kills every Orca of yours, isn't
-  passed.
+  passed;
+- named `shotbox-orca`, not `orca`, so your desktop's Orca, started by
+  hand or by GNOME's `orca --replace`, doesn't find it in turn and
+  refuse to start, or kill it: it's run by its interpreter
+  (`python3 /usr/bin/orca`) and names itself through a stand-in for
+  `setproctitle`.
 
-What's read of Orca's debug log is its `SPEECH OUTPUT: 'TEXT'` lines and
+What's read of Orca's debug log is its `SPEECH OUTPUT: 'TEXT'` entries and
 nothing else, as the log isn't an interface and changes between
 releases. Checked with Orca 51.1 (Debian's), and 50.3, 48.0 and 46.1
 (Ubuntu's packages, run from the package's files): they say the same

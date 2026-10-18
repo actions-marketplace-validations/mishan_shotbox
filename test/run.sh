@@ -995,15 +995,28 @@ if atspi; then
     && [ ! -s "$tmp/typed" ] \
     && ok "a11y: tabwalk finds a focus trap: a text view nothing gets out of, in a dialog too" \
     || { fail "a11y: trap ($st, $st2)"; cat "$tmp/walk" "$tmp/dialog" "$tmp/typed"; }
-  # What a real Orca says at each stop: a button by its name and role, one
-  # with no name by its role alone, a field by its mnemonic label.
+  # What a real Orca says: as it starts, and at each stop, a button by its
+  # name and role, one with no name by its role alone, a field by its
+  # mnemonic label, a label over two lines; named so a desktop's Orca
+  # doesn't take it for another; in a window slow to move the focus, each
+  # stop still said; and nothing typed into a text view, which takes Tab.
   if command -v orca >/dev/null; then
-    "$sb" run --a11y -- sh -c "'$app' form & '$sb' a11y speak --window a11y-test" > "$tmp/speak"
-    grep -qx '\(push \)\{0,1\}button "Save" \[focusable, focused\]  says "Save button\.\{0,1\}"' "$tmp/speak" \
+    "$sb" run --a11y -- sh -c "'$app' form lines & '$sb' a11y speak --window a11y-test > '$tmp/speak' & s=\$!
+      until grep -qs 'SPEECH OUTPUT' \$SHOTBOX_SCRATCH/orca-*/debug.out; do sleep 0.1; done
+      for p in \$(pgrep -f -- \"--debug-file \$SHOTBOX_SCRATCH\"); do cat /proc/\$p/comm; done
+      wait \$s" > "$tmp/named"
+    "$sb" run --a11y -- sh -c "'$app' slow & '$sb' a11y speak --window a11y-test" > "$tmp/slow"
+    "$sb" run --a11y -- sh -c "'$app' notes > '$tmp/typed' & '$sb' a11y speak --window a11y-test" \
+      > "$tmp/notes"
+    grep -qx '(start) \(push \)\{0,1\}button "Save" \[focusable, focused\]  says .*"Save button\.\{0,1\}"' "$tmp/speak" \
       && grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]  says "button\.\{0,1\}"' "$tmp/speak" \
       && grep -q '^text "Name:" .*  says "Name: text' "$tmp/speak" \
-      && ok "a11y: speak: what Orca says of a button, one with no name, and a field by its mnemonic label" \
-      || { fail "a11y: speak"; cat "$tmp/speak"; }
+      && grep -q '  says "Line one\\nLine two button\.\{0,1\}"$' "$tmp/speak" \
+      && [ "$(cat "$tmp/named")" = shotbox-orca ] \
+      && [ "$(grep -c '  says "[^"]*button' "$tmp/slow")" -ge 3 ] && ! grep -q "didn't move" "$tmp/slow" \
+      && grep -q '^stopped before Tab in a text view' "$tmp/notes" && [ ! -s "$tmp/typed" ] \
+      && ok "a11y: speak: what Orca says, of buttons named and not, a mnemonic, two lines; slow, and not in a text view" \
+      || { fail "a11y: speak"; cat "$tmp/speak" "$tmp/named" "$tmp/slow" "$tmp/notes" "$tmp/typed"; }
   else
     [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
       || echo "skip  a11y: speak: no Orca"

@@ -876,15 +876,19 @@ class Screen:
     def speak(self, keys=None, window=None, most=50):
         """What Orca, a screen reader, says as keys move the focus: with
         Orca running in the session, press `keys` in turn, or Tab until the
-        focus lands where it has been, at most `most` times. After each
-        press, a dict: the `key`, the node with the `focus` (None if none
-        has it), and Orca's `speech`, a list of what it said, empty for
-        nothing. Needs Orca, which takes a few seconds to start."""
+        focus lands where it has been, at most `most` times, but not in a
+        text view, which takes Tab. A dict: `start`, what has the `focus`
+        as Orca starts (a node, or None) and its `speech`, a list of what
+        it said; `presses`, the same after each press, with its `key` and
+        whether the focus `moved`; and `text_view`, whether Tab stopped at
+        one. Needs Orca, which takes a few seconds to start."""
         from .a11y import Node
         args = ["speak", "--max", str(most), *([f"--window={window}"] if window else []),
                 *(["--keys", *keys] if keys else [])]
         got = self._a11y(*args, timeout=180 + 15 * (len(keys) if keys else most))
-        return [dict(p, focus=p["focus"] and Node(p["focus"])) for p in got]
+        for p in [got["start"], *got["presses"]]:
+            p["focus"] = p["focus"] and Node(p["focus"])
+        return got
 
     # --- windows and pictures -------------------------------------------------
 
