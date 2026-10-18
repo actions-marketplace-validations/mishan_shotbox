@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mishan/shotbox@v0.6.0
+      - uses: mishan/shotbox@v0.8.0
         with:
           term: true
           clock: true
