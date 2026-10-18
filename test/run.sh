@@ -925,6 +925,25 @@ if atspi; then
       && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi
+  # Before 4.14, GTK 4 says where a widget's content is: measured there,
+  # faint labels in frames, one GTK can't pick and one under an overlay's
+  # clear child too. Not measured, and said: a stack's page no longer
+  # shown, which it still says is where it was, a popover's label, which
+  # it places in its window, and a button's edge, outside its content.
+  if [ "$minor" -lt 14 ]; then
+    set +e
+    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' & '$sb' wait window gtk4-old >/dev/null &&
+      sleep 1 && '$sb' a11y contrast --edges 3 --window gtk4-old" > "$tmp/contrast" 2>/dev/null
+    st=$?; set -e
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.99:1, #b0b0b0 on ' "$tmp/contrast")" = 3 ] \
+      && grep -q '/filler\[2\]/label\[0\]: text 1\.99:1' "$tmp/contrast" \
+      && grep -q '/panel\[3\]/panel\[0\]/label\[0\]: text not measured: GTK says another node is at its middle$' "$tmp/contrast" \
+      && grep -q '/filler\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && grep -q '/push button\[4\]: edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && [ "$(wc -l < "$tmp/contrast")" = 7 ] \
+      && ok "a11y: contrast, GTK 4 before 4.14: in a widget's content; not a stack's page gone, a popover or an edge, said" \
+      || { fail "a11y: contrast, GTK 4 before 4.14 ($st)"; cat "$tmp/contrast"; }
+  fi
   # The window's own buttons, out of the Tab order, left out by name.
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \
     --ignore 'button \"(Minimize|Maximize|Close)\"'" > "$tmp/walk" \

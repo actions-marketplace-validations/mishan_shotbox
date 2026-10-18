@@ -173,29 +173,38 @@ def origin(Atspi, top, shown):
     they're put on the screen by the display's window of the same size,
     and name if it has one: `shown`, as the backend's windows() lists
     them. Chromium on Wayland counts its shadow into its accessible frame
-    and not its window, and can't be placed. GTK 4, to 4.24 at least,
-    loses the window's border (on X11 with no compositor, it has one)
-    from its children: the frame's first child, which fills it but
+    and not its window, and can't be placed. GTK 4 from 4.14, to 4.24 at
+    least, loses the window's border (on X11 with no compositor, it has
+    one) from its children: the frame's first child, which fills it but
     for that, is at the frame's corner rather than inside the border. The
     border and padding of every other node on the way down are lost too,
     and can't be told: docs/accessibility.md says how far off that is."""
     e = top.get_extents(Atspi.CoordType.WINDOW)
     name = top.get_name() or ""
-    hits = [w for w in shown if (w[2], w[3]) == (e.width, e.height) and (not name or w[1] == name)]
+    app = top.get_application()
+    version = (app.get_toolkit_version() or "") if app and app.get_toolkit_name() == "GTK" else ""
+    gtk4 = version.startswith("4.")
+    # GTK 4 before 4.14 says where its window's content is: inside the
+    # window's own border, as wide all round (5 pixels, its solid-csd).
+    inside = gtk4 and int(version.split(".")[1]) < 14
+
+    def fits(w):
+        grown = w[2] - e.width
+        return ((grown == 0 or inside and 0 < grown <= 20 and grown % 2 == 0)
+                and grown == w[3] - e.height)
+
+    hits = [w for w in shown if fits(w) and (not name or w[1] == name)]
     if len(hits) > 1 and isinstance(hits[0][0], str):   # X11's unmapped windows
         env = Screen().env
         hits = [w for w in hits if x.viewable(env, w[0])]
     if len(hits) != 1:
         return None
     w = hits[0]
+    lost = ((w[2] - e.width) // 2, (w[3] - e.height) // 2)
     # GTK 4 alone: anywhere else a first child at the corner and smaller
     # (a GTK 3 button aligned to the start) is where it says.
-    app = top.get_application()
-    gtk4 = bool(app) and app.get_toolkit_name() == "GTK" and (
-        app.get_toolkit_version() or "").startswith("4.")
-    first = top.get_child_at_index(0) if gtk4 and top.get_child_count() else None
+    first = top.get_child_at_index(0) if gtk4 and not inside and top.get_child_count() else None
     c = first and first.get_extents(Atspi.CoordType.WINDOW)
-    lost = (0, 0)
     if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
         lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
     return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1]), w
@@ -234,8 +243,11 @@ def node(Atspi, acc, states, role, path):
         shown.append("collapsed")
     if not states.contains(Atspi.StateType.SENSITIVE):
         shown.append("disabled")
-    # A field GTK 3 names by its mnemonic label: a screen reader says that.
+    # GTK 4 before 4.10 names what has no name by its class.
     name = acc.get_name() or ""
+    if re.fullmatch(r"Gtk[A-Z]\w*", name) and gtk4_release(Node(_acc=acc)) < (4, 10):
+        name = ""
+    # A field GTK 3 names by its mnemonic label: a screen reader says that.
     if not name and "focusable" in shown:
         name = " ".join(t.get_name() for t in related(Atspi, acc, "LABELLED_BY") if t.get_name())
     return Node(role=role_name(Atspi, acc, role), name=name,
@@ -263,13 +275,19 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
         # A toolkit's widget can be visible and not on the screen (in a
         # revealer not revealed); a page's is not showing only scrolled
         # out of view, as a toolkit's list row is still showing. Each
-        # call is a round trip, so what isn't shown isn't asked more.
+        # call is a round trip, so what isn't shown isn't asked more. GTK 4
+        # before 4.10.3 says only its windows are showing; it presents
+        # only what's visible, as later ones say is showing.
         web = web or role == Atspi.Role.DOCUMENT_WEB
         try:
             states = acc.get_state_set()
-            if not states.contains(Atspi.StateType.VISIBLE if web else Atspi.StateType.SHOWING):
+            old = not web and gtk4_release(Node(_acc=acc)) < (4, 10, 3)
+            if not states.contains(Atspi.StateType.VISIBLE if web or old
+                                   else Atspi.StateType.SHOWING):
                 return
             n = node(Atspi, acc, states, role, path)
+            if old:
+                n["_showing"] = True
         except Exception:   # gone while we looked: a closing popover, a toast
             return
         n["_top"] = top
@@ -965,6 +983,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
                                roles(Atspi, EDGED))
     parents = {n.path: n for n in nodes}
+    ids = {n._id: n for n in nodes}
+    layers = {}
+
+    def within(path, outer):
+        return path == outer or path.startswith(outer + "/")
 
     def disabled(n):
         path = n.path
@@ -1001,6 +1024,45 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if outer:
                 box = overlap(box, outer)
         return box if box[2] > 0 and box[3] > 0 else None
+
+    def paged_out(n):
+        """Whether `n` is on a stack's page that isn't shown, which GTK 4
+        before 4.14 still says is where it was: asked what's at its
+        middle, GTK says a node of that stack, or one it's in, but not
+        on `n`'s page (a stack's pages are the nodes with no bounds). A
+        shown page's own child GTK can't pick answers the stack, so it's
+        left out too, with its line."""
+        page = n.path
+        while "/" in page:
+            page = page.rsplit("/", 1)[0]
+            if page in parents and parents[page].bounds is None:
+                break
+        else:
+            return False
+        try:
+            e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+            got = n._top.get_accessible_at_point(e.x + e.width // 2, e.y + e.height // 2,
+                                                 Atspi.CoordType.WINDOW)
+        except Exception:   # gone since the walk
+            return False
+        o = got and ids.get(f"{got.app.bus_name if got.app else ''}{got.path}")
+        stack = page.rsplit("/", 1)[0]
+        return bool(o) and not within(o.path, page) and (
+            within(o.path, stack) or within(stack, o.path))
+
+    def popped(n):
+        """Whether `n` is in a popover, or is one."""
+        path = n.path
+        while "/" in path:
+            if path not in layers:
+                try:
+                    layers[path] = parents[path]._acc.get_layer() == Atspi.ComponentLayer.POPUP
+                except Exception:   # no bounds: a stack's page
+                    layers[path] = False
+            if layers[path]:
+                return True
+            path = path.rsplit("/", 1)[0]
+        return False
 
     def hovered(box):
         """The screen with the pointer over the middle of `box`."""
@@ -1046,11 +1108,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     def wrong(n, k):
         """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
         version = gtk4(n)
-        if (not version or version in GTK4_BOUNDS
+        inside = version and gtk4_release(n) < (4, 14)
+        popover = inside and k != "edge" and popped(n)
+        if (not version or version in GTK4_BOUNDS or inside and k != "edge" and not popover
                 or os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"):
             return False
         notes.append((n, f"{k} not measured: GTK 4 reports its position wrong"))
-        why = (f"GTK {version} reports where its widgets are without their containers' "
+        why = (f"GTK {version} reports where what's in a popover is as if the popover were "
+               "in its window, not where it's drawn; see docs/accessibility.md." if popover else
+               f"GTK {version} reports where a widget's content is, inside its border and "
+               "padding, so its edge can't be measured from what it reports; see "
+               "docs/accessibility.md." if inside else
+               f"GTK {version} reports where its widgets are without their containers' "
                "padding and borders, and a stack's child with its place in the stack counted "
                "twice, so their contrast can't be measured from what it reports; see "
                "docs/accessibility.md.")
@@ -1075,6 +1144,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             continue
         box = shown(n)
         if not box:
+            continue
+        if gtk4_release(n) < (4, 14) and paged_out(n):
+            notes.append((n, f"{k} not measured: GTK says another node is at its middle"))
             continue
         big = k == "text" and large_text(Atspi, n)
         least = large if big else text if k == "text" else graphics
@@ -1124,10 +1196,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
 SMALLEST = 16
 
-# The GTK 4 releases that say where their widgets are: none yet. Others
-# leave out each container's padding and border, count a stack's child
-# twice, and set a label's text a character short, none of which can be
-# undone from what they say (docs/accessibility.md, "GTK 4's positions").
+# The GTK 4 releases from 4.14 that say where their widgets are: none yet.
+# Others leave out each container's padding and border, count a stack's
+# child twice, and set a label's text a character short, none of which
+# can be undone from what they say (docs/accessibility.md, "GTK 4's
+# positions"). Before 4.14, GTK 4 says where a widget's content is, which
+# is measured, but for its edge and what's in a popover.
 GTK4_BOUNDS = ()
 
 
@@ -1183,6 +1257,13 @@ def gtk4(n):
 
 
 GTK4 = {}
+
+
+def gtk4_release(n):
+    """The GTK 4 version `n`'s program is, as (4, minor, micro), or (99,)
+    if it isn't GTK 4."""
+    version = gtk4(n)
+    return tuple(int(v) for v in version.split(".") if v.isdigit()) if version else (99,)
 
 
 def gtk3_switch(Atspi, n):

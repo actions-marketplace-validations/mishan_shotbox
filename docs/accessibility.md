@@ -102,11 +102,15 @@ the one `--window` picks there, matched to its program by process, unless
 one of that program's named windows is picked. A pattern that matches an
 empty name, like `.*`, picks every unnamed window.
 
-The tree leaves out nodes that aren't showing (a hidden widget, a stack
-page not shown, what's in a revealer not revealed, which the toolkit
-calls visible), and in a web page those that aren't visible, since a
-page's nodes scrolled out of view aren't showing, where a toolkit's still
-are. A field with no name of its own goes by what labels it
+The tree leaves out nodes that aren't showing (a hidden widget, what's
+in a revealer not revealed, which the toolkit calls visible), and in a
+web page those that aren't visible, since a page's nodes scrolled out of
+view aren't showing, where a toolkit's still are. GTK 4 says a stack's
+pages not shown are showing, so they're in it. GTK 4 before 4.10.3 says
+only its windows are showing, so in it the tree takes what's visible,
+all it presents, as later ones say it's showing; and before 4.10 it
+names a node with no name by its class (`GtkButton`), which the tree
+takes as no name. A field with no name of its own goes by what labels it
 ([Lint](#lint)). It lists the states a screen reader says, not the ones
 about layout: focusable, focused, selected, checked, indeterminate,
 pressed, expanded or collapsed, editable, read-only, modal, required,
@@ -133,11 +137,15 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
   right.
 - GTK 4 loses border and padding on the way down, and how depends on
   its version. On X11 with no compositor a window has a border and
-  padding of its own (5 pixels, its `solid-csd` style), and every
-  version loses that from the window's children; shotbox makes it up,
-  telling it from the frame and its first child, which fills the frame
-  but for it. Up to 4.14.5, GTK places each node at its own content
-  area, past its border and padding: a button by about 17 pixels across.
+  padding of its own (5 pixels, its `solid-csd` style). Before 4.14,
+  the frame is what's inside it, so the display's window is that much
+  bigger all round, and shotbox places the frame inside it. From 4.14,
+  the frame is all of it, and GTK loses it from the window's
+  children; shotbox makes it up, telling it from the frame and its first
+  child, which fills the frame but for it. Up to 4.14.5, GTK places each
+  node at its own content area, past its border and padding: a button by
+  about 17 pixels across. Before 4.14 that's right, for what's inside the
+  border and padding ([GTK 4's positions](#gtk-4s-positions)).
   From 4.14.6, it places each node relative to its parent's corner,
   short of the parent's border and padding: a button's label at the
   button's corner. Neither can be told from the tree. A GTK with this
@@ -320,8 +328,8 @@ Wayland by sway's `focus`.
 ## Contrast
 
 `contrast` raises the `--window`, takes a picture of the screen, with
-the pointer parked, and measures each node in its bounds, but GTK 4's
-([below](#gtk-4s-positions)):
+the pointer parked, and measures each node in its bounds, but GTK 4.14
+and later's ([below](#gtk-4s-positions)):
 
 - **Text**: a node with a name whose role is text (a label, heading,
   link, static text, paragraph), or a button, link, tab, menu item or
@@ -405,20 +413,20 @@ What wasn't measured (too small, GTK 4's) is said after the failures,
 a line each, and how many and why on stderr, so stdout is only
 `PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
 is 1 if anything failed, 0 if what was measured passed, and 2 if
-nothing was measured at all and GTK 4's was left out: a GTK 4 window,
-`shotbox: nothing measured: ...` (text too small to measure, alone,
-passes). With `--json` it's 0 with failures, which the lines say, and 2
-when nothing was measured. `Screen.contrast()` raises then, and MCP's `check_contrast`
-says so as an error.
+nothing was measured at all and GTK 4's was left out: a window on GTK
+4.14 or later, `shotbox: nothing measured: ...` (text too small to
+measure, alone, passes). With `--json` it's 0 with failures, which the
+lines say, and 2 when nothing was measured. `Screen.contrast()` raises
+then, and MCP's `check_contrast` says so as an error.
 
 ### GTK 4's positions
 
-A GTK 4 app isn't checked: GTK 4 doesn't say where its widgets are,
-so contrast isn't measured on them, a line each, `not measured: GTK 4
-reports its position wrong`, and why once (in `--json`, each such line's
-`why`). gnome-calculator's "=", white on blue at 3.76:1, fails WCAG and
-isn't reported. What GTK 4 gets wrong, which can't be undone from what
-it says:
+An app on GTK 4.14 or later isn't checked: GTK 4 doesn't say where its
+widgets are, so contrast isn't measured on them, a line each, `not
+measured: GTK 4 reports its position wrong`, and why once (in `--json`,
+each such line's `why`). gnome-calculator's "=", white on blue at
+3.76:1, fails WCAG and isn't reported. What GTK 4 gets wrong, which
+can't be undone from what it says:
 
 - each widget is placed without its containers' padding and borders,
   so a label is off by everything round it (a dialog's button's label
@@ -429,12 +437,35 @@ it says:
 
 Measuring at those places measures what's there instead: a button's
 fill, a neighbor's text. The stack's is in GTK 4.14 and later, the rest
-in 4.14.6 and later, up to 4.24 at least; before 4.14, GTK 4 said where
-a widget's content is, which hasn't been checked here, so it isn't
-measured either. GTK 3, Qt and browsers say where their widgets are, and
-are measured.
-Large text and disabled nodes don't come into it for GTK 4, since
-nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
+in 4.14.6 and later, up to 4.24 at least. GTK 3, Qt and browsers say
+where their widgets are, and are measured.
+
+Before 4.14, GTK 4 says where a widget's content is: inside its own
+border and padding, placed right. On GTK 4.6.9 (Ubuntu 22.04) and 4.8.3
+(Debian 12), each node's bounds were its content box to the pixel, in
+nested boxes with borders and padding, a stack and a button inside it,
+and in gtk4-widget-factory, gtk4-demo, gnome-text-editor and Debian's
+gnome-calculator. So it's measured: a label's text is inside its
+content, on what's round it, and a button's label or icon on the
+button's fill (Debian 12's gnome-calculator "=", white on orange, fails
+at 2.64:1). Its edges aren't (`--edges`), being outside that, a line
+each, as for later GTK 4. Nor, a line each:
+
+- what's in a popover, which GTK places as if the popover were in its
+  window, not where it's drawn (a popover's label 34 pixels above it,
+  over the button that opened it);
+- a stack's page no longer shown, still said to be where it was: a node
+  on a stack's page where GTK, asked what's at its middle, says another
+  node of that stack (or one it's in), `not measured: GTK says another
+  node is at its middle`. A shown page's own child that can't be
+  clicked (`can_target` off) comes out the same.
+
+Close popovers before measuring on these versions: what's under an
+open one is measured against the popover's pixels, since GTK doesn't
+say where the popover really is.
+
+Large text and disabled nodes don't come into it for GTK 4.14 and later,
+since nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
 session's environment (`--env`) measures GTK 4 at its bounds as said:
 for a GTK whose bounds you've checked, which needs all three fixed (one
 with the padding alone fixed still has gnome-calculator's keypad 12
