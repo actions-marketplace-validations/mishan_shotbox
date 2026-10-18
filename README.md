@@ -106,7 +106,8 @@ all want the same things, and every project was growing its own copy:
   animations off), GTK 4's text drawn at its color, as its manual font
   rendering does, not fainter by however much a GTK release's automatic
   one draws it ([more](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md#contrast)), and PNGs with no
-  timestamps in them.
+  timestamps in them. It's the same every time, not the same as a desktop:
+  [differences from a desktop](https://github.com/mishan/shotbox/blob/main/docs/desktop.md).
 - **Cleaned up.** Every program runs in its own process group, and the group
   is killed on the way out: signalling a wrapper script alone leaves its
   children running.
@@ -247,6 +248,7 @@ sway, how it fits, and what differs from X11:
 - [MCP](https://github.com/mishan/shotbox/blob/main/docs/mcp.md): the tools an agent gets, and how they're built
 - [Accessibility](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md)
 - [Wayland](https://github.com/mishan/shotbox/blob/main/docs/wayland.md)
+- [Differences from a desktop](https://github.com/mishan/shotbox/blob/main/docs/desktop.md): drawing, window manager, animations, language, scale, input, measurements
 - [Gamepads](https://github.com/mishan/shotbox/blob/main/docs/gamepads.md)
 - [Python](https://github.com/mishan/shotbox/blob/main/docs/python.md): `shotbox.Session` and `here()`, for a script
   that drives the display itself

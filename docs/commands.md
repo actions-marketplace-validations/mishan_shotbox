@@ -468,7 +468,9 @@ that needs a setuid helper, or for every session `SHOTBOX_SANDBOX=off` in the en
   text scaling does: GTK 3 and 4 on X11 and Xwayland, GTK 4 on Wayland.
 
 Each is off unless asked for, so pictures without them don't change.
-Reduced motion needs no preset: GTK's animations are always off.
+GTK's animations are always off, so there's no reduced-motion preset;
+that also means a program can't be tested for honoring reduced motion
+([differences from a desktop](desktop.md#animations)).
 
 ## Resource use
 
