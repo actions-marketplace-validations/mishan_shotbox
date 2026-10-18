@@ -32,6 +32,12 @@
   `start_session`, `stop_session`, `press_keys`, `type_text` and
   `wait_for` keep theirs. The commands (`shotbox click`, `a11y lint`...)
   are as they were.
+- **MCP marks a program's text**: `get_program_output`'s lines, the line
+  `wait_for` line and `record_video`'s `until_line` end on, and
+  `list_announcements` come a line each after `| `, and the instructions
+  say such lines, and quoted names and titles, are the programs', not
+  the person's. A client reading
+  `wait_for` line's answer as the bare line needs to take the `| ` off.
 
 ### Added
 
@@ -42,9 +48,30 @@
   which is taken if the program has none of its own, as a daemon's
   window is; `spawn_program`'s answer says so.
 - MCP revisions 2025-11-25 and 2026-07-28, with `server/discover`.
+- MCP's `take_screenshot` and `record_video` say a picture's size, and
+  shrink one past what Claude sees unscaled (a 1568 px long edge or 1568
+  patches of 28 px: 1920x1080 to 1456x819), saying the scale, so an x,y
+  read off it can be mapped back for `click_element`. A burst's and a
+  clip's sheet lays its pictures out as many to a row as shrinks them
+  least, two 1920x1080 screens to a row, not always four.
+- MCP's `start_session`, without the system's PyGObject in sight (plain
+  `pipx install`, uvx), starts anyway and says which tools won't work
+  and how to fix it, as it says what it couldn't seal.
 
 ### Changed
 
+- MCP's answers are bounded: `start_session`'s screen is at most
+  7680x4320; `get_accessible_tree`, the checks and `list_announcements`
+  stop at 500 lines, saying how many more and to narrow it with window;
+  and a program's line, or a tree line, stops at 500 characters.
+- docs/mcp.md says that `wait_for` line reads any text file under the
+  allow file's directory, so it belongs in its own or the project's, not
+  your home, and that allowing a terminal, browser or file manager hands
+  the agent arbitrary commands through `type_text`.
+- A command that needs PyGObject, run from uvx or `uv tool install`,
+  whose environments can't see the system's, says to install with
+  `pipx install --system-site-packages shotbox`, not to make the
+  virtualenv with `--system-site-packages`, which uv's tools can't.
 - MCP's tool descriptions say when to use each tool and which to use
   instead, what its answer holds, and its defaults: `get_program_output`
   reads a program that has exited, `list_announcements` keeps what was

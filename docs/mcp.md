@@ -81,14 +81,21 @@ adds is clicks and keys on a display no one else is looking at. The one
 thing it writes outside a session is `record_video`'s clips, new .mp4 files
 in the `--allow` file's directory, never over a file that's there.
 
+**The allow file's directory is the agent's to read.** `wait_for` line
+and `record_video`'s `until_line` read any text file under it and answer
+with the line they find, so keep the allow file in a directory of its
+own or the project's, not your home. And what's on the list is the
+agent's to drive: allowing a terminal, a browser or a file manager hands
+it arbitrary commands, typed with `type_text`.
+
 ## The tools
 
 | | |
 |---|---|
-| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size, gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
+| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size (up to 7680x4320), gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
 | `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
-| `get_accessible_tree` | the tree, a node a line, with bounds if asked |
-| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |
+| `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
+| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
 | `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked |
 | `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
@@ -102,6 +109,35 @@ in the `--allow` file's directory, never over a file that's there.
 Each description says what the tool is for, what to read in its answer,
 and what to use instead when it's the wrong one: an agent knows a tool
 by nothing else.
+
+**A picture is what the model sees.** Claude scales an image past a
+long edge of 1568 px, or past 1568 patches of 28x28 px, so an x,y read
+off a 1920x1080 screen would be off by a factor of 1.32 when given
+to `click_element`. `take_screenshot` and `record_video` shrink a picture
+past that themselves (1920x1080 to 1456x819) and say its size and the
+scale: divide an x,y by it (and add a crop's corner) for `click_element`
+with the same window, or click by name. A burst's or a clip's pictures
+are laid out as many to a row as shrinks them least: two 1920x1080
+screens to a row, 728x410 each.
+
+**Answers are bounded.** A screen is at most 7680x4320. The tree, the
+checks' answers and `list_announcements` (its latest) stop at 500 lines,
+saying how many more and how to narrow it, if it can be; GTK apps' whole windows
+measured 63 to 314. A line a program wrote, and a tree line, stops at
+500 characters, saying how many more.
+
+**A program's text is marked.** What a program wrote, in
+`get_program_output`, `wait_for` line's and `until_line`'s line and
+`list_announcements`, comes a line each after `| `, and a title or a
+node's name is quoted; the instructions say both are the programs', not
+the person's: a log line or a web page can say anything.
+
+**Without PyGObject**, as plain `pipx install` or uvx installs it,
+`start_session` still starts, without the accessibility bus, and its
+answer says which tools won't work and how to fix it
+(`pipx install --force --system-site-packages shotbox`, or the system's
+packages; uvx and uv's tools can't see them, so use pipx), as it says
+what it couldn't seal.
 
 A tool it doesn't have is a protocol error, -32602, naming a renamed
 tool's new name. Any other failure is an answer, marked `isError`, in a
@@ -210,9 +246,12 @@ process, with a real session behind it, as a client would send them:
 - initialize, with the version asked for and with an unknown one;
 - each tool on a libadwaita window;
 - each refusal: a program not on the list, a session that isn't there,
-  an argument a tool doesn't take.
+  an argument a tool doesn't take, a screen past 8K;
+- a 1920x1080 picture shrunk to 1456x819, with its scale; the tree cut
+  short, with what's left; a program's output fenced, a long line cut.
 
 It then runs the server over stdio, as a client runs it, and checks that
 nothing but answers comes out on stdout, that a ping is answered during
 a long call, which sends progress and, cancelled, no answer, and that
-the session stops when stdin closes.
+the session stops when stdin closes. From a virtualenv that can't see
+PyGObject, a session still starts, saying what won't work.

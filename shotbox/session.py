@@ -347,6 +347,10 @@ def bindings(what, where, *libs):
             if "pipx/venvs/" in Path(sys.prefix).as_posix():
                 return (f"needs {what} from the system, which this install can't see; "
                         f"reinstall with: {REINSTALL}")
+            # uv's tools and uvx's have no way to see them: pipx has.
+            if re.search(r"/uv/(tools|archive-v\d+)/", Path(sys.prefix).as_posix() + "/"):
+                return (f"needs {what} from the system, which uv's tool environments can't "
+                        "see; install with: pipx install --system-site-packages shotbox")
             return (f"needs {what} from the system, which this virtualenv can't see: "
                     "make it with --system-site-packages")
         return f"needs {what}, which this Python can't load ({e}): {where}"

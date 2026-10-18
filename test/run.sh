@@ -72,6 +72,12 @@ set +e; TMPDIR=$tmp/empty "$tmp/venv/bin/python" "$sb" run --a11y -- true 2> "$t
 at_once $st "^shotbox: needs PyGObject and AT-SPI from the system, which this virtualenv can't see: make it with --system-site-packages\$" \
   && ok "--a11y, with no PyGObject in sight: a virtualenv that can see it, before the session starts" \
   || fail "--a11y with no PyGObject ($st): $(cat "$tmp/err")"
+# uv's tool environments can't be made to see it: pipx's can.
+python3 -m venv --without-pip "$tmp/uv/tools/shotbox"
+set +e; TMPDIR=$tmp/empty "$tmp/uv/tools/shotbox/bin/python" "$sb" run --a11y -- true 2> "$tmp/err"; st=$?; set -e
+at_once $st "^shotbox: needs PyGObject and AT-SPI from the system, which uv's tool environments can't see; install with: pipx install --system-site-packages shotbox\$" \
+  && ok "--a11y from uv's tool environment, with no PyGObject in sight: pipx, which can see it" \
+  || fail "--a11y from uv with no PyGObject ($st): $(cat "$tmp/err")"
 set +e; "$venv/bin/python" "$sb" doctor > "$tmp/out"; st=$?; set -e
 [ $st = 0 ] && grep -q "^ok    sessions$" "$tmp/out" && grep -q "^no    term: needs PyGObject and VTE $reinstall\$" "$tmp/out" \
   && ok "doctor: what's here, and what isn't" || fail "doctor ($st): $(cat "$tmp/out")"

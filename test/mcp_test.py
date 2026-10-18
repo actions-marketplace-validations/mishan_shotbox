@@ -47,6 +47,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
                  f"tone = paplay {tmp / 'tone.wav'}\n"
                  f"late_tone = /bin/sh -c 'sleep 0.5; exec paplay {tmp / 'tone.wav'}'\n"
+                 f"talk = {sys.executable} -c \"print('one\\\\rtwo'); print('x' * 600)\"\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -168,12 +169,13 @@ try:
     said, bad, _ = tool("wait_for", session="t", what="announcement", value="notes")
     check(not bad, "wait_for: an announcement")
     said, _, _ = tool("list_announcements", session="t")
-    check(said == "polite: Saved to notes.md", f"list_announcements ({said!r})")
+    check(said == "| polite: Saved to notes.md", f"list_announcements, fenced ({said!r})")
     said, bad, content = tool("take_screenshot", session="t", window="a11y-test")
     png = [c for c in content if c["type"] == "image"]
     check(len(png) == 1 and png[0]["mimeType"] == "image/png"
-          and base64.b64decode(png[0]["data"])[:4] == b"\x89PNG",
-          "take_screenshot: an image, returned")
+          and base64.b64decode(png[0]["data"])[:4] == b"\x89PNG"
+          and re.fullmatch(r"A picture of the window 'a11y-test', \d+x\d+\.", said),
+          f"take_screenshot: an image, returned, and its size ({said})")
     said, bad, content = tool("take_screenshot", session="t", window="a11y-test",
                               vision="tritanopia")
     check(not bad and "as seen with tritanopia" in said
@@ -190,8 +192,30 @@ try:
     said, bad, content = tool("take_screenshot", session="t", burst=12, crop="20x800+0+0")
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     w, h = struct.unpack(">II", png[16:24])
-    check(not bad and max(w, h) <= 1920,
-          f"take_screenshot: a burst of tall pictures, shrunk to fit ({w}x{h})")
+    check(not bad and (w, h) == (240, 800) and "12 to a row" in said
+          and said.endswith("; 240x800."),
+          f"take_screenshot: a burst of tall pictures, in one row, not shrunk ({said})")
+    # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
+    # have 1920x1080 seen, with the scale to map an x,y back by.
+    said, bad, _ = tool("start_session", name="big", a11y=False, screen="1920x1080")
+    said, bad, content = tool("take_screenshot", session="big")
+    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+    check(not bad and struct.unpack(">II", png[16:24]) == (1456, 819)
+          and "1456x819, scaled by 0.7583 from 1920x1080: divide an x,y on it by that" in said,
+          f"take_screenshot: a 1920x1080 screen, shrunk to 1456x819, its scale said ({said})")
+    said, bad, _ = tool("take_screenshot", session="big", crop="1800x1000+100+50")
+    check(not bad and said.endswith("divide an x,y on it by that, then add the crop's x,y, "
+                                    "for click_element."),
+          f"take_screenshot: a crop shrunk, said how to map back with its corner ({said})")
+    said, bad, content = tool("take_screenshot", session="big", burst=4)
+    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+    check(not bad and "2 to a row" in said and struct.unpack(">II", png[16:24]) == (1456, 819)
+          and said.endswith("; 1456x819, scaled by 0.3792 from 3840x2160."),
+          f"take_screenshot: a burst of wide screens, two to a row, shrunk least ({said})")
+    tool("stop_session", session="big")
+    said, bad, _ = tool("start_session", name="huge", a11y=False, screen="7681x4320")
+    check(bad and "at most 7680x4320, not 7681x4320" in said and "huge" not in server.sessions,
+          f"start_session: a screen past 8K, refused ({said})")
     said, bad, _ = tool("take_screenshot", session="t", burst=40)
     check(bad and "2 to 12" in said, "take_screenshot: a burst too big, refused")
     said, bad, content = tool("record_video", session="t", seconds=1, window="a11y-test")
@@ -199,14 +223,14 @@ try:
     length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                    "-of", "csv=p=0", saved[1]], capture_output=True,
                                   text=True).stdout or 0) if saved else 0
-    times = re.search(r"at (.*) seconds\.", said)
+    times = re.search(r"at (.*) seconds; \d+x\d+", said)
     check(not bad and abs(length - 1) < 0.15 and float(saved[2]) == round(length, 2)
           and saved[1].startswith(str(server.sessions["t"].scratch))
           and [c["type"] for c in content] == ["image", "text"]
           and len(times[1].split(", ")) == 8,
           f"record_video: a clip of the length asked for, and a sheet of 8 frames ({said})")
     said, bad, _ = tool("record_video", session="t", seconds=0.1, path="clips/one.mp4")
-    times = re.search(r"at (.*) seconds\.", said)
+    times = re.search(r"at (.*) seconds; \d+x\d+", said)
     check(not bad and (tmp / "clips/one.mp4").stat().st_size
           and str(tmp / "clips/one.mp4") in said and 1 <= len(times[1].split(", ")) < 8,
           f"record_video: a short clip, saved at a path in the allow file's directory ({said})")
@@ -280,7 +304,7 @@ try:
                for f in ("/etc/hostname", "../" * 20 + "etc/hostname", ".")]
     threading.Timer(0.5, (tmp / "later.log").symlink_to, ["/etc/hostname"]).start()
     later, later_bad, _ = tool("wait_for", session="h", what="line", value="", file="later.log")
-    check(not bad and said == "beacon_claimed 2"
+    check(not bad and said == "The line:\n| beacon_claimed 2"
           and all(bad and "by its path from there" in said for said, bad in refused)
           and later_bad and "outside" in later,
           f"wait_for: line, a new one, in a file in the allow file's directory only ({said})")
@@ -295,7 +319,7 @@ try:
     refused = [tool("record_video", session="h", until_line="x", file=f)[:2]
                for f in ("later2.log", "/etc/hostname", None)]
     check(not bad and saved and 1.2 <= float(saved[2]) < 2.5
-          and said.endswith("It ended on the line: run_end 3")
+          and said.endswith("It ended on the line:\n| run_end 3")
           and not capped_bad and "No line matching 'nope' came in its 0.5 seconds" in capped
           and "outside" in refused[0][0] and "by its path from there" in refused[1][0]
           and "needs a file" in refused[2][0] and all(bad for _, bad in refused)
@@ -349,6 +373,14 @@ try:
           and "-100 to 100, not 1000" in refused[1][0],
           f"scroll_wheel: by a node's name, a row past the end into view, and back; none or too "
           f"far, refused ({said}; {back})")
+    mcp.LINES, most = 5, mcp.LINES
+    try:
+        said, bad, _ = tool("get_accessible_tree", session="l")
+    finally:
+        mcp.LINES = most
+    check(not bad and len(said.splitlines()) == 6
+          and re.fullmatch(r"… \d+ more lines: narrow it with window", said.splitlines()[-1]),
+          f"get_accessible_tree: capped, saying how many more and how to narrow it ({said})")
     tool("stop_session", session="l")
     # By the name it was spawned by, a program behind a shell, whose window's
     # title isn't that; and a title that isn't there, the window that is said.
@@ -471,6 +503,12 @@ try:
           f"a tool it doesn't have: a protocol error, an old name's new one said ({unknown})")
     said, bad, _ = tool("get_program_output", session="t", program="app")
     check(not bad and "still running" in said, "get_program_output")
+    tool("spawn_program", session="t", program="talk")
+    time.sleep(1)
+    said, bad, _ = tool("get_program_output", session="t", program="talk")
+    check(not bad and said.split("\n", 1)[1]
+          == "| one\n| two\n| " + "x" * 500 + "… (100 more characters)",
+          f"get_program_output: each line fenced, a long one cut ({said!r})")
     scratch = server.sessions["t"].scratch
     said, bad, _ = tool("stop_session", session="t")
     check(not bad and not scratch.exists() and not server.sessions,
@@ -554,7 +592,7 @@ for how in ("claude", "kill"):
                           call_q(4, "wait_for", session=how, what="stable"),
                           call_q(5, "get_program_output", session=how, program="where"))
     app, where = pid_of(answers[1]), pid_of(answers[2])
-    scratch = answers[4]["result"]["content"][0]["text"].splitlines()[1]
+    scratch = answers[4]["result"]["content"][0]["text"].splitlines()[1].removeprefix("| ")
     # Not the session's: a shell that cd'd there, its PWD in the directory.
     onlooker = subprocess.Popen(["sleep", "300"], cwd=scratch,
                                 env=dict(os.environ, PWD=scratch))
@@ -608,6 +646,22 @@ piped = subprocess.run([sys.argv[1], "mcp"], capture_output=True, text=True, tim
 ids = [json.loads(line).get("id") for line in piped.stdout.splitlines()]
 check(ids == [1, None, 2, 3] and "is up" in piped.stdout,
       f"over stdio: requests piped in before stdin closes are all answered ({ids})")
+# From a virtualenv that can't see the system's PyGObject, as plain pipx
+# install and uvx make: the session starts, saying what won't work and why.
+venv = tmp / "venv"
+subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+blind = subprocess.run([str(venv / "bin/python"), sys.argv[1], "mcp"], capture_output=True,
+                       text=True, timeout=120, input="".join(json.dumps(q) + "\n" for q in (
+                           call_q(1, "start_session", name="blind"),
+                           call_q(2, "get_accessible_tree", session="blind"))))
+started, tree = (json.loads(line)["result"] for line in blind.stdout.splitlines())
+check("is up" in started["content"][0]["text"] and "Note: the accessibility tools "
+      "(get_accessible_tree, check_*, list_announcements, and anything by a node's name) "
+      "won't work: needs PyGObject and AT-SPI from the system, which this virtualenv can't "
+      "see: make it with --system-site-packages." in started["content"][0]["text"]
+      and tree["isError"] and "--system-site-packages" in tree["content"][0]["text"],
+      f"start_session with no PyGObject in sight: up, saying what won't work and how to fix "
+      f"it ({started}; {tree})")
 # stdin closed during a long click by name: called off, not waited out.
 proc.stdin.write(json.dumps(call_q(5, "click_element", session="long", name="never",
                                    timeout=60)) + "\n")
