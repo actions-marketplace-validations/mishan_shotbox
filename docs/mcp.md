@@ -136,8 +136,8 @@ the person's: a log line or a web page can say anything.
 `start_session` still starts, without the accessibility bus, and its
 answer says which tools won't work and how to fix it
 (`pipx install --force --system-site-packages shotbox`, or the system's
-packages; uv's tools can't see them, so from uvx, pipx with it), as it
-says what it couldn't seal.
+packages; uvx and uv's tools can't see them, so use pipx), as it says
+what it couldn't seal.
 
 A tool it doesn't have is a protocol error, -32602, naming a renamed
 tool's new name. Any other failure is an answer, marked `isError`, in a
