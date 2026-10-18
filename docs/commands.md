@@ -14,7 +14,8 @@ at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 bubblewrap, which `--gamepads` needs, and which [seals](sealed.md)
 more where it's there.
 
-`shotbox doctor` says which of these are here, a line each: what
+`shotbox --version` says which shotbox this is. `shotbox doctor` says
+which of these are here, a line each: what
 sessions need, and each of their options, `term` and `record`. A command
 missing one fails before it starts anything, in a line saying what's
 missing and how to get it, as `Session` and MCP's `start_session` do.

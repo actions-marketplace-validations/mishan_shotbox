@@ -26,6 +26,7 @@
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox doctor                                  what's here of what each command needs
+    shotbox --version                               which shotbox this is
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
     shotbox listen IN.wav                           its level, clipping and dropouts
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
@@ -53,7 +54,7 @@ import time
 import wave
 from pathlib import Path
 
-from . import a11y, kept, mcp, pad, sound, term, usage, x, xtest
+from . import __version__, a11y, kept, mcp, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
@@ -1228,6 +1229,9 @@ def main(argv=None):
         session, argv = argv[1], argv[2:]
     elif argv and argv[0].startswith("--session="):
         session, argv = argv[0].split("=", 1)[1], argv[1:]
+    if argv[:1] == ["--version"]:
+        print(f"shotbox {__version__}")
+        return 0
     if not argv or argv[0] in ("-h", "--help") or argv[0] not in COMMANDS:
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2

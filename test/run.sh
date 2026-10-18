@@ -33,8 +33,10 @@ js=$(node -p "require('$root/package.json').version")
 lock=$(node -p "require('$root/package-lock.json').version")
 log=$(grep -m1 -o '^## [0-9][0-9.]*' "$root/CHANGELOG.md" | cut -c4-)
 mcp=$(python3 -c "import json; s = json.load(open('$root/server.json')); print(*{s['version'], *(p['version'] for p in s['packages'])})")
+cli=$("$sb" --version)
 [ "$py" = "$js" ] && [ "$js" = "$lock" ] && [ "$lock" = "$log" ] && [ "$log" = "$mcp" ] \
-  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp"
+  && [ "$cli" = "shotbox $py" ] \
+  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp, --version $cli"
 
 # The session: none of ours gets in, and it cleans up after itself.
 out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 SSH_AUTH_SOCK=/nope SECRET=x \

@@ -22,7 +22,7 @@ The smallest steps that do it, ideally with a program anyone can run
 (gnome-text-editor, zenity, a short script).
 
 **Where it ran**
-- shotbox version (`pip show shotbox` or `pipx list`):
+- shotbox version (`shotbox --version`):
 - How it's used: command line, Python API, MCP server (which client), Node
   helpers or the GitHub Action:
 - Distribution and version:
