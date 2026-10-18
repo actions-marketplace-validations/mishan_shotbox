@@ -252,6 +252,9 @@ sway, how it fits, and what differs from X11:
   that drives the display itself
 - [Node](https://github.com/mishan/shotbox/blob/main/docs/node.md): helpers for browser checks with Playwright
 - [Contributing](https://github.com/mishan/shotbox/blob/main/CONTRIBUTING.md): the tests
+- [Code of conduct](https://github.com/mishan/shotbox/blob/main/CODE_OF_CONDUCT.md),
+  [security](https://github.com/mishan/shotbox/blob/main/SECURITY.md) and
+  [accessibility](https://github.com/mishan/shotbox/blob/main/ACCESSIBILITY.md)
 - [Releasing](https://github.com/mishan/shotbox/blob/main/docs/releasing.md)
 - [Changelog](https://github.com/mishan/shotbox/blob/main/CHANGELOG.md)
 
