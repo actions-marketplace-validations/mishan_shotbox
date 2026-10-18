@@ -983,6 +983,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
                                roles(Atspi, EDGED))
     parents = {n.path: n for n in nodes}
+    ids = {n._id: n for n in nodes}
+    layers = {}
+
+    def within(path, outer):
+        return path == outer or path.startswith(outer + "/")
 
     def disabled(n):
         path = n.path
@@ -1019,6 +1024,43 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if outer:
                 box = overlap(box, outer)
         return box if box[2] > 0 and box[3] > 0 else None
+
+    def paged_out(n):
+        """Whether `n` is on a stack's page that isn't shown, which GTK 4
+        before 4.14 still says is where it was: asked what's at its
+        middle, GTK says a node of that stack, or one it's in, but not
+        on `n`'s page (a stack's pages are the nodes with no bounds)."""
+        page = n.path
+        while "/" in page:
+            page = page.rsplit("/", 1)[0]
+            if page in parents and parents[page].bounds is None:
+                break
+        else:
+            return False
+        try:
+            e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+            got = n._top.get_accessible_at_point(e.x + e.width // 2, e.y + e.height // 2,
+                                                 Atspi.CoordType.WINDOW)
+        except Exception:   # gone since the walk
+            return False
+        o = got and ids.get(f"{got.app.bus_name if got.app else ''}{got.path}")
+        stack = page.rsplit("/", 1)[0]
+        return bool(o) and not within(o.path, page) and (
+            within(o.path, stack) or within(stack, o.path))
+
+    def popped(n):
+        """Whether `n` is in a popover, or is one."""
+        path = n.path
+        while "/" in path:
+            if path not in layers:
+                try:
+                    layers[path] = parents[path]._acc.get_layer() == Atspi.ComponentLayer.POPUP
+                except Exception:   # no bounds: a stack's page
+                    layers[path] = False
+            if layers[path]:
+                return True
+            path = path.rsplit("/", 1)[0]
+        return False
 
     def hovered(box):
         """The screen with the pointer over the middle of `box`."""
@@ -1064,11 +1106,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     def wrong(n, k):
         """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
         version = gtk4(n)
-        if (not version or version in GTK4_BOUNDS
+        inside = version and gtk4_release(n) < (4, 14)
+        popover = inside and k != "edge" and popped(n)
+        if (not version or version in GTK4_BOUNDS or inside and k != "edge" and not popover
                 or os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"):
             return False
         notes.append((n, f"{k} not measured: GTK 4 reports its position wrong"))
-        why = (f"GTK {version} reports where its widgets are without their containers' "
+        why = (f"GTK {version} reports where what's in a popover is as if the popover were "
+               "in its window, not where it's drawn; see docs/accessibility.md." if popover else
+               f"GTK {version} reports where a widget's content is, inside its border and "
+               "padding, so its edge can't be measured from what it reports; see "
+               "docs/accessibility.md." if inside else
+               f"GTK {version} reports where its widgets are without their containers' "
                "padding and borders, and a stack's child with its place in the stack counted "
                "twice, so their contrast can't be measured from what it reports; see "
                "docs/accessibility.md.")
@@ -1093,6 +1142,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             continue
         box = shown(n)
         if not box:
+            continue
+        if gtk4_release(n) < (4, 14) and paged_out(n):
+            notes.append((n, f"{k} not measured: GTK says another node is at its middle"))
             continue
         big = k == "text" and large_text(Atspi, n)
         least = large if big else text if k == "text" else graphics
@@ -1142,10 +1194,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
 SMALLEST = 16
 
-# The GTK 4 releases that say where their widgets are: none yet. Others
-# leave out each container's padding and border, count a stack's child
-# twice, and set a label's text a character short, none of which can be
-# undone from what they say (docs/accessibility.md, "GTK 4's positions").
+# The GTK 4 releases from 4.14 that say where their widgets are: none yet.
+# Others leave out each container's padding and border, count a stack's
+# child twice, and set a label's text a character short, none of which
+# can be undone from what they say (docs/accessibility.md, "GTK 4's
+# positions"). Before 4.14, GTK 4 says where a widget's content is, which
+# is measured, but for its edge and what's in a popover.
 GTK4_BOUNDS = ()
 
 

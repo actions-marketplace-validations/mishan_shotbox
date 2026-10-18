@@ -1053,7 +1053,7 @@ TOOLS = [
      "and measures a picture of the screen in each node's bounds. The answer: each node that "
      "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; then what "
      "it couldn't measure, which doesn't fail (too small, or GTK 4's, whose positions are "
-     "wrong), and why. A window where nothing can be measured, as GTK 4's, is an error, not "
+     "wrong), and why. A window where nothing can be measured, as GTK 4.14+'s, is an error, not "
      "a pass. Switches, sliders, check boxes, disabled nodes and what's scrolled out of view "
      "are skipped. For missing names, use check_accessible_names.",
      schema({"session": SESSION, "window": WINDOW,

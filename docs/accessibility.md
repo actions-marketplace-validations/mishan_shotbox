@@ -328,8 +328,8 @@ Wayland by sway's `focus`.
 ## Contrast
 
 `contrast` raises the `--window`, takes a picture of the screen, with
-the pointer parked, and measures each node in its bounds, but GTK 4's
-([below](#gtk-4s-positions)):
+the pointer parked, and measures each node in its bounds, but GTK 4.14
+and later's ([below](#gtk-4s-positions)):
 
 - **Text**: a node with a name whose role is text (a label, heading,
   link, static text, paragraph), or a button, link, tab, menu item or
@@ -413,20 +413,20 @@ What wasn't measured (too small, GTK 4's) is said after the failures,
 a line each, and how many and why on stderr, so stdout is only
 `PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
 is 1 if anything failed, 0 if what was measured passed, and 2 if
-nothing was measured at all and GTK 4's was left out: a GTK 4 window,
-`shotbox: nothing measured: ...` (text too small to measure, alone,
-passes). With `--json` it's 0 with failures, which the lines say, and 2
-when nothing was measured. `Screen.contrast()` raises then, and MCP's `check_contrast`
-says so as an error.
+nothing was measured at all and GTK 4's was left out: a window on GTK
+4.14 or later, `shotbox: nothing measured: ...` (text too small to
+measure, alone, passes). With `--json` it's 0 with failures, which the
+lines say, and 2 when nothing was measured. `Screen.contrast()` raises
+then, and MCP's `check_contrast` says so as an error.
 
 ### GTK 4's positions
 
-A GTK 4 app isn't checked: GTK 4 doesn't say where its widgets are,
-so contrast isn't measured on them, a line each, `not measured: GTK 4
-reports its position wrong`, and why once (in `--json`, each such line's
-`why`). gnome-calculator's "=", white on blue at 3.76:1, fails WCAG and
-isn't reported. What GTK 4 gets wrong, which can't be undone from what
-it says:
+An app on GTK 4.14 or later isn't checked: GTK 4 doesn't say where its
+widgets are, so contrast isn't measured on them, a line each, `not
+measured: GTK 4 reports its position wrong`, and why once (in `--json`,
+each such line's `why`). gnome-calculator's "=", white on blue at
+3.76:1, fails WCAG and isn't reported. What GTK 4 gets wrong, which
+can't be undone from what it says:
 
 - each widget is placed without its containers' padding and borders,
   so a label is off by everything round it (a dialog's button's label
@@ -437,12 +437,30 @@ it says:
 
 Measuring at those places measures what's there instead: a button's
 fill, a neighbor's text. The stack's is in GTK 4.14 and later, the rest
-in 4.14.6 and later, up to 4.24 at least; before 4.14, GTK 4 said where
-a widget's content is, which hasn't been checked here, so it isn't
-measured either. GTK 3, Qt and browsers say where their widgets are, and
-are measured.
-Large text and disabled nodes don't come into it for GTK 4, since
-nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
+in 4.14.6 and later, up to 4.24 at least. GTK 3, Qt and browsers say
+where their widgets are, and are measured.
+
+Before 4.14, GTK 4 says where a widget's content is: inside its own
+border and padding, placed right. On GTK 4.6.9 (Ubuntu 22.04) and 4.8.3
+(Debian 12), each node's bounds were its content box to the pixel, in
+nested boxes with borders and padding, a stack and a button inside it,
+and in gtk4-widget-factory, gtk4-demo, gnome-text-editor and Debian's
+gnome-calculator. So it's measured: a label's text is inside its
+content, on what's round it, and a button's label or icon on the
+button's fill (Debian 12's gnome-calculator "=", white on orange, fails
+at 2.64:1). Its edges aren't (`--edges`), being outside that, a line
+each, as for later GTK 4. Nor, a line each:
+
+- what's in a popover, which GTK places as if the popover were in its
+  window, not where it's drawn (a popover's label 34 pixels above it,
+  over the button that opened it);
+- a stack's page no longer shown, still said to be where it was: a node
+  on a stack's page where GTK, asked what's at its middle, says another
+  node of that stack (or one it's in), `not measured: GTK says another
+  node is at its middle`.
+
+Large text and disabled nodes don't come into it for GTK 4.14 and later,
+since nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
 session's environment (`--env`) measures GTK 4 at its bounds as said:
 for a GTK whose bounds you've checked, which needs all three fixed (one
 with the padding alone fixed still has gnome-calculator's keypad 12

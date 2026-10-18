@@ -13,6 +13,13 @@
   more than its states: `a11y tree`, `lint` and `contrast` make a
   quarter fewer calls on the accessibility bus, and under half as many
   in a list mostly scrolled out of view. What they find is as before.
+- `a11y contrast` measures GTK 4 before 4.14 (Debian 12's 4.8, Ubuntu
+  22.04's 4.6), which says where a widget's content is, inside its
+  border and padding, and says it right; not its edges (`--edges`),
+  which are outside that, nor what's in a popover, or on a stack's page
+  no longer shown, a line each. Such a window passed with
+  nothing measured before (nothing in it was walked); now what fails,
+  fails. docs/accessibility.md, "GTK 4's positions".
 
 ### Fixed
 
