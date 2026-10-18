@@ -31,7 +31,10 @@ sealed session, waits, takes the picture and stops everything.
   matches its app id instead: a Wayland window's `app_id`, or an X
   window's `WM_CLASS`, instance or class. Every `--window` and every
   `window` wait takes either; a title that really does start with `app=`
-  can be written `[a]pp=...`.
+  can be written `[a]pp=...`. A window wait that gives up says the
+  windows there are, the nearest first, with their app ids on Wayland (or
+  with `app=RE`): `gave up waiting for a window named 'Text Editor' after
+  8s; there are: "Untitled 1 - Text Editor"`, which `.*Text Editor` matches.
 - `--wait window:RE|port:N|file:PATH|ready|stable[:SECS]` waits for more
   (repeatable, in order). `ready` is `$SHOTBOX_SCRATCH/ready` existing;
   `shotbox term` writes it. `stable` is the `--window` (or the whole display)

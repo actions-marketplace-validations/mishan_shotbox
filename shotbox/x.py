@@ -76,13 +76,32 @@ def viewable(env, wid):
     return "Map State: IsViewable" in out
 
 
-def find_window(env, spec):
-    """The biggest viewable window `spec` asks for (see matcher), as (id,
-    name, width, height, x, y), or None. Biggest, because toolkits often
-    name a 1x1 helper window after the app too."""
-    test, _ = matcher(spec)
-    hits = [w[:6] for w in windows(env) if test(w[1], w[6]) and w[2] > 1 and w[3] > 1]
-    hits = [w for w in hits if viewable(env, w[0])]
+def in_sessions(pid, sids):
+    """Whether process `pid` is in one of the process sessions `sids`: a
+    spawned program's, which what it forks or execs, a shell wrapper's
+    child or a toolkit's helper, stays in."""
+    try:
+        return bool(pid) and os.getsid(pid) in sids    # getsid(0) is our own
+    except OSError:
+        return False
+
+
+def shown(env, spec=None, sids=()):
+    """The viewable windows `spec` asks for (see matcher), or with none,
+    every one, as windows() has them, less the 1x1 helpers toolkits often
+    name after the app too; with `sids`, only those of a process in one of
+    those sessions, by their _NET_WM_PID, which GTK 3 and 4 and Qt 5 and
+    6 set with no window manager."""
+    test = matcher(spec)[0] if spec else lambda name, apps: True
+    hits = [w for w in windows(env) if test(w[1], w[6]) and w[2] > 1 and w[3] > 1]
+    return [w for w in hits if viewable(env, w[0])
+            and (not sids or in_sessions(window_pid(env, w[0]), sids))]
+
+
+def find_window(env, spec=None, sids=()):
+    """The biggest of the windows shown() finds, as (id, name, width,
+    height, x, y), or None. Biggest, because of those helpers."""
+    hits = [w[:6] for w in shown(env, spec, sids)]
     return max(hits, key=lambda w: w[2] * w[3]) if hits else None
 
 

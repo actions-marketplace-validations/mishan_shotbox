@@ -112,7 +112,20 @@ name, for `click_element` and `wait_for`'s focus, is taken as it is, and failing
 that as a regex: `+` and `(Draft)` are labels, not regexes, as in
 [Clicking by name](accessibility.md#clicking-by-name). Two nodes matching
 are listed as `get_accessible_tree` lines with their bounds; none, the
-nearest names. `check_accessible_names` and `check_contrast` answer in
+nearest names. `wait_for` a window, given the name a program was spawned by,
+waits for a window of that program's, whatever its title: of a process in
+the process session of any spawned by that name, so a shell wrapper, what
+it forks, and a second `gnome-text-editor` handing its window to the
+first count too, by `_NET_WM_PID` on X11 and the pid sway has on
+Wayland. The name wins over a window titled the same, which is likely
+another program's (`^name$` asks for that); with no window of its own,
+one titled exactly the name will do. Otherwise not found by the name:
+a window of a process started some other way (by D-Bus, or by another
+name), one that left its session (a daemon, with `setsid`), or one in a
+PID namespace of its own, as Flatpak's are, whose `_NET_WM_PID` on X11
+is its pid inside that (on Wayland, the pid sway has may still find it).
+Wait by its title. A window wait that gives up lists the windows there
+are, the nearest first. `check_accessible_names` and `check_contrast` answer in
 tree lines too, with bounds, and an `ignore` regex leaves out a problem
 it's found in, the tree line's or the node's path's, as `shotbox a11y lint --ignore` does.
 Arguments are taken however the client sends them, since clients
