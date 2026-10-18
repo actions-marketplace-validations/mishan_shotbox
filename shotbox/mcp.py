@@ -1006,20 +1006,25 @@ TOOLS = [
      schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"}},
             ["session", "text"])),
     ("wait_for",
-     "Wait, instead of sleeping, for: a window (value: its title, exactly or a regex, or "
-     "app=RE, or the name of a program spawn_program started, for a window of that "
-     "program's, whatever its title; giving up, it lists the windows there are), "
-     "stable (the screen, or the window, unchanged for value seconds, 0.5, up to "
-     "60: after a click, for the repaint), an announcement (value: a regex in what was "
-     "announced to a screen reader; each announcement is waited for once), focus (value: the name of the node with the keyboard focus, as "
-     "click_element takes one), match (value: a PNG, by its path from the allow file's directory, "
-     "that the screen, or the window, cropped to crop, should look like), "
-     "change (from how it looked when the wait started), or "
-     "line (value: a regex found in a line of file, written after the wait starts, or "
-     "with from_start, anywhere in it: for a program that logs its events, rather than a "
-     "sleep; a file not there yet is waited for, and one rotated or rewritten is read from "
-     "the top). match and change say how long they took; line answers with the line. "
-     "Fails after timeout seconds, saying so.",
+     "Wait until something is so, instead of sleeping; it fails after timeout seconds, "
+     "saying so, and listing the windows there are when a window never came. what says "
+     "what to wait for, and value which: "
+     "window: a title, exactly or as a regex, app=RE, or the name a program was started "
+     "by with spawn_program, for its window whatever its title; answers with the window's "
+     "title, size and place. "
+     "stable: the screen (or window) unchanged for value seconds (0.5; up to 60), as after "
+     "a click, for the repaint. "
+     "announcement: a regex in what was announced to a screen reader; each is waited for "
+     "once. "
+     "focus: the name of the node with the keyboard focus, as click_element takes one; "
+     "answers with its tree line. "
+     "match: a PNG's path, from the allow file's directory, that the screen (or window, "
+     "cropped to crop) should look like; answers how long it took. "
+     "change: any change from how it looked when the wait began; answers how long it took. "
+     "line: a regex in a line of file written after the wait starts (or, with from_start, "
+     "anywhere in it), for a program that logs its events; a file not there yet is waited "
+     "for, and one rotated or rewritten is read from the top; answers with the line. "
+     "To see how things are now, without waiting, use get_accessible_tree.",
      schema({"session": SESSION,
              "what": {"type": "string", "enum": list(WAITS), "description": "The kind of wait"},
              "value": {"type": "string", "description": "What to wait for, as what says"},
