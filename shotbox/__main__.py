@@ -423,14 +423,54 @@ def cmd_doctor(argv):
         why = check()
         print(f"no    {part}: {why}" if why else f"ok    {part}")
         missing += [part] * bool(why)
+    gone, tmp = kept.stale(), tempfile.gettempdir()
+    print(f"no    scratch dirs: {len(gone)} stale in {tmp}, "
+          f"{megabytes(sum(kept.size(d) for d, _ in gone))} "
+          "(`shotbox sessions --stale` lists them)" if gone
+          else f"ok    scratch dirs: none stale in {tmp}")
     return 1 if {"sessions", "X11"} & set(missing) else 0
 
 
+def megabytes(n):
+    return f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} kB"
+
+
 def cmd_sessions(argv):
-    argparse.ArgumentParser(prog="shotbox sessions",
-                            description="The lasting sessions there are.").parse_args(argv)
-    for name in kept.names():
-        print(name)
+    p = argparse.ArgumentParser(prog="shotbox sessions",
+                                description="The lasting sessions there are; or what's "
+                                            "stale: scratch dirs whose sessions have gone, "
+                                            "and lasting sessions idle a day or more.")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--stale", action="store_true",
+                   help="list the stale, each with its size and what made it")
+    g.add_argument("--clean", action="store_true",
+                   help="remove stale scratch dirs, and what's left running of their "
+                        "sessions; idle lasting sessions are listed, not stopped")
+    p.add_argument("--unmarked", action="store_true",
+                   help="with --clean, remove dirs an older shotbox made too, which may "
+                        "be ones it kept with --keep")
+    a = p.parse_args(argv)
+    if a.unmarked and not a.clean:
+        p.error("--unmarked goes with --clean")
+    if not (a.stale or a.clean):
+        for name in kept.names():
+            print(name)
+        return 0
+    for d, made in kept.stale():
+        what = ("made by an older shotbox" if made is None else
+                f"{shlex.join([Path(made['command'][0]).name, *made['command'][1:]])}, "
+                f"pid {made['pid']}, "
+                f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(made['time']))}")
+        took = megabytes(kept.size(d))
+        if a.clean and made is None and not a.unmarked:
+            print(f"left {d}  {took}  {what}, which may have kept it: --unmarked removes it")
+        elif a.clean:
+            mcp.reap(d)
+            print(f"removed {d}  {took}  {what}")
+        else:
+            print(f"{d}  {took}  {what}")
+    for name, since in kept.idle():
+        print(f"{name}  a lasting session, idle {since / 3600:.0f} hours: `shotbox stop {name}`")
     return 0
 
 

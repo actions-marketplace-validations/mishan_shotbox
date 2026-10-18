@@ -19,7 +19,9 @@ which of these are here, a line each: what
 sessions need, and each of their options, `term` and `record`. A command
 missing one fails before it starts anything, in a line saying what's
 missing and how to get it, as `Session` and MCP's `start_session` do.
-`doctor` fails only if what every session needs is missing.
+`doctor` fails only if what every session needs is missing. Its last
+line says how many stale scratch dirs there are, and their size (see
+`sessions --stale`).
 
 ## shoot
 
@@ -346,6 +348,24 @@ shotbox --session ed a11y click "Open"
 shotbox --session ed capture open.png
 shotbox stop ed
 ```
+
+Each session's scratch dir, `$TMPDIR/shotbox-XXXXXXXX`, goes when it
+stops. If what ran it is killed outright (SIGKILL), a process of its own
+stops what's left of the session, letting a recording finish its file
+first if it can within 5 seconds (a long GIF may not), and removes the dir, but for one kept with `--keep`. If that's
+killed too, as when a whole process tree is, the dir is left. **`shotbox
+sessions --stale`** lists what's stale, with each dir's size and the
+command, pid and time that made it: your own scratch dirs in `$TMPDIR`
+whose maker has gone (a dir from an older shotbox, which doesn't say, when
+nothing has it in its environment), and lasting sessions that no
+`--session` command or `spawn` has used for a day. **`shotbox sessions
+--clean`** removes the stale dirs, and stops what's left running of their
+sessions. It leaves an older shotbox's dirs, which may be ones it kept
+with `--keep`, unless given `--unmarked` too; and it lists idle lasting
+sessions but doesn't stop them, which is `shotbox stop NAME`'s to do.
+Neither touches a dir kept with `--keep`, a session that's alive, or a
+dir made in another pid namespace (a container's, say), whose maker's
+life this one can't see.
 
 ## term
 
