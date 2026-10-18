@@ -173,29 +173,38 @@ def origin(Atspi, top, shown):
     they're put on the screen by the display's window of the same size,
     and name if it has one: `shown`, as the backend's windows() lists
     them. Chromium on Wayland counts its shadow into its accessible frame
-    and not its window, and can't be placed. GTK 4, to 4.24 at least,
-    loses the window's border (on X11 with no compositor, it has one)
-    from its children: the frame's first child, which fills it but
+    and not its window, and can't be placed. GTK 4 from 4.14, to 4.24 at
+    least, loses the window's border (on X11 with no compositor, it has
+    one) from its children: the frame's first child, which fills it but
     for that, is at the frame's corner rather than inside the border. The
     border and padding of every other node on the way down are lost too,
     and can't be told: docs/accessibility.md says how far off that is."""
     e = top.get_extents(Atspi.CoordType.WINDOW)
     name = top.get_name() or ""
-    hits = [w for w in shown if (w[2], w[3]) == (e.width, e.height) and (not name or w[1] == name)]
+    app = top.get_application()
+    version = (app.get_toolkit_version() or "") if app and app.get_toolkit_name() == "GTK" else ""
+    gtk4 = version.startswith("4.")
+    # GTK 4 before 4.14 says where its window's content is: inside the
+    # window's own border, as wide all round (5 pixels, its solid-csd).
+    inside = gtk4 and int(version.split(".")[1]) < 14
+
+    def fits(w):
+        grown = w[2] - e.width
+        return ((grown == 0 or inside and 0 < grown <= 20 and grown % 2 == 0)
+                and grown == w[3] - e.height)
+
+    hits = [w for w in shown if fits(w) and (not name or w[1] == name)]
     if len(hits) > 1 and isinstance(hits[0][0], str):   # X11's unmapped windows
         env = Screen().env
         hits = [w for w in hits if x.viewable(env, w[0])]
     if len(hits) != 1:
         return None
     w = hits[0]
+    lost = ((w[2] - e.width) // 2, (w[3] - e.height) // 2)
     # GTK 4 alone: anywhere else a first child at the corner and smaller
     # (a GTK 3 button aligned to the start) is where it says.
-    app = top.get_application()
-    gtk4 = bool(app) and app.get_toolkit_name() == "GTK" and (
-        app.get_toolkit_version() or "").startswith("4.")
-    first = top.get_child_at_index(0) if gtk4 and top.get_child_count() else None
+    first = top.get_child_at_index(0) if gtk4 and not inside and top.get_child_count() else None
     c = first and first.get_extents(Atspi.CoordType.WINDOW)
-    lost = (0, 0)
     if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
         lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
     return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1]), w
@@ -234,8 +243,11 @@ def node(Atspi, acc, states, role, path):
         shown.append("collapsed")
     if not states.contains(Atspi.StateType.SENSITIVE):
         shown.append("disabled")
-    # A field GTK 3 names by its mnemonic label: a screen reader says that.
+    # GTK 4 before 4.10 names what has no name by its class.
     name = acc.get_name() or ""
+    if re.fullmatch(r"Gtk[A-Z]\w*", name) and gtk4_release(Node(_acc=acc)) < (4, 10):
+        name = ""
+    # A field GTK 3 names by its mnemonic label: a screen reader says that.
     if not name and "focusable" in shown:
         name = " ".join(t.get_name() for t in related(Atspi, acc, "LABELLED_BY") if t.get_name())
     return Node(role=role_name(Atspi, acc, role), name=name,
@@ -263,13 +275,19 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
         # A toolkit's widget can be visible and not on the screen (in a
         # revealer not revealed); a page's is not showing only scrolled
         # out of view, as a toolkit's list row is still showing. Each
-        # call is a round trip, so what isn't shown isn't asked more.
+        # call is a round trip, so what isn't shown isn't asked more. GTK 4
+        # before 4.10.3 says only its windows are showing; it presents
+        # only what's visible, as later ones say is showing.
         web = web or role == Atspi.Role.DOCUMENT_WEB
         try:
             states = acc.get_state_set()
-            if not states.contains(Atspi.StateType.VISIBLE if web else Atspi.StateType.SHOWING):
+            old = not web and gtk4_release(Node(_acc=acc)) < (4, 10, 3)
+            if not states.contains(Atspi.StateType.VISIBLE if web or old
+                                   else Atspi.StateType.SHOWING):
                 return
             n = node(Atspi, acc, states, role, path)
+            if old:
+                n["_showing"] = True
         except Exception:   # gone while we looked: a closing popover, a toast
             return
         n["_top"] = top
@@ -1183,6 +1201,13 @@ def gtk4(n):
 
 
 GTK4 = {}
+
+
+def gtk4_release(n):
+    """The GTK 4 version `n`'s program is, as (4, minor, micro), or (99,)
+    if it isn't GTK 4."""
+    version = gtk4(n)
+    return tuple(int(v) for v in version.split(".") if v.isdigit()) if version else (99,)
 
 
 def gtk3_switch(Atspi, n):

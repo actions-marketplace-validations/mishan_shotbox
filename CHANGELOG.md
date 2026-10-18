@@ -14,6 +14,15 @@
   quarter fewer calls on the accessibility bus, and under half as many
   in a list mostly scrolled out of view. What they find is as before.
 
+### Fixed
+
+- GTK 4 before 4.10.3: the tree, lint, `click` and the walks take
+  what's in a window, not the window alone (GTK said only its windows
+  were showing); before 4.10, a node GTK names by its class
+  (`GtkButton`) has no name, so lint finds an icon button with none.
+  Before 4.14, a window that draws its own frame (on X11 with no
+  compositor) has its nodes placed, inside its border, not `null`.
+
 ## 0.8.0 — 2026-10-18
 
 MCP tools named for what they do (verb_noun: renamed, see below), with

@@ -102,11 +102,15 @@ the one `--window` picks there, matched to its program by process, unless
 one of that program's named windows is picked. A pattern that matches an
 empty name, like `.*`, picks every unnamed window.
 
-The tree leaves out nodes that aren't showing (a hidden widget, a stack
-page not shown, what's in a revealer not revealed, which the toolkit
-calls visible), and in a web page those that aren't visible, since a
-page's nodes scrolled out of view aren't showing, where a toolkit's still
-are. A field with no name of its own goes by what labels it
+The tree leaves out nodes that aren't showing (a hidden widget, what's
+in a revealer not revealed, which the toolkit calls visible), and in a
+web page those that aren't visible, since a page's nodes scrolled out of
+view aren't showing, where a toolkit's still are. GTK 4 says a stack's
+pages not shown are showing, so they're in it. GTK 4 before 4.10.3 says
+only its windows are showing, so in it the tree takes what's visible,
+all it presents, as later ones say it's showing; and before 4.10 it
+names a node with no name by its class (`GtkButton`), which the tree
+takes as no name. A field with no name of its own goes by what labels it
 ([Lint](#lint)). It lists the states a screen reader says, not the ones
 about layout: focusable, focused, selected, checked, indeterminate,
 pressed, expanded or collapsed, editable, read-only, modal, required,
@@ -133,11 +137,15 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
   right.
 - GTK 4 loses border and padding on the way down, and how depends on
   its version. On X11 with no compositor a window has a border and
-  padding of its own (5 pixels, its `solid-csd` style), and every
-  version loses that from the window's children; shotbox makes it up,
-  telling it from the frame and its first child, which fills the frame
-  but for it. Up to 4.14.5, GTK places each node at its own content
-  area, past its border and padding: a button by about 17 pixels across.
+  padding of its own (5 pixels, its `solid-csd` style). Before 4.14,
+  the frame is what's inside it, so the display's window is that much
+  bigger all round, and shotbox places the frame inside it. From 4.14,
+  the frame is all of it, and GTK loses it from the window's
+  children; shotbox makes it up, telling it from the frame and its first
+  child, which fills the frame but for it. Up to 4.14.5, GTK places each
+  node at its own content area, past its border and padding: a button by
+  about 17 pixels across. Before 4.14 that's right, for what's inside the
+  border and padding ([GTK 4's positions](#gtk-4s-positions)).
   From 4.14.6, it places each node relative to its parent's corner,
   short of the parent's border and padding: a button's label at the
   button's corner. Neither can be told from the tree. A GTK with this
