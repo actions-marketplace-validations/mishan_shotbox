@@ -206,9 +206,21 @@ def origin(Atspi, top, shown):
     # (a GTK 3 button aligned to the start) is where it says.
     first = top.get_child_at_index(0) if gtk4 and not inside and top.get_child_count() else None
     c = first and first.get_extents(Atspi.CoordType.WINDOW)
-    if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
+    if c and sized(c) and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
         lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
     return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1]), w
+
+
+# The most an X11 window can be. A size past it, or below zero, is none a
+# node can have: GTK 4 sends uninitialized memory for a widget it hasn't
+# realized. The width is what catches it (-1346821116, 744334356): the
+# height can be the other half of a pointer, about 22000, which fits.
+LARGEST = 32767
+
+
+def sized(e):
+    """Whether extents `e` have a size a node can be drawn at."""
+    return 0 <= e.width <= LARGEST and 0 <= e.height <= LARGEST
 
 
 def place(Atspi, n, shown, origins):
@@ -225,7 +237,7 @@ def place(Atspi, n, shown, origins):
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
     except Exception:   # gone since the walk: a closing popover, a toast
         return None
-    return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height]
+    return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height] if sized(e) else None
 
 
 def role_name(Atspi, acc, role):
@@ -397,13 +409,14 @@ def related(Atspi, acc, kind):
 
 
 def undrawn(Atspi, n):
-    """Whether `n` says it has no size: GTK 3's for what it doesn't draw
-    (a notebook's tab, with its tabs hidden), though it's showing."""
+    """Whether `n` says it has no size: GTK 3's -1 by -1 for what it
+    doesn't draw (a notebook's tab, with its tabs hidden), though it's
+    showing."""
     try:
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
     except Exception:   # gone while we looked
         return True
-    return e.width < 0 or e.height < 0
+    return (e.width, e.height) == (-1, -1)
 
 
 # The ways out of a text view, which takes Tab for itself: GTK's key
@@ -674,17 +687,19 @@ class Look:
     def took(self, n):
         """Note on `n`, which has just taken the focus, how many pixels
         changed in and round it ("changed") and how many it takes to show
-        it ("needed")."""
+        it ("needed"), or that it's outside the screen ("off_screen")."""
         try:
             wait_for("", x.Still(self.screen.env, quiet=0.3, backend=self.screen.backend), 2)
         except SessionError:
             pass
         now = self.grab()
         box = self.where(n)
+        if box and not now.clip(box):
+            n["off_screen"] = True
         # A document takes the focus as a whole, and nobody draws round it;
         # a container shows it on what it passes it to (a notebook's tab).
-        if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
-                                                      *CONTAINERS)):
+        elif box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
+                                                        *CONTAINERS)):
             n["changed"], drawn = focus_change(self.last, now, box, *self.was)
             n["needed"] = shown_needs(box)
         n["bounds"] = box
@@ -945,6 +960,9 @@ def at_node(name, role, window, timeout, act):
     px, py, w, h = overlap(box, origins[n._top][0])
     if not w or not h:
         raise SessionError(f"{n.line()} is outside its window")
+    px, py, w, h = overlap([px, py, w, h], [0, 0, screen.xt.width, screen.xt.height])
+    if not w or not h:
+        raise SessionError(f"{n.line()} is outside the screen")
     try:
         screen.backend.focus(screen.env, origins[n._top][2])
         act(screen, px + w // 2, py + h // 2)
@@ -967,8 +985,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     nothing drawn on its background, are problems too: nothing says they
     can be read. But for those ignored() leaves out. (problems, what
     wasn't measured but doesn't fail, as (node, what): text too small
-    to, and GTK 4's, see GTK4_BOUNDS; why GTK 4's weren't, a line each;
-    how many were measured)."""
+    to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS; why GTK
+    4's weren't, a line each; how many were measured)."""
     skip = ignored(ignore)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -1141,11 +1159,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if wrong(n, k):
             continue
         if not n.bounds:
-            problems.append((n, f"{k} not measured: can't tell where it is"))
+            if not undrawn(Atspi, n):
+                problems.append((n, f"{k} not measured: can't tell where it is"))
             continue
         box = shown(n)
         if not box:
             continue
+        # A window can be bigger than the screen, and its nodes past it.
+        on = overlap(box, [0, 0, pic.width, pic.height])
+        if not on[2] or not on[3]:
+            notes.append((n, f"{k} not measured: outside the screen"))
+            continue
+        cut, box = on != box, on
         if gtk4_release(n) < (4, 14) and paged_out(n):
             notes.append((n, f"{k} not measured: GTK says another node is at its middle"))
             continue
@@ -1157,6 +1182,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if got and got[3] < SMALLEST:
             notes.append((n, f"{k} too small to measure, {got[3]} pixels"))
         elif got is None and (k == "text" or n._role in controls):
+            # What it draws can be past the screen's edge: right-aligned text.
+            if cut:
+                notes.append((n, f"{k} not measured: partly outside the screen"))
+                continue
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
             # A control can be drawn only when the pointer's over it: a tab's
             # close button. Say how it is then, to tell.
@@ -1182,6 +1211,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     ) or gtk3_switch(Atspi, n) or wrong(n, "edge"):
                 continue
             box = shown(n)
+            if box and not pic.clip(box):
+                notes.append((n, "edge not measured: outside the screen"))
+                continue
             got = box and picture.edge_contrast(pic, box)
             count += bool(got)
             # A field's edge can be what it's in: a frame's.
@@ -1502,6 +1534,8 @@ def walk_lines(key, most, seen, how, missed, began, focus="shotbox focus"):
         said = []
         if unseen(n):
             said.append(f"focus not shown: {n.changed} pixels changed, {n.needed} needed")
+        if n.get("off_screen"):
+            said.append("focus not measured: outside the screen")
         on = n.get("walked_from") and Node(n.walked_from).line()
         if n.get("left_by"):
             said.append(f"a text view: {n.left_by} leaves it"

@@ -4,7 +4,7 @@
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
-edge, gray, busy, icon, dropout, beep or fields. With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout, beep, fields or wide. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -16,7 +16,9 @@ text, which needs only 3:1; and a dot, too small to measure. With slow, a square
 turns dark MS milliseconds after the pointer comes into the window, and
 light again that long after it leaves: a known latency. With fields, an
 entry named by its mnemonic label, and a search bar not revealed, in a
-notebook with its tabs hidden. With dot, a "." and nothing else."""
+notebook with its tabs hidden. With dot, a "." and nothing else. With
+wide, a window 1000 pixels wide, a label as wide, its text at the right,
+and below it a button at each end."""
 
 import sys
 
@@ -51,6 +53,16 @@ if sys.argv[2:] == ["contrast"]:
     for widget in (light, dim, switch, frame, big, Gtk.Label(label=".")):
         box.add(widget)
     w.add(box)
+elif sys.argv[2:] == ["wide"]:
+    box = Gtk.Box()
+    box.pack_start(Gtk.Button(label="Here"), False, False, 0)
+    box.pack_end(Gtk.Button(label="There"), False, False, 0)
+    # Spaced, so the buttons' shadow isn't in the label's box.
+    rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    rows.add(Gtk.Label(label="Far", xalign=1))
+    rows.add(box)
+    w.set_size_request(1000, 120)
+    w.add(rows)
 elif sys.argv[2:] == ["dot"]:
     w.add(Gtk.Label(label="."))
 elif sys.argv[2:] == ["fields"]:
