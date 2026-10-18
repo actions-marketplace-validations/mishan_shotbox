@@ -35,6 +35,7 @@
 
 ### Added
 
+- `shotbox --version`: which shotbox this is.
 - MCP's `wait_for` a window takes the name a program was spawned by, and
   waits for a window of that program's, whatever its title, on X11 and
   Wayland, over one titled the name (`^name$` still waits for that),
