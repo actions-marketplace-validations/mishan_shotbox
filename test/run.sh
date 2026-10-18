@@ -1554,7 +1554,7 @@ for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\",
     { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; } &&
     '$sb' pad press lb --down && '$sb' pad press lb --hold 0.1 && '$sb' pad press lb a &&
     '$sb' pad press lb --up &&
-    { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
+    { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k 2>/dev/null; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
     { '$sb' pad press rs --hold 1 & h=\$!; sleep 0.3; '$sb' pad neutral && '$sb' pad press rs --hold 2 & h2=\$!;
       wait \$h; sleep 0.3; echo mark >> '$tmp/pad2.log'; wait \$h2; } &&
     { '$sb' pad stick left 1 0 --hold 1 & h=\$!; '$sb' pad trigger right 1 --hold 1 & h2=\$!; sleep 0.3;
