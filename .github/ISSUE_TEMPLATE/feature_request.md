@@ -1,20 +1,27 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
+about: Something shotbox could do, or do better
 title: ''
-labels: ''
+labels: enhancement
 assignees: ''
 
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+**What are you trying to do?**
+The task, and the program you're doing it with: "check a GTK 4 app's
+Tab order in CI", "have an agent record a game's sound". What gets in
+the way today?
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+**Where would you use it?**
+The command line, the Python API, the MCP server (with which client), the
+Node helpers, or the GitHub Action.
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+**What would you like shotbox to do?**
+The command, option or tool you'd reach for, and what it would print or
+answer.
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+**What have you tried instead?**
+Other options or workarounds, and why they fall short.
+
+**Anything else**
+Links, screenshots, logs.
