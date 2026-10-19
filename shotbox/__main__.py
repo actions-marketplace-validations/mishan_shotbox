@@ -78,6 +78,12 @@ def size(s):
     return int(w), int(h)
 
 
+class Gone(argparse.Action):
+    """An option that's gone: what to use instead, its const."""
+    def __call__(self, p, *_):
+        p.error(self.const)
+
+
 def session_options(p, display=True):
     """The options `run`, `shoot` and `start` take; without `display`, as
     `exec` takes them, those that are about a display left out, and off."""
@@ -88,11 +94,17 @@ def session_options(p, display=True):
     g.add_argument("--desktop", action="store_true",
                    help="real GSettings (dconf) and the system's D-Bus services, "
                         "for desktop shells; the default is settings of its own "
-                        "and nothing activatable. A desktop's settings can show the "
-                        "machine's Wi-Fi networks, Bluetooth devices, user accounts "
-                        "(over the system bus, unless --system-bus) and printers: "
-                        "check pictures before sharing them")
-    g.add_argument("--system-bus", action="store_true", help="a stand-in system bus too")
+                        "and nothing activatable")
+    g.add_argument("--machine-bus", action="store_true",
+                   help="the machine's system bus and printers, for a program that "
+                        "needs its services (NetworkManager, logind, CUPS); the "
+                        "default is a stand-in bus and no printers. A desktop's "
+                        "settings can show its Wi-Fi networks, Bluetooth devices, "
+                        "user accounts and printers then: check pictures before "
+                        "sharing them")
+    g.add_argument("--system-bus", nargs=0, action=Gone, help=argparse.SUPPRESS,
+                   const="--system-bus is gone: the stand-in system bus is the default "
+                         "now; --machine-bus for the machine's")
     g.add_argument("--seed", metavar="DIR", help="start the scratch home as a copy of DIR")
     g.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                    help="set a variable inside (repeatable)")
@@ -162,7 +174,7 @@ def make_session(a):
     # rather than leave its display and programs running.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     env = dict(e.split("=", 1) for e in a.env)
-    return Session(size=a.screen, desktop=a.desktop, system_bus=a.system_bus,
+    return Session(size=a.screen, desktop=a.desktop, machine_bus=a.machine_bus,
                    seed=a.seed, keep=a.keep, env=env, passthrough=a.passthrough,
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,

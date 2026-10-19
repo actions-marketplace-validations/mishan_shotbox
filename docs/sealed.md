@@ -21,6 +21,14 @@ Sealed:
   elsewhere), so your desktop's Wayland, PulseAudio, PipeWire and bus
   sockets aren't there to find, and a program can't be run from inside
   it. With `--gamepads`, only the session's pads (see [Gamepads](gamepads.md)).
+- The machine's system bus and printers, unless `--machine-bus`: programs
+  get a stand-in system bus with nothing on it (no NetworkManager, logind,
+  BlueZ or AccountsService), and `CUPS_SERVER` names a socket that isn't
+  there, so they find no printers. Under bubblewrap the machine's bus
+  and CUPS sockets (`/run/dbus`, `/run/cups`) aren't there either;
+  without it, a program that looks for them itself finds them. Either
+  way, CUPS on localhost:631 answers a program that asks it there
+  itself, unless `--net loopback`.
 
 Not sealed:
 - The files: the filesystem is the machine's, readable and writable as
@@ -56,14 +64,16 @@ Not sealed:
   `identity` over MCP.
 - The wall clock, unless `--clock TIME`: what it moves and what it
   doesn't, [The clock](commands.md#the-clock).
-- The machine's system bus, unless `--system-bus`: logind,
+- With `--machine-bus`, the machine's system bus and printers: logind,
   NetworkManager and the rest, which may let a program in your desktop's
-  session suspend or power off the machine. A desktop's settings (GNOME
-  Settings, with `--desktop`) can show the machine's Wi-Fi networks,
-  Bluetooth devices and user accounts from it: check pictures before
+  session suspend or power off the machine, and CUPS. A desktop's settings
+  (GNOME Settings, with `--desktop`) can show its Wi-Fi networks,
+  Bluetooth devices, user accounts and printers then, and `--identity`
+  doesn't hide your name from its services: check pictures before
   sharing them.
-- Printers: CUPS's socket is the machine's, so a print dialog lists
-  them, even with `--system-bus`.
+- Avahi's socket, `/run/avahi-daemon/socket`, for looking up `.local`
+  names; browsing for services goes over the system bus, which is the
+  stand-in unless `--machine-bus`.
 - Your X server: its sockets, in `/tmp/.X11-unix` and the abstract one,
   are reachable by a program that sets `DISPLAY` and finds your cookie
   itself.

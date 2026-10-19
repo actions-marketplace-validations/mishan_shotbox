@@ -26,7 +26,9 @@ The pieces, and why each one:
   empty, so nothing gets activated on it behind your back (gvfs, dconf, the
   portals); desktop=True uses the system's service directories instead, for
   things like GNOME Shell that need dconf and friends.
-- Optionally a stand-in system bus, for programs that insist on one.
+- A stand-in system bus, and no printers, so nothing reaches the
+  machine's services (NetworkManager, logind, CUPS...); machine_bus=True
+  gives programs the machine's.
 - Optionally, with a11y=True, an accessibility (AT-SPI) bus of its own,
   started by at-spi-bus-launcher on the private session bus, so the
   program's accessible tree can be read (a11y.py) and nothing of it
@@ -584,7 +586,7 @@ class Session(Screen):
     has none, as `shotbox exec`'s: what it runs is sealed the same, but
     nothing a Screen does to a display works on it."""
 
-    def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
+    def __init__(self, size=(1280, 800), desktop=False, machine_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
@@ -658,7 +660,7 @@ class Session(Screen):
         self.xwayland = xwayland
         self.use_wayland = wayland or xwayland
         self.desktop = desktop
-        self.system_bus = system_bus
+        self.machine_bus = machine_bus
         self.seed = seed
         self.keep = keep
         self.extra_env = dict(env or {})
@@ -722,11 +724,11 @@ class Session(Screen):
             # display and a bus to add: never the caller's.
             self.env = self._make_env({}, None, None)
             bus = self._start_bus("session")
-            sysbus = self._start_bus("system") if self.system_bus else None
+            sysbus = None if self.machine_bus else self._start_bus("system")
             if not self.display:
                 graphics = {}
             elif self.use_wayland:
-                graphics = self._start_sway(bus)
+                graphics = self._start_sway(bus, sysbus)
             else:
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
@@ -930,7 +932,7 @@ class Session(Screen):
             proc.wait()
         raise SessionError("Xvfb didn't start; see " + str(self.scratch / "Xvfb.log"))
 
-    def _start_sway(self, bus):
+    def _start_sway(self, bus, sysbus):
         """Start sway, headless, and wait until it answers; the variables
         that point a program at it."""
         run = self.scratch / "run"
@@ -945,7 +947,8 @@ class Session(Screen):
                    # No GPU, no seat, no input devices: an output in memory,
                    # drawn in software, the same pixels every run.
                    WLR_BACKENDS="headless", WLR_RENDERER="pixman",
-                   WLR_LIBINPUT_NO_DEVICES="1", WLR_HEADLESS_OUTPUTS="1")
+                   WLR_LIBINPUT_NO_DEVICES="1", WLR_HEADLESS_OUTPUTS="1",
+                   **self._system_env(sysbus))
         log = self.scratch / "sway.log"
         proc = subprocess.Popen(["sway", "-c", str(conf)], env=env,
                                 stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
@@ -1060,13 +1063,21 @@ class Session(Screen):
             env.update(USER=user, LOGNAME=user, HOSTNAME=host)
         if bus:
             env["DBUS_SESSION_BUS_ADDRESS"] = bus
-        if sysbus:
-            env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
+        env.update(self._system_env(sysbus))
         env.update(self.extra_env)
         if self._faketime:
             # First, so the clock is libfaketime's whatever else is preloaded.
             env["LD_PRELOAD"] = ":".join(filter(None, (self._faketime, env.get("LD_PRELOAD"))))
         return env
+
+    def _system_env(self, sysbus):
+        """The stand-in system bus, and no printers, with `sysbus`."""
+        if not sysbus:
+            return {}
+        # Without its socket, libcups tries localhost:631; told of one
+        # that isn't there, it finds no scheduler.
+        return {"DBUS_SYSTEM_BUS_ADDRESS": sysbus,
+                "CUPS_SERVER": str(self.scratch / "run" / "cups.sock")}
 
     def _activation_env(self):
         """Give what the session bus activates the session's environment,
@@ -1301,6 +1312,12 @@ class Session(Screen):
                 args += ["--ro-bind", masked, str(node)]
         if (dev / "bus/usb").is_dir():
             args += ["--tmpfs", "/dev/bus/usb"]
+        if not self.machine_bus:
+            # For a program that looks for the machine's own sockets.
+            # Not Avahi's: nss-mdns looks up .local names through it.
+            for run in ("/run/dbus", "/run/cups"):
+                if Path(run).is_dir():
+                    args += ["--tmpfs", run]
         if self.identity:
             # A UTS namespace each, every one with the same name in it.
             args += ["--unshare-uts", "--hostname", self.identity[1]]

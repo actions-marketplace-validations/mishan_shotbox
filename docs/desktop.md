@@ -31,10 +31,11 @@ size it asks for, as on X11: it isn't GNOME's Mutter or KDE's KWin. See
 
 ## The machine's devices
 
-A session has the machine's system bus, unless `--system-bus`, and its
-printers. A desktop's settings, run with `--desktop`, can show the Wi-Fi
-networks, Bluetooth devices and user accounts, and a print dialog its
-printers: check pictures before sharing them. See
+A session has a stand-in system bus and no printers, so a desktop's
+settings, run with `--desktop`, find no networks, Bluetooth devices or
+user accounts (GNOME Settings says NetworkManager isn't running), and a
+print dialog no printers. `--machine-bus` gives it the machine's, which
+show then: check pictures before sharing them. See
 [What's sealed](sealed.md).
 
 ## Animations
