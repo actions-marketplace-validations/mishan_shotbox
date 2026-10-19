@@ -101,6 +101,16 @@
   `gir1.2-pango-1.0`), which the Action's `a11y: true` installs and
   `shotbox doctor` checks for.
   docs/accessibility.md, "GTK 4's positions".
+- `a11y contrast` finds more of GTK 4.14 and later's text, and faster:
+  each size and hinting of a node's name is matched at every place in
+  its room at once, exactly, not first by a few of its pixels at each,
+  and rooms up to 600 by 400 pixels (a sidebar's) are looked in, not 600
+  by 200. Under a theme with a grid drawn behind everything and a large
+  heading, a sampler had 29 of 36 labels measured in 21 seconds, not 5
+  in 34 with the rest out of time; gnome-calculator takes 1.2 seconds,
+  not 2. A match elsewhere in the room for the best-matching shape,
+  which keeps text from being taken, is always seen, and comparing
+  other nodes' text keeps to the 30 seconds too.
 - Chromium's pages (Google Chrome's, Playwright's Chromium's) are read
   in an `--a11y` session without `--force-renderer-accessibility`:
   `shotbox a11y` asks a browser window for its attributes, as Orca does,

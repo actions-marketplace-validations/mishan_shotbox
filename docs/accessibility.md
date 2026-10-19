@@ -494,9 +494,10 @@ child has its extents and is placed from them, which comes off; then up
 to 4.14.5 the text is inside the box, and from 4.14.6 inside it moved
 right and down by up to the room each container has round what's in
 it, since padding and borders can only put it further left and up.
-It's taken where it matches what's drawn (a correlation of 0.98 or more
-of the drawn text's coverage with the picture's lightness, with two
-blank columns each side), and not where anything else in that room
+It's taken where it matches what's drawn best (a correlation of 0.98 or
+more of the drawn text's coverage with the picture's lightness, with two
+blank columns each side, worked out for each size and hinting at every
+place in the room), and not where anything else in that room
 matches 0.8 or more (the same text twice). Other text can match nearly
 as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
 "Button" 0.96, a letter-spaced or upper-case label over an entry
@@ -510,8 +511,10 @@ out must also be as wide as the name drawn as found, within a pixel
 and a fiftieth (GTK says how wide, from 4.22.3 a character short): a
 label drawn upper case or letter-spaced isn't, and isn't taken for
 its name drawn nearby. GTK gives a single character no width, so a
-one-character name is taken only if it has no case (a digit, a "+"). Text that isn't all ASCII ("Über", "€ 5") isn't
-measured from 4.14.6, a line each saying why: GTK measures it short by
+one-character name is taken only if it has no case (a digit, a "+").
+Text that isn't all ASCII ("Über", "€ 5", "…", "÷", "×", an arrow, a
+curly quote) isn't measured from 4.14.6, until a GTK that measures its
+extents right ships, a line each saying why: GTK measures it short by
 however many characters, so it can't be told apart. Up to 4.14.5 GTK
 doesn't say, and the text is looked for in the label's own box alone. A label hidden under
 something opaque, but drawn in its own font, can still be taken for
@@ -525,10 +528,11 @@ the middle of GTK's box: gnome-calculator's "=" on 4.24, white on blue,
 
 What isn't found isn't measured, a line each, `text not measured: GTK 4
 reports its position wrong`, and why once (in `--json`, each such line's
-`why`): text over two lines, in more than one font (a superscript), a
-name that isn't what's drawn, text with its own background at its edge
-or at the window's, what's drawn outside where GTK's box can be (a
-popover's label), and text with more than 600 by 200 pixels to look in.
+`why`): text over two lines, in more than one font (a superscript),
+letter-spaced (which GTK doesn't say), a name that isn't what's drawn,
+text with its own background at its edge or at the window's, what's
+drawn outside where GTK's box can be (a popover's label), and text with
+more than 600 by 400 pixels to look in.
 Looking takes up to 30 seconds in all; text not looked for by then is
 `text not measured: no time left to look for it`. Finding it needs
 pycairo and PangoCairo (`python3-gi-cairo` and `gir1.2-pango-1.0` on

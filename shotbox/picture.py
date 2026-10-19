@@ -3,8 +3,12 @@ place changed between two pictures. On the pixels themselves, as RGB
 bytes, so it needs nothing beyond what takes the pictures.
 """
 
+import sys
 import time
+from array import array
 from collections import Counter
+from itertools import repeat
+from operator import mul, sub, truediv
 
 
 class Picture:
@@ -158,37 +162,65 @@ def edge_contrast(pic, box):
     return (got[0], got[1], out) if got else (1.0, out, out)
 
 
-def lightness(pic, x0, y0, x1, y1):
+class Lightness:
     """The lightness of each pixel of the picture from x0, y0 up to x1, y1,
-    cut to it: (a list, row by row, its width, x0, y0)."""
-    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(pic.width, x1), min(pic.height, y1)
-    d, lum = pic.data, []
-    for y in range(y0, y1):
-        i = (y * pic.width + x0) * 3
-        lum += [d[j] * 2 + d[j + 1] * 5 + d[j + 2] for j in range(i, i + (x1 - x0) * 3, 3)]
-    return lum, max(0, x1 - x0), x0, y0
+    cut to it (`lum`, row by row, `width` wide, from `x0`, `y0`), and it
+    and its square summed from the corner (`sums` and `squares`, a row and
+    a column more), so any box's are four look-ups."""
+
+    def __init__(self, pic, x0, y0, x1, y1):
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(pic.width, x1), min(pic.height, y1)
+        d, lum = pic.data, []
+        for y in range(y0, y1):
+            i = (y * pic.width + x0) * 3
+            lum += [d[j] * 2 + d[j + 1] * 5 + d[j + 2] for j in range(i, i + (x1 - x0) * 3, 3)]
+        self.lum, self.x0, self.y0 = lum, x0, y0
+        self.width = width = max(0, x1 - x0)
+        self.height = height = len(lum) // width if width else 0
+        stride = width + 1
+        self.sums, self.squares = [0] * (stride * (height + 1)), [0] * (stride * (height + 1))
+        for y in range(height):
+            run = run2 = 0
+            for x in range(width):
+                v = lum[y * width + x]
+                run += v
+                run2 += v * v
+                self.sums[(y + 1) * stride + x + 1] = self.sums[y * stride + x + 1] + run
+                self.squares[(y + 1) * stride + x + 1] = self.squares[y * stride + x + 1] + run2
 
 
-def score(lum, points, at):
-    """How well the pixels from `at` in `lum` follow a shape's coverage,
-    `points` (offset, coverage): their correlation, either way round."""
-    n = len(points)
-    sa = sl = saa = sll = sal = 0
-    for off, a in points:
-        v = lum[at + off]
-        sa += a
-        sl += v
-        saa += a * a
-        sll += v * v
-        sal += a * v
-    va, vl = saa - sa * sa / n, sll - sl * sl / n
-    return abs(sal - sa * sl / n) / (va * vl) ** 0.5 if va > 0 and vl > 0 else 0.0
-
-
-def points_of(shape, width):
-    """A shape's pixels, as (offset in a picture `width` wide, coverage)."""
+def matches(lit, shape, x0, y0, nx, ny):
+    """How well the lightness in `lit` follows `shape`'s coverage (width,
+    height, a byte a pixel) at each of nx by ny places from x0, y0 in it:
+    their correlation, either way round, squared, a list a row. Its
+    coverage times the lightness, summed at every place, is the digits of
+    one product of two whole numbers, a pixel to each 4 or 8 bytes, which
+    never carry: exact, and multiplied in C."""
     w, h, cover = shape
-    return [(i // w * width + i % w, a) for i, a in enumerate(cover)]
+    width, n, sa = lit.width, w * h, sum(cover)
+    va = n * sum(a * a for a in cover) - sa * sa
+    if va <= 0:
+        return [[0.0] * nx for _ in range(ny)]
+    code = "I" if sa * max(lit.lum) < 1 << 32 else "Q"
+    flipped = array(code, bytes(array(code).itemsize * ((h - 1) * width + w)))
+    for i, a in enumerate(cover):
+        flipped[(h - 1 - i // w) * width + w - 1 - i % w] = a
+    product = (int.from_bytes(array(code, lit.lum).tobytes(), sys.byteorder)
+               * int.from_bytes(flipped.tobytes(), sys.byteorder))
+    sal = memoryview(product.to_bytes((len(lit.lum) + len(flipped)) * flipped.itemsize,
+                                      sys.byteorder)).cast(code)
+    s, q, stride, out = lit.sums, lit.squares, width + 1, []
+    for y in range(y0, y0 + ny):
+        a, c, at = y * stride + x0, (y + h) * stride + x0, y * width + x0 + len(flipped) - 1
+        sl = list(map(sub, map(sub, s[c + w:c + w + nx], s[a + w:a + w + nx]),
+                      map(sub, s[c:c + nx], s[a:a + nx])))
+        sll = map(sub, map(sub, q[c + w:c + w + nx], q[a + w:a + w + nx]),
+                  map(sub, q[c:c + nx], q[a:a + nx]))
+        cov = list(map(sub, map(n.__mul__, sal[at:at + nx]), map(sa.__mul__, sl)))
+        # A place all one lightness has no variance, and matches nothing.
+        vl = map(max, map(sub, map(n.__mul__, sll), map(mul, sl, sl)), repeat(1))
+        out.append(list(map(truediv, map(mul, cov, cov), map(va.__mul__, vl))))
+    return out
 
 
 def find_text(pic, kinds, area, until=None):
@@ -196,92 +228,62 @@ def find_text(pic, kinds, area, until=None):
     of shapes may draw it, each shape (width, height, coverage), a byte a
     pixel, with blank columns at each side, and a kind's alike but for
     their size. A place matches as well as its pixels' lightness follows
-    a shape's coverage (score): (match, x, y, width, height, the best
-    match of a place apart from that one, and which kind and shape of it
-    matched), its x and y those of the shape, or None if `area` can't
-    hold one, or has more places than PLACES to look at. Raises
-    TimeoutError past `until`, a monotonic time."""
+    a shape's coverage (matches), each shape looked at at every place:
+    (match, x, y, width, height, the best match of that shape at a place
+    apart from that one, and which kind and shape of it matched), its x
+    and y those of the shape, or None if `area` can't hold one, or has
+    more places than PLACES to look at. Raises TimeoutError past
+    `until`, a monotonic time."""
     x0, y0, x1, y1 = area
     # The shapes' blank sides can lie outside `area`, not past the picture.
     if (x1 - x0 + 4) * (y1 - y0) > PLACES:
         return None
-    lum, width, gx0, gy0 = lightness(pic, x0 - 2, y0, x1 + 2, y1)
-    height = len(lum) // width if width else 0
-
-    # Summed lightness and its square, so a place all one lightness, which
-    # matches nothing, is passed over without a look: most of an area.
-    stride = width + 1
-    sums, squares = [0] * (stride * (height + 1)), [0] * (stride * (height + 1))
-    for y in range(height):
-        run = run2 = 0
-        for x in range(width):
-            v = lum[y * width + x]
-            run += v
-            run2 += v * v
-            sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + run
-            squares[(y + 1) * stride + x + 1] = squares[y * stride + x + 1] + run2
-
-    def flat(x, y, w, h):
-        a, c = y * stride + x, (y + h) * stride + x
-        total = sums[c + w] - sums[a + w] - sums[c] + sums[a]
-        return (squares[c + w] - squares[a + w] - squares[c] + squares[a]) * w * h == total * total
-
-    # A first look with a few pixels of each kind's middle shape, then
-    # each of its shapes, all of their pixels, at the places that look best.
-    best, apart = None, None
+    lit = Lightness(pic, x0 - 2, y0, x1 + 2, y1)
+    best, grid = None, None
     for k, kind in enumerate(kinds):
-        shapes = [(w, h, points_of((w, h, cover), width)) for w, h, cover in kind]
-        sw, sh, points = shapes[len(shapes) // 2]
-        inked = [p for p in points if p[1]]
-        few = inked[::max(1, len(inked) // 30)] + points[::max(1, len(points) // 30)]
-        places = []
-        for y in range(height - sh + 1):
+        for i, (w, h, cover) in enumerate(kind):
             if until and time.monotonic() > until:
                 raise TimeoutError
-            places += [(score(lum, few, y * width + x), x, y) for x in range(width - sw + 1)
-                       if not flat(x, y, sw, sh)]
-        places.sort(reverse=True)
-        top = max(((score(lum, p, y * width + x), x, y, w, h, k, i) for _, x, y in places[:40]
-                   for i, (w, h, p) in enumerate(shapes) if x + w <= width and y + h <= height),
-                  default=None)
-        if top and (not best or top > best):
-            best, apart = top, (shapes[top[6]][2], places)
+            if w <= lit.width and h <= lit.height:
+                got = matches(lit, (w, h, cover), 0, 0, lit.width - w + 1, lit.height - h + 1)
+                top = max((max(row), row.index(max(row)), y) for y, row in enumerate(got))
+                if not best or top + (w, h, k, i) > best:
+                    best, grid = top + (w, h, k, i), got
     if not best:
         return None
     # The best match of a place the best one doesn't overlap.
-    _, bx, by, bw, bh, k, i = best
-    points, places = apart
-    others = [p for p in places if (p[1] + bw <= bx or p[1] >= bx + bw or p[2] + bh <= by
-                                    or p[2] >= by + bh) and p[1] + bw <= width
-              and p[2] + bh <= height]
-    return (best[0], bx + gx0, by + gy0, bw, bh,
-            max((score(lum, points, y * width + x) for _, x, y in others[:20]), default=0.0),
-            (k, i))
+    match, bx, by, bw, bh, k, i = best
+    apart = max(max(row[:max(0, bx - bw + 1)] + row[bx + bw:], default=0.0)
+                if by - bh < y < by + bh else max(row) for y, row in enumerate(grid))
+    return match ** 0.5, bx + lit.x0, by + lit.y0, bw, bh, apart ** 0.5, (k, i)
 
 
-def match_over(pic, kinds, box):
+def match_over(pic, kinds, box, until=None):
     """How well one of `kinds` of shapes (find_text's) matches what's drawn
     over `box` (x, y, width, height): placed so the text, the shape but
-    for its blank sides, is inside the box or holds it."""
+    for its blank sides, is inside the box or holds it. Raises
+    TimeoutError past `until`, a monotonic time."""
     bx, by, bw, bh = box
+    shapes = [shape for kind in kinds for shape in kind]
+    # Where each shape's corner can be: x0, y0, x1, y1, inclusive.
+    spans = [(min(bx, bx + bw - w + 4) - 2, min(by, by + bh - h),
+              max(bx, bx + bw - w + 4) - 2, max(by, by + bh - h)) for w, h, _ in shapes]
+    lit = Lightness(pic, min(s[0] for s in spans), min(s[1] for s in spans),
+                    max(s[2] + w for s, (w, _, _) in zip(spans, shapes)),
+                    max(s[3] + h for s, (_, h, _) in zip(spans, shapes)))
     got = 0.0
-    for kind in kinds:
-        for w, h, cover in kind:
-            tw = w - 4
-            xs = range(min(bx, bx + bw - tw), max(bx, bx + bw - tw) + 1)
-            ys = range(min(by, by + bh - h), max(by, by + bh - h) + 1)
-            lum, width, gx0, gy0 = lightness(pic, xs[0] - 2, ys[0], xs[-1] + tw + 2, ys[-1] + h)
-            if width < w or len(lum) < width * h:
-                continue
-            points = points_of((w, h, cover), width)
-            height = len(lum) // width
-            got = max([got] + [score(lum, points, (y - gy0) * width + x - 2 - gx0)
-                               for y in ys for x in xs
-                               if gx0 <= x - 2 and x - 2 - gx0 + w <= width
-                               and gy0 <= y and y - gy0 + h <= height])
-    return got
+    for (sx0, sy0, sx1, sy1), shape in zip(spans, shapes):
+        if until and time.monotonic() > until:
+            raise TimeoutError
+        # Cut to the picture.
+        x0, y0 = max(sx0 - lit.x0, 0), max(sy0 - lit.y0, 0)
+        nx = min(sx1 - lit.x0, lit.width - shape[0]) - x0 + 1
+        ny = min(sy1 - lit.y0, lit.height - shape[1]) - y0 + 1
+        if nx > 0 and ny > 0:
+            got = max([got] + [max(row) for row in matches(lit, shape, x0, y0, nx, ny)])
+    return got ** 0.5
 
 
-# The most places find_text looks at: as many as there are in 600 by 200
-# pixels.
-PLACES = 120000
+# The most places find_text looks at: as many as there are in 600 by 400
+# pixels, a sidebar's height.
+PLACES = 240000
