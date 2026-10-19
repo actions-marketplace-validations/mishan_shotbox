@@ -37,8 +37,10 @@ Inside a session with `--a11y`:
   with what has the focus: [What a screen reader says](#what-a-screen-reader-says).
 - **`shotbox wait announce RE`** waits for a program to announce
   something matching RE (found anywhere in it) to a screen reader:
-  GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
-  live region (`aria-live`, `role="status"`). [Announcements](#announcements).
+  GTK 4.14's `gtk_accessible_announce()`, text put in a browser's
+  live region (`aria-live`, `role="status"`), an alert or info bar
+  appearing (GTK 3's message dialogs, Qt's `QMessageBox`, libadwaita's
+  `AdwAlertDialog`), or the focus renamed. [Announcements](#announcements).
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &
@@ -600,6 +602,40 @@ coming to it. What's recorded is the text inserted: a region whose text
 is replaced sends all of the new text, and an element put in one sends
 its own. Text outside a live region, and a busy region's, isn't
 recorded. GTK has no live regions.
+
+What Orca says as it appears is recorded too: a node whose role is
+alert, notification or info bar saying it's showing
+(`object:state-changed:showing`), as GTK 3's message dialogs and
+`GtkInfoBar`, and Qt's `QMessageBox`, do; or the focus going into one,
+as into libadwaita's `AdwAlertDialog`, which GTK 4 doesn't say is
+showing. That's once while the focus stays in it, and again each time it
+comes back, as Orca reads it. On Wayland, GTK 4 says where the focus is
+only while shotbox's own keyboard is open, as within `play` or a `key
+--hold`, so a GTK 4 alert dialog isn't heard after separate `shotbox
+key` calls. Before libadwaita 1.6 (Ubuntu 24.04's 1.5), an alert dialog
+is a dialog with no name, of which Orca 46 says only "dialog", and isn't
+recorded. It's written with its name and the names of the labels in it,
+but not its buttons': `assertive: Warning Delete notes.md? It can't be
+undone.`, and `polite:` for a notification. Orca says less, and not
+always: it leaves out a label of under three words, or one that takes
+the focus, as Qt's do (51 says that `QMessageBox` as `alert Warning`);
+it reads a dialog only once it's the active window; and 51 loses a GTK 3
+info bar to its filter of events that come too close together (46 says
+it). An info bar revealed (`gtk_info_bar_set_revealed()`) rather than
+shown says nothing of showing, and is heard by neither. A browser's
+`role="alert"` is a live region, recorded as one, and an alert that's
+announced something, or whose parent has, in the 10 seconds before isn't
+written: libadwaita (from 1.6) announces a toast (`A toast appeared:
+Saved`) from the parent of its node, an alert.
+
+And the focus renamed, as a button that says Copied once it's clicked:
+it's written `polite: Copied`, where Orca says it. As Orca 51 decides,
+that's not a name much like the last one said (a similarity of 0.85 or
+more, so not a button counting down, `Resend in 9s` to `8s`), nor a list
+item's that holds a progress bar; and as 46 does, not a combo box's,
+whose name is what's picked in it, or a table cell's. A value changed (a
+slider moved) isn't: Orca says it, but it's what the keys just did, not
+something the program said.
 
 ## Display presets
 

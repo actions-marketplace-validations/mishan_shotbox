@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long] [keys] [form] [lines] [slow]. Its icon-only button,
+[thin] [long] [keys] [form] [lines] [slow] [alert]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -14,7 +14,9 @@ spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a s
 list running far past the window, and `keys` buttons named as a calculator's are, which
 aren't regexes or match more than themselves as one; `form` adds a field
 named by a label with a mnemonic, `lines` a button labeled over two lines,
-and `slow` moves the focus a second after Tab.
+`slow` moves the focus a second after Tab, and `alert` says an error
+and asks in an alert dialog as it starts, again once answered, then
+holds a button that makes a toast.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -148,6 +150,24 @@ def activate(app):
         inside.append(Gtk.Button(label="Send"))
         Adw.Dialog(child=inside, title="Reply").present(w)
         notes.grab_focus()
+    if "alert" in sys.argv:
+        # Said, then asked in an alert dialog, twice, then a toast.
+        toasts = Adw.ToastOverlay(child=Gtk.Button(label="Toast"))
+        toasts.get_child().connect("clicked", lambda b: toasts.add_toast(
+            Adw.Toast(title="Saved to notes.md")))
+        w.set_content(toasts)
+        w.announce("Error: Name is taken, pick another",
+                   Gtk.AccessibleAnnouncementPriority.MEDIUM)
+        ask = Adw.AlertDialog(heading="Name is taken", default_response="ok")
+        ask.add_response("ok", "OK")
+        asked = [1]
+
+        def again(d, response):
+            if asked[0] < 2:
+                asked[0] += 1
+                GLib.idle_add(lambda: d.present(w))
+        ask.connect("response", again)
+        ask.present(w)
     if "second" in sys.argv:
         other = Adw.ApplicationWindow(application=app)
         other.set_content(Gtk.Label(label="second"))

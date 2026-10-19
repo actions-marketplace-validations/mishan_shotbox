@@ -1358,7 +1358,9 @@ def record(out):
     the bus whether or not anyone has asked to hear it, so a match rule is
     all it takes. A browser's live region is text inserted into a node
     whose container-live attribute is polite or assertive, sent only once
-    a listener has registered for it."""
+    a listener has registered for it. And what Orca says unasked: an
+    alert or info bar as it shows or the focus goes into it, and the
+    focus's new name."""
     from gi.repository import Gio, GLib
     bus = Gio.DBusConnection.new_for_address_sync(
         os.environ["AT_SPI_BUS_ADDRESS"],
@@ -1373,6 +1375,10 @@ def record(out):
 
     def said(conn, sender, path, iface, member, params):
         _, politeness, _, text, _ = params.unpack()
+        now = time.monotonic()
+        for gone in [k for k, at in announcers.items() if now - at > 10]:
+            del announcers[gone]
+        announcers[sender + path] = now
         if isinstance(text, str):
             write(POLITENESS.get(politeness, "polite"), text)
 
@@ -1389,11 +1395,116 @@ def record(out):
                 and text.strip()):
             write(politeness, text)
 
+    def labels(acc, depth=0):
+        # As Orca reads an alert: what its labels say, but not its buttons'.
+        # Visible, not showing: a dialog says it's showing before its labels do.
+        out = []
+        for i in range(acc.get_child_count()):
+            c = acc.get_child_at_index(i)
+            role = int(c.get_role())
+            if role in controls or not c.get_state_set().contains(Atspi.StateType.VISIBLE):
+                continue
+            if role in texts:
+                out.append(c.get_name())
+            elif depth < 20:
+                out += labels(c, depth + 1)
+        return out
+
+    told = set()    # the alerts heard, so the focus going into one isn't
+    announcers = {}     # who has announced something, and when
+
+    def ident(acc):
+        return f"{acc.app.bus_name if acc.app else ''}{acc.path}"
+
+    def alert(acc, role):
+        text = " ".join(dict.fromkeys(filter(None, [acc.get_name(), *labels(acc)])))
+        if not text.strip():
+            return
+        told.add(ident(acc))
+        # libadwaita announces a toast ("A toast appeared: Saved") from the
+        # parent of its node, which is an alert too.
+        now, parent = time.monotonic(), acc.get_parent()
+        if not any(now - announcers.get(ident(a), -10) < 10 for a in (acc, parent) if a):
+            write("polite" if role == Atspi.Role.NOTIFICATION else "assertive", text)
+
+    def shown(event):
+        try:
+            role = int(event.source.get_role())
+            if role in alerts and event.detail1:
+                alert(event.source, role)
+            elif role in alerts:    # gone, so heard again once it's back
+                told.discard(ident(event.source))
+        except Exception:   # gone while we looked
+            pass
+
+    # Orca says the focus again when its name changes ("Copy" to "Copied"),
+    # as 51 decides it: not a name much like the last one it said (a
+    # countdown), nor a list item's that holds a progress bar; and as 46
+    # does, not a combo box's, which is what's picked in it, or a cell's.
+    focus = {}
+
+    def focused(event):
+        if not event.detail1:
+            return
+        try:
+            left = focus.get("alert")
+            focus.update(acc=event.source, name=event.source.get_name())
+            # GTK 4 says nothing of an alert dialog showing: Orca reads it
+            # as the focus goes into it, as it does any dialog, and again
+            # each time it comes back. A page's alerts are its live regions.
+            up, here = event.source.get_parent(), None
+            for _ in range(50):
+                role = int(up.get_role()) if up else None
+                if role in alerts:
+                    here = ident(up)
+                    if here not in told:
+                        alert(up, role)
+                    break
+                if role is None or role in tops:
+                    break
+                up = up.get_parent()
+            focus["alert"] = here
+            if left != here:
+                told.discard(left)
+        except Exception:   # gone
+            pass
+
+    def renamed(event):
+        name = event.any_data
+        if not (focus and event.source == focus["acc"] and isinstance(name, str)
+                and name.strip() and name != focus["name"]):
+            return
+        old = (focus["name"] or "").lower()
+        if round(difflib.SequenceMatcher(None, old, name.lower()).ratio(), 2) >= 0.85:
+            return
+        focus["name"] = name
+        try:
+            role = event.source.get_role()
+            if role in (Atspi.Role.COMBO_BOX, Atspi.Role.TABLE_CELL) or (
+                    role == Atspi.Role.LIST_ITEM and holds(event.source, Atspi.Role.PROGRESS_BAR)):
+                return
+        except Exception:   # gone
+            return
+        write("polite", name)
+
+    def holds(acc, role, depth=0):
+        return depth < 20 and any(
+            c.get_role() == role or holds(c, role, depth + 1)
+            for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())) if c)
+
     bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "Announcement", None, None,
                          Gio.DBusSignalFlags.NONE, said)
     Atspi = atspi()
+    alerts = roles(Atspi, ("ALERT", "NOTIFICATION", "INFO_BAR"))
+    tops = roles(Atspi, ("APPLICATION", "FRAME", "DOCUMENT_WEB", "DOCUMENT_FRAME"))
+    controls, texts = roles(Atspi, CONTROLS), roles(Atspi, ("LABEL", "STATIC"))
     live = Atspi.EventListener.new(inserted)
     live.register("object:text-changed:insert")
+    listeners = [Atspi.EventListener.new(f) for f in (shown, focused, renamed)]
+    for listener, kind in zip(listeners, ("object:state-changed:showing",
+                                          "object:state-changed:focused",
+                                          "object:property-change:accessible-name")):
+        listener.register(kind)
     # A round-trip on libatspi's own connection, after the registration it
     # sent without waiting, so programs started next are told of it.
     Atspi.get_desktop(0).get_child_count()

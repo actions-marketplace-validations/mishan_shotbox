@@ -15,6 +15,16 @@
   in Python, and MCP's `get_speech`. Needs Orca, which `shotbox doctor`
   lists; checked with Orca 46.1, 48.0, 50.3 and 51.1. The Action's
   `speak: true` installs Orca, and what `a11y: true` does.
+- Announcements (`wait announce`, `announcements`, MCP's
+  `list_announcements` and `wait_for` announcement) take in what Orca
+  says as it appears, and not only GTK 4's announcements and live
+  regions: an alert, notification or info bar shown, or first given the
+  focus, with its name and its labels' (`assertive: Warning Delete
+  notes.md? It can't be undone.`), as GTK 3's message dialogs and
+  `GtkInfoBar`, Qt's `QMessageBox` and libadwaita's `AdwAlertDialog`
+  (from libadwaita 1.6) are; and the focus renamed (`polite: Copied`), but not a name much
+  like the last (a countdown), as Orca leaves out. A GTK 3, Qt or
+  libadwaita program that says an error this way is heard.
 
 ### Changed
 
