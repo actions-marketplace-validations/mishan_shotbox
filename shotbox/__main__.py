@@ -723,17 +723,17 @@ def cmd_key(argv):
                                             "chord in turn, e.g. ctrl+comma, Return, "
                                             "alt+shift+Tab.")
     p.add_argument("chords", nargs="+", metavar="CHORD")
-    held_options(p, "the chords", "them")
+    held_options(p, "the chords", "them", where="")
     a = p.parse_args(argv)
     for c in a.chords:
         xtest.parse_chord(c)
-    held_here(inside(), a).key(*a.chords, hold=a.hold, state=a.state)
+    inside().key(*a.chords, hold=a.hold, state=a.state)
     return 0
 
 
 def held_here(screen, a):
     """The screen, unless --down can't work on it: a Wayland virtual
-    keyboard's keys and pointer's buttons go up when this command ends."""
+    pointer's buttons go up when this command ends."""
     if a.state == "down" and screen.wayland:
         raise SessionError("on Wayland, what --down presses is let go when the command "
                            "ends: use --hold SECS instead (in the background, with `&`, "

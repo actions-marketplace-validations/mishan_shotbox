@@ -492,30 +492,29 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     began in or None): "cycle" once it lands somewhere it has been
     (where it began, or a stop since), "trap" if a press leaves it where
     it was, "lost" if no node has it after one, "max" if none of those;
-    "unfocused" if no node has it to begin with (X11 with no window
-    manager), and nothing is pressed into that. Shift is pressed first:
-    GTK 4 on Wayland says where the focus is only once a key has been (an
-    input method may switch modes on it). A press that leaves it on the one thing in the
-    window that could take it is a cycle of one. `key` isn't pressed in a
-    text view one writes in, which takes Tab for itself: ESCAPES are,
-    noted on it as `tried`, the one that moves the focus as `left_by`,
-    one after which its text changed as `edited`; none is a trap, and
-    one after which the text view isn't there ends the walk, "closed".
-    Escape isn't tried in a dialog, which it would close, nor shift+Tab
-    but in Qt; once that leaves, backward, the walk goes on from the first
-    thing after the text view that takes the focus (grab_focus). Where the walk
-    began in one nothing leaves, it gives the focus to the first thing
-    outside it that takes it (AT-SPI's grab_focus, which GTK 4 doesn't
-    do), so the rest of the window is walked before the trap. With
-    `visible`, each node says how much of the screen round it changed as
-    it took the focus (see shown())."""
+    "unfocused" if no node has it to begin with, after `settle` (X11 with no
+    window manager), and nothing is pressed into that. A press that leaves
+    it on the one thing in the window that could take it is a cycle of one.
+    `key` isn't pressed in a text view one writes in, which takes Tab for
+    itself: ESCAPES are, noted on it as `tried`, the one that moves the
+    focus as `left_by`, one after which its text changed as `edited`; none
+    is a trap, and one after which the text view isn't there ends the walk,
+    "closed". Escape isn't tried in a dialog, which it would close, nor
+    shift+Tab but in Qt; once that leaves, backward, the walk goes on from
+    the first thing after the text view that takes the focus (grab_focus).
+    Where the walk began in one nothing leaves, it gives the focus to the
+    first thing outside it that takes it (AT-SPI's grab_focus, which GTK 4
+    doesn't do), so the rest of the window is walked before the trap. With
+    `visible`, each node says how much of the screen round it changed as it
+    took the focus (see shown())."""
     Atspi = atspi()
     screen = Screen()
 
     def press(k, before):
-        """Press `k`, and once the focus has left `before` for a node, or
-        after `settle`, the node it's on, or None."""
-        screen.key(k)
+        """Press `k`, if any, and once the focus has left `before` for a
+        node, or after `settle`, the node it's on, or None."""
+        if k:
+            screen.key(k)
         end = time.monotonic() + settle
         while True:
             now = focused(Atspi, window)
@@ -525,7 +524,7 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             time.sleep(0.05)
 
     toplevels(Atspi, window, timeout)
-    start = press("shift", None)
+    start = press(None, None)
     if start is None:
         screen.close()
         return [], "unfocused", [], None
@@ -1504,15 +1503,17 @@ def record(out):
     focus = {}
 
     def focused(event):
-        if not event.detail1:
-            return
+        if event.detail1:
+            went(event.source)
+
+    def went(acc):
         try:
             left = focus.get("alert")
-            focus.update(acc=event.source, name=event.source.get_name())
+            focus.update(acc=acc, name=acc.get_name())
             # GTK 4 says nothing of an alert dialog showing: Orca reads it
             # as the focus goes into it, as it does any dialog, and again
             # each time it comes back. A page's alerts are its live regions.
-            up, here = event.source.get_parent(), None
+            up, here = acc.get_parent(), None
             for _ in range(50):
                 role = int(up.get_role()) if up else None
                 if role in alerts:
@@ -1528,6 +1529,34 @@ def record(out):
                 told.discard(left)
         except Exception:   # gone
             pass
+
+    def activated(event):
+        # A program just started can say where its focus is before it can
+        # be asked about what's there, which then can't be heard; so once
+        # it can be, a window that comes up is looked in for its focus, as
+        # Orca reads it.
+        tries = [20]
+
+        def look():
+            try:
+                acc = holding_focus(event.source)
+            except Exception:   # not there yet, or gone
+                tries[0] -= 1
+                return tries[0] > 0
+            if acc:
+                went(acc)
+            return False
+        GLib.timeout_add(100, look)
+
+    def holding_focus(acc, depth=0):
+        if acc.get_state_set().contains(Atspi.StateType.FOCUSED):
+            return acc
+        for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())):
+            if c and depth < 50 and c.get_state_set().contains(Atspi.StateType.SHOWING):
+                found = holding_focus(c, depth + 1)
+                if found:
+                    return found
+        return None
 
     def renamed(event):
         name = event.any_data
@@ -1560,10 +1589,11 @@ def record(out):
     controls, texts = roles(Atspi, CONTROLS), roles(Atspi, ("LABEL", "STATIC"))
     live = Atspi.EventListener.new(inserted)
     live.register("object:text-changed:insert")
-    listeners = [Atspi.EventListener.new(f) for f in (shown, focused, renamed)]
+    listeners = [Atspi.EventListener.new(f) for f in (shown, focused, renamed, activated)]
     for listener, kind in zip(listeners, ("object:state-changed:showing",
                                           "object:state-changed:focused",
-                                          "object:property-change:accessible-name")):
+                                          "object:property-change:accessible-name",
+                                          "window:activate")):
         listener.register(kind)
     # A round-trip on libatspi's own connection, after the registration it
     # sent without waiting, so programs started next are told of it.

@@ -28,6 +28,15 @@
 
 ### Changed
 
+- On Wayland, a session has one keyboard, made as it starts and shared
+  by every command until it stops, not one a command, so programs
+  always have one, as on a desktop and on X11: GTK 4 and GTK 3 say
+  where the focus is between commands (the tree, MCP's `wait_for`
+  focus), libadwaita's alert dialog is heard as the focus goes in, and
+  a field with the focus draws its caret in pictures. `key --down`
+  works there too, and a key a hold killed outright left down stays
+  down until `--up`, as on X11; `click --down` is still refused. `a11y
+  tabwalk` and `a11y speak` no longer press Shift first.
 - `shotbox a11y tabwalk` (and `Screen.tab_walk()`, MCP's
   `check_focus_order`) reads the tree after each press only as far as
   the node with the focus, not all of it: 50 presses through a GTK 4
@@ -66,6 +75,14 @@
 
 ### Fixed
 
+- On Wayland, a modifier held down alone (`key --down shift`, or `key
+  --hold 2 shift &`) didn't shift the keys pressed or typed meanwhile, nor
+  a click: `shift` was pressed without its modifier bit. Now it does, as
+  on X11.
+- Announcements: an alert dialog that comes up with its program, the
+  focus in it, could go unheard, the program saying where the focus is
+  before what's there could be asked about; a window that comes up is
+  now looked in for it.
 - GTK 4 before 4.10.3: the tree, lint, `click` and the walks take
   what's in a window, not the window alone (GTK said only its windows
   were showing); before 4.10, a node GTK names by its class

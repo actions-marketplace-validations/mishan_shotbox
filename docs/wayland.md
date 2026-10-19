@@ -69,7 +69,10 @@ The session, with `--wayland`:
 - waits for sway to answer on its IPC socket (it has nothing like Xvfb's
   `-displayfd`);
 - sets `WAYLAND_DISPLAY`, `SWAYSOCK`, `XDG_SESSION_TYPE=wayland` and
-  `GDK_BACKEND=wayland`, and no `DISPLAY`.
+  `GDK_BACKEND=wayland`, and no `DISPLAY`;
+- starts its keyboard, kept till it stops: headless sway has none of
+  its own, and while there's none GTK has no keyboard focus, saying
+  nothing has the focus and drawing no caret.
 
 With `--xwayland`, sway starts Xwayland straight away (`xwayland force`)
 and the session sets `DISPLAY` to it too, which sway reports to a command
@@ -107,8 +110,9 @@ can connect for as long as the session lasts.
    tests that skip without sway, `grim` and Xwayland, and CI that
    installs them. *Done.*
 2. **Input.** Keys, text, clicks, moves, scrolls, drags and `park` over the
-   virtual keyboard and pointer protocols, on one connection kept for
-   the session, reaching Xwayland's X clients too. *Done.*
+   virtual keyboard and pointer protocols, reaching Xwayland's X clients
+   too: one keyboard for the session, which a server it starts holds
+   for every command, and a pointer a command. *Done.*
 
    The spike lost the first key `wtype` sent, so the keyboard is made
    with one fixed keymap holding every key shotbox can press, laid out
@@ -121,8 +125,6 @@ can connect for as long as the session lasts.
    shipped keyboard lost nothing, and nor did one without the blank key
    or the wait; one variant (the blank key without the wait) lost text
    twice early on and never again. What wtype hit wasn't pinned down.
-   The tests type through twenty keyboards, one per key, and fail on a
-   missing one.
 3. **The rest.** Matching on app id (`app=RE`, on X11 too), and a
    README section of its own. *Done.*
 4. **Using it.** neon-doll's `cosmic-shoot.sh` ran COSMIC's compositor

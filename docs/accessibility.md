@@ -222,14 +222,13 @@ scroller), so the rest can be held to in CI.
 
 `tabwalk` notes where the focus is, presses the key (over XTEST, or
 sway's virtual keyboard), and waits up to two seconds for the focus to
-land somewhere new. It presses Shift first, since GTK 4 on Wayland says
-where the focus is only once a key has been pressed. Few programs act
-on Shift alone, but an input method can (Chinese ones, ibus-libpinyin,
-fcitx5 and rime, switch modes on it), and so can a program's own
-binding for it. If no node has the focus even then, it presses nothing
-more, since it can't tell what a key would do there, and says so, exit
-1: on X11 with no window manager a window can lack the keyboard
-(`shotbox focus` gives it). It stops:
+land somewhere new. GTK says where the focus is only while there's a
+keyboard, which on Wayland is the session's: made as it starts and
+kept till it stops, so the focus is there to read between commands, and
+before any key is pressed, as on X11. If no node has the focus to begin
+with, it presses nothing, since it can't tell what a key would do
+there, and says so, exit 1: on X11 with no window manager a window can
+lack the keyboard (`shotbox focus` gives it). It stops:
 
 - when it lands on a node it has been on: where it began, or any stop
   since, since focus can settle into a round (through a list's rows,
@@ -634,14 +633,14 @@ alert, notification or info bar saying it's showing
 `GtkInfoBar`, and Qt's `QMessageBox`, do; or the focus going into one,
 as into libadwaita's `AdwAlertDialog`, which GTK 4 doesn't say is
 showing. That's once while the focus stays in it, and again each time it
-comes back, as Orca reads it. On Wayland, GTK 4 says where the focus is
-only while shotbox's own keyboard is open, as within `play` or a `key
---hold`, so a GTK 4 alert dialog isn't heard after separate `shotbox
-key` calls. Before libadwaita 1.6 (Ubuntu 24.04's 1.5), an alert dialog
-is a dialog with no name, of which Orca 46 says only "dialog", and isn't
-recorded. It's written with its name and the names of the labels in it,
-but not its buttons': `assertive: Warning Delete notes.md? It can't be
-undone.`, and `polite:` for a notification. Orca says less, and not
+comes back, as Orca reads it; and a window that comes up is looked in
+for the focus, as Orca does, since a program just started can say where
+it is before what's there can be asked about. Before libadwaita 1.6
+(Ubuntu 24.04's 1.5), an alert dialog is a dialog with no name, of
+which Orca 46 says only "dialog", and isn't recorded. It's written with
+its name and the names of the labels in it, but not its buttons':
+`assertive: Warning Delete notes.md? It can't be undone.`, and
+`polite:` for a notification. Orca says less, and not
 always: it leaves out a label of under three words, or one that takes
 the focus, as Qt's do (51 says that `QMessageBox` as `alert Warning`);
 it reads a dialog only once it's the active window; and 51 loses a GTK 3

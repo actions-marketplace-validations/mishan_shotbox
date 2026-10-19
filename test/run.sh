@@ -720,13 +720,20 @@ chords "$tmp/chords.log" && ok "shift in a chord: the shifted symbol, and back-t
 got=$(held "$tmp/held.log")
 [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/held.log")" -ge 35 ] \
   && ok "key and click --hold: held together, let go last first" || fail "hold: $got"
-# --down and --up: a key left down between two commands, X11's server keeps it.
-: > "$tmp/down.log"
-"$sb" run -- sh -c "'$here/held.py' held '$tmp/down.log' &
-  '$sb' wait window held && '$sb' wait stable --window held &&
-  '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
-  sleep 0.3" && awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' \
-  "$tmp/down.log" && ok "key --down, then --up: held between commands" || fail "--down, --up"
+# down LOG [SESSION OPTIONS]: --down and --up, a key left down between two
+# commands: X11's server keeps it, and on Wayland the session's keyboard;
+# and Shift left down alone shifts the next command's key.
+down() {
+  log=$1; shift
+  : > "$log"
+  "$sb" run "$@" -- sh -c "'$here/held.py' held '$log' &
+    '$sb' wait window held && '$sb' wait stable --window held &&
+    '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
+    '$sb' key --down shift && '$sb' key a && '$sb' key --up shift && sleep 0.3" &&
+    awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
+    grep -q '^press A ' "$log"
+}
+down "$tmp/down.log" && ok "key --down, then --up: held between commands, Shift alone too" || fail "--down, --up: $(tr '\n' ' ' < "$tmp/down.log")"
 # Two held chords sharing Ctrl: letting go of one leaves Ctrl down for the
 # other, and one is let go however it's spelled. A chord it can't press is said before anything goes down, a hold
 # that isn't one is refused, and a hold stopped midway lets go.
@@ -1304,14 +1311,14 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     && ok "wayland: term --shoot, cropped ($(identify -format %wx%h "$tmp/w6.png"))" \
     || fail "wayland: term --shoot"
   # GTK 3 on Wayland reads its caret's blink and its animations from
-  # GSettings, over settings.ini: an entry's caret, given the keyboard
-  # (headless sway has one only while a key is held), blinks with a seeded
-  # settings.ini that turns it on, and not without; a spinner holds still.
+  # GSettings, over settings.ini: an entry's caret, given the keyboard,
+  # blinks with a seeded settings.ini that turns it on, and not without; a
+  # spinner holds still.
   mkdir -p "$tmp/blinky/.config/gtk-3.0"
   printf '[Settings]\ngtk-cursor-blink = true\n' > "$tmp/blinky/.config/gtk-3.0/settings.ini"
   wl_blink() {
     set +e; "$sb" run --wayland "$@" -- sh -c "'$win' wb '$tmp/wb' & '$sb' wait window wb >/dev/null &&
-      '$sb' focus wb && { '$sb' key --hold 4 shift & sleep 0.5; } &&
+      '$sb' focus wb &&
       '$sb' flicker --window wb --seconds 2.5 --brief 1000 --times 3 --tile 4" > "$tmp/out" 2>&1
     echo $?; set -e
   }
@@ -1321,9 +1328,7 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   "$sb" run --wayland -- sh -c "'$win' sp spinner & '$sb' wait window sp >/dev/null &&
     '$sb' wait --timeout 3 --window sp stable 1" >/dev/null 2>&1 \
     && ok "wayland: GTK 3's spinner holds still" || fail "wayland: GTK 3's spinner moves"
-  # Input: the same as X11's, then a new keyboard for every key, none of
-  # which may lose its first (wtype lost one in a spike; shotbox never
-  # has), then an X client.
+  # Input: the same as X11's, then an X client.
   "$sb" run --wayland -- sh -c "
     '$sb' term --size 40x6 --log '$tmp/wl-in.log' -- sh -c cat & t=\$!
     '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term &&
@@ -1337,9 +1342,11 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   got=$(held "$tmp/wl-held.log" --wayland)
   [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/wl-held.log")" -ge 35 ] \
     && ok "wayland: key and click --hold" || fail "wayland: hold: $got"
-  set +e; "$sb" run --wayland -- "$sb" key --down w 2> "$tmp/err"; st=$?; set -e
+  down "$tmp/wl-down.log" --wayland && ok "wayland: key --down, then --up: held between commands, Shift alone too" \
+    || fail "wayland: --down, --up: $(tr '\n' ' ' < "$tmp/wl-down.log")"
+  set +e; "$sb" run --wayland -- "$sb" click 1 1 --down 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q "use --hold" "$tmp/err" \
-    && ok "wayland: key --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
+    && ok "wayland: click --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
   # Shift+W held by one command: keys pressed, typed or held by others are
   # shifted too, and pressing W again doesn't let it go. And a hold killed
   # outright, which can't let go, is cleared with --up.
@@ -1352,16 +1359,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     '$sb' key --up e && '$sb' key --hold 0.1 e && sleep 0.3"
   grep -q "press A" "$tmp/wl-mods.log" && grep -q "press B" "$tmp/wl-mods.log" \
     && grep -q "press C" "$tmp/wl-mods.log" && [ "$(grep -c "release [Ww]" "$tmp/wl-mods.log")" = 1 ] \
-    && [ "$(grep -c "press e" "$tmp/wl-mods.log")" = 2 ] \
+    && [ "$(grep -c "release e" "$tmp/wl-mods.log")" = 2 ] \
     && ok "wayland: a chord held by one command shifts another's and stays down; a killed hold is let go with --up" \
     || fail "wayland: held across commands: $(tr '\n' ' ' < "$tmp/wl-mods.log")"
-  "$sb" run --wayland -- sh -c "
-    '$sb' term --size 40x6 --log '$tmp/wl-keys.log' -- sh -c cat & t=\$!
-    '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term &&
-    for c in a b c d e f g h i j k l m n o p q r s t; do '$sb' type \$c; done
-    '$sb' key Return; sleep 0.5; kill \$t 2>/dev/null"
-  tr -d '\r' < "$tmp/wl-keys.log" | grep -aqx abcdefghijklmnopqrst \
-    && ok "wayland: twenty keyboards, no first key lost" || fail "wayland: a key went missing"
   if xwayland; then
     "$sb" run --xwayland -- sh -c "
       GDK_BACKEND=x11 '$sb' term --size 40x6 --log '$tmp/xw-in.log' -- sh -c cat & t=\$!
@@ -1385,15 +1385,36 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
       '$sb' wait announce 'notes\.md' --timeout 10" \
       && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
-    # GTK 4 says where the focus is only once a key's been pressed.
+    # The focus, read by a command of its own after another's key, and with
+    # no key ever pressed, in GTK 4 and GTK 3: they say where it is only
+    # while there's a keyboard, and the session's lasts.
+    "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' wait window a11y-test >/dev/null &&
+      '$sb' key Tab && sleep 0.5 && '$sb' a11y tree --window a11y-test > '$tmp/wl-f4'
+      '$win' g3 '$tmp/g3' & '$sb' wait window g3 >/dev/null && sleep 0.5 &&
+      '$sb' a11y tree --window g3 > '$tmp/wl-f3'" \
+      && grep -q 'focusable, focused' "$tmp/wl-f4" && grep -q 'text .*focusable, focused' "$tmp/wl-f3" \
+      && ok "wayland: a11y: the focus, GTK 4's and GTK 3's, read between commands" \
+      || { fail "wayland: a11y: the focus between commands"; cat "$tmp/wl-f4" "$tmp/wl-f3"; }
+    # So libadwaita's alert dialog is heard as the focus goes in, as the
+    # program starts and again once answered (1.6 on: see part a11y).
+    if python3 -c 'import gi, sys; gi.require_version("Adw", "1")
+from gi.repository import Adw; sys.exit(Adw.get_minor_version() < 6)'; then
+      "$sb" run --wayland --announce-log "$tmp/wl-said" -- sh -c "'$app' alert &
+        '$sb' wait window a11y-test >/dev/null && '$sb' wait announce '^Name is taken\$' --timeout 10 &&
+        '$sb' key Escape && '$sb' wait announce '^Name is taken\$' --timeout 10" 2>/dev/null \
+        && ok "wayland: a11y: libadwaita's alert dialog, as the focus goes in" \
+        || { fail "wayland: a11y: libadwaita's alert dialog"; cat "$tmp/wl-said"; }
+    else
+      echo "skip  wayland: a11y: libadwaita's alert dialog: libadwaita before 1.6"
+    fi
     "$sb" run --wayland --a11y -- sh -c "'$app' notes > '$tmp/wl-typed' & '$sb' wait window a11y-test >/dev/null &&
       '$sb' a11y tabwalk --window a11y-test" > "$tmp/wl-walk" \
       && grep -q '^round again after' "$tmp/wl-walk" && [ ! -s "$tmp/wl-typed" ] \
       && ok "wayland: a11y: tabwalk, from a text view, typing nothing" \
       || { fail "wayland: a11y: tabwalk"; cat "$tmp/wl-walk" "$tmp/wl-typed"; }
   fi
-  pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
-    || ok "wayland: sway stops with the session"
+  pgrep -f "$wl/shotbox-.*/(sway\.conf|keyboard\.sock)" >/dev/null && fail "wayland: sway or its keyboard left running" \
+    || ok "wayland: sway and its keyboard stop with the session"
   [ -z "$(ours_xwayland)" ] \
     && ok "xwayland: Xwayland stops with the session" || fail "xwayland: Xwayland left running"
   unset TMPDIR
@@ -1694,7 +1715,7 @@ import os, subprocess, sys, time
 sys.path.insert(0, {sys.argv[1]!r})
 subprocess.Popen([sys.executable, "-c", "import sys; sys.path.insert(0, {sys.argv[1]!r}); "
                   "from shotbox.pad import serve; serve(*sys.argv[1:])",
-                  "{d}/pads.sock", "1", "{d}/ready", str(os.getpid())])
+                  "{d}/pads.sock", "{d}/ready", "1", str(os.getpid())])
 time.sleep(60)"""])
 end = time.monotonic() + 10
 while not os.path.exists(f"{d}/ready") and time.monotonic() < end:

@@ -162,7 +162,10 @@ is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
 there's no window manager to do that for a window that comes up after
 another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
 display directly, or on Wayland sway's virtual keyboard and pointer, so
-they need nothing installed.
+they need nothing installed. On Wayland the keyboard is the session's,
+made as it starts and shared by every command until it stops, so
+programs always have one, as on a desktop: GTK says where the focus is,
+and draws the caret of a field with the focus, between commands too.
 
 ## Holding keys and buttons
 
@@ -171,13 +174,14 @@ how long they're down. `shotbox key --hold SECS CHORD...` presses the
 chords together, keeps them down that long, and lets go, last first;
 `shotbox click X Y --hold SECS` does that with a button. To hold one while
 doing something else, run it in the background: `shotbox key --hold 2 w &
-shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
-down, across commands, until the same command with `--up`; on Wayland a
-virtual keyboard's keys go up when the command ends, so `--down` is refused
-there, saying to use `--hold` (a hold killed outright, which can't let go,
-is cleared with `--up`). A chord already held isn't pressed again, or let
-go by pressing it, and keys pressed or typed while one is held leave its
-keys down. As
+shotbox click 300 200 --hold 1`. `--down` presses and leaves it down,
+across commands, until the same command with `--up` (X11's server keeps
+it down, and on Wayland the session's keyboard); a Wayland virtual
+pointer's buttons go up when the command ends, so `click --down` is
+refused there, saying to use `--hold`. A hold killed outright, which
+can't let go, is cleared with `--up`. A chord already held isn't pressed
+again, or let go by pressing it, and keys pressed or typed while one
+is held leave its keys down. As
 on a real keyboard, a shifted symbol held
 with other keys shifts them too, and a key held past the repeat delay
 (about half a second) repeats.

@@ -289,7 +289,7 @@ def read_line(conn, seconds):
     return data.split(b"\n", 1)[0] if b"\n" in data else b""
 
 
-def serve(sock_path, count, ready, parent):
+def serve(sock_path, ready, count, parent):
     """Make `count` pads, write their nodes to `ready` (a JSON list), and
     answer requests on the Unix socket at `sock_path`, a JSON line each,
     until stopped, or until the process `parent` stops."""
