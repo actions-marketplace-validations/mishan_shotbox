@@ -634,10 +634,12 @@ alert, notification or info bar saying it's showing
 `GtkInfoBar`, and Qt's `QMessageBox`, do; or the focus going into one,
 as into libadwaita's `AdwAlertDialog`, which GTK 4 doesn't say is
 showing. That's once while the focus stays in it, and again each time it
-comes back, as Orca reads it. On Wayland, GTK 4 says where the focus is
-only while shotbox's own keyboard is open, as within `play` or a `key
---hold`, so a GTK 4 alert dialog isn't heard after separate `shotbox
-key` calls. Before libadwaita 1.6 (Ubuntu 24.04's 1.5), an alert dialog
+comes back, as Orca reads it; and a window that comes up is looked in
+for the focus, as Orca does, since a program just started can say where
+it is before what's there can be asked about. On Wayland, GTK 4 says
+where the focus is only while shotbox's own keyboard is open, as within
+`play` or a `key --hold`, so a GTK 4 alert dialog isn't heard after
+separate `shotbox key` calls. Before libadwaita 1.6 (Ubuntu 24.04's 1.5), an alert dialog
 is a dialog with no name, of which Orca 46 says only "dialog", and isn't
 recorded. It's written with its name and the names of the labels in it,
 but not its buttons': `assertive: Warning Delete notes.md? It can't be

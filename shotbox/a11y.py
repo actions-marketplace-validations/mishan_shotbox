@@ -1504,15 +1504,17 @@ def record(out):
     focus = {}
 
     def focused(event):
-        if not event.detail1:
-            return
+        if event.detail1:
+            went(event.source)
+
+    def went(acc):
         try:
             left = focus.get("alert")
-            focus.update(acc=event.source, name=event.source.get_name())
+            focus.update(acc=acc, name=acc.get_name())
             # GTK 4 says nothing of an alert dialog showing: Orca reads it
             # as the focus goes into it, as it does any dialog, and again
             # each time it comes back. A page's alerts are its live regions.
-            up, here = event.source.get_parent(), None
+            up, here = acc.get_parent(), None
             for _ in range(50):
                 role = int(up.get_role()) if up else None
                 if role in alerts:
@@ -1528,6 +1530,34 @@ def record(out):
                 told.discard(left)
         except Exception:   # gone
             pass
+
+    def activated(event):
+        # A program just started can say where its focus is before it can
+        # be asked about what's there, which then can't be heard; so once
+        # it can be, a window that comes up is looked in for its focus, as
+        # Orca reads it.
+        tries = [20]
+
+        def look():
+            try:
+                acc = holding_focus(event.source)
+            except Exception:   # not there yet, or gone
+                tries[0] -= 1
+                return tries[0] > 0
+            if acc:
+                went(acc)
+            return False
+        GLib.timeout_add(100, look)
+
+    def holding_focus(acc, depth=0):
+        if acc.get_state_set().contains(Atspi.StateType.FOCUSED):
+            return acc
+        for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())):
+            if c and depth < 50 and c.get_state_set().contains(Atspi.StateType.SHOWING):
+                found = holding_focus(c, depth + 1)
+                if found:
+                    return found
+        return None
 
     def renamed(event):
         name = event.any_data
@@ -1560,10 +1590,11 @@ def record(out):
     controls, texts = roles(Atspi, CONTROLS), roles(Atspi, ("LABEL", "STATIC"))
     live = Atspi.EventListener.new(inserted)
     live.register("object:text-changed:insert")
-    listeners = [Atspi.EventListener.new(f) for f in (shown, focused, renamed)]
+    listeners = [Atspi.EventListener.new(f) for f in (shown, focused, renamed, activated)]
     for listener, kind in zip(listeners, ("object:state-changed:showing",
                                           "object:state-changed:focused",
-                                          "object:property-change:accessible-name")):
+                                          "object:property-change:accessible-name",
+                                          "window:activate")):
         listener.register(kind)
     # A round-trip on libatspi's own connection, after the registration it
     # sent without waiting, so programs started next are told of it.

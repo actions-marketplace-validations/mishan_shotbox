@@ -66,6 +66,10 @@
 
 ### Fixed
 
+- Announcements: an alert dialog that comes up with its program, the
+  focus in it, could go unheard, the program saying where the focus is
+  before what's there could be asked about; a window that comes up is
+  now looked in for it.
 - GTK 4 before 4.10.3: the tree, lint, `click` and the walks take
   what's in a window, not the window alone (GTK said only its windows
   were showing); before 4.10, a node GTK names by its class
