@@ -2,8 +2,26 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- **`a11y contrast --json` keeps what wasn't measured apart**: it's an
+  object, not a list: `problems`, each node with its `problem`, and
+  `notes`, each with its `note` and `why`, for what wasn't measured and
+  doesn't fail. They came in one list, told apart by `fails`, so a
+  script counting entries counted the notes as failures. No `fails` key
+  now. `Screen.contrast()` gives the same dict, its lists of nodes, and
+  has no `notes` argument: the notes are always there. `a11y lint
+  --json` is as it was.
+
 ### Added
 
+- `a11y contrast --passes` says what passes too, after what fails, a line
+  each with its ratio and colors (`PATH: text passes at 10.84:1, #2e2e32
+  on #e6e6e7 (at least 4.5)`), and for GTK 4's text, how far from where
+  GTK says it was found: to compare one version with another, or check
+  where text was found, without setting each ratio to 30. `--json` lists
+  them as `passes`, each with its `contrast`; `Screen.contrast(passes=True)`
+  and MCP's `check_contrast` with `passes` have them too.
 - `shotbox a11y speak [--keys KEY...]`: what a screen reader says, from
   a real Orca started in the session for it, with a home of its own
   there and no speech or braille output. It presses Tab until the

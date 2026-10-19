@@ -150,7 +150,7 @@ for preset in ({}, {"dark": True}, {"high_contrast": True}, {"text_scale": 1.5})
     with shotbox.Session(a11y=True, **preset) as s:
         s.spawn(["gnome-calculator"], log="calculator.log")
         s.wait_window("Calculator")
-        for node in s.contrast(window="Calculator"):
+        for node in s.contrast(window="Calculator")["problems"]:
             print(preset, node.name or node.role, node.problem)
 ```
 
