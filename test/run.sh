@@ -624,11 +624,13 @@ st=$?; set -e
 # flickers, said in the band's own colors, and so does a strip whose black
 # is a dark gray with noise in it, one with something passing through most
 # of its tile, one beside a scene moving on all along, and one over plain
-# gray beside a square changing, and two grays 6% apart; an X flashing
+# gray beside a square changing, two grays 6% apart, and stripes
+# swapping, each the other moved across, not scrolling; an X flashing
 # white flashes; and a still window, a moving square, slowly or through
 # a tile in a picture or stepping past tiles to a sliver of it at the
-# edge, text scrolling past, close or spaced, a listing's lines, or pages
-# of them between blanks, a line's steps crawling, an edge between two
+# edge, text scrolling past, close, by halves of a pixel, or spaced, a
+# listing's lines, or pages of them between blanks, a line's steps
+# crawling, an edge between two
 # faces 8% apart sweeping past, two poles alike crossing, a line missing
 # for a picture or a step of it a row lower, and a terminal's page drawn
 # anew, its caret gone with it, none; and a panel with a word in it flashing
@@ -649,12 +651,13 @@ sheets() {
 flickered=""
 for c in "flip 30 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms, (#000000 and #009900|#009900 and #000000)" "flip 500 0" \
          "flash 40 1 ^flash: 200x120[+]0[+]0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
-         "move - 0" "scroll - 0" "spaced - 0" "strip - 1 ^flicker: 200x120[+]0[+]0, .* ms, #00.* and #00" \
+         "move - 0" "scroll - 0" "smooth - 0" "spaced - 0" "strip - 1 ^flicker: 200x120[+]0[+]0, .* ms, #00.* and #00" \
          "scene - 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms" \
          "band 3 1 ^flicker: 16x120[+]176[+]0, .* every [1-5][0-9] ms, .*#000000" \
          "band 1 1 ^flicker: 16x120[+]176[+]0, " "noisy - 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms" \
          "fast - 0" "panel - 1 ^flash: .*, #ffffff for [2-6][0-9] ms in " "text - 0" "pages - 0" \
          "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120[+]176[+]0, " "skip - 0" \
+         "grating - 1 ^flicker: 16x120[+]0[+]0, .* every [1-5][0-9] ms" \
          "edge - 1 ^flicker: 16x120[+]176[+]0, " "gray - 1 ^flicker: 200x120[+]0[+]0, " "poles - 0" \
          "busy - 1 ^flicker: 16x120[+]176[+]0, " "icon - 1 ^flash: 16x16[+]64[+]48, #ffffff" \
          "dropout - 0" "redraw - 0" "stair - 0"; do

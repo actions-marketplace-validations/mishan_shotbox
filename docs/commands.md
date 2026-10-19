@@ -275,7 +275,9 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 - A flash: A, B, A, from a picture that held still, to one color where
   it differs (a frame drawn black), a shape of it, a band, a line, an
   icon, as scattered strokes of text drawn once aren't, and back; each
-  said. A line no more than two pixels wide, apart from what's either
+  said. A is seen to hold longer than `--brief` before and after, within
+  the watch: a change at its start or end, A cut short, isn't one. A line
+  no more than two pixels wide, apart from what's either
   side of it, gone for a picture to the color of one side isn't one, nor
   is something moving through, which turns the tiles beside it that
   held still the same way, briefly, with its colors, within `--brief`,
@@ -299,8 +301,14 @@ sweeping past, text scrolling past (as many of its looks as not in the
 picture before or after, up or down, pixel for pixel), or a frozen frame
 that isn't one color between live ones. Text scrolled by fractions of a
 pixel, as GTK 4's or kinetic scrolling or a browser at a fractional
-scale may, is drawn anew each picture, and where its rows repeat can be
-called flicker. `--ignore G` leaves out a box that flickers on
+scale may, is drawn anew each picture, never the same pixels moved, so
+a flicker's look is also matched as a video encoder does, against the
+picture before or after moved up or down by up to a tile, to half a
+pixel: a shift that leaves half or less of what differs in place is
+scrolling, asked of about eight of its pictures. Not across, as stripes
+swapping are each other moved across. Text scrolled smoothly by more
+than a tile a picture, or across, can still be called flicker where
+its rows repeat. `--ignore G` leaves out a box that flickers on
 purpose. Pictures are kept as they're taken and looked at after, a tile
 again only where it changed: a busy screen, every picture different, is
 pictured more slowly, kept at about 150 MB a second of watching, and

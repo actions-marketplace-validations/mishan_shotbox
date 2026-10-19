@@ -3,8 +3,8 @@
 [corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
 TITLE caret MS, or TITLE spinner, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
-or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
+or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
+or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
 edge, gray, busy, icon, dropout, beep, fields, alert or wide. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
@@ -533,6 +533,23 @@ elif sys.argv[2:3] in (["edge"], ["gray"]):
     GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     GLib.timeout_add(150, lambda: area.queue_draw() or True)
     w.add(area)
+elif sys.argv[2:3] == ["grating"]:
+    # Black and white stripes 6 pixels wide swapping every 30 ms, a white
+    # rule every 10 rows: each look is the other moved a stripe across,
+    # which isn't scrolling.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0)
+        for x in range(n[0] % 2 * 6, 200, 12):
+            for y in range(0, 120, 10):
+                cr.rectangle(x, y + 1, 6, 9)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
 elif sys.argv[2:3] == ["gradient"]:
     # Two faces 8% apart, the edge between them sweeping past unevenly,
     # forward and back a little each frame, as a turning view's do.
@@ -584,10 +601,10 @@ elif sys.argv[2:3] == ["strip"]:
         return True
     GLib.timeout_add(30, swap)
     w.add(area)
-elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"], ["fast"]):
+elif sys.argv[2:3] in (["move"], ["scroll"], ["smooth"], ["spaced"], ["fast"]):
     # Motion, which is neither: a black square crossing white at 300
-    # pixels a second, or lines of text scrolling up at 200.
-    area, began = Gtk.DrawingArea(), GLib.get_monotonic_time()
+    # pixels a second, or lines of text scrolling up at 200, or at 250.
+    area, began, n = Gtk.DrawingArea(), GLib.get_monotonic_time(), [0]
 
     def draw(a, cr):
         t = (GLib.get_monotonic_time() - began) / 1e6
@@ -603,14 +620,17 @@ elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"], ["fast"]):
             cr.fill()
         else:
             # Lines 14 pixels apart, scrolled by whole pixels as a terminal
-            # or a GTK 3 list is, or 40, smoothly, with white between.
-            gap = 14 if sys.argv[2] == "scroll" else 40
-            dy = int(t * 200) if gap == 14 else t * 200
+            # or a GTK 3 list is, or 40, smoothly, with white between; or 15,
+            # by half a line a frame, as GTK 4 scrolls by fractions of a
+            # pixel: rows the same every other frame, never shifted whole.
+            gap = {"scroll": 14, "smooth": 15}.get(sys.argv[2], 40)
+            dy = {"scroll": int(t * 200), "smooth": n[0] * 7.5}.get(sys.argv[2], t * 200)
             for line in range(120 // gap + 2):
                 cr.move_to(4, 14 + line * gap - dy % gap)
-                cr.show_text(f"line {line + int(t * 200 / gap)}: the quick brown fox")
+                cr.show_text(f"line {line + int(dy / gap)}: the quick brown fox")
     area.connect("draw", draw)
-    GLib.timeout_add(16, lambda: area.queue_draw() or True)
+    GLib.timeout_add(30 if sys.argv[2] == "smooth" else 16,
+                     lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)
 elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)

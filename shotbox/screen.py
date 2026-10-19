@@ -501,7 +501,12 @@ class Screen:
         # nor a line shown once a flash; a run is scrolling if as many of its
         # looks are as aren't. One color all over says nothing; another look the same
         # down the tile, a gradient across, a border, a strip, is anywhere
-        # up or down, and holds its place as scrolling text doesn't.
+        # up or down, and holds its place as scrolling text doesn't. A
+        # flicker's look may be a near copy, moved, as text scrolled by
+        # fractions of a pixel is; that's asked of about eight of its
+        # pictures, by an odd step so both looks are, as finding it costs
+        # more, and they're scrolling if as many of those are as aren't.
+        few = {(n, k) for n, f in found["flicker"].items() for k in f[5][::len(f[5]) // 8 | 1]}
         ask = {}
         for n, k in ([(n, k) for n, f in found["flicker"].items() for k in f[5]]
                      + [(n, k) for n, fs in found["flash"].items() for f in fs for k in f[4:]]):
@@ -525,12 +530,14 @@ class Screen:
                 at = columns[tx].find(here)
                 while at >= 0 and (at % step or at == ty * step):
                     at = columns[tx].find(here, at + 1)
-                if at >= 0:
+                if at >= 0 or (n, k) in few and flicker.moved(here, f, width, tx, ty,
+                                                               step // 3, tile, fuzz):
                     scrolled.add((n, k))
         def scrolling(n, pictures):
             told = [(n, k) in scrolled for k in pictures if (n, k) in say]
             return bool(told) and 2 * sum(told) >= len(told)
-        found["flicker"] = {n: f for n, f in found["flicker"].items() if not scrolling(n, f[5])}
+        found["flicker"] = {n: f for n, f in found["flicker"].items() if not scrolling(n, f[5])
+                            and not scrolling(n, [k for k in f[5] if (n, k) in few])}
         found["flash"] = {n: [f for f in fs if not scrolling(n, f[4:])]
                           for n, fs in found["flash"].items()}
         out, seen = [], []

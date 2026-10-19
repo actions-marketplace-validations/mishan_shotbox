@@ -23,17 +23,19 @@ through doesn't; or one of them does, one color each time where they
 differ, a band drawn black between frames of a scene that moves on, not
 one color, or a shape of it, as pages of text over their background
 aren't. A flash is to one color where it differs, a shape of it, from a
-picture that held still and back to it, and not a thin line gone to
-the color beside it; and the tiles round it don't change about then, as
-they do when something moves through. A look that's in the picture
-before or after, up or down the screen, the same pixel for pixel, is
-text scrolling, and neither. Text scrolled by fractions of a pixel (GTK
-4's or kinetic scrolling, a browser at a fractional scale) is drawn anew
-each picture, never the same, and can be called flicker where its rows
-repeat.
+picture that held still and back to it, A held longer than `brief`
+either side, not cut short by the start or end of watching; and not a
+thin line gone to the color beside it; and the tiles round it don't
+change about then, as they do when something moves through. A look
+that's in the picture before or after, up or down the screen, the same
+pixel for pixel, is text scrolling, and neither; and so is a flicker's
+look that's near it moved a little, as text scrolled by fractions of a
+pixel (GTK 4's or kinetic scrolling, a browser at a fractional scale)
+is, drawn anew each picture, never the same.
 """
 
 import functools
+import operator
 from collections import Counter
 
 from .x import differ
@@ -97,6 +99,41 @@ def alike(a, b, fuzz):
     black that isn't clean is within. Text scrolling past differs by more,
     in its strokes."""
     return differ(a, b, 2 * fuzz, len(a) // 150) <= len(a) // 150
+
+
+def moved(here, picture, width, x, y, wide, reach, fuzz):
+    """Whether a tile's RGB pixels `here`, `wide` across, at `x`, `y` in a
+    `picture` `width` across, are that picture's moved up or down by up to
+    `reach`, near enough, where it isn't the same picture: text scrolled
+    by fractions of a pixel, drawn anew each time, is no copy. Block
+    matching, as a video encoder's motion search: the shift whose rows'
+    sums of green are nearest, if no more than half as far as in place,
+    and its pixels, or half a pixel either side, too. Not across: stripes
+    swapping are each other moved across, and that's flicker."""
+    high, w3, row = len(here) // 3 // wide, wide * 3, width * 3
+
+    def box(dy):
+        at = (y + dy) * row + x * 3
+        return b"".join(picture[a:a + w3] for a in range(at, at + high * row, row))
+
+    def apart(a, b):
+        return sum(map(abs, map(operator.sub, a, b)))
+
+    still = box(0)
+    if alike(here, still, fuzz):
+        return False
+    top = max(0, y - reach)
+    mine = [sum(here[a + 1:a + w3:3]) for a in range(0, len(here), w3)]
+    theirs = [sum(picture[a + 1:a + w3:3]) for a in
+              range(top * row + x * 3, min(len(picture) // row, y + high + reach) * row, row)]
+    far = {d: apart(mine, theirs[d - top + y:d - top + y + high])
+           for d in range(top - y, top - y + len(theirs) - high + 1)}
+    d = min((d for d in far if d), key=far.get, default=0)
+    if not d or 2 * far[d] > far[0]:
+        return False
+    at = box(d)
+    return any(2 * apart(here, t) <= apart(here, still) for t in [at] + [
+        bytes(map(lambda p, q: (p + q + 1) // 2, at, box(e))) for e in (d - 1, d + 1) if e in far])
 
 
 def recur(shown, fuzz, where, line):
@@ -268,10 +305,12 @@ def find(held, brief, times, fuzz, pixels, wide):
                    [st[3] for st in seq[1:]])
             best = run if best is None or changes > best[1] else best
         # A flash: from a picture that held still, to a color, and back:
-        # what's moving holds no picture still, though it come back. And
+        # what's moving holds no picture still, though it come back. Held,
+        # longer than brief, as only the first and last states, cut short
+        # by watching, may not be: motion before or after went unseen. And
         # it's a shape gone to that color, a band, a line, an icon, not
         # the scattered strokes of text drawn once, nor a line gone.
-        elif (changes == 2 and back[0] and plains[1]
+        elif (changes == 2 and seq[0][2] > brief < seq[2][2] and back[0] and plains[1]
               and alike(a, pixels(seq[1][3] - 1), fuzz) and filled(where, wide, high)
               and not dropped(a, b, where, wide, fuzz)):
             flashes.append((seq[1][1], seq[1][2], looks[1], looks[0], seq[1][3], seq[2][3]))
