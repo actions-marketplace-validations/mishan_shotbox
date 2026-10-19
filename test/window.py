@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
+TITLE caret MS, or TITLE spinner, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
@@ -133,6 +134,28 @@ elif sys.argv[2:3] == ["flip"]:
         return True
     GLib.timeout_add(int(sys.argv[3]), flip)
     w.add(square)
+elif sys.argv[2:3] == ["caret"]:
+    # A caret drawn on a timer of its own, as a game's is: a bar 2 by 16
+    # after a word, shown and hidden every MS milliseconds.
+    area, shown = Gtk.DrawingArea(), [True]
+
+    def draw(a, cr):
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0)
+        cr.move_to(10, 30)
+        cr.show_text("hello")
+        if shown[0]:
+            cr.rectangle(50, 18, 2, 16)
+            cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(int(sys.argv[3]), lambda: shown.__setitem__(0, not shown[0])
+                     or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:] == ["spinner"]:
+    spinner = Gtk.Spinner()
+    spinner.start()
+    w.add(spinner)
 elif sys.argv[2:3] == ["flash"]:
     # A green square that goes black for MS milliseconds, every second.
     square, black = Gtk.DrawingArea(), [False]

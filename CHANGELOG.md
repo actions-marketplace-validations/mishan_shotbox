@@ -84,6 +84,23 @@
   contrast took as a real size. GTK 3's -1 by -1, for what it doesn't
   draw, is `null` too, and still not linted, nor a failure in contrast.
   docs/accessibility.md, "Where a node is".
+- `shoot --twice` (and `term --shoot --twice`) passed a picture with a
+  blinking caret in it, both runs catching it in the same phase. Now
+  the first run is watched for 2.5 seconds after its picture, and
+  something blinking fails it, said with where and how often (`a cursor
+  (or something) blinks at 4x16+48+16 every 530 ms`); it takes that much
+  longer. A look held a second or more isn't caught. And fewer carets
+  blink in a session: GTK 3's on Wayland, read from GSettings, and Qt
+  6.5's or later on X11 and Xwayland, read from XSETTINGS, which a
+  session now serves (but under `--desktop`, which leaves that to the
+  desktop), are off with GTK's. Qt 5's, and Qt 6's before 6.5, have no
+  setting to turn off. docs/desktop.md, "Blinking carets".
+- GTK 3 on Wayland animated (a spinner spun), reading
+  `enable-animations` from GSettings over `settings.ini`. A session's
+  GSettings are now a keyfile in its scratch home, not memory, saying
+  that and the caret's blink are off, over the system's defaults (its
+  vendor's overrides included); what a program sets there is seen by
+  the session's other programs too, and goes with the session.
 
 ## 0.8.0 — 2026-10-18
 
