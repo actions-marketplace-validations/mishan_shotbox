@@ -101,6 +101,13 @@
   that and the caret's blink are off, over the system's defaults (its
   vendor's overrides included); what a program sets there is seen by
   the session's other programs too, and goes with the session.
+- `flicker` doesn't find a flash at the start or end of watching: a
+  change whose look before or after the watch cut short, as a square
+  moving off a tile in its first picture, or an edge sweeping past in
+  its last, was taken for one (`flash: 24x16+176+48, #e47878 for 30 ms
+  in #ffffff, at 0.005s`), the motion beside it unseen. A flash's look
+  before and after must hold longer than `--brief`, as it always did
+  in the middle of a watch.
 
 ## 0.8.0 — 2026-10-18
 

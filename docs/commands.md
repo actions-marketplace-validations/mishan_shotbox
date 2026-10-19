@@ -275,7 +275,9 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 - A flash: A, B, A, from a picture that held still, to one color where
   it differs (a frame drawn black), a shape of it, a band, a line, an
   icon, as scattered strokes of text drawn once aren't, and back; each
-  said. A line no more than two pixels wide, apart from what's either
+  said. A is seen to hold longer than `--brief` before and after, within
+  the watch: a change at its start or end, A cut short, isn't one. A line
+  no more than two pixels wide, apart from what's either
   side of it, gone for a picture to the color of one side isn't one, nor
   is something moving through, which turns the tiles beside it that
   held still the same way, briefly, with its colors, within `--brief`,
