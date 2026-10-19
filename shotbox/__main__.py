@@ -87,7 +87,7 @@ def session_options(p, display=True):
                        help="the display's size (1280x800)")
     g.add_argument("--desktop", action="store_true",
                    help="real GSettings (dconf) and the system's D-Bus services, "
-                        "for desktop shells; the default is in-memory settings "
+                        "for desktop shells; the default is settings of its own "
                         "and nothing activatable")
     g.add_argument("--system-bus", action="store_true", help="a stand-in system bus too")
     g.add_argument("--seed", metavar="DIR", help="start the scratch home as a copy of DIR")
@@ -319,7 +319,7 @@ def twice(a, cmd, waits):
     with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
         pics = [Path(tmp) / "1.png", Path(tmp) / "2.png"]
         for pic in pics:
-            if take(a, cmd, waits, pic):
+            if take(a, cmd, waits, pic, watch=pic == pics[0]):
                 return 1
         try:
             n, box = x.compare(*pics, fuzz=fuzz, box=True)
@@ -336,8 +336,13 @@ def twice(a, cmd, waits):
     return 0
 
 
-def take(a, cmd, waits, out):
-    """shoot's picture, to `out`, in a session of its own."""
+def take(a, cmd, waits, out, watch=False):
+    """shoot's picture, to `out`, in a session of its own. With `watch`,
+    then watched for something blinking, a caret drawn on a timer of its
+    own, say, which two runs would catch in the same phase: each starts
+    the program at the same time. 2.5 seconds is two blinks of GTK's,
+    the slowest common one; after the picture, so it's taken when the
+    other run's is."""
     with session(a) as s:
         s.failed = a.failed or str(Path(a.out).with_name(Path(a.out).stem + "-failed.png"))
         log = a.log or str(s.scratch / "command.log")
@@ -356,6 +361,16 @@ def take(a, cmd, waits, out):
             if not crop and (s.scratch / "crop").exists():
                 crop = (s.scratch / "crop").read_text().strip()
             s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision)
+            # Tiles of 4, so a caret of 7 pixels fills one; a look held
+            # up to a second, three times, is one GTK holds for 800 ms.
+            blink = watch and next((f for f in s.flicker(2.5, window=a.window, crop=crop, tile=4,
+                                                         brief=1, times=3)[0]
+                                    if f["kind"] == "flicker"), None)
+            if blink:
+                sys.stderr.write(f"shotbox: taken twice, but a cursor (or something) blinks at "
+                                 f"{blink['box']} every {blink['every'] * 1000:.0f} ms, so the "
+                                 "picture depends on when it's taken\n")
+                return 1
         except SessionError as e:
             sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
             return 1

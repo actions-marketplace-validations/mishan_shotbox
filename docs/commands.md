@@ -52,13 +52,21 @@ sealed session, waits, takes the picture and stops everything.
   (`--failed FILE` for elsewhere).
 - `--twice` takes the picture in two fresh sessions, one after the other,
   and fails if they differ, saying how many pixels and the box they're in
-  (`210 pixels differ, in 12x18 at 30,212`: a blinking cursor), with the
+  (`210 pixels differ, in 12x18 at 30,212`: a clock), with the
   difference marked in red beside OUT, as `OUT-diff.png`; if they're
   alike, one is kept as OUT. A picture is only worth committing if it
   comes out the same every time, and this proves it does. `--fuzz` and
-  `--max` as `compare` takes them, for a program that dithers. It doubles
-  the time, so it's for now and then: a new picture, or before a release.
-  `term --shoot` takes it too.
+  `--max` as `compare` takes them, for a program that dithers. Something
+  blinking, a caret the session can't turn off (see
+  [Blinking carets](desktop.md#blinking-carets)), would be caught in the
+  same phase both times, each run starting the program on the same
+  timeline, so the first run is watched for 2.5 seconds after its picture,
+  and a part that switches between two looks, each held up to a second,
+  three times, fails it: `a cursor (or something) blinks at 4x16+48+16
+  every 530 ms`, the box in what's taken. A look held a second or more
+  each time isn't caught: a toggle once a second passes. It doubles the
+  time, and 2.5 seconds more, so it's for now and then: a new picture,
+  or before a release. `term --shoot` takes it too.
 
 ## run, wait, capture and record
 

@@ -4,8 +4,8 @@ Everything a screenshot needs to be reproducible and harmless. Nothing run
 inside can reach your desktop: DISPLAY, WAYLAND_DISPLAY and the session bus
 are gone, the environment is rebuilt from an allowlist rather than scrubbed
 from a denylist, and HOME and every XDG directory point into a scratch dir
-that is removed afterwards. Settings are in-memory and portals are off, so
-apps come up with their own defaults instead of yours.
+that is removed afterwards. Settings are the session's own and portals are
+off, so apps come up with their own defaults instead of yours.
 
     with Session(size=(1280, 800)) as s:
         s.spawn(["gnome-text-editor"])
@@ -61,7 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import kept, pad, usage, wl
+from . import kept, pad, usage, wl, xtest
 from .x import CONVERT
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
@@ -71,7 +71,7 @@ from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for 
 PASS = ("PATH", "USER", "LOGNAME", "SHELL", "TERM", "SHOTBOX_SANDBOX")
 
 # Deterministic GTK: X11 on Xvfb, the software renderer, no portals, no
-# accessibility bus, in-memory settings, nothing mounted.
+# accessibility bus, settings in the scratch home's keyfile, nothing mounted.
 SEALED_ENV = {
     "LANG": "C.UTF-8",
     "TZ": "UTC",
@@ -85,7 +85,7 @@ SEALED_ENV = {
     "GTK_A11Y": "none",
     "NO_AT_BRIDGE": "1",
     "GIO_USE_VFS": "local",
-    "GSETTINGS_BACKEND": "memory",
+    "GSETTINGS_BACKEND": "keyfile",
 }
 
 BUS_CONFIG = """<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
@@ -252,14 +252,15 @@ def presets(toolkit, dark, high_contrast, text_scale, minor=None):
 
 def settings(text):
     """The keys `text`, a settings.ini, sets in its [Settings] group, the
-    one GTK reads."""
-    group, keys = None, set()
+    one GTK reads, with their values."""
+    group, keys = None, {}
     for line in text.splitlines():
         bare = line.strip()
         if bare.startswith("["):
             group = bare
         elif group == "[Settings]" and "=" in bare and not bare.startswith(("#", ";")):
-            keys.add(bare.split("=", 1)[0].strip())
+            key, value = bare.split("=", 1)
+            keys[key.strip()] = value.strip()
     return keys
 
 
@@ -646,7 +647,8 @@ class Session(Screen):
         self.scratch = None
         self.env = None
         self.failed = failed
-        self._x = None
+        self._x = self._xsettings = None
+        self._blink = True
         self._procs = []
         self._watch = None
 
@@ -710,6 +712,9 @@ class Session(Screen):
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
+            if not self._blink and "DISPLAY" in self.env and not self.desktop:
+                self._xsettings = xtest.Display(self.env)
+                self._xsettings.own_settings({"Net/CursorBlink": 0})
             if self.desktop:
                 self._activation_env()
             if self.text_scale and "DISPLAY" in self.env:
@@ -831,7 +836,8 @@ class Session(Screen):
             (home / d).mkdir(parents=True, exist_ok=True)
         # GTK apps: no blinking text caret, which a picture would catch on
         # or off at random, and no animations, which it would catch mid-way.
-        # A seeded home's own settings win, but for the presets asked for.
+        # A seeded home's own settings win, but for the presets asked for;
+        # GTK 3's caret is said again where GTK 3 on Wayland and Qt 6 look.
         minor = gtk4_minor()
         for gtk in ("gtk-3.0", "gtk-4.0"):
             ini = home / ".config" / gtk / "settings.ini"
@@ -849,6 +855,18 @@ class Session(Screen):
                 more["gtk-font-rendering"] = "manual"
             if more:
                 ini.write_text(merge(ini.read_text(), more))
+            if gtk == "gtk-3.0":
+                keys = settings(ini.read_text())
+                self._blink = keys.get("gtk-cursor-blink") in (None, "true", "1")
+                still = keys.get("gtk-enable-animations") in ("false", "0")
+        # GTK 3 on Wayland reads these from GSettings, over settings.ini: the
+        # session's own keyfile, which nothing of a seed's stands in for.
+        keyfile = home / ".config" / "glib-2.0" / "settings" / "keyfile"
+        unfold(home, keyfile)
+        keyfile.parent.mkdir(parents=True, exist_ok=True)
+        keyfile.write_text("[org/gnome/desktop/interface]\n" + "".join(
+            f"{k}=false\n" for k, off in (("cursor-blink", not self._blink),
+                                          ("enable-animations", still)) if off))
         run = self.scratch / "run"
         run.mkdir(mode=0o700)
 
@@ -1353,6 +1371,8 @@ class Session(Screen):
             self.used = self.usage()
         for proc in reversed(self._procs):
             kill_group(proc)
+        if self._xsettings:
+            self._xsettings.close()
         if self._watch is not None:
             # Its processes stopped, the session needs no watchdog, and a
             # Ctrl-C cutting what's left short mustn't set it on a

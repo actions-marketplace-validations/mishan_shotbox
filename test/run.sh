@@ -476,6 +476,61 @@ st=$?; set -e
 [ $st = 1 ] && grep -q "pixels differ, in [0-9]*x[0-9]* at [0-9]*,[0-9]*; see .*clock-diff.png" "$tmp/err" \
   && [ -s "$tmp/clock-diff.png" ] && [ ! -e "$tmp/clock.png" ] \
   && ok "term --shoot --twice: a clock differs, and where" || fail "--twice, a clock: $st $(cat "$tmp/err")"
+# --twice and carets, each given the keyboard before the picture: GTK's
+# doesn't blink in a session, and passes; one drawn on a timer of its own,
+# every 530 ms, blinks, said with where and how often, and so does Qt 5's,
+# or Qt 6's before 6.5, which nothing a session sets reaches; a later Qt
+# 6's doesn't.
+cat > "$tmp/qt.py" <<'EOF'
+import importlib, sys
+qt = importlib.import_module(sys.argv[1] + ".QtWidgets")
+app = qt.QApplication(sys.argv)
+edit = qt.QLineEdit()
+edit.setWindowTitle("qt")
+edit.show()
+app.exec()
+EOF
+caret() {
+  w=$1; shift
+  set +e; "$sb" shoot "$tmp/caret-$w.png" --twice --window "$w" --wait ready -- sh -c "$* &
+    '$sb' wait window '$w' >/dev/null && '$sb' focus '$w' && touch \"\$SHOTBOX_SCRATCH/ready\"; wait" \
+    > /dev/null 2> "$tmp/err"; st=$?; set -e
+}
+blinks="but a cursor (or something) blinks at [0-9]*x[0-9]*[+][0-9]*[+][0-9]* every [3-6][0-9][0-9] ms"
+caret t1 "'$here/window.py' t1 '$tmp/typed'"
+[ $st = 0 ] && ok "--twice: GTK's caret doesn't blink" || fail "--twice, GTK's caret: $st $(cat "$tmp/err")"
+caret drawn "'$here/window.py' drawn caret 530"
+[ $st = 1 ] && grep -q "$blinks" "$tmp/err" && grep -q " at [0-9]*x[0-9]*[+]48[+]" "$tmp/err" \
+  && [ ! -e "$tmp/caret-drawn.png" ] && ok "--twice: a caret blinking on its own timer, said" \
+  || fail "--twice, a drawn caret: $st $(cat "$tmp/err")"
+for qt in PyQt5 PyQt6; do
+  if ! python3 -c "import $qt.QtWidgets" 2>/dev/null; then echo "skip  --twice, $qt's caret: no $qt"; continue; fi
+  caret qt "python3 '$tmp/qt.py' $qt"
+  v=$(python3 -c "from $qt.QtCore import QT_VERSION_STR; print(QT_VERSION_STR)")
+  case $v in 5.*|6.[0-4].*) want=1 ;; *) want=0 ;; esac
+  case $want$st in
+    11) grep -q "$blinks" "$tmp/err" && ok "--twice: Qt $v's caret blinks, said" || fail "--twice, Qt $v: $(cat "$tmp/err")" ;;
+    00) ok "--twice: Qt $v's caret doesn't blink" ;;
+    *) fail "--twice, Qt $v's caret: $st $(cat "$tmp/err")" ;;
+  esac
+done
+# GSettings: the system's defaults, its vendor's overrides included, but
+# for the caret's blink and animations, off; a seed's keyfile, linked
+# out, never written.
+dump="gsettings list-recursively org.gnome.desktop.interface | sort"
+if command -v gsettings >/dev/null && GSETTINGS_BACKEND=memory sh -c "$dump" 2>/dev/null | grep -q .; then
+  mkdir -p "$tmp/gs/.config/glib-2.0/settings"
+  printf "[org/gnome/desktop/interface]\nfont-name='Mine 9'\n" > "$tmp/gs.keyfile"
+  cp "$tmp/gs.keyfile" "$tmp/gs.orig"
+  ln -s "$tmp/gs.keyfile" "$tmp/gs/.config/glib-2.0/settings/keyfile"
+  GSETTINGS_BACKEND=memory LC_ALL=C.UTF-8 sh -c "$dump" \
+    | sed -E 's/^(org.gnome.desktop.interface (cursor-blink|enable-animations)) true$/\1 false/' \
+    | sort > "$tmp/gs.want"
+  "$sb" run --seed "$tmp/gs" -- sh -c "$dump" > "$tmp/gs.got"
+  cmp -s "$tmp/gs.want" "$tmp/gs.got" && cmp -s "$tmp/gs.keyfile" "$tmp/gs.orig" \
+    && ok "GSettings: the system's defaults, but for the caret's blink and animations" \
+    || fail "GSettings: $(diff "$tmp/gs.want" "$tmp/gs.got"; diff "$tmp/gs.orig" "$tmp/gs.keyfile")"
+fi
 
 # Stable: waits out a burst of output, and gives up on output that never stops.
 "$sb" run -- sh -c "
@@ -1245,6 +1300,24 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     sh -c 'echo hi; echo there' >/dev/null \
     && ok "wayland: term --shoot, cropped ($(identify -format %wx%h "$tmp/w6.png"))" \
     || fail "wayland: term --shoot"
+  # GTK 3 on Wayland reads its caret's blink and its animations from
+  # GSettings, over settings.ini: an entry's caret, given the keyboard
+  # (headless sway has one only while a key is held), blinks with a seeded
+  # settings.ini that turns it on, and not without; a spinner holds still.
+  mkdir -p "$tmp/blinky/.config/gtk-3.0"
+  printf '[Settings]\ngtk-cursor-blink = true\n' > "$tmp/blinky/.config/gtk-3.0/settings.ini"
+  wl_blink() {
+    set +e; "$sb" run --wayland "$@" -- sh -c "'$win' wb '$tmp/wb' & '$sb' wait window wb >/dev/null &&
+      '$sb' focus wb && { '$sb' key --hold 4 shift & sleep 0.5; } &&
+      '$sb' flicker --window wb --seconds 2.5 --brief 1000 --times 3 --tile 4" > "$tmp/out" 2>&1
+    echo $?; set -e
+  }
+  steady=$(wl_blink); blinky=$(wl_blink --seed "$tmp/blinky")
+  [ "$steady $blinky" = "0 1" ] && ok "wayland: GTK 3's caret doesn't blink, but for a seed's settings" \
+    || fail "wayland: GTK 3's caret: $steady $blinky $(cat "$tmp/out")"
+  "$sb" run --wayland -- sh -c "'$win' sp spinner & '$sb' wait window sp >/dev/null &&
+    '$sb' wait --timeout 3 --window sp stable 1" >/dev/null 2>&1 \
+    && ok "wayland: GTK 3's spinner holds still" || fail "wayland: GTK 3's spinner moves"
   # Input: the same as X11's, then a new keyboard for every key, none of
   # which may lose its first (wtype lost one in a spike; shotbox never
   # has), then an X client.

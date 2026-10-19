@@ -31,10 +31,40 @@ size it asks for, as on X11: it isn't GNOME's Mutter or KDE's KWin. See
 
 ## Animations
 
-GTK's animations are off (`gtk-enable-animations = false`), so pictures
-don't catch a transition halfway. That hides a bug in an animation, and
-a program can't be tested for honoring reduced motion, since nothing in a
-session asks for it; there's no option yet to turn them back on.
+GTK's animations are off (`gtk-enable-animations = false`, and
+`enable-animations` false in GSettings, where GTK 3 on Wayland reads
+it), so pictures don't catch a transition halfway. That hides a bug in
+an animation, and a program can't be tested for honoring reduced
+motion, since nothing in a session asks for it; there's no option yet
+to turn them back on.
+
+## Blinking carets
+
+A text caret doesn't blink where one setting reaches it, and toolkits
+read it from different places:
+
+| Program | X11 (and Xwayland) | Wayland |
+|---|---|---|
+| GTK 3, and VTE terminals left to GTK's blink | `settings.ini` | GSettings |
+| GTK 4 | `settings.ini` | `settings.ini` |
+| Chromium, Chrome, Firefox | GTK's | not checked |
+| Qt 6.5 or later | XSETTINGS | blinks |
+| Qt 5, Qt 6 before 6.5 | blinks | blinks |
+
+So a session's `settings.ini` says `gtk-cursor-blink = false`; its
+GSettings, a keyfile in the scratch home (`GSETTINGS_BACKEND=keyfile`)
+over the system's defaults, say `cursor-blink` false (a seed's own
+keyfile is replaced); and on X11 it holds the XSETTINGS selection for
+as long as it runs, saying `Net/CursorBlink` 0 and nothing else, so no
+other XSETTINGS manager (xsettingsd, say) can take it. `--desktop` uses
+the desktop's own GSettings and XSETTINGS manager, so it leaves
+blinking to the desktop. Qt 5, and Qt 6 before 6.5, take no setting for
+it: Qt 5's GTK platform theme takes GTK's blink time, not whether to
+blink. Nor is there one for a caret on a timer of its own, a game's, or
+a terminal's with a setting of its own (xterm's `cursorBlink`, off
+unless set). `shoot --twice` finds what's left. A seeded home whose GTK
+3 `settings.ini` turns blinking on, or leaves it out (GTK's default is
+on), gets it in all of them.
 
 ## Language and direction
 

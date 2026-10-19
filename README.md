@@ -102,7 +102,7 @@ all want the same things, and every project was growing its own copy:
   file written, text on a terminal's screen, or the picture holding still.
   No `sleep 6` and hope.
 - **Deterministic.** X11 on Xvfb, GTK's software renderer, `LANG=C.UTF-8`,
-  `TZ=UTC`, a cursor that doesn't blink (GTK's text caret included, and GTK's
+  `TZ=UTC`, text carets that don't blink (GTK's, Qt 6.5's, browsers'; and GTK's
   animations off), GTK 4's text drawn at its color, as its manual font
   rendering does, not fainter by however much a GTK release's automatic
   one draws it ([more](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md#contrast)), and PNGs with no

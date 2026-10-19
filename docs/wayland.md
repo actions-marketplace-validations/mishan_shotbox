@@ -91,7 +91,7 @@ can connect for as long as the session lasts.
   committed picture belongs to one backend.
 - **Window geometry** is sway's rect for the window, which leaves the
   shadow out, so a point inside a window is where it would be on X11.
-- **Xwayland isn't Xvfb either.** An X client there has no XSETTINGS to
+- **Xwayland isn't Xvfb either.** An X client there has no XSETTINGS DPI to
   read, so GTK falls back to 96 dpi and draws its text smaller than the
   same program does as a Wayland client, as it would on a desktop.
 - **A window's name** is its title, as on X11, and `app=RE` matches its

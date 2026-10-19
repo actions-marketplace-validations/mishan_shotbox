@@ -13,8 +13,8 @@ Sealed:
 - A display, a session bus (nothing activatable on it, so no gvfs, dconf
   or portals start behind your back), an accessibility bus with `--a11y`,
   and a sound server with `--audio` (its sink plays to nowhere), all the
-  session's own. Settings are in-memory, so apps come up with their own
-  defaults, not yours.
+  session's own. Settings (GSettings) are a keyfile in the scratch home,
+  so apps come up with the system's defaults, not yours.
 - Under bubblewrap, which every program the session spawns runs in where it
   can: `/dev/snd` is empty, so nothing plays to the machine's sound
   devices, and `/run/user/UID` is (and `XDG_RUNTIME_DIR`, if that's
