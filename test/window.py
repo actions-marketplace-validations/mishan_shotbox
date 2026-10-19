@@ -4,7 +4,7 @@
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
-edge, gray, busy, icon, dropout, beep, fields or wide. With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout, beep, fields, alert or wide. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -16,9 +16,12 @@ text, which needs only 3:1; and a dot, too small to measure. With slow, a square
 turns dark MS milliseconds after the pointer comes into the window, and
 light again that long after it leaves: a known latency. With fields, an
 entry named by its mnemonic label, and a search bar not revealed, in a
-notebook with its tabs hidden. With dot, a "." and nothing else. With
-wide, a window 1000 pixels wide, a label as wide, its text at the right,
-and below it a button at each end."""
+notebook with its tabs hidden. With alert, a Check button that shows an
+error in an info bar and is renamed Checked, a Resend button that counts
+down to 1s, and a Delete button that asks in a message dialog, its window
+titled Delete. With dot,
+a "." and nothing else. With wide, a window 1000 pixels wide, a label
+as wide, its text at the right, and below it a button at each end."""
 
 import sys
 
@@ -80,6 +83,29 @@ elif sys.argv[2:] == ["fields"]:
     book = Gtk.Notebook(show_tabs=False)
     book.append_page(box)
     w.add(book)
+elif sys.argv[2:] == ["alert"]:
+    # The bar shown, not revealed: revealing one says nothing of it showing.
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    bar = Gtk.InfoBar(message_type=Gtk.MessageType.ERROR, no_show_all=True)
+    bar.get_content_area().add(Gtk.Label(label="Name is taken", visible=True))
+    check = Gtk.Button(label="Check")
+    check.connect("clicked", lambda b: (bar.show(), b.set_label("Checked")))
+    resend = Gtk.Button(label="Resend in 5s")
+
+    def tick(left):
+        resend.set_label(f"Resend in {left}s")
+        if left > 1:
+            GLib.timeout_add(200, tick, left - 1)
+        return False
+    resend.connect("clicked", lambda b: tick(4))
+    delete = Gtk.Button(label="Delete")
+    delete.connect("clicked", lambda b: Gtk.MessageDialog(
+        transient_for=w, title="Delete", message_type=Gtk.MessageType.WARNING,
+        buttons=Gtk.ButtonsType.OK_CANCEL, text="Delete notes.md?",
+        secondary_text="It can't be undone.").show())
+    for widget in (bar, check, resend, delete):
+        box.add(widget)
+    w.add(box)
 elif sys.argv[2:3] == ["slow"]:
     late = int(sys.argv[3])
     square = Gtk.DrawingArea()

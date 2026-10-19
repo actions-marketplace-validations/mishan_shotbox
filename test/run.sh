@@ -1061,6 +1061,48 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     && [ "$(cat "$tmp/said")" = "$(printf 'polite: Saved to notes.md\npolite: Saved to notes.md')" ] \
     && ok "a11y: announcements, logged, and each waited for once" \
     || { fail "a11y: announcements"; cat "$tmp/said"; }
+  # What Orca says as it comes: GTK 3's info bar and message dialog, the
+  # dialog again once the focus has left it and come back, the focus
+  # renamed but not counting down; libadwaita's alert dialog, which says
+  # what was just announced, and again, but not its toast's alert; and a
+  # Qt message box.
+  "$sb" run --announce-log "$tmp/said" -- sh -c "'$here/window.py' alerts alert &
+    '$sb' wait window alerts >/dev/null && '$sb' focus alerts && '$sb' key space &&
+    '$sb' wait announce '^Error Name is taken$' --timeout 10 && '$sb' wait announce '^Checked$' --timeout 10 &&
+    '$sb' key Tab space && sleep 1.5 &&
+    '$sb' key Tab space && '$sb' wait announce 'notes\.md\? It can.t be undone\.$' --timeout 10 &&
+    '$sb' focus Delete && sleep 0.5 && '$sb' focus alerts && '$sb' focus Delete &&
+    '$sb' wait announce 'notes\.md' --timeout 10" \
+    && [ "$(cat "$tmp/said")" = "$(printf '%s\n' 'assertive: Error Name is taken' 'polite: Checked' \
+         "assertive: Warning Delete notes.md? It can't be undone." \
+         "assertive: Warning Delete notes.md? It can't be undone.")" ] \
+    && ok "a11y: announcements: GTK 3's info bar and message dialog, again, the focus renamed, not counting down" \
+    || { fail "a11y: announcements, GTK 3"; cat "$tmp/said"; }
+  # libadwaita before 1.6 (Ubuntu 24.04's 1.5) makes an alert dialog a
+  # dialog with no name, and a toast a panel it doesn't announce: Orca 46
+  # says "dialog", and none of them is heard.
+  if python3 -c 'import gi, sys; gi.require_version("Adw", "1")
+from gi.repository import Adw; sys.exit(Adw.get_minor_version() < 6)'; then
+    asked="'$sb' wait announce '^Name is taken\$' --timeout 10" toast="'$sb' wait announce toast --timeout 10"
+    heard="$(printf '%s\n' 'polite: Error: Name is taken, pick another' 'assertive: Name is taken' \
+             'assertive: Name is taken' 'polite: A toast appeared: Saved to notes.md')"
+  else
+    asked="sleep 1" toast="sleep 1" heard='polite: Error: Name is taken, pick another'
+  fi
+  "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' alert & '$sb' wait window a11y-test >/dev/null &&
+    '$sb' wait announce '^Error' --timeout 10 && $asked && '$sb' key Escape && $asked &&
+    '$sb' key Escape && sleep 0.5 && '$sb' key space && $toast && '$sb' key Tab && sleep 1" 2>/dev/null \
+    && [ "$(cat "$tmp/said")" = "$heard" ] \
+    && ok "a11y: announcements: libadwaita's alert dialog, as the focus goes in, each time; its toast once" \
+    || { fail "a11y: announcements, libadwaita"; cat "$tmp/said"; }
+  if python3 -c 'import PyQt5.QtWidgets' 2>/dev/null; then
+    "$sb" run --announce-log "$tmp/said" -- sh -c "'$here/qt_window.py' & '$sb' wait window qt-alert >/dev/null &&
+      '$sb' a11y click Delete >/dev/null && '$sb' wait announce 'notes\.md' --timeout 10" 2>/dev/null \
+      && [ "$(cat "$tmp/said")" = 'assertive: Warning Delete notes.md?' ] \
+      && ok "a11y: announcements: a Qt message box" || { fail "a11y: announcements, Qt"; cat "$tmp/said"; }
+  else
+    echo "skip  a11y: announcements, Qt: no PyQt5"
+  fi
   set +e; "$sb" run -- "$sb" a11y tree 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q -- "--a11y" "$tmp/err" && ok "a11y: without --a11y, no tree, and says why" \
     || fail "a11y: no bus: $st"

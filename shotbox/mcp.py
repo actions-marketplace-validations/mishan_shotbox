@@ -1102,7 +1102,9 @@ TOOLS = [
     ("list_announcements",
      "List what programs in the session have announced to a screen reader since it "
      "started, oldest first, a line each with its politeness: \"polite: Saved\", "
-     "\"assertive: Error\". That's GTK's announcements and a browser's live regions. "
+     "\"assertive: Error\". That's GTK's announcements, a browser's live regions, "
+     "alerts and info bars as they appear (GTK 3's, Qt's, libadwaita's) and the focus "
+     "renamed. "
      "Reading doesn't clear them; \"Nothing announced yet.\" means none so far. Use it to "
      "check what a screen reader user heard after an action; to wait for one, use wait_for "
      "announcement.",
