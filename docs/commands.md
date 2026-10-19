@@ -10,13 +10,14 @@ Every session needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick, `xwininfo` and 
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
 `--gamepads`, write access to `/dev/uinput`; for `record`, ffmpeg; for
-`--clock`, libfaketime; and
+`--clock`, libfaketime; for `a11y speak`, Orca too; and
 bubblewrap, which `--gamepads` needs, and which [seals](sealed.md)
 more where it's there.
 
 `shotbox --version` says which shotbox this is. `shotbox doctor` says
 which of these are here, a line each: what
-sessions need, and each of their options, `term` and `record`. A command
+sessions need, and each of their options, `term`, `record` and `a11y
+speak`. A command
 missing one fails before it starts anything, in a line saying what's
 missing and how to get it, as `Session` and MCP's `start_session` do.
 `doctor` fails only if what every session needs is missing. Its last
@@ -449,7 +450,9 @@ shotbox listen soak.wav
 
 ## a11y and wait announce
 
-In a session with `--a11y`: [Accessibility](accessibility.md#commands).
+In a session with `--a11y`: [Accessibility](accessibility.md#commands),
+and for `a11y speak`, what Orca says as the focus moves, [What a screen
+reader says](accessibility.md#what-a-screen-reader-says).
 
 ## pad
 

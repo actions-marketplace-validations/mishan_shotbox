@@ -995,6 +995,45 @@ if atspi; then
     && [ ! -s "$tmp/typed" ] \
     && ok "a11y: tabwalk finds a focus trap: a text view nothing gets out of, in a dialog too" \
     || { fail "a11y: trap ($st, $st2)"; cat "$tmp/walk" "$tmp/dialog" "$tmp/typed"; }
+  # An Orca whose Python leaves out PYTHONPATH or site would run as it
+  # is, out loud: it isn't started.
+  mkdir -p "$tmp/isolated"
+  for flags in -I -Es; do
+    printf '#!/usr/bin/python3 %s\nopen("%s/ran", "w")\n' "$flags" "$tmp" > "$tmp/isolated/orca"
+    chmod +x "$tmp/isolated/orca"
+    set +e; "$sb" run --a11y -- sh -c "PATH='$tmp/isolated':\$PATH '$sb' a11y speak" 2> "$tmp/err"; st=$?; set -e
+    [ $st != 0 ] && grep -q "won't start Orca: its interpreter, /usr/bin/python3 $flags, ignores" "$tmp/err" \
+      && [ ! -e "$tmp/ran" ] && ok "a11y: speak refuses an Orca run with $flags, which would leave out its stubs" \
+      || fail "a11y: speak with $flags ($st): $(cat "$tmp/err")"
+  done
+  # What a real Orca says: as it starts, and at each stop, a button by its
+  # name and role, one with no name by its role alone, a field by its
+  # mnemonic label, a label over two lines; named so a desktop's Orca
+  # doesn't take it for another; in a window slow to move the focus, each
+  # stop still said; and nothing typed into a text view, which takes Tab.
+  # As releases say it: a period at the end before Orca 51, and "push
+  # button" before at-spi2-core 2.54.
+  if command -v orca >/dev/null; then
+    "$sb" run --a11y -- sh -c "'$app' form lines & '$sb' a11y speak --window a11y-test > '$tmp/speak' & s=\$!
+      until grep -qs 'SPEECH OUTPUT' \$SHOTBOX_SCRATCH/orca-*/debug.out; do sleep 0.1; done
+      for p in \$(pgrep -f -- \"--debug-file \$SHOTBOX_SCRATCH\"); do cat /proc/\$p/comm; done
+      wait \$s" > "$tmp/named"
+    "$sb" run --a11y -- sh -c "'$app' slow & '$sb' a11y speak --window a11y-test" > "$tmp/slow"
+    "$sb" run --a11y -- sh -c "'$app' notes > '$tmp/typed' & '$sb' a11y speak --window a11y-test" \
+      > "$tmp/notes"
+    grep -qx '(start) \(push \)\{0,1\}button "Save" \[focusable, focused\]  says .*"Save \(push \)\{0,1\}button\.\{0,1\}"' "$tmp/speak" \
+      && grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]  says "\(push \)\{0,1\}button\.\{0,1\}"' "$tmp/speak" \
+      && grep -q '^text "Name:" .*  says "Name: text' "$tmp/speak" \
+      && grep -q '  says "Line one\\nLine two \(push \)\{0,1\}button\.\{0,1\}"$' "$tmp/speak" \
+      && [ "$(cat "$tmp/named")" = shotbox-orca ] \
+      && [ "$(grep -c '  says "[^"]*button' "$tmp/slow")" -ge 3 ] && ! grep -q "didn't move" "$tmp/slow" \
+      && grep -q '^stopped before Tab in a text view' "$tmp/notes" && [ ! -s "$tmp/typed" ] \
+      && ok "a11y: speak: what Orca says, of buttons named and not, a mnemonic, two lines; slow, and not in a text view" \
+      || { fail "a11y: speak"; cat "$tmp/speak" "$tmp/named" "$tmp/slow" "$tmp/notes" "$tmp/typed"; }
+  else
+    [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
+      || echo "skip  a11y: speak: no Orca"
+  fi
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&

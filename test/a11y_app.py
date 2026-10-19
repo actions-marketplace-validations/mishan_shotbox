@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long] [keys]. Its icon-only button,
+[thin] [long] [keys] [form] [lines] [slow]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -12,7 +12,9 @@ is lists and a notebook instead, `one` a single button, and
 `faint` adds a label too light to read and a disabled button, `thin` one in small monospace
 spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a scrolled
 list running far past the window, and `keys` buttons named as a calculator's are, which
-aren't regexes or match more than themselves as one.
+aren't regexes or match more than themselves as one; `form` adds a field
+named by a label with a mnemonic, `lines` a button labeled over two lines,
+and `slow` moves the focus a second after Tab.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -21,7 +23,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 
 def lists():
@@ -87,6 +89,13 @@ def activate(app):
                      accessible_role=Gtk.AccessibleRole.PRESENTATION)
     for widget in (save, delete, announce, wrap, entry, status, mark, sketch, faint, thin, later):
         box.append(widget)
+    if "form" in sys.argv:
+        name = Gtk.Entry()
+        box.append(Gtk.Label.new_with_mnemonic("_Name:"))
+        box.get_last_child().set_mnemonic_widget(name)
+        box.append(name)
+    if "lines" in sys.argv:
+        box.append(Gtk.Button(label="Line one\nLine two"))
     notes = Gtk.TextView()
     notes.get_buffer().set_text("notes")
     notes.get_buffer().connect("changed", lambda b: print(repr(b.props.text), flush=True))
@@ -122,6 +131,15 @@ def activate(app):
         if "unfocusable" in sys.argv:
             view.append(Gtk.Button(label="Play", focusable=False))
     w.set_content(view)
+    if "slow" in sys.argv:
+        def later(c, key, code, state):
+            if key != Gdk.KEY_Tab:
+                return False
+            GLib.timeout_add(1000, lambda: w.child_focus(Gtk.DirectionType.TAB_FORWARD) and False)
+            return True
+        slow = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        slow.connect("key-pressed", later)
+        w.add_controller(slow)
     w.present()
     if "dialog" in sys.argv:
         # Escape, a way out of a text view elsewhere, closes a dialog.

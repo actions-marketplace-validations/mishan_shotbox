@@ -105,6 +105,7 @@ it arbitrary commands, typed with `type_text`.
 | `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
 | `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes |
+| `get_speech` | what Orca, a real screen reader started for the call, says after each press of Tab or of the keys given, with the focused node's tree line: [What a screen reader says](accessibility.md#what-a-screen-reader-says) |
 | `list_announcements` | what's been announced to a screen reader |
 | `record_audio` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
 
@@ -215,7 +216,7 @@ Calls are answered one at a time, in turn, and the waits are bounded: a
 timeout of at most 300 seconds, and a Tab walk of at most 200 presses. A
 thread reads stdin as requests come, so `ping` is answered at once, even
 during a long call, and `notifications/cancelled` calls off the request
-it names: its waits stop, as do a click by name, `check_focus_order`,
+it names: its waits stop, as do a click by name, `check_focus_order`, `get_speech`,
 `check_accessible_names`, `check_contrast` or a recording it's in the
 middle of (the clip is finished short), its answer isn't sent, and the session is left as it was. When
 stdin closes, the call running is called off the same way, those sent
@@ -229,6 +230,7 @@ Most calls take a second or two. Those that can run long:
 - `wait_for`, up to its `timeout`, 300 seconds at most;
 - `record_video`, up to 60 seconds and then a few for its frames;
 - `check_focus_order`, a few seconds a press, up to 200 presses;
+- `get_speech`, a few seconds for Orca to start, and a second a press;
 - `click_element` by name, up to its `timeout`, while the node doesn't show.
 
 Many clients give up on a call after about 60 seconds, and cancel it.

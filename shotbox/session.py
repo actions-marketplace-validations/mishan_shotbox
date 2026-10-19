@@ -439,6 +439,7 @@ NEEDS = {
     "--xwayland": lambda: lacks("Xwayland", "xprop"),
     "--desktop": lambda: lacks("gdbus"),
     "--a11y": a11y_needs,
+    "a11y speak": lambda: a11y_needs() or lacks("orca"),
     "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
     "--gamepads": gamepad_needs,
     "--net": lambda: lacks("bwrap", "nsenter"),

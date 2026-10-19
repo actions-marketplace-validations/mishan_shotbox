@@ -143,6 +143,7 @@ bubblewrap make its sandbox, which Ubuntu's AppArmor holds back:
 - uses: mishan/shotbox@v0.8.0
   with:
     a11y: true        # --a11y and `shotbox a11y`
+    speak: true       # `shotbox a11y speak`: Orca, and what a11y installs
     term: true        # `shotbox term`
     # wayland, audio, record, gamepads and clock too
 - run: shotbox shoot app.png --window 'My App' -- ./my-app
