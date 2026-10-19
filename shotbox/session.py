@@ -61,7 +61,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import kept, pad, usage, wl, xtest
+from . import kept, pad, usage, wl, wlinput, xtest
 from .x import CONVERT
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
@@ -712,6 +712,9 @@ class Session(Screen):
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
+            if self.use_wayland:
+                # A keyboard for the whole session (see wlinput.py).
+                self._serve("the keyboard", "wlinput", self.env, wlinput.KEYBOARD)
             if not self._blink and "DISPLAY" in self.env and not self.desktop:
                 self._xsettings = xtest.Display(self.env)
                 self._xsettings.own_settings({"Net/CursorBlink": 0})
@@ -1162,22 +1165,29 @@ class Session(Screen):
         when the thread that made it does (Linux's parent-death signal goes
         by thread), so a Session with gamepads wants a thread that lasts as
         long as it does."""
-        ready = self.scratch / "pads.json"
+        self._pad_nodes = self._serve("the gamepads", "pad", os.environ, "pads.sock",
+                                      self.gamepads, os.getpid())
+
+    def _serve(self, what, module, env, sock, *args):
+        """Start shotbox.`module`'s serve(`sock`'s path in the scratch dir,
+        the file it says it's ready in, *args), in a process of its own
+        the session stops, with `env`; what it says, once it's ready."""
+        ready = self.scratch / f"{Path(sock).stem}.json"
         here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
         path = os.pathsep.join(filter(None, (here, os.environ.get("PYTHONPATH"))))
         # del: -c puts the current directory first, ahead of PYTHONPATH.
-        serve = ("import sys; del sys.path[0]; from shotbox.pad import serve; "
+        serve = (f"import sys; del sys.path[0]; from shotbox.{module} import serve; "
                  "sys.exit(serve(*sys.argv[1:]))")
-        proc = subprocess.Popen([sys.executable, "-c", serve, str(self.scratch / "pads.sock"),
-                                 str(self.gamepads), str(ready), str(os.getpid())],
-                                env={**os.environ, "PYTHONPATH": path},
+        proc = subprocess.Popen([sys.executable, "-c", serve, str(self.scratch / sock), str(ready),
+                                 *map(str, args)],
+                                env={**env, "PYTHONPATH": path},
                                 stdout=subprocess.DEVNULL, start_new_session=True)
         self._procs.append(proc)
-        wait_for("the gamepads", ready.exists, 10, alive=proc)
+        wait_for(what, ready.exists, 10, alive=proc)
         got = json.loads(ready.read_text())
         if isinstance(got, dict):
             raise SessionError(got["error"])
-        self._pad_nodes = got
+        return got
 
     def _start_net(self):
         """A network namespace of the session's own, for every program it

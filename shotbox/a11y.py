@@ -492,30 +492,29 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     began in or None): "cycle" once it lands somewhere it has been
     (where it began, or a stop since), "trap" if a press leaves it where
     it was, "lost" if no node has it after one, "max" if none of those;
-    "unfocused" if no node has it to begin with (X11 with no window
-    manager), and nothing is pressed into that. Shift is pressed first:
-    GTK 4 on Wayland says where the focus is only once a key has been (an
-    input method may switch modes on it). A press that leaves it on the one thing in the
-    window that could take it is a cycle of one. `key` isn't pressed in a
-    text view one writes in, which takes Tab for itself: ESCAPES are,
-    noted on it as `tried`, the one that moves the focus as `left_by`,
-    one after which its text changed as `edited`; none is a trap, and
-    one after which the text view isn't there ends the walk, "closed".
-    Escape isn't tried in a dialog, which it would close, nor shift+Tab
-    but in Qt; once that leaves, backward, the walk goes on from the first
-    thing after the text view that takes the focus (grab_focus). Where the walk
-    began in one nothing leaves, it gives the focus to the first thing
-    outside it that takes it (AT-SPI's grab_focus, which GTK 4 doesn't
-    do), so the rest of the window is walked before the trap. With
-    `visible`, each node says how much of the screen round it changed as
-    it took the focus (see shown())."""
+    "unfocused" if no node has it to begin with, after `settle` (X11 with no
+    window manager), and nothing is pressed into that. A press that leaves
+    it on the one thing in the window that could take it is a cycle of one.
+    `key` isn't pressed in a text view one writes in, which takes Tab for
+    itself: ESCAPES are, noted on it as `tried`, the one that moves the
+    focus as `left_by`, one after which its text changed as `edited`; none
+    is a trap, and one after which the text view isn't there ends the walk,
+    "closed". Escape isn't tried in a dialog, which it would close, nor
+    shift+Tab but in Qt; once that leaves, backward, the walk goes on from
+    the first thing after the text view that takes the focus (grab_focus).
+    Where the walk began in one nothing leaves, it gives the focus to the
+    first thing outside it that takes it (AT-SPI's grab_focus, which GTK 4
+    doesn't do), so the rest of the window is walked before the trap. With
+    `visible`, each node says how much of the screen round it changed as it
+    took the focus (see shown())."""
     Atspi = atspi()
     screen = Screen()
 
     def press(k, before):
-        """Press `k`, and once the focus has left `before` for a node, or
-        after `settle`, the node it's on, or None."""
-        screen.key(k)
+        """Press `k`, if any, and once the focus has left `before` for a
+        node, or after `settle`, the node it's on, or None."""
+        if k:
+            screen.key(k)
         end = time.monotonic() + settle
         while True:
             now = focused(Atspi, window)
@@ -525,7 +524,7 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             time.sleep(0.05)
 
     toplevels(Atspi, window, timeout)
-    start = press("shift", None)
+    start = press(None, None)
     if start is None:
         screen.close()
         return [], "unfocused", [], None

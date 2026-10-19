@@ -172,8 +172,6 @@ def speak(keys=None, most=50, window=None, timeout=10, settle=2.0):
     for k in keys or ():
         screen.xt.chord_keys(k)
     a11y.toplevels(Atspi, window, timeout)
-    # As tabwalk: GTK 4 on Wayland says where the focus is once a key has been pressed.
-    screen.key("shift")
     orca = Orca()
     try:
         before = a11y.focused(Atspi, window)

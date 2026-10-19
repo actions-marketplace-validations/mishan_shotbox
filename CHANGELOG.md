@@ -28,6 +28,15 @@
 
 ### Changed
 
+- On Wayland, a session has one keyboard, made as it starts and shared
+  by every command until it stops, not one a command, so programs
+  always have one, as on a desktop and on X11: GTK 4 and GTK 3 say
+  where the focus is between commands (the tree, MCP's `wait_for`
+  focus), libadwaita's alert dialog is heard as the focus goes in, and
+  a field with the focus draws its caret in pictures. `key --down`
+  works there too, and a key a hold killed outright left down stays
+  down until `--up`, as on X11; `click --down` is still refused. `a11y
+  tabwalk` and `a11y speak` no longer press Shift first.
 - `shotbox a11y tabwalk` (and `Screen.tab_walk()`, MCP's
   `check_focus_order`) reads the tree after each press only as far as
   the node with the focus, not all of it: 50 presses through a GTK 4
