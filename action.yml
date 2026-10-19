@@ -54,7 +54,7 @@ runs:
         set -euo pipefail
         pkgs="xvfb xauth dbus-daemon imagemagick x11-utils bubblewrap libglib2.0-bin fonts-dejavu-core"
         [ "$SPEAK" != true ] || { A11Y=true; pkgs="$pkgs orca"; }
-        [ "$A11Y" != true ] || pkgs="$pkgs at-spi2-core gir1.2-atspi-2.0 python3-gi"
+        [ "$A11Y" != true ] || pkgs="$pkgs at-spi2-core gir1.2-atspi-2.0 python3-gi python3-gi-cairo gir1.2-pango-1.0"
         [ "$WAYLAND" != true ] || pkgs="$pkgs sway grim xwayland"
         [ "$AUDIO" != true ] || pkgs="$pkgs pipewire pipewire-bin wireplumber"
         [ "$RECORD" != true ] || pkgs="$pkgs ffmpeg"

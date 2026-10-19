@@ -53,6 +53,25 @@
   no longer shown, a line each. Such a window passed with
   nothing measured before (nothing in it was walked); now what fails,
   fails. docs/accessibility.md, "GTK 4's positions".
+- `a11y contrast` measures the text of GTK 4.14 and later, which it left
+  out, where it finds it: it draws the node's name in the font GTK says
+  and looks for it where GTK's wrong box can be (a stack's place, which
+  GTK counts twice, taken off; up to 4.14.5 inside the box, from 4.14.6
+  as far right and down as its containers' padding and borders can
+  have moved it), and takes it only where it matches and nothing else
+  there does, nor another node's text (or placeholder), drawn there to
+  compare, and from 4.14.6 where GTK lays it out as wide as found
+  (text not all ASCII isn't measured there). A
+  failure says how far from GTK's box it was found (gnome-calculator's
+  "=", 3.76:1). Text not found (over two lines, a name that isn't
+  drawn), not looked for within 30 seconds, images, icons and edges are
+  still not measured, a line each.
+  Such a window exited 2, nothing measured, and `Screen.contrast()` and
+  MCP's `check_contrast` failed on it; now they pass or fail on its
+  text. Needs pycairo and PangoCairo (`python3-gi-cairo`,
+  `gir1.2-pango-1.0`), which the Action's `a11y: true` installs and
+  `shotbox doctor` checks for.
+  docs/accessibility.md, "GTK 4's positions".
 - Chromium's pages (Google Chrome's, Playwright's Chromium's) are read
   in an `--a11y` session without `--force-renderer-accessibility`:
   `shotbox a11y` asks a browser window for its attributes, as Orca does,

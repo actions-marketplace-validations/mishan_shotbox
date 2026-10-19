@@ -58,6 +58,7 @@ import sysconfig
 import tempfile
 import time
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -363,6 +364,23 @@ def bindings(what, where, *libs):
     return None
 
 
+@cache
+def pango_cairo():
+    """Why text can't be drawn here to look for, as `a11y contrast` does
+    for GTK 4.14 and later's, or None."""
+    where = "they're in python3-gi-cairo and gir1.2-pango-1.0 on Debian"
+    why = bindings("pycairo and PangoCairo", where, ("Pango", "1.0"), ("PangoCairo", "1.0"))
+    if why:
+        return why
+    try:
+        import cairo
+        from gi.repository import PangoCairo
+        PangoCairo.create_layout(cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1)))
+    except Exception as e:   # no pycairo, or PyGObject without its cairo part: a KeyError
+        return f"needs pycairo and PangoCairo, which this Python can't use ({e!r}): {where}"
+    return None
+
+
 def a11y_needs():
     if not any(os.access(p, os.X_OK) for p in A11Y_LAUNCHERS):
         return "not found: at-spi-bus-launcher (at-spi2-core)"
@@ -441,6 +459,7 @@ NEEDS = {
     "--desktop": lambda: lacks("gdbus"),
     "--a11y": a11y_needs,
     "a11y speak": lambda: a11y_needs() or lacks("orca"),
+    "a11y contrast on GTK 4": lambda: a11y_needs() or pango_cairo(),
     "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
     "--gamepads": gamepad_needs,
     "--net": lambda: lacks("bwrap", "nsenter"),

@@ -3,6 +3,7 @@ place changed between two pictures. On the pixels themselves, as RGB
 bytes, so it needs nothing beyond what takes the pictures.
 """
 
+import time
 from collections import Counter
 
 
@@ -155,3 +156,132 @@ def edge_contrast(pic, box):
     band = pic.colors(box, inside=3)
     got = strongest(band, out, least=max(1, sum(band.values()) // 5))
     return (got[0], got[1], out) if got else (1.0, out, out)
+
+
+def lightness(pic, x0, y0, x1, y1):
+    """The lightness of each pixel of the picture from x0, y0 up to x1, y1,
+    cut to it: (a list, row by row, its width, x0, y0)."""
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(pic.width, x1), min(pic.height, y1)
+    d, lum = pic.data, []
+    for y in range(y0, y1):
+        i = (y * pic.width + x0) * 3
+        lum += [d[j] * 2 + d[j + 1] * 5 + d[j + 2] for j in range(i, i + (x1 - x0) * 3, 3)]
+    return lum, max(0, x1 - x0), x0, y0
+
+
+def score(lum, points, at):
+    """How well the pixels from `at` in `lum` follow a shape's coverage,
+    `points` (offset, coverage): their correlation, either way round."""
+    n = len(points)
+    sa = sl = saa = sll = sal = 0
+    for off, a in points:
+        v = lum[at + off]
+        sa += a
+        sl += v
+        saa += a * a
+        sll += v * v
+        sal += a * v
+    va, vl = saa - sa * sa / n, sll - sl * sl / n
+    return abs(sal - sa * sl / n) / (va * vl) ** 0.5 if va > 0 and vl > 0 else 0.0
+
+
+def points_of(shape, width):
+    """A shape's pixels, as (offset in a picture `width` wide, coverage)."""
+    w, h, cover = shape
+    return [(i // w * width + i % w, a) for i, a in enumerate(cover)]
+
+
+def find_text(pic, kinds, area, until=None):
+    """Where text is drawn in `area` (x0, y0, x1, y1), as one of `kinds`
+    of shapes may draw it, each shape (width, height, coverage), a byte a
+    pixel, with blank columns at each side, and a kind's alike but for
+    their size. A place matches as well as its pixels' lightness follows
+    a shape's coverage (score): (match, x, y, width, height, the best
+    match of a place apart from that one, and which kind and shape of it
+    matched), its x and y those of the shape, or None if `area` can't
+    hold one, or has more places than PLACES to look at. Raises
+    TimeoutError past `until`, a monotonic time."""
+    x0, y0, x1, y1 = area
+    # The shapes' blank sides can lie outside `area`, not past the picture.
+    if (x1 - x0 + 4) * (y1 - y0) > PLACES:
+        return None
+    lum, width, gx0, gy0 = lightness(pic, x0 - 2, y0, x1 + 2, y1)
+    height = len(lum) // width if width else 0
+
+    # Summed lightness and its square, so a place all one lightness, which
+    # matches nothing, is passed over without a look: most of an area.
+    stride = width + 1
+    sums, squares = [0] * (stride * (height + 1)), [0] * (stride * (height + 1))
+    for y in range(height):
+        run = run2 = 0
+        for x in range(width):
+            v = lum[y * width + x]
+            run += v
+            run2 += v * v
+            sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + run
+            squares[(y + 1) * stride + x + 1] = squares[y * stride + x + 1] + run2
+
+    def flat(x, y, w, h):
+        a, c = y * stride + x, (y + h) * stride + x
+        total = sums[c + w] - sums[a + w] - sums[c] + sums[a]
+        return (squares[c + w] - squares[a + w] - squares[c] + squares[a]) * w * h == total * total
+
+    # A first look with a few pixels of each kind's middle shape, then
+    # each of its shapes, all of their pixels, at the places that look best.
+    best, apart = None, None
+    for k, kind in enumerate(kinds):
+        shapes = [(w, h, points_of((w, h, cover), width)) for w, h, cover in kind]
+        sw, sh, points = shapes[len(shapes) // 2]
+        inked = [p for p in points if p[1]]
+        few = inked[::max(1, len(inked) // 30)] + points[::max(1, len(points) // 30)]
+        places = []
+        for y in range(height - sh + 1):
+            if until and time.monotonic() > until:
+                raise TimeoutError
+            places += [(score(lum, few, y * width + x), x, y) for x in range(width - sw + 1)
+                       if not flat(x, y, sw, sh)]
+        places.sort(reverse=True)
+        top = max(((score(lum, p, y * width + x), x, y, w, h, k, i) for _, x, y in places[:40]
+                   for i, (w, h, p) in enumerate(shapes) if x + w <= width and y + h <= height),
+                  default=None)
+        if top and (not best or top > best):
+            best, apart = top, (shapes[top[6]][2], places)
+    if not best:
+        return None
+    # The best match of a place the best one doesn't overlap.
+    _, bx, by, bw, bh, k, i = best
+    points, places = apart
+    others = [p for p in places if (p[1] + bw <= bx or p[1] >= bx + bw or p[2] + bh <= by
+                                    or p[2] >= by + bh) and p[1] + bw <= width
+              and p[2] + bh <= height]
+    return (best[0], bx + gx0, by + gy0, bw, bh,
+            max((score(lum, points, y * width + x) for _, x, y in others[:20]), default=0.0),
+            (k, i))
+
+
+def match_over(pic, kinds, box):
+    """How well one of `kinds` of shapes (find_text's) matches what's drawn
+    over `box` (x, y, width, height): placed so the text, the shape but
+    for its blank sides, is inside the box or holds it."""
+    bx, by, bw, bh = box
+    got = 0.0
+    for kind in kinds:
+        for w, h, cover in kind:
+            tw = w - 4
+            xs = range(min(bx, bx + bw - tw), max(bx, bx + bw - tw) + 1)
+            ys = range(min(by, by + bh - h), max(by, by + bh - h) + 1)
+            lum, width, gx0, gy0 = lightness(pic, xs[0] - 2, ys[0], xs[-1] + tw + 2, ys[-1] + h)
+            if width < w or len(lum) < width * h:
+                continue
+            points = points_of((w, h, cover), width)
+            height = len(lum) // width
+            got = max([got] + [score(lum, points, (y - gy0) * width + x - 2 - gx0)
+                               for y in ys for x in xs
+                               if gx0 <= x - 2 and x - 2 - gx0 + w <= width
+                               and gy0 <= y and y - gy0 + h <= height])
+    return got
+
+
+# The most places find_text looks at: as many as there are in 600 by 200
+# pixels.
+PLACES = 120000

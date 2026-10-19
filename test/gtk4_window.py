@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""A plain GTK 4 window, with no libadwaita, for GTK 4 before 4.14:
-test/gtk4_window.py. In frames, faint labels: one GTK can't pick
-(can-target off), one under an overlay's clear child, and one in a menu
-button's popover, open below the rest; and a stack shown at its first
-page, "Gone", then its second, whose "Here" is at the other end."""
+"""A plain GTK 4 window, with no libadwaita: test/gtk4_window.py. In
+frames, faint labels: one GTK can't pick (can-target off), one under an
+overlay's clear child, and one in a menu button's popover, open below
+the rest; and a stack shown at its first page, "Gone", then its second,
+whose faint "Here" is at the other end."""
 
 import gi
 
@@ -30,7 +30,7 @@ def activate(app):
     box.append(over)
     stack = Gtk.Stack()
     stack.add_named(Gtk.Label(label="Gone", halign=Gtk.Align.START), "gone")
-    here = Gtk.Label(label="Here", halign=Gtk.Align.END)
+    here = faint("Here", halign=Gtk.Align.END)
     stack.add_named(here, "here")
     box.append(stack)
     box.append(menu)
