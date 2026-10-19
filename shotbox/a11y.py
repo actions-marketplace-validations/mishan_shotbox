@@ -1545,7 +1545,10 @@ def text_shapes(text, attrs):
     font = Pango.FontDescription()
     font.set_family(attrs.get("family-name", "Sans"))
     weight = attrs.get("weight", "")
-    font.set_weight(int(weight) if weight.isdigit() else Pango.Weight.NORMAL)
+    # CSS takes any weight (450), which GTK says, and PyGObject only Pango's
+    # named ones: the nearest.
+    font.set_weight(min(Pango.Weight.__enum_values__.values(), key=lambda w: abs(w - int(weight)))
+                    if weight.isdigit() else Pango.Weight.NORMAL)
     font.set_style(Pango.Style.ITALIC if attrs.get("style") == "italic" else Pango.Style.NORMAL)
     try:
         size = float(attrs.get("size", "")) * float(attrs.get("scale", 1))

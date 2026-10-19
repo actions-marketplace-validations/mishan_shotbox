@@ -133,6 +133,9 @@
 
 ### Fixed
 
+- `a11y contrast` crashed on GTK 4.14 and later text whose CSS weight
+  isn't one Pango names (`font-weight: 450`), measuring nothing. Its
+  text is looked for at the nearest named weight.
 - `a11y contrast` measured thin GTK 4 text lighter than its color, and
   failed it: a stem thinner than a pixel covers none whole, so a "1" in
   `#b0b0b0` on `#353535` (5.66:1) measured 3.94:1, and DejaVu Sans's
