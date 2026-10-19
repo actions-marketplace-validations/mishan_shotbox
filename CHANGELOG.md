@@ -75,6 +75,10 @@
 
 ### Fixed
 
+- On Wayland, a modifier held down alone (`key --down shift`, or `key
+  --hold 2 shift &`) didn't shift the keys pressed or typed meanwhile, nor
+  a click: `shift` was pressed without its modifier bit. Now it does, as
+  on X11.
 - Announcements: an alert dialog that comes up with its program, the
   focus in it, could go unheard, the program saying where the focus is
   before what's there could be asked about; a window that comes up is

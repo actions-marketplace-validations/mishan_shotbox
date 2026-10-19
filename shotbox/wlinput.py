@@ -223,12 +223,13 @@ class Display:
         self._send(self.keyboard, 2, struct.pack("<IIII", mask, 0, 0, 0))
 
     def _code(self, keysym, modifiers):
-        """The key's keycode, and the modifier bits to hold with it: Shift
-        too if the key's symbol is on its shifted level."""
+        """The key's keycode, and the modifier bits to hold with it: its
+        own, for a modifier, and Shift too if the key's symbol is on its
+        shifted level."""
         if keysym not in self.keys:
             raise XError(f"no key for keysym 0x{keysym:x} in shotbox's keymap")
         code, shifted = self.keys[keysym]
-        mask = MOD_BITS[SHIFT] if shifted else 0
+        mask = MOD_BITS.get(keysym, 0) | (MOD_BITS[SHIFT] if shifted else 0)
         for m in modifiers:
             mask |= MOD_BITS[m]
         return code, mask

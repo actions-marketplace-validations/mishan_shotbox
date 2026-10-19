@@ -721,16 +721,19 @@ got=$(held "$tmp/held.log")
 [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/held.log")" -ge 35 ] \
   && ok "key and click --hold: held together, let go last first" || fail "hold: $got"
 # down LOG [SESSION OPTIONS]: --down and --up, a key left down between two
-# commands: X11's server keeps it, and on Wayland the session's keyboard.
+# commands: X11's server keeps it, and on Wayland the session's keyboard;
+# and Shift left down alone shifts the next command's key.
 down() {
   log=$1; shift
   : > "$log"
   "$sb" run "$@" -- sh -c "'$here/held.py' held '$log' &
     '$sb' wait window held && '$sb' wait stable --window held &&
     '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
-    sleep 0.3" && awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log"
+    '$sb' key --down shift && '$sb' key a && '$sb' key --up shift && sleep 0.3" &&
+    awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
+    grep -q '^press A ' "$log"
 }
-down "$tmp/down.log" && ok "key --down, then --up: held between commands" || fail "--down, --up"
+down "$tmp/down.log" && ok "key --down, then --up: held between commands, Shift alone too" || fail "--down, --up: $(tr '\n' ' ' < "$tmp/down.log")"
 # Two held chords sharing Ctrl: letting go of one leaves Ctrl down for the
 # other, and one is let go however it's spelled. A chord it can't press is said before anything goes down, a hold
 # that isn't one is refused, and a hold stopped midway lets go.
@@ -1339,8 +1342,8 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   got=$(held "$tmp/wl-held.log" --wayland)
   [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/wl-held.log")" -ge 35 ] \
     && ok "wayland: key and click --hold" || fail "wayland: hold: $got"
-  down "$tmp/wl-down.log" --wayland && ok "wayland: key --down, then --up: held between commands" \
-    || fail "wayland: --down, --up"
+  down "$tmp/wl-down.log" --wayland && ok "wayland: key --down, then --up: held between commands, Shift alone too" \
+    || fail "wayland: --down, --up: $(tr '\n' ' ' < "$tmp/wl-down.log")"
   set +e; "$sb" run --wayland -- "$sb" click 1 1 --down 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q "use --hold" "$tmp/err" \
     && ok "wayland: click --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
