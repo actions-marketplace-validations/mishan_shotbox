@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-10-19
+
+GTK 4.14 and later's text measured for contrast again, found where it's
+drawn rather than where GTK says, at its color even when thin, in a
+theme's fonts, and with a reason for what isn't; `--passes` and JSON
+that keeps notes apart from failures. Sessions sealed from the
+machine's system bus and printers by default. `a11y speak` for what
+Orca says; announcements of alerts as they appear; one keyboard for a
+Wayland session, so the focus is always there to read; blinking carets
+and smoothly scrolled text no longer taken for flicker.
 
 ### Changes to check when upgrading
 
