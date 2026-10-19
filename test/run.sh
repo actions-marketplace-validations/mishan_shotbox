@@ -972,17 +972,18 @@ if atspi; then
     '$sb' a11y contrast --passes --json --window a11y-test > '$tmp/contrast.json' && exit \$s" \
     > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 1 ] && [ "$(grep -v ' not measured: GTK 4 reports its position wrong$' "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
+  [ $st = 1 ] && [ "$(grep -v ' not measured: GTK 4 reports its position wrong' "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
     && grep -q ': text passes at [0-9]*\.[0-9][0-9]:1, #[0-9a-f]\{6\} on #[0-9a-f]\{6\} (at least 4\.5)' "$tmp/contrast" \
     && python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
 assert [p['problem'][:8] for p in j['problems']] == ['text 2.5'], j['problems']
 assert j['notes'] and all(' not measured: ' in n['note'] and n['why'] for n in j['notes'])
 assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in j['passes'])" "$tmp/contrast.json" \
-    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
-    && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-    && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 4 ] \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
+    && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast" \
+    && grep -q 'check box\[[0-9]*\]/label\[[0-9]*\]: text passes at .*; found [0-9],[0-9] px from ' "$tmp/contrast" \
+    && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast")" = 4 ] \
     && grep -q "GTK 4\.[0-9.]* reports where its widgets are wrong, so text is measured where it's found" "$tmp/err" \
-    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
+    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, a full-width label's near where GTK says, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
     || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/contrast.json" "$tmp/err"; }
   # A theme's font (a seeded gtk.css), which GTK says, over a grid, so
   # nothing is all one lightness, in a window so big that from 4.14.6
@@ -998,7 +999,7 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
     '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" 2>/dev/null
   st=$?; set -e
   [ $st = 1 ] && ! grep -q 'no time left' "$tmp/contrast" \
-    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
     && ok "a11y: contrast finds GTK 4's text in a theme's font, over a grid, in a big window" \
     || { fail "a11y: contrast, GTK 4 themed ($st)"; cat "$tmp/contrast"; }
   set +e
@@ -1097,6 +1098,22 @@ EOF
     [ -z "$wrong" ] && ok "a11y: contrast, GTK 4: thin stems at their color, but not past what the shape accounts for; bold text as before" \
       || { fail "a11y: contrast, GTK 4 thin and bold text:$wrong"; cat "$tmp/contrast"; }
   fi
+  # From 4.14, text that isn't looked for says why: rows scrolled out of
+  # view, which GTK calls showing, above the list but in the window, and
+  # below the window; and from 4.22.3 a single letter, which GTK gives no
+  # width.
+  micro=$(python3 -c "import ctypes; print(ctypes.CDLL('libgtk-4.so.1').gtk_get_micro_version())")
+  while IFS='|' read -r least args lines want; do
+    [ $((minor * 100 + micro)) -ge "$least" ] || continue
+    "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --window a11y-test" \
+      < /dev/null > "$tmp/contrast" 2>&1 || true
+    [ "$(grep -c "$want" "$tmp/contrast")" = "$lines" ] \
+      && ok "a11y: contrast, GTK 4: says why it didn't look for text: $args" \
+      || { fail "a11y: contrast, GTK 4, why not: $args"; cat "$tmp/contrast"; }
+  done <<'CASES'
+1400|long down|2|/label\[\(2\|199\)\]: text not measured: not shown (scrolled out of view, or hidden)$
+2203|letter|1|: text not measured: GTK 4 reports its position wrong (a single letter: GTK gives it no width)$
+CASES
   # Before 4.14, GTK 4 says where a widget's content is: measured there,
   # faint labels in frames, one GTK can't pick, one under an overlay's
   # clear child and one on a stack's shown page too. Not measured, and
@@ -1120,7 +1137,7 @@ EOF
       && ok "a11y: contrast, GTK 4 before 4.14: in a widget's content; not a stack's page gone, a popover or an edge, said" \
       || { fail "a11y: contrast, GTK 4 before 4.14 ($st)"; cat "$tmp/contrast"; }
   else
-    [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast")" = 4 ] \
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast")" = 4 ] \
       && grep -q '\[3\]/panel\[[01]\]/label\[0\]: text 1\.9' "$tmp/contrast" \
       && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
       && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 2 ] \

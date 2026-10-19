@@ -29,8 +29,9 @@
 - `a11y contrast --passes` says what passes too, after what fails, a line
   each with its ratio and colors (`PATH: text passes at 10.84:1, #2e2e32
   on #e6e6e7 (at least 4.5)`), and for GTK 4's text, how far from where
-  GTK says it was found: to compare one version with another, or check
-  where text was found, without setting each ratio to 30. `--json` lists
+  GTK says its text is it was found: to compare one version with
+  another, or check where text was found, without setting each ratio to
+  30. `--json` lists
   them as `passes`, each with its `contrast`; `Screen.contrast(passes=True)`
   and MCP's `check_contrast` with `passes` have them too.
 - `shotbox a11y speak [--keys KEY...]`: what a screen reader says, from
@@ -91,8 +92,10 @@
   there does, nor another node's text (or placeholder), drawn there to
   compare, and from 4.14.6 where GTK lays it out as wide as found
   (text not all ASCII isn't measured there). A
-  failure says how far from GTK's box it was found (gnome-calculator's
-  "=", 3.76:1). Text not found (over two lines, a name that isn't
+  failure says how far from where GTK says its text is it was found,
+  which is how far GTK has it wrong, or where GTK doesn't say, from its
+  box's corner (gnome-calculator's "=", 3.76:1, 14,19 px). Text not
+  found (over two lines, a name that isn't
   drawn), not looked for within 30 seconds, images, icons and edges are
   still not measured, a line each.
   Such a window exited 2, nothing measured, and `Screen.contrast()` and
@@ -111,6 +114,16 @@
   not 2. A match elsewhere in the room for the best-matching shape,
   which keeps text from being taken, is always seen, and comparing
   other nodes' text keeps to the 30 seconds too.
+- `a11y contrast` doesn't look for GTK 4.14 and later's text all outside
+  its window or a scrolled window it's in (a row scrolled out of view,
+  which GTK calls showing; not in a popover, which can be drawn outside
+  both), and says so: `text not measured: not shown (scrolled out of
+  view, or hidden)`, not that it wasn't found. Nor, from 4.22.3, a
+  single letter, which GTK gives no width. The line for text not looked
+  for says why (a single letter, over more than one line, not all
+  ASCII), as its why does. On 4.16 and later, text drawn a quarter of a
+  pixel off the rows (a line set by its baseline) is found: a theme's
+  sampler's description, which matched 0.967, matches 0.995.
 - Chromium's pages (Google Chrome's, Playwright's Chromium's) are read
   in an `--a11y` session without `--force-renderer-accessibility`:
   `shotbox a11y` asks a browser window for its attributes, as Orca does,

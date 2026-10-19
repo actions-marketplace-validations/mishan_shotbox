@@ -510,7 +510,10 @@ it, since padding and borders can only put it further left and up.
 It's taken where it matches what's drawn best (a correlation of 0.98 or
 more of the drawn text's coverage with the picture's lightness, with two
 blank columns each side, worked out for each size and hinting at every
-place in the room), and not where anything else in that room
+place in the room, and on 4.16 and later, if none reaches 0.98, for
+the best of them a quarter of a pixel up, or a quarter or half down:
+those place text at fractions of a pixel, so a line set by its baseline
+can fall between rows), and not where anything else in that room
 matches 0.8 or more (the same text twice). Other text can match nearly
 as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
 "Button" 0.96, a letter-spaced or upper-case label over an entry
@@ -523,8 +526,9 @@ drawing round its child) can't be, so from 4.14.6 the text GTK lays
 out must also be as wide as the name drawn as found, within a pixel
 and a fiftieth (GTK says how wide, from 4.22.3 a character short): a
 label drawn upper case or letter-spaced isn't, and isn't taken for
-its name drawn nearby. GTK gives a single character no width, so a
-one-character name is taken only if it has no case (a digit, a "+").
+its name drawn nearby. From 4.22.3 GTK gives a single character no
+width, so a one-character name is looked for only if it has no case (a
+digit, a "+"); a letter isn't, and its line says so.
 Text that isn't all ASCII ("Über", "€ 5", "…", "÷", "×", an arrow, a
 curly quote) isn't measured from 4.14.6, until a GTK that measures its
 extents right ships, a line each saying why: GTK measures it short by
@@ -532,20 +536,40 @@ however many characters, so it can't be told apart. Up to 4.14.5 GTK
 doesn't say, and the text is looked for in the label's own box alone. A label hidden under
 something opaque, but drawn in its own font, can still be taken for
 the same text drawn visibly in the room round it. The text is measured
-in its own box, and a failure says how far the middle of that is from
-the middle of GTK's box: gnome-calculator's "=" on 4.24, white on blue,
+in its own box, and a failure says how far its top-left corner is from
+where GTK says the text is, which is how far GTK has it wrong (its
+containers' padding and borders, right and down, less a stack's place,
+counted twice), with `--passes` too: a left-aligned label in a
+full-width row, under a theme on 4.24,
 
 ```
-.../button[23]/label[0]: text 3.76:1, #ffffff on #3584e4 (at least 4.5); found -8,-11 px from where GTK 4.24.1 says
+.../list item[0]/panel[0]/panel[0]/label[0]: text passes at 14.94:1, #ebe6f0 on #16131d (at least 4.5); found 2,2 px from where GTK 4.24.1 says its text is
 ```
+
+Up to 4.14.5, and for one character from 4.22.3, GTK doesn't say where
+its text is, and it's how far from the corner of GTK's box, which takes
+in where the text sits in it (centered, or lower in a taller key):
+gnome-calculator's "=" on 4.24, white on blue,
+
+```
+.../button[23]/label[0]: text 3.76:1, #ffffff on #3584e4 (at least 4.5); found 14,19 px from the corner of the box GTK 4.24.1 says
+```
+
+Text all outside its window, or outside a scrolled window it's in,
+wherever GTK's box can put it, isn't looked for: a row scrolled out of
+view, which GTK still calls showing, `text not measured: not shown
+(scrolled out of view, or hidden)`. A row partly in view is looked for,
+and so is what's in a popover, which can be drawn outside both.
 
 What isn't found isn't measured, a line each, `text not measured: GTK 4
 reports its position wrong`, and why once (in `--json`, each such line's
-`why`): text over two lines, in more than one font (a superscript),
-letter-spaced (which GTK doesn't say), a name that isn't what's drawn,
-text with its own background at its edge or at the window's, what's
-drawn outside where GTK's box can be (a popover's label), and text with
-more than 600 by 400 pixels to look in.
+`why`). Text not looked for says why on its line too: `(a single
+letter: GTK gives it no width)`, `(over more than one line)`, `(not all
+ASCII: GTK measures its width short)`. What isn't found: text in more
+than one font (a superscript), letter-spaced (which GTK doesn't say), a
+name that isn't what's drawn, text with its own background at its edge
+or at the window's, what's drawn outside where GTK's box can be (a
+popover's label), and text with more than 600 by 400 pixels to look in.
 Looking takes up to 30 seconds in all; text not looked for by then is
 `text not measured: no time left to look for it`. Finding it needs
 pycairo and PangoCairo (`python3-gi-cairo` and `gir1.2-pango-1.0` on
