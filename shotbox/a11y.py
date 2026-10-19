@@ -1044,7 +1044,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     (scrolled out of view). A node that can't be placed, and text with
     nothing drawn on its background, are problems too: nothing says they
     can be read. But for those ignored() leaves out. (problems, what
-    wasn't measured but doesn't fail, as (node, what): text too small
+    passes, what wasn't measured but doesn't fail, as (node, what): text too small
     to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS; why GTK
     4's weren't, a line each; how many were measured)."""
     skip = ignored(ignore)
@@ -1182,7 +1182,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return False
 
     measured = [n for n in nodes if kind(n)]
-    problems, notes, whys, count = [], [], [], 0
+    problems, passes, notes, whys, count = [], [], [], [], 0
     trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
     kids, rel = {}, {}
     for n in nodes:
@@ -1442,7 +1442,13 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} ({at})"
                     if over else "")
             problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
-        elif got and got[0] < least:
+        elif got:
+            moved = (f"; found {seen[1][0]},{seen[1][1]} px from where GTK {gtk4(n)} says"
+                     if seen else "")
+            colors = f"{picture.hex_of(got[1])} on {picture.hex_of(got[2])} ({at})"
+            if got[0] >= least:
+                passes.append((n, f"{k} passes at {ratio_text(got[0])}:1, {colors}{moved}"))
+                continue
             said = said_color(Atspi, n)
             # Light or small text covers no pixel whole, so measures short of
             # its color, as text drawn see-through does: say both.
@@ -1450,10 +1456,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
-            moved = (f"; found {seen[1][0]},{seen[1][1]} px from where GTK {gtk4(n)} says"
-                     if seen else "")
-            problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
-                                f"{picture.hex_of(got[2])} ({at}){meant}{moved}"))
+            problems.append((n, f"{k} {ratio_text(got[0])}:1, {colors}{meant}{moved}"))
     if edges:
         for n in nodes:
             if not (n._showing and not disabled(n) and (
@@ -1468,11 +1471,19 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             count += bool(got)
             # A field's edge can be what it's in: a frame's.
             field = n._role in (Atspi.Role.TEXT, Atspi.Role.COMBO_BOX)
-            if got and got[0] < edges and not (field and framed(n, box)):
-                problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
-                                    f"{picture.hex_of(got[2])} (at least {edges:g})"))
+            if not got:
+                continue
+            colors = (f"{ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
+                      f"{picture.hex_of(got[2])} (at least {edges:g})")
+            if got[0] >= edges:
+                passes.append((n, f"edge passes at {colors}"))
+            elif field and framed(n, box):
+                passes.append((n, f"edge passes, drawn by what it's in; its own {colors}"))
+            else:
+                problems.append((n, f"edge {colors}"))
     notes = [(n, what) for n, what in notes if not skip(n, what)]
-    return ([(n, what) for n, what in problems if not skip(n, what)], notes,
+    return ([(n, what) for n, what in problems if not skip(n, what)],
+            [(n, what) for n, what in passes if not skip(n, what)], notes,
             [w for w in whys if any(n.get("_why") == w for n, _ in notes)], count)
 
 
@@ -1907,6 +1918,8 @@ def main(argv):
                     help="also a button's or field's edge against what's round it, "
                          "at least this (3 is WCAG's)")
     ct.add_argument("--ignore", **ignore)
+    ct.add_argument("--passes", action="store_true",
+                    help="also what passes, with its ratio, after what fails")
     for s in (t, lt, w, c, sc, ct):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
@@ -1937,23 +1950,28 @@ def main(argv):
                 print("  " * n.depth + n.line())
         return 0
     if a.what in ("lint", "contrast"):
-        notes, whys, count = [], [], 1
+        passes, notes, whys, count = [], [], [], 1
         if a.what == "lint":
             problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
         else:
-            problems, notes, whys, count = contrast(a.window, a.text, a.graphics, a.edges,
-                                                    a.timeout, a.ignore, a.large)
-        # Said apart from the lines, on stderr, so stdout is PATH: PROBLEM.
+            problems, passes, notes, whys, count = contrast(
+                a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large)
+            passes = passes if a.passes else []
+        # Said apart from the lines, on stderr, so stdout is PATH: WHAT.
         nothing = not problems and not count and whys
         said = " ".join([f"{len(notes)} not measured"
                          + ("." if nothing else ", which doesn't fail.")] + whys) if notes else ""
-        if a.json:
-            print(json.dumps([dict(public(n), problem=what, fails=fails,
-                                   **({"why": n._why} if "_why" in n else {}))
-                              for found, fails in ((problems, True), (notes, False))
-                              for n, what in found]))
+        if a.json and a.what == "lint":
+            print(json.dumps([dict(public(n), problem=what, fails=True) for n, what in problems]))
+        elif a.json:
+            print(json.dumps({"problems": [dict(public(n), problem=what) for n, what in problems],
+                              **({"passes": [dict(public(n), contrast=what) for n, what in passes]}
+                                 if a.passes else {}),
+                              "notes": [dict(public(n), note=what,
+                                             **({"why": n._why} if "_why" in n else {}))
+                                        for n, what in notes]}))
         else:
-            for n, what in problems + notes:
+            for n, what in problems + passes + notes:
                 print(f"{n.path}: {what}")
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")

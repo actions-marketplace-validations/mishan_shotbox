@@ -207,10 +207,10 @@ def words(v):
 # --- the tools ------------------------------------------------------------------
 
 
-def problems(nodes, window=None):
+def problems(nodes, window=None, key="problem"):
     """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
-    what's wrong."""
-    return capped([f"{n.line(bounds=True)}: {n.problem}" for n in nodes],
+    what's wrong (or what `key` says)."""
+    return capped([f"{n.line(bounds=True)}: {n[key]}" for n in nodes],
                   "with ignore" if window else "with window or ignore") or "No problems."
 
 
@@ -721,16 +721,18 @@ class Server:
                         window)
 
     def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
-                       edges=None, ignore=None):
-        nodes = self.a11y_session(session).contrast(
+                       edges=None, ignore=None, passes=False):
+        got = self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
-            notes=True)
-        notes = [n for n in nodes if not n.fails]
+            passes=flag(passes))
+        notes, passed = got["notes"], got.get("passes")
         whys = list(dict.fromkeys(n.why for n in notes if "why" in n))
-        return "\n".join([problems([n for n in nodes if n.fails], window)]
+        return "\n".join([problems(got["problems"], window)]
+                         + ([f"{len(passed)} pass:", problems(passed, window, "contrast")]
+                            if passed else [])
                          + ([f"{len(notes)} not measured, which doesn't fail:",
-                             problems(notes, window)]
+                             problems(notes, window, "note")]
                             if notes else [])
                          + whys)
 
@@ -1057,16 +1059,18 @@ TOOLS = [
      "4.5:1 for text (3 for large text) and 3:1 for images unless text_ratio and graphics "
      "say otherwise, and with edges, a button's or field's edge too. It raises the window "
      "and measures a picture of the screen in each node's bounds. The answer: each node that "
-     "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; then what "
-     "it couldn't measure, which doesn't fail (too small, off the screen, or GTK 4.14+'s, "
-     "whose positions are wrong: of that, only text is measured, where it's found near them), "
-     "and why. A window where nothing can be measured is an error, not a pass. Switches, "
-     "sliders, check boxes, disabled nodes and what's scrolled out of view are skipped. For "
-     "missing names, use check_accessible_names.",
+     "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; with "
+     "passes, then each that passes, the same; then what it couldn't measure, which doesn't "
+     "fail (too small, off the screen, or GTK 4.14+'s, whose positions are wrong: of that, "
+     "only text is measured, where it's found near them), and why. A window where nothing "
+     "can be measured is an error, not a pass. Switches, sliders, check boxes, disabled nodes "
+     "and what's scrolled out of view are skipped. For missing names, use "
+     "check_accessible_names.",
      schema({"session": SESSION, "window": WINDOW,
              "text_ratio": {"type": "number", "description": "Least for text (4.5)"},
              "graphics": {"type": "number", "description": "Least for images (3)"},
              "edges": {"type": "number", "description": "Least for edges (unchecked)"},
+             "passes": {"type": "boolean", "description": "Also what passes, with its ratio"},
              "ignore": IGNORE}, ["session"])),
     ("check_focus_order",
      "Check the keyboard focus order in one call: press Tab, or key, until the focus comes "

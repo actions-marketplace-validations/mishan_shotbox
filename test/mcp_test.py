@@ -268,9 +268,10 @@ try:
     said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore=["image", '^panel ""'])
     check(len(said.splitlines()) == 1 and "button with no name" in said,
           f"check_accessible_names: ignore found in a tree line, by a path ({said!r})")
-    said, bad, _ = tool("check_contrast", session="t", window="a11y-test")
-    check(not bad and "not measured, which doesn't fail" in said and "reports where" in said,
-          f"check_contrast: GTK 4, its text found, the rest not measured, said ({said!r})")
+    said, bad, _ = tool("check_contrast", session="t", window="a11y-test", passes=True)
+    check(not bad and "not measured, which doesn't fail" in said and "reports where" in said
+          and re.search(r"^\d+ pass:\n.*: text passes at ", said, re.M),
+          f"check_contrast: GTK 4, its text found and passing, the rest not measured, said ({said!r})")
     said, _, _ = tool("check_focus_order", session="t", window="a11y-test", visible=True,
                       ignore=['button "(Minimize|Maximize|Close)"'])
     check("focus not shown" in said and said.endswith("round again after 6\nfocus not shown on 1"),

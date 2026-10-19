@@ -936,20 +936,28 @@ if atspi; then
   # label over two lines, labels drawn letter-spaced or in upper case
   # over an entry holding or showing their text, which isn't taken for
   # theirs), or
-  # isn't text, is said not to be, and why.
+  # isn't text, is said not to be, and why. --passes says what passes too,
+  # and --json keeps what isn't measured apart from what fails.
   # Told to trust it (a GTK whose bounds are right), it finds faint text
   # and its colors, but not a disabled button's label.
   set +e
-  "$sb" run --a11y -- sh -c "'$app' faint lines decoys & '$sb' a11y contrast --window a11y-test" \
+  "$sb" run --a11y -- sh -c "'$app' faint lines decoys &
+    '$sb' a11y contrast --passes --window a11y-test; s=\$?
+    '$sb' a11y contrast --passes --json --window a11y-test > '$tmp/contrast.json' && exit \$s" \
     > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 1 ] && [ "$(grep -cv ' not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 1 ] \
+  [ $st = 1 ] && [ "$(grep -v ' not measured: GTK 4 reports its position wrong$' "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
+    && grep -q ': text passes at [0-9]*\.[0-9][0-9]:1, #[0-9a-f]\{6\} on #[0-9a-f]\{6\} (at least 4\.5)' "$tmp/contrast" \
+    && python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
+assert [p['problem'][:8] for p in j['problems']] == ['text 2.5'], j['problems']
+assert j['notes'] and all(' not measured: ' in n['note'] and n['why'] for n in j['notes'])
+assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in j['passes'])" "$tmp/contrast.json" \
     && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
     && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
     && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 4 ] \
     && grep -q "GTK 4\.[0-9.]* reports where its widgets are wrong, so text is measured where it's found" "$tmp/err" \
-    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, but not text it can't find or tell from another's" \
-    || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/err"; }
+    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
+    || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/contrast.json" "$tmp/err"; }
   set +e
   "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' faint &
     '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"

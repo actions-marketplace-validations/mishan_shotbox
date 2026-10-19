@@ -27,10 +27,11 @@ Inside a session with `--a11y`:
   down and DX right (negative, up and left): a list by itself or by a
   row still in view (one scrolled out of it is refused, as `click`
   refuses it).
-- **`shotbox a11y contrast [--window RE]`** measures the contrast of
+- **`shotbox a11y contrast [--window RE] [--passes]`** measures the contrast of
   what each node draws against its background, and fails, a line each:
-  `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
-  [Contrast](#contrast).
+  `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`; with `--passes`,
+  what passes too: `PATH: text passes at 12.23:1, #323236 on #fafafb (at
+  least 4.5)`. [Contrast](#contrast).
 - **`shotbox a11y speak [--keys KEY...] [--max 50] [--window RE]`**
   starts Orca in the session, presses Tab until the focus comes round
   (or the keys, in turn), and prints what Orca said after each press,
@@ -454,11 +455,17 @@ shotbox's displays draws grayscale; Qt's does it too (a Qt label set at
 
 What wasn't measured (too small, outside the screen, GTK 4's) is said
 after the failures, a line each, and how many and why on stderr, so stdout is only
-`PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
-is 1 if anything failed, 0 if what was measured passed, and 2 if
+`PATH: WHAT` lines. `--passes` says what passes, with its ratio, between
+the failures and those, to compare one version with another or check
+where GTK 4's text was found. It doesn't list an image of one color, or
+an edge with nothing round it to measure, which have no ratio. `--json`
+gives an object of lists: `problems`, each node with its `problem`;
+with `--passes`, `passes`, each with its `contrast`; and `notes`, what
+wasn't measured, each with its `note` and, for GTK 4's, its `why`. The
+exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a window on GTK
 4.14 or later none of whose text was found, `shotbox: nothing measured:
-...` (text too small to measure, alone, passes). With `--json` it's 0
+...` (text too small to measure, alone, doesn't fail). With `--json` it's 0
 with failures, which the lines say, and 2 when nothing was measured. `Screen.contrast()` raises
 then, and MCP's `check_contrast` says so as an error.
 
