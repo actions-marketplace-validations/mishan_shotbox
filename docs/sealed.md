@@ -58,7 +58,12 @@ Not sealed:
   doesn't, [The clock](commands.md#the-clock).
 - The machine's system bus, unless `--system-bus`: logind,
   NetworkManager and the rest, which may let a program in your desktop's
-  session suspend or power off the machine.
+  session suspend or power off the machine. A desktop's settings (GNOME
+  Settings, with `--desktop`) can show the machine's Wi-Fi networks,
+  Bluetooth devices and user accounts from it: check pictures before
+  sharing them.
+- Printers: CUPS's socket is the machine's, so a print dialog lists
+  them, even with `--system-bus`.
 - Your X server: its sockets, in `/tmp/.X11-unix` and the abstract one,
   are reachable by a program that sets `DISPLAY` and finds your cookie
   itself.
