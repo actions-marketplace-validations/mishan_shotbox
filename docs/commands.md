@@ -492,7 +492,9 @@ Sessions for an agent, over MCP: [mcp.md](mcp.md).
 variables; `--seed DIR` to start the home as a copy of a directory (a
 config, a profile, sample files);
 `--desktop` for real GSettings and the system's D-Bus services, which a
-desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
+desktop shell needs (its settings can show the machine's Wi-Fi networks,
+Bluetooth devices, user accounts and printers: check pictures before
+sharing them); `--system-bus` for a stand-in system bus; `--keep` to
 keep the scratch dir and say where it is; `--wayland` and `--xwayland`
 for a [Wayland](wayland.md) session; `--a11y` for an
 [accessibility bus](accessibility.md); `--audio` for a PipeWire of the

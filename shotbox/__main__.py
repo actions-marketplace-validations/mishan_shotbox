@@ -88,7 +88,10 @@ def session_options(p, display=True):
     g.add_argument("--desktop", action="store_true",
                    help="real GSettings (dconf) and the system's D-Bus services, "
                         "for desktop shells; the default is settings of its own "
-                        "and nothing activatable")
+                        "and nothing activatable. A desktop's settings can show the "
+                        "machine's Wi-Fi networks, Bluetooth devices, user accounts "
+                        "(over the system bus, unless --system-bus) and printers: "
+                        "check pictures before sharing them")
     g.add_argument("--system-bus", action="store_true", help="a stand-in system bus too")
     g.add_argument("--seed", metavar="DIR", help="start the scratch home as a copy of DIR")
     g.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",

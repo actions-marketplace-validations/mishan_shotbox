@@ -28,6 +28,11 @@
 
 ### Changed
 
+- `--desktop`'s help, docs/sealed.md and docs/desktop.md warn that a
+  desktop's settings in a session can show the machine's Wi-Fi networks,
+  Bluetooth devices and user accounts (over its system bus, unless
+  `--system-bus`) and printers (CUPS's socket, which `--system-bus`
+  doesn't hide): check pictures before sharing them.
 - On Wayland, a session has one keyboard, made as it starts and shared
   by every command until it stops, not one a command, so programs
   always have one, as on a desktop and on X11: GTK 4 and GTK 3 say

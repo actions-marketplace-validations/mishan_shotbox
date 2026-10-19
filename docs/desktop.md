@@ -29,6 +29,14 @@ no compositor. So:
 size it asks for, as on X11: it isn't GNOME's Mutter or KDE's KWin. See
 [Wayland](wayland.md).
 
+## The machine's devices
+
+A session has the machine's system bus, unless `--system-bus`, and its
+printers. A desktop's settings, run with `--desktop`, can show the Wi-Fi
+networks, Bluetooth devices and user accounts, and a print dialog its
+printers: check pictures before sharing them. See
+[What's sealed](sealed.md).
+
 ## Animations
 
 GTK's animations are off (`gtk-enable-animations = false`, and
