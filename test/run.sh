@@ -984,6 +984,23 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
     && grep -q "GTK 4\.[0-9.]* reports where its widgets are wrong, so text is measured where it's found" "$tmp/err" \
     && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
     || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/contrast.json" "$tmp/err"; }
+  # A theme's font (a seeded gtk.css), which GTK says, over a grid, so
+  # nothing is all one lightness, in a window so big that from 4.14.6
+  # each label is looked for in more than 600 by 200 pixels.
+  mkdir -p "$tmp/theme/.config/gtk-4.0"
+  printf '%s\n' 'label { font-family: monospace; font-weight: bold; font-size: 15px; }' \
+    'window { min-width: 640px; min-height: 600px; background-image:' \
+    '  repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px),' \
+    '  repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px); }' \
+    > "$tmp/theme/.config/gtk-4.0/gtk.css"
+  set +e
+  "$sb" run --a11y --seed "$tmp/theme" -- sh -c "'$app' faint &
+    '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" 2>/dev/null
+  st=$?; set -e
+  [ $st = 1 ] && ! grep -q 'no time left' "$tmp/contrast" \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
+    && ok "a11y: contrast finds GTK 4's text in a theme's font, over a grid, in a big window" \
+    || { fail "a11y: contrast, GTK 4 themed ($st)"; cat "$tmp/contrast"; }
   set +e
   "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' faint &
     '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"

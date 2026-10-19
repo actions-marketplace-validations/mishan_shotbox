@@ -1326,7 +1326,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 if time.monotonic() > until:
                     raise TimeoutError
                 other = drawing(t, font(o) or attrs)
-                if (picture.match_over(pic, other, box) >= MATCH_ELSEWHERE if other
+                if (picture.match_over(pic, other, box, until) >= MATCH_ELSEWHERE if other
                         else n.name.lower() in t.lower()):
                     return None
         b = n.bounds
