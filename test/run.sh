@@ -592,22 +592,23 @@ sheets() {
   done < "$tmp/sheets"
 }
 flickered=""
-for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
-         "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
-         "move - 0" "scroll - 0" "spaced - 0" "strip - 1 ^flicker: 200x120+0+0, .* ms, #00.* and #00" \
-         "scene - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
-         "band 3 1 ^flicker: 16x120+176+0, .* every [1-5][0-9] ms, .*#000000" \
-         "band 1 1 ^flicker: 16x120+176+0, " "noisy - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
+for c in "flip 30 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms, (#000000 and #009900|#009900 and #000000)" "flip 500 0" \
+         "flash 40 1 ^flash: 200x120[+]0[+]0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
+         "move - 0" "scroll - 0" "spaced - 0" "strip - 1 ^flicker: 200x120[+]0[+]0, .* ms, #00.* and #00" \
+         "scene - 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms" \
+         "band 3 1 ^flicker: 16x120[+]176[+]0, .* every [1-5][0-9] ms, .*#000000" \
+         "band 1 1 ^flicker: 16x120[+]176[+]0, " "noisy - 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms" \
          "fast - 0" "panel - 1 ^flash: .*, #ffffff for [2-6][0-9] ms in " "text - 0" "pages - 0" \
-         "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120+176+0, " "skip - 0" \
-         "edge - 1 ^flicker: 16x120+176+0, " "gray - 1 ^flicker: 200x120+0+0, " "poles - 0" \
-         "busy - 1 ^flicker: 16x120+176+0, " "icon - 1 ^flash: 16x16+64+48, #ffffff" \
+         "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120[+]176[+]0, " "skip - 0" \
+         "edge - 1 ^flicker: 16x120[+]176[+]0, " "gray - 1 ^flicker: 200x120[+]0[+]0, " "poles - 0" \
+         "busy - 1 ^flicker: 16x120[+]176[+]0, " "icon - 1 ^flash: 16x16[+]64[+]48, #ffffff" \
          "dropout - 0" "redraw - 0" "stair - 0"; do
-  set -- $c
+  set -f; set -- $c; set +f
+  pat=; [ $# -le 3 ] || pat=${c#"$1 $2 $3 "}
   save="--save '$tmp/fl-$1-$2'"; [ $1 != gray ] || save=
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6 $save"); st=$?; set -e
-  [ $st = "$3" ] && { [ -z "${4-}" ] || echo "$out" | grep -q "$4"; } && sheets "$tmp/fl-$1-$2" "$out" \
+  [ $st = "$3" ] && { [ -z "$pat" ] || echo "$out" | grep -Eq "$pat"; } && sheets "$tmp/fl-$1-$2" "$out" \
     && { [ "$1" != flash ] || [ "$(convert "$tmp"/fl-flash-40/*.png -crop 1x+1+0 -depth 8 txt:- \
                                    | grep -c '#7F7F7F')" = 6 ]; } \
     || flickered="$flickered $1 $2 ($st: $out)"
