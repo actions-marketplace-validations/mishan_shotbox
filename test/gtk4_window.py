@@ -3,7 +3,11 @@
 frames, faint labels: one GTK can't pick (can-target off), one under an
 overlay's clear child, and one in a menu button's popover, open below
 the rest; and a stack shown at its first page, "Gone", then its second,
-whose faint "Here" is at the other end."""
+whose faint "Here" is at the other end. `glyphs
+TEXT|FONT|PX|WEIGHT|COLOR|BACKGROUND[|SHADOW]...` is a window of those
+labels instead."""
+
+import sys
 
 import gi
 
@@ -43,6 +47,25 @@ def activate(app):
     GLib.timeout_add(300, later)
 
 
+def glyphs(app):
+    w = Gtk.ApplicationWindow(application=app, title="gtk4-glyphs")
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=12,
+                  margin_bottom=12, margin_start=12, margin_end=12)
+    css = ""
+    for i, case in enumerate(sys.argv[2:]):
+        text, family, px, weight, color, back, *shadow = case.split("|")
+        box.append(Gtk.Label(label=text, halign=Gtk.Align.START, css_classes=[f"g{i}"]))
+        css += (f"label.g{i} {{ font-family: {family}; font-size: {px}px; font-weight: {weight};"
+                f" color: {color}; background: {back}; padding: 6px 12px;"
+                f" text-shadow: {shadow[0] if shadow else 'none'}; }}\n")
+    provider = Gtk.CssProvider()
+    provider.load_from_string(css)
+    Gtk.StyleContext.add_provider_for_display(w.get_display(), provider,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    w.set_child(box)
+    w.present()
+
+
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
-app.connect("activate", activate)
+app.connect("activate", glyphs if sys.argv[1:2] == ["glyphs"] else activate)
 app.run([])

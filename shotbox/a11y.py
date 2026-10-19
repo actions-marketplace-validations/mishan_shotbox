@@ -1304,8 +1304,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return gtk4_release(n) >= (4, 14, 6) and not n.name.isascii()
 
     def seek(n, until):
-        """Where `n`'s text is drawn, for GTK 4.14 and later: (its box, and
-        how far its middle is from the middle of GTK's), or None if it
+        """Where `n`'s text is drawn, for GTK 4.14 and later: (its box, how
+        far its middle is from the middle of GTK's, and where and as what
+        shape it's drawn, for picture.text_contrast), or None if it
         isn't found, alone, where it can be (room), or another node's text
         there could be what's found."""
         area, attrs = room(n), font(n)
@@ -1330,7 +1331,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                         else n.name.lower() in t.lower()):
                     return None
         b = n.bounds
-        return box, tuple(box[i] + box[i + 2] // 2 - b[i] - b[i + 2] // 2 for i in (0, 1))
+        return (box, tuple(box[i] + box[i + 2] // 2 - b[i] - b[i + 2] // 2 for i in (0, 1)),
+                (got[1], got[2], kinds[got[6][0]][got[6][1]]))
 
     def leaf(n):
         return not any(o.path.startswith(n.path + "/") for o in measured)
@@ -1425,9 +1427,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         big = k == "text" and large_text(Atspi, n)
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
-        got = picture.text_contrast(pic, box)
-        count += bool(got and got[3] >= SMALLEST)
-        if got and got[3] < SMALLEST:
+        got = picture.text_contrast(pic, box, seen and seen[2])
+        # Its coverage says a small glyph's color, which its core is too
+        # small to.
+        small = got and got[3] < SMALLEST and not got[4]
+        count += bool(got and not small)
+        if small:
             notes.append((n, f"{k} too small to measure, {got[3]} pixels"))
         elif got is None and (k == "text" or n._role in controls):
             # What it draws can be past the screen's edge: right-aligned text.

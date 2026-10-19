@@ -133,6 +133,17 @@
 
 ### Fixed
 
+- `a11y contrast` measured thin GTK 4 text lighter than its color, and
+  failed it: a stem thinner than a pixel covers none whole, so a "1" in
+  `#b0b0b0` on `#353535` (5.66:1) measured 3.94:1, and DejaVu Sans's
+  "l" at 9px is as thin on GTK 4.14 as on 4.24. Text found where it's
+  drawn, whose glyphs cover fewer than three pixels whole, is now
+  measured at the color a pixel they covered whole would be, from how
+  much of each they cover, where the shape found accounts for every
+  pixel (no shadow, a size it's drawn at); other text, as before. That
+  measures a small "." or "," too, rather than calling it too small,
+  and a "." on a theme's grid, whose lines counted as its pixels, is
+  too small to measure, not failed at its antialiased edge.
 - On Wayland, a modifier held down alone (`key --down shift`, or `key
   --hold 2 shift &`) didn't shift the keys pressed or typed meanwhile, nor
   a click: `shift` was pressed without its modifier bit. Now it does, as

@@ -385,13 +385,24 @@ and later's, whose text is measured where it's found
   its label's own size. Fewer
   than 16 pixels that aren't the background have no core of their color
   to measure, in any toolkit: a ".", "-", ":" or ",". That's said, "too
-  small to measure", and passes.
+  small to measure", and passes, unless it's GTK 4 text found whose
+  color its coverage says (below). Text found counts the pixels its
+  shape covers, not a grid or texture drawn behind it.
   Light or small text covers no pixel whole, so its core is lighter than
   its color, by more on one font and renderer than another, and can fail
   though its color passes. It's still measured as drawn, since text
   drawn see-through looks the same; where GTK 3 says the text's color
   and what's drawn is a lighter shade of it, a failure says that color
-  too, to tell which (GTK 4 doesn't say).
+  too, to tell which (GTK 4 doesn't say). GTK 4.14 and later's text,
+  found where it's drawn (below), whose glyphs cover fewer than three
+  pixels whole, as stems thinner than a pixel do on any GTK 4 release
+  (DejaVu Sans's "l" at 9 to 13px), is measured at the color a pixel
+  they covered whole would be, from how much of each they cover: its
+  color, or what see-through text makes of it. That's only where the
+  shape found accounts for every pixel, to a level and a half: not at a
+  size between the thirds of a pixel shapes are drawn at, as
+  `font-size: smaller` can make, nor under a shadow, either of which
+  would measure darker than its color; those are measured as above.
   GTK 4.16 and later draw text with `gtk-font-rendering = automatic`
   unless told otherwise, which ignores fontconfig's hinting and places
   glyphs at fractions of a pixel: a stem thinner than a pixel covers
@@ -403,7 +414,9 @@ and later's, whose text is measured where it's found
   check passes or fails the same on any distribution. That's how the
   text is set, not how GTK draws it on a desktop left at automatic: to
   measure that, seed a home whose `.config/gtk-4.0/settings.ini` sets
-  `gtk-font-rendering = automatic` (`--seed`), which a session keeps.
+  `gtk-font-rendering = automatic` (`--seed`), which a session keeps
+  (text found where it's drawn, as above, measures at its color either
+  way).
   A control may draw its name or an icon, and GTK 3's and Qt's buttons
   keep their text to themselves, so the tree can't tell which: it's held
   to text's ratio. GTK 4 puts a label in a control that draws text, so a
@@ -539,11 +552,11 @@ pycairo and PangoCairo (`python3-gi-cairo` and `gir1.2-pango-1.0` on
 Debian, which the Action's `a11y: true` installs, and `shotbox doctor`
 checks): without them, no text is found, and the why says so. Images,
 controls that draw an icon, and edges (`--edges`) aren't measured
-either, a line each: nothing says where they are. On GTK 4.16 and
-later, which places glyphs at fractions of a pixel, a thin glyph such
-as a "1" covers no pixel whole, and its third pixel (as above) can
-measure lighter than its color: `#b0b0b0` text as `#c1c1c0`, as it
-does at GTK's own bounds with `SHOTBOX_TRUST_GTK4_BOUNDS=1`.
+either, a line each: nothing says where they are. Thin text found is
+measured from how much of each pixel its glyphs cover (as above), at
+its color; at GTK's own bounds, with `SHOTBOX_TRUST_GTK4_BOUNDS=1`,
+it's measured as drawn, and can measure lighter: `#b0b0b0` text as
+`#c1c1c0`.
 
 On gnome-calculator, gnome-text-editor, Files and test windows (borders
 and padding nested, stacks, libadwaita's view stack, keys in a grid,

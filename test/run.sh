@@ -1060,6 +1060,40 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
       && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi
+  # Text found from 4.14: stems thinner than a pixel, which cover none
+  # whole on any GTK 4 release, measure at their color, from how much of
+  # each pixel they cover, and bold text as its third pixel; light and
+  # dark, passing and failing. Not where the shape found doesn't account
+  # for every pixel: a size between those shapes are drawn at, or a
+  # shadow, which would measure darker than the color (#777777, 4.48:1,
+  # as 4.60 and 5.17). A "." and a ",", too few pixels to have a core of
+  # their color, at their color too. A case a line: the label; what's said.
+  if [ "$minor" -ge 14 ]; then
+    glyphs="Ill|DejaVu Sans|9|400|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff
+lIl|DejaVu Sans|9|400|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
+IlI|DejaVu Sans|9|400|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+llI|DejaVu Sans|9|400|#5a5a5a|#353535; 1\.7[5-8]:1, #5[9a]5[9a]5[9a] on #353535
+Hello|DejaVu Sans|20|700|#767676|#ffffff; passes at 4\.54:1, #767676 on #ffffff
+World|DejaVu Sans|20|700|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+Hold|DejaVu Sans|20|700|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
+Help|DejaVu Sans|20|700|#5a5a5a|#353535; 1\.77:1, #5a5a5a on #353535
+Network|Cantarell|9.5|400|#777777|#ffffff; [1-4]\.[0-9]*:1, #[0-9a-f]* on #ffffff
+Settings|Cantarell|9.5|400|#777777|#ffffff|0 1px rgba(0,0,0,0.1); [1-4]\.[0-9]*:1, #[0-9a-f]* on #ffffff
+.|DejaVu Sans|13|400|#333333|#ffffff; passes at 12\.63:1, #333333 on #ffffff
+,|DejaVu Sans|13|400|#aaaaaa|#ffffff; 2\.32:1, #aaaaaa on #ffffff"
+    labels=$(echo "$glyphs" | sed "s/; .*//; s/.*/'&'/" | tr '\n' ' ')
+    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' glyphs $labels & '$sb' wait window gtk4-glyphs \
+      >/dev/null && sleep 1 && '$sb' a11y contrast --passes --window gtk4-glyphs" > "$tmp/contrast" || true
+    i=0 wrong=""
+    while IFS=';' read -r label said; do
+      grep -q "/label\[$i\]: text$said (" "$tmp/contrast" || wrong="$wrong '$label'"
+      i=$((i + 1))
+    done <<EOF
+$glyphs
+EOF
+    [ -z "$wrong" ] && ok "a11y: contrast, GTK 4: thin stems at their color, but not past what the shape accounts for; bold text as before" \
+      || { fail "a11y: contrast, GTK 4 thin and bold text:$wrong"; cat "$tmp/contrast"; }
+  fi
   # Before 4.14, GTK 4 says where a widget's content is: measured there,
   # faint labels in frames, one GTK can't pick, one under an overlay's
   # clear child and one on a stack's shown page too. Not measured, and

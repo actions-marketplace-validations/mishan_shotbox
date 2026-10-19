@@ -128,24 +128,63 @@ def between(color, a, b):
     return 0 <= t <= 1 and all(abs(c - (x + t * w)) <= 12 for c, x, w in zip(color, a, way))
 
 
-def text_contrast(pic, box):
+def text_contrast(pic, box, drawn=None):
     """Text (or an icon) on its background, in `box`: the background is the
     color most of it is, the text the third pixel in order of contrast
     against that, which an antialiased glyph's core reaches, though a
     thin stroke seldom draws three of one color. (ratio, text,
-    background, how many pixels aren't the background), or None for a
-    box of one color."""
+    background, how many pixels aren't the background, whether the text
+    is its coverage's color), or None for a box of one color. With
+    `drawn`, where the text was found and as what (x, y, find_text's
+    shape), the pixels are those the shape covers, not a grid or texture
+    drawn behind it, and a shape that covers fewer than three pixels
+    whole, as a stem thinner than a pixel or a small "." does, is the
+    color its coverage steps toward (covered), where that's further than
+    the third pixel on the same line."""
     colors = pic.colors(box)
     if not colors:
         return None
     back = colors.most_common(1)[0][0]
-    ink = sum(colors.values()) - colors[back]
+    ink = sum(map(bool, drawn[2][2])) if drawn else sum(colors.values()) - colors[back]
     seen = 0
     for r, color in sorted(((ratio(c, back), c) for c in colors if c != back), reverse=True):
         seen += colors[color]
         if seen >= 3:
-            return r, color, back, ink
+            full = drawn and drawn[2][2].count(255) < 3 and covered(pic, drawn, back)
+            if full and ratio(full, back) > r and between(color, back, full):
+                return ratio(full, back), full, back, ink, True
+            return r, color, back, ink, False
     return None
+
+
+def covered(pic, drawn, back):
+    """The color a pixel covered whole by `drawn` (x, y, find_text's shape)
+    would be, on `back`: each channel's step from `back` over the shape's
+    coverage, by least squares. None if it covers nothing, or any pixel
+    of the shape's box, blank or not, is more than a level and a half off
+    what that color at its coverage would draw."""
+    x0, y0, (w, _, cover) = drawn
+    steps, total = [0, 0, 0], 0
+    for i, c in enumerate(cover):
+        x, y = x0 + i % w, y0 + i // w
+        if c and 0 <= x < pic.width and 0 <= y < pic.height:
+            at = (y * pic.width + x) * 3
+            for k in range(3):
+                steps[k] += c * (pic.data[at + k] - back[k])
+            total += c * c
+    if not total:
+        return None
+    full = bytes(max(0, min(255, round(b + 255 * s / total))) for b, s in zip(back, steps))
+    # Only a shape drawn exactly as matched: one a fraction of a pixel
+    # larger, or a shadow under it, steps further than its color.
+    for i, c in enumerate(cover):
+        x, y = x0 + i % w, y0 + i // w
+        at = (y * pic.width + x) * 3
+        if 0 <= x < pic.width and 0 <= y < pic.height and any(
+                abs(pic.data[at + k] - b - c * (f - b) / 255) > 1.5
+                for k, (b, f) in enumerate(zip(back, full))):
+            return None
+    return full
 
 
 def edge_contrast(pic, box):
