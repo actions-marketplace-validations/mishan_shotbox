@@ -12,14 +12,14 @@
  *     const browser = await chromium.launch({ ...accessible,
  *                                             args: [...accessible.args, ...steady] });
  *
- * The session says a screen reader is running (ACCESSIBILITY_ENABLED);
- * Chromium also needs its own switch, or the page's part of the tree is
- * empty, and a window: headless, it isn't on the bus at all. And no LCD
- * text: subpixel antialiasing tints every pixel of a thin glyph, so
+ * The session says a screen reader is running (ACCESSIBILITY_ENABLED),
+ * and `shotbox a11y` asks for the page's part of the tree as Orca does;
+ * Chromium also needs a window: headless, it isn't on the bus at all.
+ * And no LCD text: subpixel antialiasing tints every pixel of a thin glyph, so
  * `shotbox a11y contrast` would find none of the text's own color.
  */
 
 export const accessible = {
     headless: false,
-    args: ['--force-renderer-accessibility', '--disable-lcd-text'],
+    args: ['--disable-lcd-text'],
 };

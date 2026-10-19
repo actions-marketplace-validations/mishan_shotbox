@@ -34,6 +34,25 @@
   no longer shown, a line each. Such a window passed with
   nothing measured before (nothing in it was walked); now what fails,
   fails. docs/accessibility.md, "GTK 4's positions".
+- Chromium's pages (Google Chrome's, Playwright's Chromium's) are read
+  in an `--a11y` session without `--force-renderer-accessibility`:
+  `shotbox a11y` asks a browser window for its attributes, as Orca does,
+  which has Chromium build the page's tree for the rest of the
+  browser's life, and waits for it, up to `--timeout` for a big page
+  (one whose tree isn't built by then is noted, or fails with
+  `--window`). A window with no page (a crashed
+  tab, or a browser started with
+  `--disable-platform-accessibility-integration`) is noted on stderr;
+  the one `--window` asks for, with nothing in its tree, fails saying
+  so and what turns it on, from `a11y tree` and the other commands and
+  MCP's `get_accessible_tree`, rather than give the window alone.
+  Electron's windows are asked too, but not waited for. The Node
+  package's `accessible` no longer has the switch.
+- Playwright finds its browsers in a session without
+  `PLAYWRIGHT_BROWSERS_PATH` given: the session sets it to yours
+  (`~/.cache/ms-playwright`, or what it is outside), not the scratch
+  home's empty cache; not with `--identity`, whose sessions don't have
+  your name. docs/sealed.md.
 
 ### Fixed
 

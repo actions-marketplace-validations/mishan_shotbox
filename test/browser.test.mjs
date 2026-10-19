@@ -358,20 +358,17 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, contrast, live regions',
+test('Chromium on an --a11y session: its tree, a click by name, contrast, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
     const shotbox = path.join(here, '..', 'bin', 'shotbox');
 
-    /* The session has a HOME of its own, and Playwright looks under it. */
-    const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH ||
-                     path.join(os.homedir(), '.cache', 'ms-playwright');
     const out = execFileSync(shotbox, [
-        'run', '--a11y', '--env', `PLAYWRIGHT_BROWSERS_PATH=${browsers}`, '--',
+        'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, contrast, said } = JSON.parse(out);
+    const { tree, clicked, contrast, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -382,4 +379,9 @@ test('Chromium on an --a11y session: its tree, a click by name, contrast, live r
     assert.equal(contrast.trim().split('\n').length, 1);
     assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
                        'polite: Done\n');
+    assert.match(hint, /"a11y-unread.*": no page in the browser's accessible tree \(a crashed tab, .*--force-renderer-accessibility/);
+    assert.match(whole, /button "b2999"/);
+    assert.equal(crash.status, 0, crash.err);
+    assert.match(crash.err, /"a11y-crashed.*": no page in the browser's accessible tree \(a crashed tab/);
+    assert.match(crash.out, /button "Save"/);
 });

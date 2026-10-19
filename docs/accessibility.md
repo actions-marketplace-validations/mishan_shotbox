@@ -51,9 +51,8 @@ finds that the editor's text area has no name.
 waits up to `--timeout` (10s) for it to appear in the tree. Without it,
 every program's windows are there. It works on X11, Wayland and
 Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
-Bevy, GTK built with it), and for Chromium, headed, given
-`--force-renderer-accessibility` (the Node package's `accessible`), on
-X11.
+Bevy, GTK built with it), and for Chromium (Google Chrome, Playwright's
+Chromium, and the browsers built on it), headed, on X11.
 
 ## The bus
 
@@ -84,8 +83,34 @@ Wayland count the surface's shadow in, consistently, and are placed
 right. Chromium also asks `org.a11y.Status`'s `IsEnabled` whether a screen
 reader is running, which here says no (the launcher aborts when told
 otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
-yes, which the session sets; it still needs `--force-renderer-accessibility`
-for a page's part of the tree, and is tested headed. Everything runs in
+yes, which the session sets. That puts its windows on the bus, and no
+more: it builds the rest of its tree, a page's too, only once it takes a
+screen reader to be at work, which it does when a node's attributes are
+asked for, as Orca asks. `shotbox a11y` asks a browser window's, the
+first time a command reads it, and waits for its page, so no
+`--force-renderer-accessibility` is needed: up to 2 seconds for the
+page's document, then up to `--timeout` for its tree to be built (the
+document is an empty stand-in till then; a page of thousands of
+controls takes seconds). A page whose tree isn't built in time is noted
+on stderr, and the window `--window` asks for fails. That turns on
+Chromium's accessibility (its basic and extended-properties modes) for
+the whole browser, for as long as it runs, which slows its pages a
+little: a measure of a page's performance in the same session counts
+that in. It's a little less than the switch turns on (no screen-reader
+mode); the trees came out the same in testing. A window with no page
+(a crashed tab, or a browser started with
+`--disable-platform-accessibility-integration`, which builds no page's
+tree for a reader) is noted on stderr, and the rest read; the window
+`--window` asks for, with nothing in its tree at all, fails saying so,
+rather than give the window alone. `--force-renderer-accessibility`
+builds the tree anyway. Electron's programs (VS Code, Slack; not
+tested) have windows of another kind: they're asked too, which turns
+their accessibility on, but not waited for or noted, so the first read
+can come before the page is there. Nothing tells the other programs in
+the session a screen reader is running. Playwright, in a session, looks
+for its browsers in the scratch home's cache; the session sets
+`PLAYWRIGHT_BROWSERS_PATH` to yours ([What's sealed](sealed.md)) so it
+finds them. Everything runs in
 the launcher's process group, which goes with the session's other groups
 at the end.
 

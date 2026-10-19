@@ -974,6 +974,14 @@ class Session(Screen):
         home = self.scratch / "home"
         env = {k: os.environ[k] for k in self.passthrough if k in os.environ}
         env.update(SEALED_ENV, **self._time_env)
+        # Playwright looks for its browsers in HOME's cache, and the
+        # session's HOME is the scratch home. Not with --identity: the path
+        # has the user's name in it.
+        browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.join(
+            os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "ms-playwright")
+        if not self.identity and ("PLAYWRIGHT_BROWSERS_PATH" in os.environ
+                                  or os.path.isdir(browsers)):
+            env["PLAYWRIGHT_BROWSERS_PATH"] = browsers
         if self.desktop:
             del env["GSETTINGS_BACKEND"]
         if self.a11y:
