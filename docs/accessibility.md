@@ -155,6 +155,11 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
   button's corner. Neither can be told from the tree. A GTK with this
   fixed, each node relative to its parent's bounds and a window at
   zero, is placed right.
+- A size below zero, or over 32767 (the most an X11 window can be), is
+  none a node can be drawn at: GTK 3's -1 for what it doesn't draw, and
+  GTK 4's for a widget it hasn't realized (a notebook's page never
+  shown), which it sends unset, a different one each run
+  (-1346821116 wide).
 
 ## Lint
 
@@ -162,8 +167,8 @@ Few rules, each one something a screen reader user would trip over. A
 node that takes the focus and has no name of its own is named by what
 labels it (a labelled-by relation, as GTK 3 has between a field and its
 mnemonic label), as a screen reader says it, in the tree too. A node
-that says it has no size (GTK 3's notebook tab, with its tabs hidden)
-isn't drawn, and isn't linted:
+that says it has no size (GTK 3's -1 by -1, for a notebook's tab with
+its tabs hidden) isn't drawn, and isn't linted:
 
 | A node with no name that's | Why it's a problem |
 |---|---|
@@ -285,7 +290,9 @@ of that, since an old GTK 4 places a node past its padding, and part of
 its ring outside what's counted. A web document, which takes the focus
 as a whole and has nothing drawn round it, and a container, which shows
 it on what it passes it to (a notebook, on its tab), aren't checked. It
-needs the node's bounds, so what can't be placed isn't checked either.
+needs the node's bounds, so what can't be placed isn't checked either,
+nor what's outside the screen (a window bigger than it), which says
+`focus not measured: outside the screen`.
 
 Nodes are told apart by their program's name on the bus and their
 object path, not by their names, so two buttons with the same name are
@@ -305,8 +312,8 @@ whose field it names, which matches too (the field takes the focus);
 fails if more than one is left, saying which, as tree lines with where
 each is; raises the `--window`; and clicks the middle of its bounds,
 cut to its window's (a node scrolled out of view is still "showing";
-one wholly outside its window is refused), over XTEST or sway's virtual
-pointer, as `shotbox click` does. A real
+one wholly outside its window, or the screen, is refused), over XTEST
+or sway's virtual pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would. `scroll NAME DY [DX]` finds the node the same way and turns the
@@ -385,7 +392,8 @@ and later's ([below](#gtk-4s-positions)):
   of its background, and a control, text or icon, of one color. For a
   control, that says how it measures with the pointer over it too,
   since some are drawn only then (a tab's close button). An image of one
-  color passes.
+  color passes, and a node that says it has no size, which isn't drawn
+  ([Lint](#lint)), is left out.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
@@ -403,8 +411,12 @@ A node with something measured inside it (a button's label) is measured
 by that. Each node's bounds are cut to its window's and to those of
 every node it's inside, so a row scrolled out of view, which GTK still
 calls showing, is cut to nothing by its scrolled window, and isn't
-measured. Disabled nodes and what's in them (a disabled button's label)
-are left out, as WCAG leaves out inactive controls. `--ignore RE`, as
+measured. Then to the screen: what's outside it (in a window bigger
+than the screen) isn't measured either, and says so, `text not
+measured: outside the screen`; nor is what the screen cuts and shows
+one color of (right-aligned text past its edge), `partly outside the
+screen`. Disabled nodes and what's in them (a
+disabled button's label) are left out, as WCAG leaves out inactive controls. `--ignore RE`, as
 lint has, leaves out each line the regex is found in. The colors are what's on the screen, after opacity and
 antialiasing: a check of what someone sees, not of the stylesheet. Text
 drawn with subpixel (LCD) antialiasing has every pixel of a thin glyph
@@ -413,8 +425,8 @@ tinted, none of its own color, and measures low: Chromium needs
 shotbox's displays draws grayscale; Qt's does it too (a Qt label set at
 3.00:1 measures 2.75).
 
-What wasn't measured (too small, GTK 4's) is said after the failures,
-a line each, and how many and why on stderr, so stdout is only
+What wasn't measured (too small, outside the screen, GTK 4's) is said
+after the failures, a line each, and how many and why on stderr, so stdout is only
 `PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
 is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a window on GTK

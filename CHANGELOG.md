@@ -43,6 +43,18 @@
   (`GtkButton`) has no name, so lint finds an icon button with none.
   Before 4.14, a window that draws its own frame (on X11 with no
   compositor) has its nodes placed, inside its border, not `null`.
+- `a11y contrast` on a window bigger than the screen (Chromium's, at
+  its own size) crashed on a node past the screen's edge; now that's
+  not measured, a line saying it's outside the screen, and `click`,
+  `scroll` and `tabwalk --visible` leave it out too, saying so. Text
+  the edge cuts off (right-aligned, past it) is noted as partly
+  outside the screen, not failed as "not seen".
+- A width or height below zero or over 32767 is taken as bounds not
+  known (`null`): GTK 4 sends an unset size for a widget it hasn't
+  realized (a notebook's page never shown), which the tree and
+  contrast took as a real size. GTK 3's -1 by -1, for what it doesn't
+  draw, is `null` too, and still not linted, nor a failure in contrast.
+  docs/accessibility.md, "Where a node is".
 
 ## 0.8.0 — 2026-10-18
 

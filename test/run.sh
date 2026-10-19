@@ -910,6 +910,18 @@ if atspi; then
       2>/dev/null | grep -q '/label\[0\]: text too small to measure' \
     && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text, large text, a dot, which passes alone" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
+  # A window wider than the screen: what's past the screen's edge isn't
+  # measured or clicked, and says so; nor is a label whose text is past it.
+  "$sb" run --a11y --screen 800x600 -- sh -c "'$here/window.py' wide wide &
+    '$sb' a11y contrast --edges 1 --window wide && ! '$sb' a11y click There --window wide &&
+    '$sb' a11y tabwalk --visible --window wide" > "$tmp/contrast" 2>&1 \
+    && grep -q '/label\[0\]: text not measured: partly outside the screen$' "$tmp/contrast" \
+    && grep -q '[/ ]button\[1\]: text not measured: outside the screen$' "$tmp/contrast" \
+    && grep -q '[/ ]button\[1\]: edge not measured: outside the screen$' "$tmp/contrast" \
+    && grep -q '"There" \[focusable\] is outside the screen$' "$tmp/contrast" \
+    && grep -q '"There" \[focusable, focused\]  <- focus not measured: outside the screen$' "$tmp/contrast" \
+    && ok "a11y: contrast, click and tabwalk --visible leave out what's past the screen's edge" \
+    || { fail "a11y: past the screen's edge"; cat "$tmp/contrast"; }
   # GTK 4.16 and later: thin text, spaced by a fraction of a pixel, drawn
   # at its color, which GTK's automatic font rendering doesn't; and a
   # seeded home that asks for that has it.
@@ -953,12 +965,18 @@ if atspi; then
     && [ "$(tail -1 "$tmp/walk")" = "round again after 6" ] \
     && ok "a11y: tabwalk goes round and back" || { fail "a11y: tabwalk"; cat "$tmp/walk"; }
   # Scrolled windows, lists and notebooks take the focus with no name of
-  # their own, and say what's in them; Tab passes into their rows.
+  # their own, and say what's in them; Tab passes into their rows. The
+  # page never shown is a widget GTK hasn't realized, whose size it sends
+  # unset, a different one each run.
   "$sb" run --a11y -- sh -c "'$app' lists & '$sb' a11y lint --window a11y-test &&
+    '$sb' a11y tree --json --window a11y-test > '$tmp/tree' &&
     '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && grep -q '^round again after' "$tmp/walk" \
-    && ok "a11y: lists, scrolled, in a notebook: lint passes, tabwalk goes round" \
-    || { fail "a11y: lists"; cat "$tmp/walk"; }
+    && python3 -c "import json, sys; t = json.load(open(sys.argv[1]))
+sys.exit(not any(n['name'] == 'Page 2' for n in t)
+         or any(not 0 <= s <= 32767 for n in t if n['bounds'] for s in n['bounds'][2:]))" "$tmp/tree" \
+    && ok "a11y: lists, scrolled, in a notebook: lint passes, tabwalk goes round, no size past what a node can have" \
+    || { fail "a11y: lists"; cat "$tmp/walk" "$tmp/tree"; }
   "$sb" run --a11y -- sh -c "'$app' one & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && [ "$(tail -1 "$tmp/walk")" = "round again after 1" ] \
     && ok "a11y: tabwalk, with one thing to take the focus, is round in one" \
