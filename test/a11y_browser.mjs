@@ -8,7 +8,10 @@
  * Inside `shotbox run --a11y` (browser.test.mjs): Chromium, launched with
  * `accessible`, on the session's accessibility bus, its page's tree read,
  * a button clicked by its name, a faint paragraph's contrast measured,
- * and its live regions heard. Prints what it found as JSON.
+ * its live regions heard, a browser that builds no page's tree for a
+ * reader told apart from an empty one, a big page read whole, and a
+ * crashed tab noted. Prints
+ * what it found as JSON.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -72,11 +75,44 @@ try
     });
     run('wait', 'announce', 'Done', '--timeout', '10');
 
+    /* One that won't build its page's tree for a reader. */
+    const blind = await chromium.launch({ ...accessible,
+        args: [...accessible.args, '--disable-platform-accessibility-integration'] });
+    const unread = await blind.newPage();
+
+    await unread.setContent('<title>a11y-unread</title><button>Hidden</button>');
+    const hint = spawnSync(shotbox, ['a11y', 'tree', '--window', 'a11y-unread.*'],
+                           { encoding: 'utf8' }).stderr;
+    await blind.close();
+
+    /* A big page, in a browser not yet asked for its tree: read whole,
+       not as the empty document Chromium shows while it builds it. */
+    const fresh = await chromium.launch({ ...accessible });
+    const big = await fresh.newPage();
+
+    await big.setContent('<title>a11y-big</title>' +
+        Array.from({ length: 3000 }, (_, i) => `<button>b${i}</button>`).join(''));
+    const whole = run('a11y', 'tree', '--window', 'a11y-big.*');
+    await fresh.close();
+
+    /* A crashed tab: noted, and the rest read. */
+    const crashed = await browser.newPage();
+
+    await crashed.setContent('<title>a11y-crashed</title>');
+    const gone = new Promise((r) => crashed.once('crash', r));
+
+    await crashed.goto('chrome://crash').catch(() => {});
+    await gone;
+    const all = spawnSync(shotbox, ['a11y', 'tree'], { encoding: 'utf8' });
+
     process.stdout.write(JSON.stringify({
         tree,
         clicked,
         contrast,
         said: fs.readFileSync(process.env.SHOTBOX_ANNOUNCEMENTS, 'utf8'),
+        hint,
+        whole,
+        crash: { status: all.status, out: all.stdout, err: all.stderr },
     }));
 }
 finally

@@ -319,6 +319,7 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
         # libatspi caches states, and hears they've changed only from
         # events, which nothing here dispatches.
         top.clear_cache()
+        paged(Atspi, top, window, timeout)
         role = top.get_role()
         visit(top, role, 0, f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}")
     if bounds:
@@ -328,6 +329,65 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
             n["bounds"] = place(Atspi, n, shown, origins)
             n["_window"] = origins[n._top] and origins[n._top][0]
     return out
+
+
+# The browser windows paged() has looked at: Chromium's mode, once on,
+# stays on for the browser's life.
+PAGED = set()
+
+
+def paged(Atspi, top, window, timeout):
+    """Have a Chromium browser window build its page's part of the tree,
+    and wait for it. Chromium builds its tree past the window only for a
+    screen reader, and takes a node's attributes being asked for as one
+    at work: Orca asks, and few else do. A window with no page (a crashed
+    tab), or whose page isn't built in `timeout`, is noted; the one
+    `window` asks for fails, if it has nothing at all or its page isn't
+    built."""
+    key = f"{top.app.bus_name if top.app else ''}{top.path}"
+    app = top.get_application()
+    if key in PAGED or not app or app.get_toolkit_name() != "Chromium":
+        return
+    PAGED.add(key)
+    if (top.get_attributes() or {}).get("class") != "BrowserRootView":
+        return
+
+    def page():
+        top.clear_cache()
+        level = [top]
+        for _ in range(10):
+            level = [c for n in level for c in (n.get_child_at_index(i)
+                                                 for i in range(n.get_child_count())) if c]
+            docs = [c for c in level if c.get_role() == Atspi.Role.DOCUMENT_WEB]
+            if docs:
+                return docs[0]
+
+    def built():
+        doc = page()
+        return doc and doc.get_attributes()
+
+    name = json.dumps(top.get_name() or "")
+    try:
+        wait_for("", page, 2, interval=0.2)
+        # A page's document is first an empty stand-in, with no attributes,
+        # until its tree is built: for a big page, a while. about:blank's
+        # stays one.
+        if not (top.get_name() or "").startswith("about:blank"):
+            wait_for("", built, timeout, interval=0.2)
+    except SessionError:
+        if page():
+            why = (f"{name}: the page's accessible tree wasn't built in {timeout:g}s; "
+                   "a longer --timeout gives it longer")
+            fail = window
+        else:
+            why = (f"{name}: no page in the browser's accessible tree (a crashed tab, or a "
+                   "browser started with --disable-platform-accessibility-integration, "
+                   "which builds none for a reader; --force-renderer-accessibility builds "
+                   "it anyway)")
+            fail = window and not top.get_child_count()
+        if fail:
+            raise SessionError(why) from None
+        sys.stderr.write(f"shotbox: {why}\n")
 
 
 def tree(window=None, timeout=10, bounds=False):

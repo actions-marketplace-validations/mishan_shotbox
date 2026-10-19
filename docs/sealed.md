@@ -25,6 +25,11 @@ Sealed:
 Not sealed:
 - The files: the filesystem is the machine's, readable and writable as
   you, outside the scratch home.
+- Playwright's browsers: `PLAYWRIGHT_BROWSERS_PATH` is set to yours (as
+  it is outside, or `~/.cache/ms-playwright` if that's there), so
+  Playwright in a session finds them, and `npx playwright install` in
+  one installs there. Not with `--identity`, since the path has your
+  name in it: pass it with `--env` then.
 - The network, unless `--net loopback`: a server bound to `0.0.0.0` is
   on your network, and a program reaches whatever you can. With `--net
   loopback`, the session has a network of its own, which every program
