@@ -972,17 +972,18 @@ if atspi; then
     '$sb' a11y contrast --passes --json --window a11y-test > '$tmp/contrast.json' && exit \$s" \
     > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 1 ] && [ "$(grep -v ' not measured: GTK 4 reports its position wrong$' "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
+  [ $st = 1 ] && [ "$(grep -v ' not measured: GTK 4 reports its position wrong' "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
     && grep -q ': text passes at [0-9]*\.[0-9][0-9]:1, #[0-9a-f]\{6\} on #[0-9a-f]\{6\} (at least 4\.5)' "$tmp/contrast" \
     && python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
 assert [p['problem'][:8] for p in j['problems']] == ['text 2.5'], j['problems']
 assert j['notes'] and all(' not measured: ' in n['note'] and n['why'] for n in j['notes'])
 assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in j['passes'])" "$tmp/contrast.json" \
-    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
-    && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-    && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 4 ] \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
+    && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast" \
+    && grep -q 'check box\[[0-9]*\]/label\[[0-9]*\]: text passes at .*; found [0-9],[0-9] px from ' "$tmp/contrast" \
+    && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast")" = 4 ] \
     && grep -q "GTK 4\.[0-9.]* reports where its widgets are wrong, so text is measured where it's found" "$tmp/err" \
-    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
+    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, a full-width label's near where GTK says, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
     || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/contrast.json" "$tmp/err"; }
   # A theme's font (a seeded gtk.css), which GTK says, over a grid, so
   # nothing is all one lightness, in a window so big that from 4.14.6
@@ -998,7 +999,7 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
     '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" 2>/dev/null
   st=$?; set -e
   [ $st = 1 ] && ! grep -q 'no time left' "$tmp/contrast" \
-    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
     && ok "a11y: contrast finds GTK 4's text in a theme's font, over a grid, in a big window" \
     || { fail "a11y: contrast, GTK 4 themed ($st)"; cat "$tmp/contrast"; }
   set +e
@@ -1060,6 +1061,59 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
       && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi
+  # Text found from 4.14: stems thinner than a pixel, which cover none
+  # whole on any GTK 4 release, measure at their color, from how much of
+  # each pixel they cover, and bold text as its third pixel; light and
+  # dark, passing and failing. Not where the shape found doesn't account
+  # for every pixel: a size between those shapes are drawn at, or a
+  # shadow, which would measure darker than the color (#777777, 4.48:1,
+  # as 4.60 and 5.17). A "." and a ",", too few pixels to have a core of
+  # their color, at their color too. And a weight CSS gives that Pango
+  # doesn't name (450) is looked for, not a crash. A case a line: the
+  # label; what's said.
+  if [ "$minor" -ge 14 ]; then
+    glyphs="Ill|DejaVu Sans|9|400|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff
+lIl|DejaVu Sans|9|400|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
+IlI|DejaVu Sans|9|400|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+llI|DejaVu Sans|9|400|#5a5a5a|#353535; 1\.7[5-8]:1, #5[9a]5[9a]5[9a] on #353535
+Hello|DejaVu Sans|20|700|#767676|#ffffff; passes at 4\.54:1, #767676 on #ffffff
+World|DejaVu Sans|20|700|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+Hold|DejaVu Sans|20|700|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
+Help|DejaVu Sans|20|700|#5a5a5a|#353535; 1\.77:1, #5a5a5a on #353535
+Network|Cantarell|9.5|400|#777777|#ffffff; [1-4]\.[0-9]*:1, #[0-9a-f]* on #ffffff
+Settings|Cantarell|9.5|400|#777777|#ffffff|0 1px rgba(0,0,0,0.1); [1-4]\.[0-9]*:1, #[0-9a-f]* on #ffffff
+.|DejaVu Sans|13|400|#333333|#ffffff; passes at 12\.63:1, #333333 on #ffffff
+,|DejaVu Sans|13|400|#aaaaaa|#ffffff; 2\.32:1, #aaaaaa on #ffffff
+Book|DejaVu Sans|13|450|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff"
+    labels=$(echo "$glyphs" | sed "s/; .*//; s/.*/'&'/" | tr '\n' ' ')
+    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' glyphs $labels & '$sb' wait window gtk4-glyphs \
+      >/dev/null && sleep 1 && '$sb' a11y contrast --passes --window gtk4-glyphs" > "$tmp/contrast" || true
+    i=0 wrong=""
+    while IFS=';' read -r label said; do
+      grep -q "/label\[$i\]: text$said (" "$tmp/contrast" || wrong="$wrong '$label'"
+      i=$((i + 1))
+    done <<EOF
+$glyphs
+EOF
+    [ -z "$wrong" ] && ok "a11y: contrast, GTK 4: thin stems at their color, but not past what the shape accounts for; bold text as before" \
+      || { fail "a11y: contrast, GTK 4 thin and bold text:$wrong"; cat "$tmp/contrast"; }
+  fi
+  # From 4.14, text that isn't looked for says why: rows scrolled out of
+  # view, which GTK calls showing, above the list but in the window, and
+  # below the window; and from 4.22.3 a single letter, which GTK gives no
+  # width.
+  micro=$(python3 -c "import ctypes; print(ctypes.CDLL('libgtk-4.so.1').gtk_get_micro_version())")
+  while IFS='|' read -r least args lines want; do
+    [ $((minor * 100 + micro)) -ge "$least" ] || continue
+    "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --window a11y-test" \
+      < /dev/null > "$tmp/contrast" 2>&1 || true
+    [ "$(grep -c "$want" "$tmp/contrast")" = "$lines" ] \
+      && ok "a11y: contrast, GTK 4: says why it didn't look for text: $args" \
+      || { fail "a11y: contrast, GTK 4, why not: $args"; cat "$tmp/contrast"; }
+  done <<'CASES'
+1400|long down|2|/label\[\(2\|199\)\]: text not measured: not shown (scrolled out of view, or hidden)$
+2203|letter|1|: text not measured: GTK 4 reports its position wrong (a single letter: GTK gives it no width)$
+CASES
   # Before 4.14, GTK 4 says where a widget's content is: measured there,
   # faint labels in frames, one GTK can't pick, one under an overlay's
   # clear child and one on a stack's shown page too. Not measured, and
@@ -1083,7 +1137,7 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
       && ok "a11y: contrast, GTK 4 before 4.14: in a widget's content; not a stack's page gone, a popover or an edge, said" \
       || { fail "a11y: contrast, GTK 4 before 4.14 ($st)"; cat "$tmp/contrast"; }
   else
-    [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast")" = 4 ] \
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast")" = 4 ] \
       && grep -q '\[3\]/panel\[[01]\]/label\[0\]: text 1\.9' "$tmp/contrast" \
       && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
       && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 2 ] \
