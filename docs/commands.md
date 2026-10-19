@@ -301,8 +301,14 @@ sweeping past, text scrolling past (as many of its looks as not in the
 picture before or after, up or down, pixel for pixel), or a frozen frame
 that isn't one color between live ones. Text scrolled by fractions of a
 pixel, as GTK 4's or kinetic scrolling or a browser at a fractional
-scale may, is drawn anew each picture, and where its rows repeat can be
-called flicker. `--ignore G` leaves out a box that flickers on
+scale may, is drawn anew each picture, never the same pixels moved, so
+a flicker's look is also matched as a video encoder does, against the
+picture before or after moved up or down by up to a tile, to half a
+pixel: a shift that leaves half or less of what differs in place is
+scrolling, asked of about eight of its pictures. Not across, as stripes
+swapping are each other moved across. Text scrolled smoothly by more
+than a tile a picture, or across, can still be called flicker where
+its rows repeat. `--ignore G` leaves out a box that flickers on
 purpose. Pictures are kept as they're taken and looked at after, a tile
 again only where it changed: a busy screen, every picture different, is
 pictured more slowly, kept at about 150 MB a second of watching, and

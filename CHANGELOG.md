@@ -101,6 +101,17 @@
   that and the caret's blink are off, over the system's defaults (its
   vendor's overrides included); what a program sets there is seen by
   the session's other programs too, and goes with the session.
+- `flicker` doesn't call smoothly scrolled text flicker. Text scrolled
+  by fractions of a pixel (GTK 4's or kinetic scrolling, a browser at a
+  fractional scale) is never the same pixels moved, so where its lines
+  came round to the same rows every other picture, a tile flipped
+  between two looks that the check for scrolling, which wanted an exact
+  copy, didn't take for it. A flicker's look is now also matched, as a
+  video encoder does, against the picture before or after moved up or
+  down by up to a tile, to half a pixel; a shift that leaves half or
+  less of what differs in place is scrolling. Not across: stripes
+  swapping are each other moved across, and still flicker. It's asked
+  of about eight of a flicker's pictures; the exact copy, of all.
 - `flicker` doesn't find a flash at the start or end of watching: a
   change whose look before or after the watch cut short, as a square
   moving off a tile in its first picture, or an edge sweeping past in
