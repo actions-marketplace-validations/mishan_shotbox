@@ -349,7 +349,7 @@ brief may be missed, and something moving through taken for a flash.
 way, but with no display: for what draws nothing, a headless browser or a
 test suite, which should reach neither your desktop nor your speakers. It
 takes the session options that aren't about a display: `--env`, `--pass`,
-`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio`, `--net`,
+`--seed`, `--keep`, `--desktop`, `--machine-bus`, `--audio`, `--net`,
 `--identity`, `--clock`, `--tz` and `--no-sandbox`.
 
 ## start, spawn, stop and sessions
@@ -492,9 +492,11 @@ Sessions for an agent, over MCP: [mcp.md](mcp.md).
 variables; `--seed DIR` to start the home as a copy of a directory (a
 config, a profile, sample files);
 `--desktop` for real GSettings and the system's D-Bus services, which a
-desktop shell needs (its settings can show the machine's Wi-Fi networks,
-Bluetooth devices, user accounts and printers: check pictures before
-sharing them); `--system-bus` for a stand-in system bus; `--keep` to
+desktop shell needs; `--machine-bus` for the machine's system bus and
+printers instead of a stand-in bus and none, for a program that needs
+their services (a desktop's settings show its Wi-Fi networks, Bluetooth
+devices, user accounts and printers then: check pictures before sharing
+them); `--keep` to
 keep the scratch dir and say where it is; `--wayland` and `--xwayland`
 for a [Wayland](wayland.md) session; `--a11y` for an
 [accessibility bus](accessibility.md); `--audio` for a PipeWire of the

@@ -104,6 +104,32 @@ if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
       && ok "a program run from where it's hidden, refused" || fail "hidden cwd: $st $(cat "$tmp/err")"
   fi
 fi
+# The machine's system bus and printers only with --machine-bus: by default
+# a bus of the session's own, with nothing on it but itself, no scheduler,
+# and under bubblewrap none of the machine's sockets for them.
+names='gdbus call --system --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+  --method org.freedesktop.DBus.ListNames | tr -d "[]() '"'"'" | tr , "\n" | grep "^[^:]"'
+theirs=$(sh -c "$names" 2>/dev/null | grep -vxm1 org.freedesktop.DBus || true)
+if [ -n "$theirs" ]; then
+  in=$("$sb" run -- sh -c "$names"); out=$("$sb" run --machine-bus -- sh -c "$names")
+  [ "$in" = org.freedesktop.DBus ] && echo "$out" | grep -qx "$theirs" \
+    && ok "a system bus of its own, and the machine's ($theirs) with --machine-bus" \
+    || fail "system bus names inside: [$in]; with --machine-bus, no $theirs in [$out]"
+fi
+if command -v lpstat >/dev/null && [ "$(lpstat -r)" = "scheduler is running" ]; then
+  in=$("$sb" run -- sh -c 'lpstat -r; lpstat -e'); out=$("$sb" run --machine-bus -- lpstat -r)
+  [ "$in" = "scheduler is not running" ] && [ "$out" = "scheduler is running" ] \
+    && ok "no printers, and the machine's with --machine-bus" \
+    || fail "printers inside: [$in]; with --machine-bus: [$out]"
+fi
+socks=$(ls -d /run/dbus/system_bus_socket /run/cups/cups.sock 2>/dev/null || true)
+if [ -n "$socks" ] && bwrap --dev-bind / / true 2>/dev/null; then
+  listed='ls -d "$@" 2>/dev/null; true'
+  in=$("$sb" run -- sh -c "$listed" sh $socks); out=$("$sb" run --machine-bus -- sh -c "$listed" sh $socks)
+  [ -z "$in" ] && [ "$out" = "$socks" ] \
+    && ok "none of the machine's bus and printer sockets inside, but with --machine-bus" \
+    || fail "sockets inside: [$in]; with --machine-bus: [$out] of [$socks]"
+fi
 # --net loopback: one network for all the session's programs, a server one
 # starts reached from another and seen by a wait from outside, with only
 # loopback on it, and not reached from the machine.

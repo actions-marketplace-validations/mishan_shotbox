@@ -12,6 +12,17 @@
   now. `Screen.contrast()` gives the same dict, its lists of nodes, and
   has no `notes` argument: the notes are always there. `a11y lint
   --json` is as it was.
+- **A session has a stand-in system bus and no printers**, unless
+  `--machine-bus` (`Session(machine_bus=True)`), which replaces
+  `--system-bus` (`system_bus=True`), now refused. Programs reached the
+  machine's system bus and CUPS, so GNOME Settings under `--desktop`
+  showed its Wi-Fi networks, and a print dialog its printers. Under
+  bubblewrap, the machine's bus and CUPS sockets aren't there either;
+  CUPS on localhost:631 still answers a program that asks there, unless
+  `--net loopback`. A program that needs the machine's services
+  (NetworkManager, logind, polkit, CUPS) wants `--machine-bus`: check
+  pictures taken with it before sharing them. MCP's sessions have the
+  stand-in.
 
 ### Added
 
@@ -46,11 +57,6 @@
 
 ### Changed
 
-- `--desktop`'s help, docs/sealed.md and docs/desktop.md warn that a
-  desktop's settings in a session can show the machine's Wi-Fi networks,
-  Bluetooth devices and user accounts (over its system bus, unless
-  `--system-bus`) and printers (CUPS's socket, which `--system-bus`
-  doesn't hide): check pictures before sharing them.
 - On Wayland, a session has one keyboard, made as it starts and shared
   by every command until it stops, not one a command, so programs
   always have one, as on a desktop and on X11: GTK 4 and GTK 3 say

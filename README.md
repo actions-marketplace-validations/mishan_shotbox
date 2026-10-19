@@ -200,16 +200,18 @@ that sets out to:
 
 - Its environment is rebuilt from an allowlist; `HOME` and every XDG
   directory are a scratch dir.
-- Its display and session bus, and with `--a11y` and `--audio` its
-  accessibility bus and sound server, are its own; the sound server plays
-  to nowhere.
+- Its display, session bus and system bus, and with `--a11y` and
+  `--audio` its accessibility bus and sound server, are its own; the
+  sound server plays to nowhere. It has no printers (but CUPS on
+  localhost:631, unless `--net loopback`). `--machine-bus` gives it the
+  machine's system bus and printers.
 - Where bubblewrap can make a sandbox (it says when it can't), nothing
   reaches the machine's sound devices or your desktop's Wayland,
   PulseAudio, PipeWire and bus sockets.
 - Your network is reachable unless `--net loopback`, your user and host
   name show unless `--identity`, and the real time unless `--clock`.
-- Not sealed: the files outside the scratch home, your X server, other
-  processes, and the machine's system bus.
+- Not sealed: the files outside the scratch home, your X server, and
+  other processes.
 
 All of it, and what each option covers and doesn't:
 [docs/sealed.md](https://github.com/mishan/shotbox/blob/main/docs/sealed.md).
