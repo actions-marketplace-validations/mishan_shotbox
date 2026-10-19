@@ -118,8 +118,8 @@ On Debian, with what every command and option can use:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils python3-gi gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap \
-  libfaketime
+  at-spi2-core gir1.2-atspi-2.0 python3-gi-cairo gir1.2-pango-1.0 libglib2.0-bin pipewire \
+  wireplumber ffmpeg bubblewrap libfaketime
 pipx install --system-site-packages shotbox
 ```
 

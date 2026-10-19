@@ -28,7 +28,7 @@ from functools import cache
 
 from . import picture, x
 from .screen import Screen, SessionError, wait_for, wheel
-from .session import ATSPI, bindings
+from .session import ATSPI, bindings, pango_cairo
 
 # The states worth a line in the tree: what a screen reader says about a
 # node, not how it's laid out ("showing", "vertical"). Their AT-SPI names.
@@ -177,9 +177,10 @@ def origin(Atspi, top, shown):
     and not its window, and can't be placed. GTK 4 from 4.14, to 4.24 at
     least, loses the window's border (on X11 with no compositor, it has
     one) from its children: the frame's first child, which fills it but
-    for that, is at the frame's corner rather than inside the border. The
-    border and padding of every other node on the way down are lost too,
-    and can't be told: docs/accessibility.md says how far off that is."""
+    for that, is at the frame's corner rather than inside the border. From
+    4.14.6 the border and padding of every other node on the way down are
+    lost too, and can't be told: docs/accessibility.md says how far off
+    that is."""
     e = top.get_extents(Atspi.CoordType.WINDOW)
     name = top.get_name() or ""
     app = top.get_application()
@@ -1182,6 +1183,171 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     measured = [n for n in nodes if kind(n)]
     problems, notes, whys, count = [], [], [], 0
+    trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
+    kids, rel = {}, {}
+    for n in nodes:
+        kids.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+
+    def relative(n):
+        """`n`'s extents in its parent's, as GTK says them."""
+        if n.path not in rel:
+            try:
+                e = n._acc.get_extents(Atspi.CoordType.PARENT)
+                rel[n.path] = (e.x, e.y, e.width, e.height)
+            except Exception:   # gone since the walk
+                rel[n.path] = None
+        return rel[n.path]
+
+    areas, fonts, drawings = {}, {}, {}
+
+    def room(n):
+        """Where `n`'s text can be on GTK 4.14 and later, which says where
+        it is wrong, [x, y, width, height], cut to its window and the
+        screen; or None. GTK can count a stack's page's place twice, the
+        page's and its child's, which is taken off where it does. Up to
+        4.14.5 GTK says where a widget's content starts, and its text is
+        inside that box; from 4.14.6, where its edge is less every
+        container's border and padding, which can only put it further left
+        and up than it is, by no more than the room each container has
+        round what's in it."""
+        if n.path in areas:
+            return areas[n.path]
+        b, win = n.bounds, n._window
+        x, y, more = (b[0], b[1], [0, 0]) if b and win else (0, 0, None)
+        path, child = n.path, n
+        while more and "/" in path:
+            path = path.rsplit("/", 1)[0]
+            up = parents.get(path)
+            if not up or up._acc == n._top:
+                break
+            mine, its = relative(child), relative(up)
+            if not mine or not its:
+                more = None
+            # A page: not a widget, so no actions, with its child's extents.
+            # Its child is placed from it, counted twice, unless GTK sums
+            # past the page, as for libadwaita 1.5's view stack.
+            elif (mine == its and up._acc.get_child_count() == 1
+                    and "Action" not in up._acc.get_interfaces() and child.bounds and up.bounds
+                    and child.bounds[:2] == [up.bounds[0] + its[0], up.bounds[1] + its[1]]):
+                x, y = x - its[0], y - its[1]
+            elif gtk4_release(n) >= (4, 14, 6):
+                for i in (0, 1):
+                    reach = max([o[i] + o[i + 2] for o in map(relative, kids[path]) if o],
+                                default=0)
+                    more[i] += its[i + 2] - min(max(reach, 0), its[i + 2])
+            child = up
+        areas[n.path] = more and overlap([x, y, b[2] + more[0], b[3] + more[1]],
+                                         overlap(list(win), [0, 0, pic.width, pic.height]))
+        return areas[n.path]
+
+    def font(n):
+        if n.path not in fonts:
+            try:
+                fonts[n.path] = Atspi.Text.get_attribute_run(n._acc, 0, True)[0] or {}
+            except Exception:   # no text, or gone since the walk
+                fonts[n.path] = None
+        return fonts[n.path]
+
+    def drawing(text, attrs):
+        key = (text, tuple(sorted(attrs.items())))
+        if key not in drawings:
+            drawings[key] = text_shapes(text, attrs)
+        return drawings[key]
+
+    def texts_of(o):
+        """What `o` may draw: its name, unless it's a label's it's named by,
+        and what's in it, if it's edited."""
+        got = []
+        if o.name and not any(t.get_name() == o.name
+                              for t in related(Atspi, o._acc, "LABELLED_BY")):
+            got.append(o.name)
+        if "editable" in o.states:
+            try:
+                got.append(Atspi.Text.get_text(o._acc, 0, -1) or "")
+            except Exception:   # no text, or gone since the walk
+                pass
+        try:
+            got.append((o._acc.get_attributes() or {}).get("placeholder-text", ""))
+        except Exception:   # gone since the walk
+            pass
+        return [t for t in got if t]
+
+    def as_wide(n, shape):
+        """Whether the text GTK lays out for `n` is as wide as its name drawn
+        as `shape` (find_text's), within a pixel and a fiftieth (the sizes
+        shapes are drawn at, a third of a pixel apart, drift from GTK's
+        over a long text): not when GTK draws it otherwise (upper case,
+        letter-spaced), and what's found is the name drawn by something
+        else. GTK says how wide from 4.14.6 (before, the text is looked
+        for in its own box alone), from 4.22.3 a character short; text not
+        all ASCII isn't looked for there (see unsure)."""
+        if gtk4_release(n) < (4, 14, 6):
+            return True
+        try:
+            count = Atspi.Text.get_character_count(n._acc)
+            wide = Atspi.Text.get_range_extents(n._acc, 0, count, Atspi.CoordType.WINDOW).width
+        except Exception:   # no extents, or gone since the walk
+            return False
+        end = len(n.name) - (gtk4_release(n) >= (4, 22, 3))
+        if not end:
+            # A single character, which GTK gives no width: casing alone can
+            # turn one into another, not spacing, so only one with no case.
+            return n.name.upper() == n.name.lower()
+        kinds = drawing(n.name[:end], font(n))
+        return bool(kinds) and abs(kinds[shape[0]][shape[1]][0] - 4 - wide) <= 1 + wide / 50
+
+    def unsure(n):
+        """Whether how wide GTK lays out `n`'s text can't be told: from
+        4.14.6, for text not all ASCII, GTK turns characters into the
+        layout's bytes backwards, so the range it measures ends short by
+        however many, and nearly any width would do."""
+        return gtk4_release(n) >= (4, 14, 6) and not n.name.isascii()
+
+    def seek(n, until):
+        """Where `n`'s text is drawn, for GTK 4.14 and later: (its box, and
+        how far its middle is from the middle of GTK's), or None if it
+        isn't found, alone, where it can be (room), or another node's text
+        there could be what's found."""
+        area, attrs = room(n), font(n)
+        kinds = (area and area[2] > 0 and area[3] > 0 and attrs is not None
+                 and drawing(n.name, attrs))
+        got = kinds and picture.find_text(
+            pic, kinds, (area[0], area[1], area[0] + area[2], area[1] + area[3]), until)
+        if not got or got[0] < MATCH or got[5] >= MATCH_ELSEWHERE or not as_wide(n, got[6]):
+            return None
+        box = [got[1] + 2, got[2], got[3] - 4, got[4]]
+        for o in nodes:
+            if o is n or within(o.path, n.path) or within(n.path, o.path):
+                continue
+            there = room(o)
+            if not there or not all(overlap(there, box)[2:]):
+                continue
+            for t in texts_of(o):
+                if time.monotonic() > until:
+                    raise TimeoutError
+                other = drawing(t, font(o) or attrs)
+                if (picture.match_over(pic, other, box) >= MATCH_ELSEWHERE if other
+                        else n.name.lower() in t.lower()):
+                    return None
+        b = n.bounds
+        return box, tuple(box[i] + box[i + 2] // 2 - b[i] - b[i + 2] // 2 for i in (0, 1))
+
+    def leaf(n):
+        return not any(o.path.startswith(n.path + "/") for o in measured)
+
+    found, late = {}, set()
+    cannot = None
+    until = time.monotonic() + SEARCH
+    for n in measured:
+        if (n._role in texts and n._role not in controls and gtk4_release(n) >= (4, 14)
+                and not trusted and leaf(n)):
+            cannot = cannot or pango_cairo()
+            if cannot or unsure(n):
+                continue
+            try:
+                found[n.path] = seek(n, until)
+            except TimeoutError:
+                late.add(n.path)
 
     def wrong(n, k):
         """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
@@ -1189,7 +1355,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         inside = version and gtk4_release(n) < (4, 14)
         popover = inside and k != "edge" and popped(n)
         if (not version or version in GTK4_BOUNDS or inside and k != "edge" and not popover
-                or os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"):
+                or trusted):
             return False
         notes.append((n, f"{k} not measured: GTK 4 reports its position wrong"))
         why = (f"GTK {version} reports where what's in a popover is as if the popover were "
@@ -1197,9 +1363,23 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                f"GTK {version} reports where a widget's content is, inside its border and "
                "padding, so its edge can't be measured from what it reports; see "
                "docs/accessibility.md." if inside else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               f"it's found drawn near there, by its name in its font, but shotbox {cannot}; "
+               "see docs/accessibility.md." if n._role in texts and k == "text" and cannot else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and this wasn't found "
+               "there alone; see docs/accessibility.md." if n._role in texts and k == "text"
+               and not unsure(n) else
+               f"GTK {version} reports where its widgets are wrong, and how wide text that "
+               "isn't all ASCII is, so this can't be told from its name drawn by something "
+               "else nearby; see docs/accessibility.md." if n._role in texts and k == "text" else
+               f"GTK {version} reports where a widget's content starts, not its edge, and a "
+               "stack's child with its place in the stack counted twice, so what isn't text "
+               "can't be measured from what it reports; see docs/accessibility.md."
+               if gtk4_release(n) < (4, 14, 6) else
                f"GTK {version} reports where its widgets are without their containers' "
                "padding and borders, and a stack's child with its place in the stack counted "
-               "twice, so their contrast can't be measured from what it reports; see "
+               "twice, so what isn't text can't be measured from what it reports; see "
                "docs/accessibility.md.")
         n["_why"] = why
         if why not in whys:
@@ -1208,20 +1388,29 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     for n in measured:
         # A button with a label in it: the label's text is what's measured.
-        if any(o.path.startswith(n.path + "/") for o in measured):
+        if not leaf(n):
             continue
         k = kind(n)
         # GTK 4 puts a label in a control that draws text, so one with none
         # draws an icon: a graphic, held to graphics' ratio.
         if n._role in controls and gtk4(n):
             k = "graphics"
-        if wrong(n, k):
+        seen = found.get(n.path)
+        if n.path in late:
+            notes.append((n, f"{k} not measured: no time left to look for it"))
+            why = (f"Text GTK {gtk4(n)} places wrong is looked for for {SEARCH:g} seconds in "
+                   "all; see docs/accessibility.md.")
+            n["_why"] = why
+            if why not in whys:
+                whys.append(why)
+            continue
+        if not seen and wrong(n, k):
             continue
         if not n.bounds:
             if not undrawn(Atspi, n):
                 problems.append((n, f"{k} not measured: can't tell where it is"))
             continue
-        box = shown(n)
+        box = seen[0] if seen else shown(n)
         if not box:
             continue
         # A window can be bigger than the screen, and its nodes past it.
@@ -1261,8 +1450,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
+            moved = (f"; found {seen[1][0]},{seen[1][1]} px from where GTK {gtk4(n)} says"
+                     if seen else "")
             problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
-                                f"{picture.hex_of(got[2])} ({at}){meant}"))
+                                f"{picture.hex_of(got[2])} ({at}){meant}{moved}"))
     if edges:
         for n in nodes:
             if not (n._showing and not disabled(n) and (
@@ -1288,12 +1479,21 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
 SMALLEST = 16
 
+# How well text drawn by its name and font must match the place it's found
+# (picture.find_text), and how well nothing apart from that may.
+MATCH, MATCH_ELSEWHERE = 0.98, 0.8
+
+# The most seconds contrast looks for text, in all: well inside the
+# watchdog's minute.
+SEARCH = 30
+
 # The GTK 4 releases from 4.14 that say where their widgets are: none yet.
-# Others leave out each container's padding and border, count a stack's
-# child twice, and set a label's text a character short, none of which
-# can be undone from what they say (docs/accessibility.md, "GTK 4's
-# positions"). Before 4.14, GTK 4 says where a widget's content is, which
-# is measured, but for its edge and what's in a popover.
+# Others count a stack's child's place twice, and say where a widget's
+# content starts (to 4.14.5) or leave out each container's padding and
+# border (from 4.14.6), which can't be undone from what they say, so
+# only their text is measured, where it's found (docs/accessibility.md,
+# "GTK 4's positions"). Before 4.14, GTK 4 says where a widget's content
+# is, which is measured, but for its edge and what's in a popover.
 GTK4_BOUNDS = ()
 
 
@@ -1314,6 +1514,59 @@ def large_text(Atspi, n):
     except Exception:   # gone since the walk
         return False
     return bool(runs) and all(large_run(attrs, bool(gtk4(n))) for attrs in runs)
+
+
+def text_shapes(text, attrs):
+    """The kinds of shapes GTK 4 may draw `text` in, in the font its first
+    run's `attrs` say, for picture.find_text: hinted as GTK 4.16 and later
+    may (slightly, or not) and as earlier ones do (fully, its metrics
+    too), each at the sizes its whole pixels may be rounded down from.
+    None without pycairo and PangoCairo, or for text on more than a line."""
+    if "\n" in text or pango_cairo():
+        return None
+    import cairo
+    from gi.repository import Pango, PangoCairo
+    font = Pango.FontDescription()
+    font.set_family(attrs.get("family-name", "Sans"))
+    weight = attrs.get("weight", "")
+    font.set_weight(int(weight) if weight.isdigit() else Pango.Weight.NORMAL)
+    font.set_style(Pango.Style.ITALIC if attrs.get("style") == "italic" else Pango.Style.NORMAL)
+    try:
+        size = float(attrs.get("size", "")) * float(attrs.get("scale", 1))
+    except ValueError:
+        return None
+    kinds = []
+    for hint, metrics in ((cairo.HINT_STYLE_NONE, cairo.HINT_METRICS_OFF),
+                          (cairo.HINT_STYLE_SLIGHT, cairo.HINT_METRICS_OFF),
+                          (cairo.HINT_STYLE_FULL, cairo.HINT_METRICS_ON)):
+        kinds.append([])
+        for more in (0, 1 / 3, 2 / 3):
+            font.set_absolute_size((size + more) * Pango.SCALE)
+            options = cairo.FontOptions()
+            options.set_antialias(cairo.ANTIALIAS_GRAY)
+            options.set_hint_style(hint)
+            options.set_hint_metrics(metrics)
+
+            def layout(cr):
+                got = PangoCairo.create_layout(cr)
+                PangoCairo.context_set_font_options(got.get_context(), options)
+                got.set_font_description(font)
+                got.set_text(text, -1)
+                return got
+            blank = cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1))
+            _, logical = layout(blank).get_pixel_extents()
+            # Two blank columns each side: see find_text.
+            w, h = logical.width + 4, logical.height
+            if logical.width <= 0 or h <= 0:
+                return None
+            surface = cairo.ImageSurface(cairo.FORMAT_A8, w, h)
+            cr = cairo.Context(surface)
+            cr.move_to(2 - logical.x, -logical.y)
+            PangoCairo.show_layout(cr, layout(cr))
+            surface.flush()
+            data, stride = bytes(surface.get_data()), surface.get_stride()
+            kinds[-1].append((w, h, b"".join(data[y * stride:y * stride + w] for y in range(h))))
+    return kinds
 
 
 def large_run(attrs, pixels):

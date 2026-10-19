@@ -931,19 +931,25 @@ if atspi; then
     '$sb' a11y click Corner --window corner >/dev/null && sleep 0.5" \
     && [ "$(cat "$tmp/corner" 2>/dev/null)" = clicked ] \
     && ok "a11y: click finds a GTK 3 button in its window's corner" || fail "a11y: click, GTK 3 corner"
-  # GTK 4 says where its widgets are wrong: they're not measured, and
-  # with nothing measured, that's exit 2, and why. Told to trust it (a
-  # GTK whose bounds are right), it finds faint text and its colors, but
-  # not a disabled button's label.
+  # GTK 4 says where its widgets are wrong: their text is measured where
+  # it's found drawn near there, at its colors, and what isn't found (a
+  # label over two lines, labels drawn letter-spaced or in upper case
+  # over an entry holding or showing their text, which isn't taken for
+  # theirs), or
+  # isn't text, is said not to be, and why.
+  # Told to trust it (a GTK whose bounds are right), it finds faint text
+  # and its colors, but not a disabled button's label.
   set +e
-  "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" \
+  "$sb" run --a11y -- sh -c "'$app' faint lines decoys & '$sb' a11y contrast --window a11y-test" \
     > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 2 ] && grep -q '/label\[[0-9]*\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-    && ! grep -qv ': [a-z]* not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-    && grep -q '^shotbox: nothing measured: [0-9]* not measured\. GTK 4\.[0-9.]* reports where its widgets are' "$tmp/err" \
-    && ok "a11y: contrast leaves GTK 4 unmeasured, saying why: nothing measured, exit 2" \
-    || { fail "a11y: contrast, GTK 4 unmeasured ($st)"; cat "$tmp/contrast" "$tmp/err"; }
+  [ $st = 1 ] && [ "$(grep -cv ' not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 1 ] \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast" \
+    && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+    && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 4 ] \
+    && grep -q "GTK 4\.[0-9.]* reports where its widgets are wrong, so text is measured where it's found" "$tmp/err" \
+    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, but not text it can't find or tell from another's" \
+    || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/err"; }
   set +e
   "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' faint &
     '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
@@ -1004,23 +1010,35 @@ if atspi; then
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi
   # Before 4.14, GTK 4 says where a widget's content is: measured there,
-  # faint labels in frames, one GTK can't pick and one under an overlay's
-  # clear child too. Not measured, and said: a stack's page no longer
-  # shown, which it still says is where it was, a popover's label, which
-  # it places in its window, and a button's edge, outside its content.
+  # faint labels in frames, one GTK can't pick, one under an overlay's
+  # clear child and one on a stack's shown page too. Not measured, and
+  # said: a stack's page no longer shown, which it still says is where it
+  # was, a popover's label, which it places in its window, and a button's
+  # edge, outside its content. From 4.14, the same labels are found, the
+  # stack's though GTK counts its place in the stack twice (drawn a level
+  # lighter, unhinted, on 4.16 and later), and the popover's isn't, drawn
+  # outside the window.
+  set +e
+  "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' & '$sb' wait window gtk4-old >/dev/null &&
+    sleep 1 && '$sb' a11y contrast --edges 3 --window gtk4-old" > "$tmp/contrast" 2>/dev/null
+  st=$?; set -e
   if [ "$minor" -lt 14 ]; then
-    set +e
-    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' & '$sb' wait window gtk4-old >/dev/null &&
-      sleep 1 && '$sb' a11y contrast --edges 3 --window gtk4-old" > "$tmp/contrast" 2>/dev/null
-    st=$?; set -e
-    [ $st = 1 ] && [ "$(grep -c ': text 1\.99:1, #b0b0b0 on ' "$tmp/contrast")" = 3 ] \
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.99:1, #b0b0b0 on ' "$tmp/contrast")" = 4 ] \
       && grep -q '/filler\[2\]/label\[0\]: text 1\.99:1' "$tmp/contrast" \
       && grep -q '/panel\[3\]/panel\[0\]/label\[0\]: text not measured: GTK says another node is at its middle$' "$tmp/contrast" \
       && grep -q '/filler\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
       && grep -q '/push button\[4\]: edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-      && [ "$(wc -l < "$tmp/contrast")" = 7 ] \
+      && [ "$(wc -l < "$tmp/contrast")" = 8 ] \
       && ok "a11y: contrast, GTK 4 before 4.14: in a widget's content; not a stack's page gone, a popover or an edge, said" \
       || { fail "a11y: contrast, GTK 4 before 4.14 ($st)"; cat "$tmp/contrast"; }
+  else
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from where GTK 4\.[0-9.]* says$' "$tmp/contrast")" = 4 ] \
+      && grep -q '\[3\]/panel\[[01]\]/label\[0\]: text 1\.9' "$tmp/contrast" \
+      && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 2 ] \
+      && [ "$(wc -l < "$tmp/contrast")" = 7 ] \
+      && ok "a11y: contrast, GTK 4 from 4.14: text where it's found, a stack's too; not a popover or an edge, said" \
+      || { fail "a11y: contrast, GTK 4 from 4.14 ($st)"; cat "$tmp/contrast"; }
   fi
   # The window's own buttons, out of the Tab order, left out by name.
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \

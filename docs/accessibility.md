@@ -366,7 +366,8 @@ Wayland by sway's `focus`.
 
 `contrast` raises the `--window`, takes a picture of the screen, with
 the pointer parked, and measures each node in its bounds, but GTK 4.14
-and later's ([below](#gtk-4s-positions)):
+and later's, whose text is measured where it's found
+([below](#gtk-4s-positions)):
 
 - **Text**: a node with a name whose role is text (a label, heading,
   link, static text, paragraph), or a button, link, tab, menu item or
@@ -456,31 +457,89 @@ after the failures, a line each, and how many and why on stderr, so stdout is on
 `PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
 is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a window on GTK
-4.14 or later, `shotbox: nothing measured: ...` (text too small to
-measure, alone, passes). With `--json` it's 0 with failures, which the
-lines say, and 2 when nothing was measured. `Screen.contrast()` raises
+4.14 or later none of whose text was found, `shotbox: nothing measured:
+...` (text too small to measure, alone, passes). With `--json` it's 0
+with failures, which the lines say, and 2 when nothing was measured. `Screen.contrast()` raises
 then, and MCP's `check_contrast` says so as an error.
 
 ### GTK 4's positions
 
-An app on GTK 4.14 or later isn't checked: GTK 4 doesn't say where its
-widgets are, so contrast isn't measured on them, a line each, `not
-measured: GTK 4 reports its position wrong`, and why once (in `--json`,
-each such line's `why`). gnome-calculator's "=", white on blue at
-3.76:1, fails WCAG and isn't reported. What GTK 4 gets wrong, which
-can't be undone from what it says:
+GTK 4.14 and later don't say where their widgets are. What they get
+wrong:
 
-- each widget is placed without its containers' padding and borders,
-  so a label is off by everything round it (a dialog's button's label
-  by 44 pixels across and 22 down);
-- a stack's child is placed with its place in the stack counted twice;
-- a label's text is said to end a character short (more, for text that
-  isn't ASCII), without the label's own padding and border.
+- a stack's child is placed with its place in the stack counted twice
+  (12 pixels right and down for every key in gnome-calculator);
+- up to 4.14.5 (Ubuntu 24.04's), a widget is placed where its content
+  starts, inside its own border and padding, at its whole size, so its
+  box runs past its right and bottom edges by those;
+- from 4.14.6, to 4.24 at least, a widget is placed without its
+  containers' padding and borders, so it's said to be further left and
+  up than it is by all of them (a dialog's button's label by 44 pixels
+  across and 22 down).
 
 Measuring at those places measures what's there instead: a button's
-fill, a neighbor's text. The stack's is in GTK 4.14 and later, the rest
-in 4.14.6 and later, up to 4.24 at least. GTK 3, Qt and browsers say
-where their widgets are, and are measured.
+fill, a neighbor's text. So only text is measured on them, where it's
+found: shotbox draws the node's name in the font GTK says it has, at
+each size its whole pixels may be rounded down from, hinted as 4.14
+and as 4.16 and later draw, and looks for it where the box GTK says can
+be. A stack's page is a node with no actions (not a widget) whose only
+child has its extents and is placed from them, which comes off; then up
+to 4.14.5 the text is inside the box, and from 4.14.6 inside it moved
+right and down by up to the room each container has round what's in
+it, since padding and borders can only put it further left and up.
+It's taken where it matches what's drawn (a correlation of 0.98 or more
+of the drawn text's coverage with the picture's lightness, with two
+blank columns each side), and not where anything else in that room
+matches 0.8 or more (the same text twice). Other text can match nearly
+as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
+"Button" 0.96, a letter-spaced or upper-case label over an entry
+holding its text 0.96. So every other node whose own room takes in
+what's found, disabled, left out or not, is drawn there too, by its
+name (not a name it takes from its label) and, for an entry, what's in
+it or its placeholder: if any matches 0.8 or more, nothing is taken.
+Text drawn by what has no text of its own (a drawing area, a widget
+drawing round its child) can't be, so from 4.14.6 the text GTK lays
+out must also be as wide as the name drawn as found, within a pixel
+and a fiftieth (GTK says how wide, from 4.22.3 a character short): a
+label drawn upper case or letter-spaced isn't, and isn't taken for
+its name drawn nearby. GTK gives a single character no width, so a
+one-character name is taken only if it has no case (a digit, a "+"). Text that isn't all ASCII ("Über", "€ 5") isn't
+measured from 4.14.6, a line each saying why: GTK measures it short by
+however many characters, so it can't be told apart. Up to 4.14.5 GTK
+doesn't say, and the text is looked for in the label's own box alone. A label hidden under
+something opaque, but drawn in its own font, can still be taken for
+the same text drawn visibly in the room round it. The text is measured
+in its own box, and a failure says how far the middle of that is from
+the middle of GTK's box: gnome-calculator's "=" on 4.24, white on blue,
+
+```
+.../button[23]/label[0]: text 3.76:1, #ffffff on #3584e4 (at least 4.5); found -8,-11 px from where GTK 4.24.1 says
+```
+
+What isn't found isn't measured, a line each, `text not measured: GTK 4
+reports its position wrong`, and why once (in `--json`, each such line's
+`why`): text over two lines, in more than one font (a superscript), a
+name that isn't what's drawn, text with its own background at its edge
+or at the window's, what's drawn outside where GTK's box can be (a
+popover's label), and text with more than 600 by 200 pixels to look in.
+Looking takes up to 30 seconds in all; text not looked for by then is
+`text not measured: no time left to look for it`. Finding it needs
+pycairo and PangoCairo (`python3-gi-cairo` and `gir1.2-pango-1.0` on
+Debian, which the Action's `a11y: true` installs, and `shotbox doctor`
+checks): without them, no text is found, and the why says so. Images,
+controls that draw an icon, and edges (`--edges`) aren't measured
+either, a line each: nothing says where they are. On GTK 4.16 and
+later, which places glyphs at fractions of a pixel, a thin glyph such
+as a "1" covers no pixel whole, and its third pixel (as above) can
+measure lighter than its color: `#b0b0b0` text as `#c1c1c0`, as it
+does at GTK's own bounds with `SHOTBOX_TRUST_GTK4_BOUNDS=1`.
+
+On gnome-calculator, gnome-text-editor, Files and test windows (borders
+and padding nested, stacks, libadwaita's view stack, keys in a grid,
+twins and decoys), on GTK 4.24.1 (X11, Wayland and Xwayland) and
+4.14.5, every text found was where GTK draws it, to the pixel, against
+its true place read in the program, and no text was taken for another.
+GTK 3, Qt and browsers say where their widgets are, and are measured.
 
 Before 4.14, GTK 4 says where a widget's content is: inside its own
 border and padding, placed right. On GTK 4.6.9 (Ubuntu 22.04) and 4.8.3
@@ -506,13 +565,13 @@ Close popovers before measuring on these versions: what's under an
 open one is measured against the popover's pixels, since GTK doesn't
 say where the popover really is.
 
-Large text and disabled nodes don't come into it for GTK 4.14 and later,
-since nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
-session's environment (`--env`) measures GTK 4 at its bounds as said:
-for a GTK whose bounds you've checked, which needs all three fixed (one
-with the padding alone fixed still has gnome-calculator's keypad 12
-pixels off). libadwaita's view stack and tab view pages take their
-bounds from their child, as GTK's stack pages do.
+`SHOTBOX_TRUST_GTK4_BOUNDS=1` in the session's environment (`--env`)
+measures GTK 4 at its bounds as said, edges and all, rather than
+looking for its text: for a GTK whose bounds you've checked, which
+needs the stack's and the padding's fixed (one with the padding alone
+fixed still has gnome-calculator's keypad 12 pixels off). libadwaita's
+view stack and tab view pages take their bounds from their child, as
+GTK's stack pages do.
 
 ## What a screen reader says
 

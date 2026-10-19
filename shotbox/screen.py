@@ -826,7 +826,8 @@ class Screen:
         picture of the screen, `window` raised. With `notes`, what wasn't
         measured and doesn't fail too, `fails` False: too small to, or
         GTK 4's, with `why`. Fails, saying why, if nothing could be
-        measured: a GTK 4 window, its positions wrong, isn't checked."""
+        measured: of a GTK 4 window, its positions wrong, only text found
+        near them is."""
         from .a11y import Node
         args = ["--text", str(text), "--large", str(large), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),
