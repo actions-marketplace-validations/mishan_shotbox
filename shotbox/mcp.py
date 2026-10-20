@@ -247,27 +247,40 @@ def png_size(path):
         return struct.unpack(">II", f.read(24)[16:24])
 
 
-def fit(png, full=None):
+def fit(png, full=None, grow=False):
     """Shrink the picture at `png`, in place, to what a model sees
-    unscaled; what to say of its size, and if it's shrunk from `full` (its
-    own size, or the size of the pictures a sheet was made of), the scale.
-    The client would scale it anyway, and an x,y read off it would be off
-    by as much, unsaid."""
+    unscaled, or with `grow` enlarge it to the most that is; what to say of
+    its size, and if it's scaled from `full` (its own size, or the size of the
+    pictures a sheet was made of), the scale across and down: each side is
+    rounded, so a thin one's can differ. The client would scale it anyway,
+    and an x,y read off it would be off by as much, unsaid."""
     w, h = png_size(png)
     fw, fh = full or (w, h)
-    nw, nh = seen(w, h)
+    nw, nh = seen(w, h, grow)
     if (nw, nh) != (w, h):
         subprocess.run([*CONVERT, str(png), "-resize", f"{nw}x{nh}!", *QUIET_PNG, str(png)],
                        check=True)
     if (nw, nh) == (fw, fh):
         return f"{nw}x{nh}", None
-    return f"{nw}x{nh}, scaled by {nw / fw:.4g} from {fw}x{fh}", nw / fw
+    kx, ky = f"{nw / fw:.4g}", f"{nh / fh:.4g}"
+    by = kx if kx == ky else f"{kx} across and {ky} down"
+    return f"{nw}x{nh}, scaled by {by} from {fw}x{fh}", (kx, ky)
 
 
-def seen(w, h):
+def mapped(x0, y0, scale):
+    """Where a point at x,y on a picture of what's taken from `x0`,`y0`,
+    scaled by `scale` (fit's), is for click_element."""
+    kx, ky = scale or (None, None)
+    return "click_element's x,y for a point at x,y on it is " + ", ".join(
+        " + ".join(([str(o)] if o else []) + [f"{v}/{k}" if k else v])
+        for o, v, k in ((x0, "x", kx), (y0, "y", ky)))
+
+
+def seen(w, h, grow=False):
     """The size a picture `w` by `h` is seen at unscaled: its own, or the
-    largest that fits."""
-    s = min(1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
+    largest that fits; with `grow`, the largest that fits anyway, up to
+    ZOOM times its own."""
+    s = min(ZOOM if grow else 1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
     while True:
         nw, nh = max(1, round(w * s)), max(1, round(h * s))
         if math.ceil(nw / PATCH) * math.ceil(nh / PATCH) <= SEEN:
@@ -442,8 +455,26 @@ class Server:
     # --- looking -------------------------------------------------------------
 
     def take_screenshot(self, session, window=None, crop=None, park=False, vision=None,
-                        burst=None, every=None, labels=False):
+                        burst=None, every=None, labels=False, zoom=None):
         s = self.session(session)
+        region = None
+        if zoom is not None:
+            try:
+                region = [float(c) for c in words(zoom)]
+            except ValueError:
+                region = []
+            if len(region) != 4 or not all(map(math.isfinite, region)):
+                raise Refused(f"zoom is [x0, y0, x1, y1], not {zoom!r}")
+            if region[2] <= region[0] or region[3] <= region[1]:
+                raise Refused(f"zoom's x1,y1 is right of and below its x0,y0, not {zoom!r}")
+            if crop or burst:
+                raise Refused("zoom is one picture of its own region: not with crop or burst")
+        elif crop:
+            box = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", str(crop))
+            if not (box and int(box[1]) and int(box[2])):
+                raise Refused(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop!r}")
+            w, h, x, y = map(int, box.groups())
+            region = [x, y, x + w, y + h]
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
         if vision and vision not in VISION:
@@ -462,39 +493,47 @@ class Server:
         nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
+        x0 = y0 = 0
+        if region:
+            # Cut to what's taken: past its edges there's nothing to show.
+            found = s.window(text(window)) if window else None
+            big = found[2:4] if found else s.backend.root_size(s.env)
+            x0, y0, x1, y1 = (min(max(0, round(v)), big[i % 2]) for i, v in enumerate(region))
+            if x1 <= x0 or y1 <= y0:
+                raise Refused(f"{zoom or crop} has none of {what} in it, which is "
+                              f"{big[0]}x{big[1]}")
+            crop = f"{x1 - x0}x{y1 - y0}+{x0}+{y0}"
+            what = f"{x0},{y0} to {x1},{y1} of {what}"
         if burst:
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
-                            window=text(window), crop=text(crop), park=flag(park),
+                            window=text(window), crop=crop, park=flag(park),
                             vision=vision)
             times = ", ".join(f"{at:.2f}" for _, at in taken)
             size, n = laid_out([p for p, _ in taken], out)
             said = (f"{len(taken)} pictures of {what}, {n} to a row, left to right, "
                     f"taken at {times} seconds; {size}.")
         else:
-            s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
-            size, scale = fit(out)
-            # click_element's x,y are the window's with window, and a crop's
-            # are from its corner.
+            s.capture(out, window=text(window), crop=crop, park=flag(park), vision=vision)
+            size, scale = fit(out, grow=zoom is not None)
             said = f"A picture of {what}, {size}" + (
-                ": divide an x,y on it by that" + (", then add the crop's x,y," if crop else "")
-                + (" for click_element with the same window." if window else
-                   " for click_element.") if scale else ".")
-            if labels:
-                said += "\n" + self.labeled(s, out, nodes, text(window), text(crop), scale or 1)
+                ": " + mapped(x0, y0, scale) + (", with the same window." if window else ".")
+                if scale or x0 or y0 else ".")
+        if labels:
+            said += "\n" + self.labeled(s, out, nodes, text(window), (x0, y0), scale)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
 
-    def labeled(self, s, png, nodes, window, crop, scale):
+    def labeled(self, s, png, nodes, window, corner, scale):
         """Draw on the picture at `png` each named node's box and a number,
         and say which node each number is, its box on the picture. Not a
         window's, which is the picture, nor one named as what it's in (a
         button's label). A box is cut to those of what it's in, so a row
-        scrolled out of view, which GTK says is showing, has none."""
+        scrolled out of view, which GTK says is showing, has none. The picture
+        is of what's taken from `corner`, scaled as fit says (`scale`)."""
         ox, oy = s.window(window)[4:6] if window else (0, 0)
-        corner = crop and re.search(r"\+(\d+)\+(\d+)$", crop)
-        if corner:
-            ox, oy = ox + int(corner[1]), oy + int(corner[2])
+        ox, oy = ox + corner[0], oy + corner[1]
+        kx, ky = map(float, scale or (1, 1))
         pw, ph = png_size(png)
         above, inside, legend, draw, unplaced, corners = {}, {}, [], [], 0, {}
         for n in nodes:
@@ -504,9 +543,9 @@ class Server:
             box = inside.get(n.depth - 1, (0, 0, pw, ph)) if n.depth else (0, 0, pw, ph)
             if n.get("bounds"):
                 bx, by, bw, bh = n.bounds
-                box = (max(box[0], round((bx - ox) * scale)), max(box[1], round((by - oy) * scale)),
-                       min(box[2], round((bx + bw - ox) * scale)),
-                       min(box[3], round((by + bh - oy) * scale)))
+                box = (max(box[0], round((bx - ox) * kx)), max(box[1], round((by - oy) * ky)),
+                       min(box[2], round((bx + bw - ox) * kx)),
+                       min(box[3], round((by + bh - oy) * ky)))
             inside[n.depth] = box
             if not n.depth or not n.name or parent and parent.name == n.name:
                 continue
@@ -913,6 +952,9 @@ SESSION = {"type": "string", "description": "Its name, from start_session"}
 # The most a model sees unscaled (Anthropic's vision docs: a long edge of
 # 1568 px and 1568 patches of 28x28 px); a picture past it is shrunk to fit.
 SEEN, PATCH = 1568, 28
+# A zoom on a few pixels shows them no better past this, and costs as much
+# as a screen.
+ZOOM = 8
 # 8K: a screen's framebuffer is in memory, and 20000x20000 is 1.6 GB.
 SCREEN = (7680, 4320)
 # A GTK app's whole window, measured, is 63 tree lines (Text Editor) to 314
@@ -1020,12 +1062,18 @@ TOOLS = [
      "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "
      "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
      "get_accessible_tree; take the window rather than the screen, and crop when you need a "
-     "part. vision checks nothing is told apart by color alone; burst, as one image, is for "
-     "motion, an animation or a transition. labels numbers each named node's box on it, to "
-     "click by name what you see. The answer gives its size, if it was shrunk the scale, "
-     "and with labels each number's tree line.",
+     "part; zoom enlarges one to read small text. vision checks nothing is told apart by "
+     "color alone; burst, as one image, is for motion, an animation or a transition. labels "
+     "numbers each named node's box on it, to click by name what you see. The answer gives "
+     "its size, if it's scaled or a part how an x,y on it maps to click_element's, and with "
+     "labels each number's tree line.",
      schema({"session": SESSION, "window": WINDOW,
-             "crop": CROP,
+             "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, cut to what's taken"},
+             "zoom": {"type": "array", "items": {"type": "number"}, "minItems": 4,
+                      "maxItems": 4,
+                      "description": "[x0, y0, x1, y1]: a region's corners in click_element's "
+                      "x,y (a picture's, mapped as its answer says), shown as large as fits, up "
+                      "to 8 times; not with crop or burst"},
              "park": {"type": "boolean", "description": "Move the pointer away first, so "
                       "nothing shows its hover"},
              "burst": {"type": "integer", "minimum": 2, "maximum": 12,
