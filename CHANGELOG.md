@@ -35,6 +35,10 @@
   tree line each, up to 500, so an agent needn't read the whole tree
   again. `shotbox.a11y.changes(before, after)` says it of two
   `a11y_tree()`s.
+- MCP's `take_screenshot` with `labels` draws each named node's box and
+  a number on the picture, and answers with each number's tree line and
+  box, scaled and cropped as the picture is, so what's seen can be
+  clicked by name.
 
 ### Fixed
 

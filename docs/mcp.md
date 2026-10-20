@@ -97,7 +97,7 @@ it arbitrary commands, typed with `type_text`.
 | `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size (up to 7680x4320), gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
 | `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
 | `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
-| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image; with its size |
+| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`); or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
 | `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
 | `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point; with `changes`, what it changed in the tree |
@@ -143,8 +143,16 @@ asked for rather than always said: it costs the two reads, about a
 second, and a page that changes whole could fill an answer the agent
 didn't need.
 
+**Numbers on a picture.** `take_screenshot` with `labels` draws each
+named node's box on it in magenta, with a number at its corner, and
+answers with the number's tree line and the box on the picture, scaled
+and cropped as the picture is: what's seen is clicked by name. Not a
+window, whose box is the picture, nor a node named as what it's in (a
+button's label). The boxes are where the tree says, which on GTK 4.14
+and later is off: [GTK 4's positions](accessibility.md#gtk-4s-positions).
+
 **Answers are bounded.** A screen is at most 7680x4320. The tree, what
-an action changed in it, the checks' answers and
+an action changed in it, a picture's labels, the checks' answers and
 `list_announcements` (its latest) stop at 500 lines,
 saying how many more and how to narrow it, if it can be; GTK apps' whole windows
 measured 63 to 314. A line a program wrote, and a tree line, stops at

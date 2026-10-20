@@ -427,7 +427,7 @@ class Server:
     # --- looking -------------------------------------------------------------
 
     def take_screenshot(self, session, window=None, crop=None, park=False, vision=None,
-                        burst=None, every=None):
+                        burst=None, every=None, labels=False):
         s = self.session(session)
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
@@ -441,6 +441,10 @@ class Server:
             raise Refused(f"every is 0 to 5 seconds, not {every:g}")
         if every is not None and not burst:
             raise Refused("every goes with burst")
+        labels = flag(labels)
+        if labels and burst:
+            raise Refused("labels goes with one picture, not burst")
+        nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         if burst:
@@ -460,9 +464,46 @@ class Server:
                 ": divide an x,y on it by that" + (", then add the crop's x,y," if crop else "")
                 + (" for click_element with the same window." if window else
                    " for click_element.") if scale else ".")
+            if labels:
+                said += "\n" + self.labeled(s, out, nodes, text(window), text(crop), scale or 1)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
+
+    def labeled(self, s, png, nodes, window, crop, scale):
+        """Draw on the picture at `png` each named node's box and a number,
+        and say which node each number is, its box on the picture. Not a
+        window's, which is the picture, nor one named as what it's in (a
+        button's label)."""
+        ox, oy = s.window(window)[4:6] if window else (0, 0)
+        corner = crop and re.search(r"\+(\d+)\+(\d+)$", crop)
+        if corner:
+            ox, oy = ox + int(corner[1]), oy + int(corner[2])
+        pw, ph = png_size(png)
+        above, legend, draw = {}, [], []
+        for n in nodes:
+            above[n.depth] = n
+            parent = above.get(n.depth - 1)
+            if not n.depth or not n.name or not n.bounds or parent and parent.name == n.name:
+                continue
+            bx, by, bw, bh = n.bounds
+            x0, y0 = max(0, round((bx - ox) * scale)), max(0, round((by - oy) * scale))
+            x1 = min(pw, round((bx + bw - ox) * scale))
+            y1 = min(ph, round((by + bh - oy) * scale))
+            if x1 - x0 < 2 or y1 - y0 < 2:
+                continue
+            legend.append(f"{len(legend) + 1} "
+                          + Node({**n, "bounds": [x0, y0, x1 - x0, y1 - y0]}).line(bounds=True))
+            if len(legend) <= LINES:
+                draw += ["-stroke", "magenta", "-fill", "none",
+                         "-draw", f"rectangle {x0},{y0} {x1 - 1},{y1 - 1}",
+                         "-stroke", "none", "-fill", "white",
+                         "-annotate", f"+{x0 + 1}+{y0 + 1}", str(len(legend))]
+        if not legend:
+            return "No named node to label in it."
+        subprocess.run([*CONVERT, str(png), "-gravity", "NorthWest", "-pointsize", "12",
+                        "-undercolor", "magenta", *draw, *QUIET_PNG, str(png)], check=True)
+        return "Labeled, by number, at x,y WIDTHxHEIGHT on it:\n" + capped(legend)
 
     def clip(self, path):
         """Where record_video saves to: a new file in the allow file's directory,
@@ -943,8 +984,9 @@ TOOLS = [
      "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
      "get_accessible_tree; take the window rather than the screen, and crop when you need a "
      "part. vision checks nothing is told apart by color alone; burst, as one image, is for "
-     "motion, an animation or a transition. The answer gives its size, and "
-     "if it was shrunk, the scale.",
+     "motion, an animation or a transition. labels numbers each named node's box on it, to "
+     "click by name what you see. The answer gives its size, if it was shrunk the scale, "
+     "and with labels each number's tree line.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": CROP,
              "park": {"type": "boolean", "description": "Move the pointer away first, so "
@@ -955,7 +997,9 @@ TOOLS = [
                        "description": "With burst, seconds between them"},
              "vision": {"type": "string", "enum": sorted(VISION),
                         "description": "protanopia (no red cones), deuteranopia (no green), "
-                                       "tritanopia (no blue), or gray (no color)"}},
+                                       "tritanopia (no blue), or gray (no color)"},
+             "labels": {"type": "boolean", "description": "Number each named node's box on "
+                        "it, and list each number's tree line"}},
             ["session"])),
     ("record_video",
      "Record a video of the screen, or of one window, and save it as an .mp4: in the "

@@ -79,6 +79,20 @@ def tool(which, /, **args):
     return "\n".join(texts), bool(got.get("isError")), got["content"]
 
 
+def boxes(said):
+    """take_screenshot's labels: each name's box on the picture."""
+    return {m[1]: tuple(map(int, m.groups()[1:])) for m in
+            re.finditer(r'^\d+ [a-z ]+ "([^"]*)".* @(\d+),(\d+) (\d+)x(\d+)$', said, re.M)}
+
+
+def pixel(content, x, y):
+    """The RGB of a pixel of a call's image."""
+    png = tmp / "pixel.png"
+    png.write_bytes(base64.b64decode(next(c for c in content if c["type"] == "image")["data"]))
+    return subprocess.run([*mcp.CONVERT, str(png), "-crop", f"1x1+{x}+{y}", "-depth", "8",
+                           "rgb:-"], capture_output=True, check=True).stdout
+
+
 init = rpc("initialize", {"protocolVersion": "2025-03-26"})["result"]
 check(init["protocolVersion"] == "2025-03-26" and "tools" in init["capabilities"],
       "initialize: the version asked for, and tools")
@@ -217,9 +231,20 @@ try:
     check(not bad and (w, h) == (240, 800) and "12 to a row" in said
           and said.endswith("; 240x800."),
           f"take_screenshot: a burst of tall pictures, in one row, not shrunk ({said})")
+    whole, bad, content = tool("take_screenshot", session="t", window="a11y-test", labels=True)
+    full = boxes(whole)
+    cropped = boxes(tool("take_screenshot", session="t", window="a11y-test", labels=True,
+                         crop="200x150+50+100")[0])
+    x, y, w, h = full["Announce"]
+    check(not bad and re.search(r'^1 (push )?button "Save" .*@\d+,\d+ \d+x\d+$', whole, re.M)
+          and not re.search(r'^\d+ (frame|label "Save")', whole, re.M) and "Wrap lines" in full
+          and pixel(content, x, y + h // 2) == b"\xff\x00\xff"
+          and cropped["Announce"] == (max(0, x - 50), y - 100, min(x + w, 250) - max(x, 50), h),
+          f"take_screenshot: labels, a number a named node, its box drawn where the legend says, "
+          f"and moved with a crop ({whole}; {cropped})")
     # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
     # have 1920x1080 seen, with the scale to map an x,y back by.
-    said, bad, _ = tool("start_session", name="big", a11y=False, screen="1920x1080")
+    said, bad, _ = tool("start_session", name="big", screen="1920x1080")
     said, bad, content = tool("take_screenshot", session="big")
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     check(not bad and struct.unpack(">II", png[16:24]) == (1456, 819)
@@ -234,6 +259,16 @@ try:
     check(not bad and "2 to a row" in said and struct.unpack(">II", png[16:24]) == (1456, 819)
           and said.endswith("; 1456x819, scaled by 0.3792 from 3840x2160."),
           f"take_screenshot: a burst of wide screens, two to a row, shrunk least ({said})")
+    tool("spawn_program", session="big", program="app")
+    tool("wait_for", session="big", what="window", value="a11y-test", timeout=20)
+    x, y, w, h = map(int, re.search(r'"Announce" .*@(\d+),(\d+) (\d+)x(\d+)', tool(
+        "get_accessible_tree", session="big", bounds=True)[0]).groups())
+    said, bad, content = tool("take_screenshot", session="big", labels=True)
+    k = 1456 / 1920
+    check(not bad and boxes(said)["Announce"] == (
+              round(x * k), round(y * k), round((x + w) * k) - round(x * k),
+              round((y + h) * k) - round(y * k)),
+          f"take_screenshot: labels on a picture shrunk, their boxes shrunk with it ({said})")
     tool("stop_session", session="big")
     said, bad, _ = tool("start_session", name="huge", a11y=False, screen="7681x4320")
     check(bad and "at most 7680x4320, not 7681x4320" in said and "huge" not in server.sessions,
