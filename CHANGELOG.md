@@ -34,8 +34,8 @@
 - `a11y contrast` didn't take GTK 4's text where another node's shorter
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a
-  longer one, so it's measured now; "check" itself, matching in both
-  places, still isn't.
+  longer one, so where it's drawn apart too it doesn't count against it
+  now; "check" itself, matching in both places, still isn't taken.
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's
   grid unmeasured, which doesn't fail, while text of the same color
   elsewhere failed: the fainter the text, the more of what varies where

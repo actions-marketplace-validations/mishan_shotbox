@@ -272,8 +272,8 @@ def find_text(pic, kinds, area, until=None, under=None):
     their size. A place matches as well as its pixels' lightness follows
     a shape's coverage (matches), each shape looked at at every place:
     (match, x, y, width, height, the best match of that shape at a place
-    apart from that one, and which kind and shape of it matched), its x
-    and y those of the shape, or None if `area` can't hold one, or has
+    apart from that one, which kind and shape of it matched, and where
+    that other match is, (x, y)), its x and y those of the shape, or None if `area` can't hold one, or has
     more places than PLACES to look at. Raises TimeoutError past
     `until`, a monotonic time. With `under` (backdrop's), less what's
     behind the text."""
@@ -296,9 +296,17 @@ def find_text(pic, kinds, area, until=None, under=None):
         return None
     # The best match of a place the best one doesn't overlap.
     match, bx, by, bw, bh, k, i = best
-    apart = max(max(row[:max(0, bx - bw + 1)] + row[bx + bw:], default=0.0)
-                if by - bh < y < by + bh else max(row) for y, row in enumerate(grid))
-    return match ** 0.5, bx + lit.x0, by + lit.y0, bw, bh, apart ** 0.5, (k, i)
+    apart = (0.0, 0, 0)
+    for y, row in enumerate(grid):
+        spans = ((0, max(0, bx - bw + 1)), (bx + bw, len(row))) if by - bh < y < by + bh else (
+            (0, len(row)),)
+        for a, b in spans:
+            if a < b:
+                top = max(row[a:b])
+                if top > apart[0]:
+                    apart = (top, row.index(top, a, b), y)
+    return (match ** 0.5, bx + lit.x0, by + lit.y0, bw, bh, apart[0] ** 0.5, (k, i),
+            (apart[1] + lit.x0, apart[2] + lit.y0))
 
 
 def match_over(pic, kinds, box, until=None, under=None):

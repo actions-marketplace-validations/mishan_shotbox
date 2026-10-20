@@ -1164,7 +1164,29 @@ CASES
         && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: text found though shorter text inside it matches there; the shorter not, said" \
         || { fail "a11y: contrast, GTK 4, check over unchecked"; cat "$tmp/contrast"; }
+      # Under "Recheck", whose room takes in both, "check" names the node
+      # where its other match is. A hidden "Open File" isn't taken for
+      # "Open" and "File" drawn side by side under it: "Open" is drawn
+      # only there.
+      for args in "nested recheck" split; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --passes --window a11y-test" \
+          < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      grep -q '/label\[1\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
+        && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (another node.s text matches there too: "Open")$' "$tmp/contrast" \
+        && ! grep -q '/panel\[7\]/label\[0\]: text passes' "$tmp/contrast" \
+        && ok "a11y: contrast, GTK 4: the other match's own node named; text not taken for pieces of it drawn only there" \
+        || { fail "a11y: contrast, GTK 4, Recheck and Open File"; cat "$tmp/contrast"; }
     fi
+    # --strict: a window where nothing's measured but what fails, exit 1
+    # with the failure, not 2, "nothing measured".
+    set +e
+    "$sb" run --a11y -- sh -c "'$app' lone & '$sb' a11y contrast --strict --window a11y-test" \
+      < /dev/null > "$tmp/contrast" 2>/dev/null
+    st=$?; set -e
+    [ $st = 1 ] && grep -q ': text not found, but nothing where it can be' "$tmp/contrast" \
+      && ok "a11y: contrast --strict fails what fails, where nothing else is measured" \
+      || { fail "a11y: contrast --strict, lone ($st)"; cat "$tmp/contrast"; }
     # --strict fails what isn't measured, but rows scrolled out of view
     # stay notes, as GTK 3 and browsers say nothing of theirs.
     "$sb" run --a11y -- sh -c "'$app' long down & '$sb' a11y contrast --strict --json --window a11y-test" \

@@ -545,7 +545,9 @@ what's found, disabled, left out or not, is drawn there too, by its
 name (not a name it takes from its label) and, for an entry, what's in
 it or its placeholder: if any matches 0.8 or more, nothing is taken,
 unless its text is a shorter piece of this one's, which can't match all
-of it ("check" over "unchecked").
+of it ("check" over "unchecked"), and is drawn apart from what's found
+too, matching 0.8 or more in its own room: a hidden "Open File" isn't
+taken for "Open" and "File" drawn side by side.
 Text drawn by what has no text of its own (a drawing area, a widget
 drawing round its child) can't be, so from 4.14.6 the text GTK lays
 out must also be as wide as the name drawn as found, within a pixel
@@ -607,11 +609,12 @@ on its line too: `(a single letter: GTK gives it no width)`, `(over
 more than one line)`, `(not all ASCII: GTK measures its width short)`;
 and so does text looked for and not taken, with why (the why at the end
 says what that means): `(no match good enough: 0.44 at best)`, `(it
-matches elsewhere too, in "unchecked")` (or with how well, where no
-other node's text holds it), `(another node's text matches there too:
-"Row 10")`, `(what matches is drawn wider or narrower than GTK lays it
-out)`. What isn't found: text in more
-than one font (a superscript), letter-spaced (which GTK doesn't say), a
+matches elsewhere too, in "unchecked")`, naming the node whose room
+starts nearest where the other match is, if its text holds this one's
+(else how well it matches there, and no name), `(another node's text
+matches there too: "Row 10")`, `(what matches is drawn wider or narrower
+than GTK lays it out)`; and where nothing could be looked for, why:
+`(GTK says no font for it)`. What isn't found: text in more than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
 or at the window's, what's drawn outside where GTK's box can be (a
 popover's label), and text with more than 600 by 400 pixels to look in.

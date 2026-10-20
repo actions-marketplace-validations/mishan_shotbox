@@ -1348,7 +1348,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         area, attrs = room(n) and overlap(room(n), [0, 0, pic.width, pic.height]), font(n)
         kinds = (area and area[2] > 0 and area[3] > 0 and attrs is not None
                  and drawing(n.name, attrs))
+        seen_area = area and area[2] > 0 and area[3] > 0
         area = kinds and (area[0], area[1], area[0] + area[2], area[1] + area[3])
+
+        def apart(a, b):
+            """The better of two searches' runners-up, and where it is."""
+            return max((a[5], a[7]), (b[5], b[7]))
 
         def find(area, under=None):
             got = picture.find_text(pic, kinds, area, until, under)
@@ -1361,7 +1366,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 again = picture.find_text(pic, [phased], area, until, under)
                 if again and again[0] > got[0]:
                     shape = phased[again[6][1]]
-                    got = again[:5] + (max(got[5], again[5]),) + got[6:]
+                    r, at = apart(got, again)
+                    got = again[:5] + (r, got[6], at)
             return got, shape
         got, shape = find(area) if kinds else (None, None)
         under = None
@@ -1375,16 +1381,25 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             again, drawn = find((max(area[0], x - 1), max(area[1], y - 3),
                                  min(area[2], x + w + 1), min(area[3], y + h + 3)), under)
             if again and again[0] > got[0]:
-                got, shape = again[:5] + (max(got[5], again[5]),) + again[6:], drawn
+                r, at = apart(got, again)
+                got, shape = again[:5] + (r, again[6], at), drawn
         if not got or got[0] < MATCH:
-            refused[n.path] = ("unmatched", f"no match good enough: {got[0]:.2f} at best"
-                               if got else "where it can be is too small or too big to look in")
+            refused[n.path] = ("unmatched", f"no match good enough: {got[0]:.2f} at best" if got
+                               else "where it can be is too small or too big to look in"
+                               if kinds else "GTK says no font for it" if attrs is None
+                               else "where it can be is off the screen" if not seen_area
+                               else "it can't be drawn to look for")
             return None
         if got[5] >= MATCH_ELSEWHERE:
-            # The other place's own node, if its text holds this one's.
-            like = [t for o in nodes if not (within(o.path, n.path) or within(n.path, o.path))
-                    and room(o) and all(overlap(room(o), room(n))[2:])
-                    for t in texts_of(o) if n.name.lower() in t.lower()]
+            # The node whose room holds the other place, if its text holds
+            # this one's: of those, the one whose room starts nearest it, as
+            # GTK places each further left and up than it is.
+            mid = [got[7][0] + got[3] // 2, got[7][1] + got[4] // 2, 1, 1]
+            like = [t for _, t in sorted(
+                ((room(o)[1], room(o)[0]), t) for o in nodes
+                if not (within(o.path, n.path) or within(n.path, o.path))
+                and room(o) and overlap(room(o), mid) == mid
+                for t in texts_of(o) if n.name.lower() in t.lower())[::-1]]
             refused[n.path] = ("twice", "it matches elsewhere too" + (
                 f', in "{like[0]}"' if like else f", {got[5]:.2f}: the same text twice, or like it"))
             return None
@@ -1399,11 +1414,15 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             there = room(o)
             if not there or not all(overlap(there, box)[2:]):
                 continue
-            # A shorter text inside this one can't match all of it.
-            for t in [t for t in texts_of(o) if not (t.lower() in n.name.lower() != t.lower())]:
+            for t in texts_of(o):
                 if time.monotonic() > until:
                     raise TimeoutError
                 other = drawing(t, font(o) or attrs)
+                # A shorter text inside this one can't match all of it, if
+                # it's drawn where it is too.
+                if (other and t.lower() != n.name.lower() and t.lower() in n.name.lower()
+                        and drawn_apart(o, other, box, until)):
+                    continue
                 if (max(picture.match_over(pic, other, box, until, u) for u in {None, under})
                         >= MATCH_ELSEWHERE if other
                         else n.name.lower() in t.lower()):
@@ -1411,6 +1430,20 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     return None
         at = laid(n) or (0, 0)
         return box, tuple(box[i] - n.bounds[i] - at[i] for i in (0, 1)), (got[1], got[2], shape)
+
+    def drawn_apart(o, kinds, box, until):
+        """Whether `o`'s text, drawn as `kinds`, matches MATCH_ELSEWHERE or
+        more where `o`'s can be (room), at a place apart from `box`."""
+        area = room(o) and overlap(room(o), [0, 0, pic.width, pic.height])
+        got = area and all(area[2:]) and picture.find_text(
+            pic, kinds, (area[0], area[1], area[0] + area[2], area[1] + area[3]), until)
+        if not got:
+            return False
+        for match, (x, y) in ((got[0], got[1:3]), (got[5], got[7])):
+            if all(overlap([x + 2, y, got[3] - 4, got[4]], box)[2:]):
+                continue
+            return match >= MATCH_ELSEWHERE
+        return False
 
     def faint(n, least):
         """For `n`'s text, not found or not taken: the most contrast any text
@@ -1647,13 +1680,15 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     notes = [(n, what) for n, what in notes if not skip(n, what)]
     # What's scrolled out of view isn't there to measure, as GTK 3's and
     # browsers' rows aren't, which aren't said at all.
-    failing = [(n, what) for n, what in notes if strict and n.path not in hidden]
-    for n, _ in failing:
-        n["_noted"] = True
+    failing = [Noted(note) for note in notes if strict and note[0].path not in hidden]
     problems = [(n, what) for n, what in problems if not skip(n, what)] + failing
     notes = [note for note in notes if note not in failing]
     return (problems, [(n, what) for n, what in passes if not skip(n, what)], notes,
             [w for w in whys if any(n.get("_why") == w for n, _ in problems + notes)], count)
+
+
+class Noted(tuple):
+    """A note, (node, what), that --strict made a problem."""
 
 
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
@@ -2135,7 +2170,7 @@ def main(argv):
         # Said apart from the lines, on stderr, so stdout is PATH: WHAT.
         # Under --strict what wasn't measured is among the problems, but
         # a failure isn't nothing.
-        nothing = not count and whys and all("_noted" in n for n, _ in problems)
+        nothing = not count and whys and all(isinstance(p, Noted) for p in problems)
         said = " ".join([f"{len(notes)} not measured"
                          + ("." if nothing else ", which doesn't fail.")] * bool(notes) + whys)
         if a.json and a.what == "lint":
