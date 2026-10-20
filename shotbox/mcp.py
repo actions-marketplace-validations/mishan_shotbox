@@ -28,6 +28,7 @@ at once and leaves the sessions to the watchdog.
 
 import argparse
 import base64
+import functools
 import itertools
 import json
 import math
@@ -47,6 +48,7 @@ from pathlib import Path
 
 from . import __version__, kept, sound, usage
 from .a11y import Node, walk_lines
+from .a11y import changes as tree_changes
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
 from .sound import describe
@@ -73,7 +75,8 @@ its window. Read get_accessible_tree before clicking: \
 it says what's on screen and what each thing is called, in far fewer tokens than \
 a screenshot, and click_element and scroll_wheel take a name. Use take_screenshot only \
 for what pixels say (colors, layout); record_video for motion and sound. After acting, \
-wait_for stable rather than sleeping. check_accessible_names, check_contrast, \
+wait_for stable rather than sleeping, or give the action changes to be told what changed \
+in the tree rather than reading it again. check_accessible_names, check_contrast, \
 check_focus_order, get_speech, list_announcements and record_audio check what a person would \
 meet. stop_session when done; every session stops with the server.
 
@@ -291,6 +294,30 @@ def sheet_size(paths, across=4):
     rows = [[png_size(p) for p in paths[i:i + across]] for i in range(0, len(paths), across)]
     return (max(sum(w for w, _ in row) for row in rows),
             sum(max(h for _, h in row) for row in rows))
+
+
+def watched(act):
+    """A tool that acts, which with changes also says what it changed in
+    the tree once the screen has held still, so the agent needn't read the
+    tree again for it. The whole tree: a click can open another window."""
+    @functools.wraps(act)
+    def acting(self, session, *args, changes=False, **kw):
+        if not flag(changes):
+            return act(self, session, *args, **kw)
+        s = self.a11y_session(session)
+        before = s.a11y_tree()
+        said = act(self, session, *args, **kw)
+        late = ""
+        try:
+            s.wait_stable(0.5, timeout=SETTLE)
+        except SessionError:
+            if _CANCEL.is_set():
+                raise
+            late = f" (it hadn't held still after {SETTLE} s)"
+        found = tree_changes(before, s.a11y_tree())
+        return (f"{said}\nChanged in the tree{late}:\n{capped(found)}" if found
+                else f"{said}\nNothing changed in the tree{late}.")
+    return acting
 
 
 class Server:
@@ -555,6 +582,7 @@ class Server:
 
     # --- acting --------------------------------------------------------------
 
+    @watched
     def click_element(self, session, name=None, role=None, x=None, y=None, window=None,
                       button=1, double=False, hold=None, state=None, timeout=None):
         s = self.session(session)
@@ -578,6 +606,7 @@ class Server:
         done = {"down": "Pressed and left down", "up": "Let go"}.get(state, "Clicked")
         return f"{done} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
+    @watched
     def scroll_wheel(self, session, dy=None, dx=None, name=None, role=None, x=None, y=None,
                      window=None):
         s = self.session(session)
@@ -595,6 +624,7 @@ class Server:
         s.scroll(px, py, dy, dx, window=text(window))
         return f"{turned} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
+    @watched
     def press_keys(self, session, keys, hold=None, state=None):
         chords = words(keys)
         if not chords:
@@ -638,6 +668,7 @@ class Server:
             return f"Let go of everything on pad {n}."
         raise Refused(f"action is press, stick, trigger or neutral, not {action!r}")
 
+    @watched
     def type_text(self, session, text):
         self.session(session).type(str(text))
         return f"Typed {len(str(text))} characters."
@@ -812,6 +843,9 @@ SCREEN = (7680, 4320)
 # tens of thousands. So every app's window whole, and at most about 35 KB.
 LINES = 500
 LINE_CHARS = 500
+# How long an action's changes wait for the screen to hold still, as
+# wait_for stable does by default.
+SETTLE = 10
 # A clip holds the server while it records, so it's about as long as the
 # longest burst; and it stops at a size few clips of a screen reach, so the
 # disk can't fill.
@@ -834,6 +868,8 @@ Y = {"type": "integer", "description": "Pixels from the top"}
 IGNORE = {"type": "array", "items": {"type": "string"},
           "description": "Regexes for lines that can't be fixed yet"}
 PROGRAM = {"type": "string", "description": "Its name in the allow list"}
+CHANGES = {"type": "boolean", "description": "Then, once the screen holds still, also say what "
+           "changed in the accessible tree: tree lines, + added, - gone, ~ changed"}
 WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
@@ -958,7 +994,8 @@ TOOLS = [
              "double": {"type": "boolean", "description": "Click twice, as a double click"},
              "hold": HOLD, "state": STATE,
              "timeout": {"type": "number", "minimum": 0, "maximum": 300,
-                         "description": "By name, seconds to wait for the node (10)"}},
+                         "description": "By name, seconds to wait for the node (10)"},
+             "changes": CHANGES},
             ["session"])),
     ("scroll_wheel",
      "Turn the mouse wheel over a node by its name, found as click_element finds it (waiting "
@@ -970,7 +1007,8 @@ TOOLS = [
                     "description": "Clicks down; negative, up"},
              "dx": {"type": "integer", "minimum": -100, "maximum": 100,
                     "description": "Clicks right; negative, left"},
-             "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW},
+             "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW,
+             "changes": CHANGES},
             ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. They "
@@ -981,7 +1019,7 @@ TOOLS = [
      schema({"session": SESSION,
              "keys": {"type": "array", "items": {"type": "string"},
                       "description": "Chords, pressed one after another"},
-             "hold": HOLD, "state": STATE}, ["session", "keys"])),
+             "hold": HOLD, "state": STATE, "changes": CHANGES}, ["session", "keys"])),
     ("use_gamepad",
      "Work a virtual gamepad, in a session started with gamepads: press buttons together, "
      "tapped, held for hold seconds, or with state down left down until a call with state "
@@ -1011,8 +1049,8 @@ TOOLS = [
      "Type text into whatever has the keyboard focus, a key at a time. ASCII only: a "
      "character with no key fails the call, once what's before it is typed. For keys and "
      "shortcuts (Return, ctrl+s), use press_keys.",
-     schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"}},
-            ["session", "text"])),
+     schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"},
+             "changes": CHANGES}, ["session", "text"])),
     ("wait_for",
      "Wait until something is so, instead of sleeping; it fails after timeout seconds, "
      "saying so, and listing the windows there are when a window never came. what says "

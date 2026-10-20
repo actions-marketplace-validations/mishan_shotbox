@@ -99,9 +99,9 @@ it arbitrary commands, typed with `type_text`.
 | `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
 | `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
-| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked |
-| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
-| `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
+| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
+| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point; with `changes`, what it changed in the tree |
+| `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text; with `changes`, what they changed in the tree |
 | `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
 | `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes; `check_contrast` with `passes` says what passes too, with its ratio, as `a11y contrast --passes` does, and with `strict` fails on what it couldn't measure, as `--strict` does |
@@ -123,8 +123,29 @@ with the same window, or click by name. A burst's or a clip's pictures
 are laid out as many to a row as shrinks them least: two 1920x1080
 screens to a row, 728x410 each.
 
-**Answers are bounded.** A screen is at most 7680x4320. The tree, the
-checks' answers and `list_announcements` (its latest) stop at 500 lines,
+**What an action changed.** `click_element`, `scroll_wheel`,
+`press_keys` and `type_text` with `changes` read the tree before they
+act and again once the screen has held still for half a second (as
+`wait_for` stable; after 10 seconds, it's read anyway, saying it hadn't),
+and answer with what changed: a tree line a node, `+` added, `-` gone,
+`~` renamed, described otherwise or in other states, with `, was` and
+what it was, indented from the shallowest of them:
+
+    Clicked check box "Wrap lines" [focusable, checked] at the middle of [5, 171, 350, 28].
+    Changed in the tree:
+    ~ button "Save" [focusable], was [focusable, focused]
+    ~ check box "Wrap lines" [focusable, focused], was [focusable, checked]
+
+It's the whole tree, every window's, since a click can open another,
+and where nodes are isn't compared, since a scroll moves them all; a
+field's text isn't in its line, so typing into one changes none. It's
+asked for rather than always said: it costs the two reads, about a
+second, and a page that changes whole could fill an answer the agent
+didn't need.
+
+**Answers are bounded.** A screen is at most 7680x4320. The tree, what
+an action changed in it, the checks' answers and
+`list_announcements` (its latest) stop at 500 lines,
 saying how many more and how to narrow it, if it can be; GTK apps' whole windows
 measured 63 to 314. A line a program wrote, and a tree line, stops at
 500 characters, saying how many more.

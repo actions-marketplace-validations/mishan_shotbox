@@ -29,6 +29,12 @@
   lines are failures, under `problems` in `--json`, each with its `why`
   if it has one; `Screen.contrast(strict=True)` and MCP's
   `check_contrast` with `strict` have it too.
+- MCP's `click_element`, `scroll_wheel`, `press_keys` and `type_text`
+  with `changes` say what they changed in the accessible tree once the
+  screen holds still: nodes added, gone, renamed or in other states, a
+  tree line each, up to 500, so an agent needn't read the whole tree
+  again. `shotbox.a11y.changes(before, after)` says it of two
+  `a11y_tree()`s.
 
 ### Fixed
 

@@ -67,6 +67,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   contrast --passes` says it;
   `click_node(name, role=None, window=None)` and
   `scroll_node(name, dy, dx=0, role=None, window=None)`;
+  `shotbox.a11y.changes(before, after)`, what changed from one
+  `a11y_tree()` to another, as MCP's actions with `changes` say it;
   `speak(keys=None, window=None, most=50)`, what Orca says as `a11y
   speak` has it, with Orca installed: a dict, its `start` and each of
   its `presses` with the `focus` (a node, or None), whether it `moved`,

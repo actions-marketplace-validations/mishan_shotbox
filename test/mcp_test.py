@@ -137,6 +137,28 @@ check(rpc("nope")["error"]["code"] == -32601, "an unknown method is an error")
 check(mcp.handle(server, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None,
       "a notification gets no answer")
 
+
+def tree(*rows):
+    return [mcp.Node(depth=d, role=r, name=n, description="", states=s) for d, r, n, s in rows]
+
+
+rows = [(0, "frame", "w", []), (1, "button", "Save", ["focused"]), (1, "label", "Row 1", []),
+        (1, "check box", "Wrap", ["checked"])]
+window = tree(*rows)
+for after, want, what in (
+        (window, [], "nothing"),
+        (tree((0, "frame", "w", []), (1, "button", "Save", []), (1, "label", "Row 2", []),
+              (1, "check box", "Wrap", ["focused"])),
+         ['~ button "Save", was [focused]', '~ label "Row 2", was "Row 1"',
+          '~ check box "Wrap" [focused], was [checked]'], "renamed, other states"),
+        (tree((0, "frame", "w", []), (1, "label", "Row 0", []), *rows[1:],
+              (1, "dialog", "Quit?", []), (2, "button", "OK", []), (0, "frame", "x", [])),
+         ['+   label "Row 0"', '+   dialog "Quit?"', '+     button "OK"', '+ frame "x"'],
+         "added, above what was there and below, indented from the shallowest"),
+        (window[:1] + window[2:], ['- button "Save" [focused]'], "gone")):
+    got = mcp.tree_changes(window, after)
+    check(got == want, f"what changed in the tree: {what} ({got})")
+
 said, bad, _ = tool("get_accessible_tree", session="none")
 check(bad and "no session called 'none'" in said, "a session that isn't there: said")
 check(rpc("tools/list", "oops")["error"]["code"] == -32602
@@ -282,6 +304,13 @@ try:
               f"get_speech: what Orca says at each stop ({said!r})")
     said, bad, _ = tool("press_keys", session="t", keys="Tab Tab")
     check(not bad and said == "Pressed Tab, Tab.", "press_keys: keys given as text")
+    unchecked, bad, _ = tool("click_element", session="t", name="Wrap lines", changes=True)
+    said, _, _ = tool("click_element", session="t", name="Wrap lines", changes=True)
+    check(not bad and re.search(r'^~ check box "Wrap lines" \[focusable, focused\], was '
+                                r'\[focusable(, focused)?, checked\]$', unchecked, re.M)
+          and said.endswith('\nChanged in the tree:\n~ check box "Wrap lines" '
+                            '[focusable, focused, checked], was [focusable, focused]'),
+          f"click_element: with changes, what it changed in the tree ({unchecked}; {said})")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.

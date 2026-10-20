@@ -107,6 +107,53 @@ class Node(dict):
                       else "")
 
 
+def changes(before, after):
+    """What changed from one tree to another, as a11y_tree has them: a line
+    a node, in tree order, as the tree has it but indented from the
+    shallowest of them, after "+ " for one added, "- " one gone, or "~ "
+    one renamed, described otherwise or in other states, then ", was"
+    and what it was. Nodes are paired by depth, role, name and
+    description, and those left by depth and role, so a row added above
+    others doesn't make them all renamed. Where they are isn't compared:
+    a scroll moves everything."""
+    found = []
+
+    def was(m, n):
+        said = [json.dumps(m.name, ensure_ascii=False)] if m.name != n.name else []
+        if m.description != n.description:
+            said.append(f"description={json.dumps(m.description, ensure_ascii=False)}")
+        return " ".join(said + [f"[{', '.join(m.states)}]"] * (m.states != n.states))
+
+    def pair(a, b, key, rest):
+        # Most of a tree is as it was: its ends are paired before the rest
+        # is searched, which takes as long as their lengths multiplied.
+        lead = tail = 0
+        while lead < min(len(a), len(b)) and key(a[lead]) == key(b[lead]):
+            lead += 1
+        while (tail < min(len(a), len(b)) - lead
+               and key(a[-1 - tail]) == key(b[-1 - tail])):
+            tail += 1
+        middle = difflib.SequenceMatcher(None, [key(n) for n in a[lead:len(a) - tail]],
+                                         [key(n) for n in b[lead:len(b) - tail]], autojunk=False)
+        for op, i1, i2, j1, j2 in [("equal", 0, lead, 0, lead),
+                                   *[(op, i1 + lead, i2 + lead, j1 + lead, j2 + lead)
+                                     for op, i1, i2, j1, j2 in middle.get_opcodes()],
+                                   ("equal", len(a) - tail, len(a), len(b) - tail, len(b))]:
+            if op == "equal":
+                found.extend(("~", n, w) for m, n in zip(a[i1:i2], b[j1:j2]) if (w := was(m, n)))
+            else:
+                rest(a[i1:i2], b[j1:j2])
+
+    def unpaired(a, b):
+        found.extend([("-", n, "") for n in a] + [("+", n, "") for n in b])
+
+    pair(before, after, lambda n: (n.depth, n.role, n.name, n.description),
+         lambda a, b: pair(a, b, lambda n: (n.depth, n.role), unpaired))
+    top = min((n.depth for _, n, _ in found), default=0)
+    return [f"{mark} {'  ' * (n.depth - top)}{n.line()}" + (f", was {w}" if w else "")
+            for mark, n, w in found]
+
+
 def toplevels(Atspi, window=None, timeout=10):
     """Each (application, toplevel) on the bus, in a stable order:
     applications by name, their windows as they list them. `window`, as
