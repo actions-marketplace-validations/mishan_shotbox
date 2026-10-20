@@ -1399,7 +1399,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             there = room(o)
             if not there or not all(overlap(there, box)[2:]):
                 continue
-            for t in texts_of(o):
+            # A shorter text inside this one can't match all of it.
+            for t in [t for t in texts_of(o) if not (t.lower() in n.name.lower() != t.lower())]:
                 if time.monotonic() > until:
                     raise TimeoutError
                 other = drawing(t, font(o) or attrs)
@@ -1500,7 +1501,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "neither is taken; see docs/accessibility.md." if case == "twice" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and another node's text "
-               "matches what was found as well (\"check\" inside \"unchecked\"), so it isn't "
+               "matches what was found as well (\"Row 10\" over \"Row 1\"), so it isn't "
                "taken for this one's; see docs/accessibility.md." if case == "other" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and what matched isn't as "

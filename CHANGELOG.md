@@ -20,7 +20,7 @@
 - `a11y contrast` says on its line why GTK 4's text it looked for wasn't
   taken, and its why says what that means: `(no match good enough: 0.44
   at best)`, `(it matches elsewhere too, in "unchecked")`, `(another
-  node's text matches there too: "check")`, or `(what matches is drawn
+  node's text matches there too: "Row 10")`, or `(what matches is drawn
   wider or narrower than GTK lays it out)`. All four read "wasn't found
   there alone" before.
 - `a11y contrast --strict` fails on what it couldn't measure, too: for
@@ -31,6 +31,11 @@
 
 ### Fixed
 
+- `a11y contrast` didn't take GTK 4's text where another node's shorter
+  text inside it matched there too: "unchecked", under a "check" whose
+  room took it in, was a note. A shorter text can't match all of a
+  longer one, so it's measured now; "check" itself, matching in both
+  places, still isn't.
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's
   grid unmeasured, which doesn't fail, while text of the same color
   elsewhere failed: the fainter the text, the more of what varies where

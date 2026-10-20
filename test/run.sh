@@ -1154,6 +1154,17 @@ CASES
       sleep 1 && '$sb' a11y contrast --window a11y-test" < /dev/null > "$tmp/contrast" 2>/dev/null \
       && ok "a11y: contrast, GTK 4: a carousel's page not shown doesn't fail" \
       || { fail "a11y: contrast, GTK 4, carousel"; cat "$tmp/contrast"; }
+    # From 4.14.6, where "check" can be takes in "unchecked" under it:
+    # "unchecked" is found, "check" inside it being no match for all of
+    # it, and "check", matching in both, isn't, which its line says.
+    if [ $((minor * 100 + micro)) -ge 1406 ]; then
+      "$sb" run --a11y -- sh -c "'$app' nested & '$sb' a11y contrast --passes --window a11y-test" \
+        < /dev/null > "$tmp/contrast" 2>/dev/null
+      grep -q '/label\[1\]: text passes at .*; found ' "$tmp/contrast" \
+        && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
+        && ok "a11y: contrast, GTK 4: text found though shorter text inside it matches there; the shorter not, said" \
+        || { fail "a11y: contrast, GTK 4, check over unchecked"; cat "$tmp/contrast"; }
+    fi
     # --strict fails what isn't measured, but rows scrolled out of view
     # stay notes, as GTK 3 and browsers say nothing of theirs.
     "$sb" run --a11y -- sh -c "'$app' long down & '$sb' a11y contrast --strict --json --window a11y-test" \

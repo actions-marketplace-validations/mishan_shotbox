@@ -543,7 +543,9 @@ match nearly as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
 holding its text 0.96. So every other node whose own room takes in
 what's found, disabled, left out or not, is drawn there too, by its
 name (not a name it takes from its label) and, for an entry, what's in
-it or its placeholder: if any matches 0.8 or more, nothing is taken.
+it or its placeholder: if any matches 0.8 or more, nothing is taken,
+unless its text is a shorter piece of this one's, which can't match all
+of it ("check" over "unchecked").
 Text drawn by what has no text of its own (a drawing area, a widget
 drawing round its child) can't be, so from 4.14.6 the text GTK lays
 out must also be as wide as the name drawn as found, within a pixel
@@ -607,7 +609,7 @@ and so does text looked for and not taken, with why (the why at the end
 says what that means): `(no match good enough: 0.44 at best)`, `(it
 matches elsewhere too, in "unchecked")` (or with how well, where no
 other node's text holds it), `(another node's text matches there too:
-"check")`, `(what matches is drawn wider or narrower than GTK lays it
+"Row 10")`, `(what matches is drawn wider or narrower than GTK lays it
 out)`. What isn't found: text in more
 than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
