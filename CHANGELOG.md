@@ -14,6 +14,12 @@
   › Sound's "No Output Devices" (3.23:1). So does text dimmed behind an
   open dialog, as faint as it's drawn (Files' path bar behind its
   preferences). Leave them out with `--ignore` if they're not yours.
+- **MCP's `take_screenshot` says where a point on a picture is for
+  `click_element` as a sum, `100 + x/0.8122, 50 + y/0.812`**, in place
+  of "divide an x,y on it by that, then add the crop's x,y": a client
+  that reads the old sentence needs the new one. Its `crop`, in a burst
+  too, is `WIDTHxHEIGHT+X+Y` only, as `record_video`'s and `wait_for`'s
+  are, not any ImageMagick geometry (`100x100`, `50%x50%+0+0`).
 
 ### Added
 
@@ -24,11 +30,31 @@
   its text, not its name, that matches, or `(what matches is drawn
   wider or narrower than GTK lays it out)`. All four read "wasn't found
   there alone" before.
+- MCP's `take_screenshot` has `zoom`: a region's corners, `[x0, y0, x1,
+  y1]` in `click_element`'s x,y, much as Anthropic's computer-use tool
+  takes a zoom's, shown as large as fits (up to 8 times) to read small
+  text. Its answer, and a crop's or a shrunk picture's, says where a
+  point on it is for `click_element`: `100 + x/4.356, 39 + y/4.355`,
+  rather than leaving the agent to undo a scale and a corner itself.
 - `a11y contrast --strict` fails on what it couldn't measure, too: for
   CI that wants every node measured, or ignored with `--ignore`. Those
   lines are failures, under `problems` in `--json`, each with its `why`
   if it has one; `Screen.contrast(strict=True)` and MCP's
   `check_contrast` with `strict` have it too.
+- MCP's `click_element`, `scroll_wheel`, `press_keys` and `type_text`
+  with `changes` say what they changed in the accessible tree once the
+  screen holds still, and when it was read: nodes added, gone, renamed
+  or in other states, a tree line each, up to 500, so an agent needn't
+  read the whole tree again. `shotbox.a11y.changes(before, after)` says
+  it of two `a11y_tree()`s.
+- `a11y tree` says a program that didn't answer (busy, or hung), on a
+  line of its own, where its windows were left out without a word; with
+  `--json`, and in `Screen.a11y_tree()`, a window has its program's
+  `pid` and `toolkit`.
+- MCP's `take_screenshot` with `labels` draws each named node's box and
+  a number on the picture, and answers with each number's tree line and
+  box, scaled and cropped as the picture is and cut to what it's in, so
+  what's seen can be clicked by name.
 
 ### Fixed
 
@@ -37,6 +63,11 @@
   room took it in, was a note. A shorter text can't match all of a
   longer one, so where it's drawn apart too it doesn't count against it
   now; "check" itself, matching in both places, still isn't taken.
+- MCP's `take_screenshot` said one scale for a thin picture, its
+  width's, though each side is rounded on its own: a 10x4320 crop said
+  0.4 and was 0.363 down. It says both when they differ. A crop with
+  none of what's taken in it is refused, not shown as one pixel, or in
+  a burst, as a sheet of nothing.
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's
   grid unmeasured, which doesn't fail, while text of the same color
   elsewhere failed: the fainter the text, the more of what varies where

@@ -28,6 +28,7 @@ at once and leaves the sessions to the watchdog.
 
 import argparse
 import base64
+import functools
 import itertools
 import json
 import math
@@ -47,6 +48,7 @@ from pathlib import Path
 
 from . import __version__, kept, sound, usage
 from .a11y import Node, walk_lines
+from .a11y import changes as tree_changes
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
 from .sound import describe
@@ -73,7 +75,8 @@ its window. Read get_accessible_tree before clicking: \
 it says what's on screen and what each thing is called, in far fewer tokens than \
 a screenshot, and click_element and scroll_wheel take a name. Use take_screenshot only \
 for what pixels say (colors, layout); record_video for motion and sound. After acting, \
-wait_for stable rather than sleeping. check_accessible_names, check_contrast, \
+wait_for stable rather than sleeping, or give the action changes to be told what changed \
+in the tree rather than reading it again. check_accessible_names, check_contrast, \
 check_focus_order, get_speech, list_announcements and record_audio check what a person would \
 meet. stop_session when done; every session stops with the server.
 
@@ -244,27 +247,40 @@ def png_size(path):
         return struct.unpack(">II", f.read(24)[16:24])
 
 
-def fit(png, full=None):
+def fit(png, full=None, grow=False):
     """Shrink the picture at `png`, in place, to what a model sees
-    unscaled; what to say of its size, and if it's shrunk from `full` (its
-    own size, or the size of the pictures a sheet was made of), the scale.
-    The client would scale it anyway, and an x,y read off it would be off
-    by as much, unsaid."""
+    unscaled, or with `grow` enlarge it to the most that is; what to say of
+    its size, and if it's scaled from `full` (its own size, or the size of the
+    pictures a sheet was made of), the scale across and down: each side is
+    rounded, so a thin one's can differ. The client would scale it anyway,
+    and an x,y read off it would be off by as much, unsaid."""
     w, h = png_size(png)
     fw, fh = full or (w, h)
-    nw, nh = seen(w, h)
+    nw, nh = seen(w, h, grow)
     if (nw, nh) != (w, h):
         subprocess.run([*CONVERT, str(png), "-resize", f"{nw}x{nh}!", *QUIET_PNG, str(png)],
                        check=True)
     if (nw, nh) == (fw, fh):
         return f"{nw}x{nh}", None
-    return f"{nw}x{nh}, scaled by {nw / fw:.4g} from {fw}x{fh}", nw / fw
+    kx, ky = f"{nw / fw:.4g}", f"{nh / fh:.4g}"
+    by = kx if kx == ky else f"{kx} across and {ky} down"
+    return f"{nw}x{nh}, scaled by {by} from {fw}x{fh}", (kx, ky)
 
 
-def seen(w, h):
+def mapped(x0, y0, scale):
+    """Where a point at x,y on a picture of what's taken from `x0`,`y0`,
+    scaled by `scale` (fit's), is for click_element."""
+    kx, ky = scale or (None, None)
+    return "click_element's x,y for a point at x,y on it is " + ", ".join(
+        " + ".join(([str(o)] if o else []) + [f"{v}/{k}" if k else v])
+        for o, v, k in ((x0, "x", kx), (y0, "y", ky)))
+
+
+def seen(w, h, grow=False):
     """The size a picture `w` by `h` is seen at unscaled: its own, or the
-    largest that fits."""
-    s = min(1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
+    largest that fits; with `grow`, the largest that fits anyway, up to
+    ZOOM times its own."""
+    s = min(ZOOM if grow else 1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
     while True:
         nw, nh = max(1, round(w * s)), max(1, round(h * s))
         if math.ceil(nw / PATCH) * math.ceil(nh / PATCH) <= SEEN:
@@ -291,6 +307,45 @@ def sheet_size(paths, across=4):
     rows = [[png_size(p) for p in paths[i:i + across]] for i in range(0, len(paths), across)]
     return (max(sum(w for w, _ in row) for row in rows),
             sum(max(h for _, h in row) for row in rows))
+
+
+def release(version):
+    """A version, "4.14.5", as numbers to compare."""
+    return tuple(int(p) for p in re.findall(r"\d+", version))
+
+
+def watched(act):
+    """A tool that acts, which with changes also says what it changed in
+    the tree once the screen has held still, so the agent needn't read the
+    tree again for it. The whole tree: a click can open another window.
+    What comes after the tree is read again is missed, and said to be."""
+    @functools.wraps(act)
+    def acting(self, session, *args, changes=False, **kw):
+        if not flag(changes):
+            return act(self, session, *args, **kw)
+        s = self.a11y_session(session)
+        before = s.a11y_tree()
+        said = act(self, session, *args, **kw)
+        acted = time.monotonic()
+        how = "once the screen had held still for 0.5 s"
+        # It's acted: a failure from here on is said with that, so the
+        # agent doesn't act again.
+        try:
+            try:
+                s.wait_stable(0.5, timeout=SETTLE)
+            except SessionError:
+                if _CANCEL.is_set():
+                    raise
+                how = "though the screen hadn't held still"
+            found = tree_changes(before, s.a11y_tree())
+            when = f"read {time.monotonic() - acted:.1f} s after, {how}"
+        except Exception as e:   # one gone wrong isn't the action undone
+            if _CANCEL.is_set():
+                raise
+            return f"{said}\nThe tree couldn't be read again to compare: {e}"
+        return (f"{said}\nChanged in the tree, {when}:\n{capped(found)}" if found
+                else f"{said}\nNothing changed in the tree, {when}.")
+    return acting
 
 
 class Server:
@@ -400,8 +455,26 @@ class Server:
     # --- looking -------------------------------------------------------------
 
     def take_screenshot(self, session, window=None, crop=None, park=False, vision=None,
-                        burst=None, every=None):
+                        burst=None, every=None, labels=False, zoom=None):
         s = self.session(session)
+        region = None
+        if zoom is not None:
+            try:
+                region = [float(c) for c in words(zoom)]
+            except ValueError:
+                region = []
+            if len(region) != 4 or not all(map(math.isfinite, region)):
+                raise Refused(f"zoom is [x0, y0, x1, y1], not {zoom!r}")
+            if region[2] <= region[0] or region[3] <= region[1]:
+                raise Refused(f"zoom's x1,y1 is right of and below its x0,y0, not {zoom!r}")
+            if crop or burst:
+                raise Refused("zoom is one picture of its own region: not with crop or burst")
+        elif crop:
+            box = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", str(crop))
+            if not (box and int(box[1]) and int(box[2])):
+                raise Refused(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop!r}")
+            w, h, x, y = map(int, box.groups())
+            region = [x, y, x + w, y + h]
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
         if vision and vision not in VISION:
@@ -414,28 +487,98 @@ class Server:
             raise Refused(f"every is 0 to 5 seconds, not {every:g}")
         if every is not None and not burst:
             raise Refused("every goes with burst")
+        labels = flag(labels)
+        if labels and burst:
+            raise Refused("labels goes with one picture, not burst")
+        nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
+        x0 = y0 = 0
+        if region:
+            # Cut to what's taken: past its edges there's nothing to show.
+            found = s.window(text(window)) if window else None
+            big = found[2:4] if found else s.backend.root_size(s.env)
+            x0, y0, x1, y1 = (min(max(0, round(v)), big[i % 2]) for i, v in enumerate(region))
+            if x1 <= x0 or y1 <= y0:
+                raise Refused(f"{zoom or crop} has none of {what} in it, which is "
+                              f"{big[0]}x{big[1]}")
+            crop = f"{x1 - x0}x{y1 - y0}+{x0}+{y0}"
+            what = f"{x0},{y0} to {x1},{y1} of {what}"
         if burst:
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
-                            window=text(window), crop=text(crop), park=flag(park),
+                            window=text(window), crop=crop, park=flag(park),
                             vision=vision)
             times = ", ".join(f"{at:.2f}" for _, at in taken)
             size, n = laid_out([p for p, _ in taken], out)
             said = (f"{len(taken)} pictures of {what}, {n} to a row, left to right, "
                     f"taken at {times} seconds; {size}.")
         else:
-            s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
-            size, scale = fit(out)
-            # click_element's x,y are the window's with window, and a crop's
-            # are from its corner.
+            s.capture(out, window=text(window), crop=crop, park=flag(park), vision=vision)
+            size, scale = fit(out, grow=zoom is not None)
             said = f"A picture of {what}, {size}" + (
-                ": divide an x,y on it by that" + (", then add the crop's x,y," if crop else "")
-                + (" for click_element with the same window." if window else
-                   " for click_element.") if scale else ".")
+                ": " + mapped(x0, y0, scale) + (", with the same window." if window else ".")
+                if scale or x0 or y0 else ".")
+        if labels:
+            said += "\n" + self.labeled(s, out, nodes, text(window), (x0, y0), scale)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
+
+    def labeled(self, s, png, nodes, window, corner, scale):
+        """Draw on the picture at `png` each named node's box and a number,
+        and say which node each number is, its box on the picture. Not a
+        window's, which is the picture, nor one named as what it's in (a
+        button's label). A box is cut to those of what it's in, so a row
+        scrolled out of view, which GTK says is showing, has none. The picture
+        is of what's taken from `corner`, scaled as fit says (`scale`)."""
+        ox, oy = s.window(window)[4:6] if window else (0, 0)
+        ox, oy = ox + corner[0], oy + corner[1]
+        kx, ky = map(float, scale or (1, 1))
+        pw, ph = png_size(png)
+        above, inside, legend, draw, unplaced, corners = {}, {}, [], [], 0, {}
+        for n in nodes:
+            above[n.depth] = n
+            parent = above.get(n.depth - 1)
+            # What it's in, on the picture: x0, y0, x1, y1.
+            box = inside.get(n.depth - 1, (0, 0, pw, ph)) if n.depth else (0, 0, pw, ph)
+            if n.get("bounds"):
+                bx, by, bw, bh = n.bounds
+                box = (max(box[0], round((bx - ox) * kx)), max(box[1], round((by - oy) * ky)),
+                       min(box[2], round((bx + bw - ox) * kx)),
+                       min(box[3], round((by + bh - oy) * ky)))
+            inside[n.depth] = box
+            if not n.depth or not n.name or parent and parent.name == n.name:
+                continue
+            if not n.get("bounds"):
+                unplaced += 1
+                continue
+            x0, y0, x1, y1 = box
+            if x1 - x0 < 2 or y1 - y0 < 2:
+                continue
+            number = str(len(legend) + 1)
+            legend.append(f"{number} "
+                          + Node({**n, "bounds": [x0, y0, x1 - x0, y1 - y0]}).line(bounds=True))
+            if len(legend) <= LINES:
+                # Numbers at the same corner go side by side.
+                at = corners.get((x0, y0), x0 + 1)
+                corners[(x0, y0)] = at + 7 * len(number) + 3
+                draw += ["-stroke", "magenta", "-fill", "none",
+                         "-draw", f"rectangle {x0},{y0} {x1 - 1},{y1 - 1}",
+                         "-stroke", "none", "-fill", "white",
+                         "-annotate", f"+{at}+{y0 + 1}", number]
+        unsaid = (f"{unplaced} named node{'s' * (unplaced > 1)} not labeled: where "
+                  f"{'they are' if unplaced > 1 else 'it is'} can't be told (as when two "
+                  "windows are the same size and title)." if unplaced else "")
+        if not legend:
+            return unsaid or "No named node to label in it."
+        subprocess.run([*CONVERT, str(png), "-gravity", "NorthWest", "-pointsize", "12",
+                        "-undercolor", "magenta", *draw, *QUIET_PNG, str(png)], check=True)
+        wrong = sorted({v for n in nodes if not n.depth and (v := n.get("toolkit", ""))
+                        .startswith("GTK 4.") and release(v[4:]) >= (4, 14)})
+        return "\n".join(["Labeled, by number, at x,y WIDTHxHEIGHT on it:", capped(legend)]
+                         + [f"{v} reports where its widgets are wrong: its boxes can be tens of "
+                            "pixels off. Click by name." for v in wrong]
+                         + [unsaid] * bool(unsaid))
 
     def clip(self, path):
         """Where record_video saves to: a new file in the allow file's directory,
@@ -555,6 +698,7 @@ class Server:
 
     # --- acting --------------------------------------------------------------
 
+    @watched
     def click_element(self, session, name=None, role=None, x=None, y=None, window=None,
                       button=1, double=False, hold=None, state=None, timeout=None):
         s = self.session(session)
@@ -578,6 +722,7 @@ class Server:
         done = {"down": "Pressed and left down", "up": "Let go"}.get(state, "Clicked")
         return f"{done} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
+    @watched
     def scroll_wheel(self, session, dy=None, dx=None, name=None, role=None, x=None, y=None,
                      window=None):
         s = self.session(session)
@@ -595,6 +740,7 @@ class Server:
         s.scroll(px, py, dy, dx, window=text(window))
         return f"{turned} at {px},{py}" + (f" in {window!r}." if window else " on the screen.")
 
+    @watched
     def press_keys(self, session, keys, hold=None, state=None):
         chords = words(keys)
         if not chords:
@@ -638,6 +784,7 @@ class Server:
             return f"Let go of everything on pad {n}."
         raise Refused(f"action is press, stick, trigger or neutral, not {action!r}")
 
+    @watched
     def type_text(self, session, text):
         self.session(session).type(str(text))
         return f"Typed {len(str(text))} characters."
@@ -805,6 +952,9 @@ SESSION = {"type": "string", "description": "Its name, from start_session"}
 # The most a model sees unscaled (Anthropic's vision docs: a long edge of
 # 1568 px and 1568 patches of 28x28 px); a picture past it is shrunk to fit.
 SEEN, PATCH = 1568, 28
+# A zoom on a few pixels shows them no better past this, and costs as much
+# as a screen.
+ZOOM = 8
 # 8K: a screen's framebuffer is in memory, and 20000x20000 is 1.6 GB.
 SCREEN = (7680, 4320)
 # A GTK app's whole window, measured, is 63 tree lines (Text Editor) to 314
@@ -812,6 +962,9 @@ SCREEN = (7680, 4320)
 # tens of thousands. So every app's window whole, and at most about 35 KB.
 LINES = 500
 LINE_CHARS = 500
+# How long an action's changes wait for the screen to hold still, as
+# wait_for stable does by default.
+SETTLE = 10
 # A clip holds the server while it records, so it's about as long as the
 # longest burst; and it stops at a size few clips of a screen reach, so the
 # disk can't fill.
@@ -834,6 +987,9 @@ Y = {"type": "integer", "description": "Pixels from the top"}
 IGNORE = {"type": "array", "items": {"type": "string"},
           "description": "Regexes for lines that can't be fixed yet"}
 PROGRAM = {"type": "string", "description": "Its name in the allow list"}
+CHANGES = {"type": "boolean", "description": "Also say what this changed in the accessible "
+           "tree once the screen holds still (not a field's text, nor where things are): "
+           "tree lines, + added, - gone, ~ changed"}
 WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
@@ -906,11 +1062,18 @@ TOOLS = [
      "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "
      "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
      "get_accessible_tree; take the window rather than the screen, and crop when you need a "
-     "part. vision checks nothing is told apart by color alone; burst, as one image, is for "
-     "motion, an animation or a transition. The answer gives its size, and "
-     "if it was shrunk, the scale.",
+     "part; zoom enlarges one to read small text. vision checks nothing is told apart by "
+     "color alone; burst, as one image, is for motion, an animation or a transition. labels "
+     "numbers each named node's box on it, to click by name what you see. The answer gives "
+     "its size, if it's scaled or a part how an x,y on it maps to click_element's, and with "
+     "labels each number's tree line.",
      schema({"session": SESSION, "window": WINDOW,
-             "crop": CROP,
+             "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, cut to what's taken"},
+             "zoom": {"type": "array", "items": {"type": "number"}, "minItems": 4,
+                      "maxItems": 4,
+                      "description": "[x0, y0, x1, y1]: a region's corners in click_element's "
+                      "x,y (a picture's, mapped as its answer says), shown as large as fits, up "
+                      "to 8 times; not with crop or burst"},
              "park": {"type": "boolean", "description": "Move the pointer away first, so "
                       "nothing shows its hover"},
              "burst": {"type": "integer", "minimum": 2, "maximum": 12,
@@ -919,7 +1082,9 @@ TOOLS = [
                        "description": "With burst, seconds between them"},
              "vision": {"type": "string", "enum": sorted(VISION),
                         "description": "protanopia (no red cones), deuteranopia (no green), "
-                                       "tritanopia (no blue), or gray (no color)"}},
+                                       "tritanopia (no blue), or gray (no color)"},
+             "labels": {"type": "boolean", "description": "Number each named node's box on "
+                        "it, and list each number's tree line"}},
             ["session"])),
     ("record_video",
      "Record a video of the screen, or of one window, and save it as an .mp4: in the "
@@ -958,7 +1123,8 @@ TOOLS = [
              "double": {"type": "boolean", "description": "Click twice, as a double click"},
              "hold": HOLD, "state": STATE,
              "timeout": {"type": "number", "minimum": 0, "maximum": 300,
-                         "description": "By name, seconds to wait for the node (10)"}},
+                         "description": "By name, seconds to wait for the node (10)"},
+             "changes": CHANGES},
             ["session"])),
     ("scroll_wheel",
      "Turn the mouse wheel over a node by its name, found as click_element finds it (waiting "
@@ -970,7 +1136,8 @@ TOOLS = [
                     "description": "Clicks down; negative, up"},
              "dx": {"type": "integer", "minimum": -100, "maximum": 100,
                     "description": "Clicks right; negative, left"},
-             "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW},
+             "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW,
+             "changes": CHANGES},
             ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. They "
@@ -981,7 +1148,7 @@ TOOLS = [
      schema({"session": SESSION,
              "keys": {"type": "array", "items": {"type": "string"},
                       "description": "Chords, pressed one after another"},
-             "hold": HOLD, "state": STATE}, ["session", "keys"])),
+             "hold": HOLD, "state": STATE, "changes": CHANGES}, ["session", "keys"])),
     ("use_gamepad",
      "Work a virtual gamepad, in a session started with gamepads: press buttons together, "
      "tapped, held for hold seconds, or with state down left down until a call with state "
@@ -1011,8 +1178,8 @@ TOOLS = [
      "Type text into whatever has the keyboard focus, a key at a time. ASCII only: a "
      "character with no key fails the call, once what's before it is typed. For keys and "
      "shortcuts (Return, ctrl+s), use press_keys.",
-     schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"}},
-            ["session", "text"])),
+     schema({"session": SESSION, "text": {"type": "string", "description": "The text to type"},
+             "changes": CHANGES}, ["session", "text"])),
     ("wait_for",
      "Wait until something is so, instead of sleeping; it fails after timeout seconds, "
      "saying so, and listing the windows there are when a window never came. what says "

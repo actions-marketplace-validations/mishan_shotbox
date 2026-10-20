@@ -41,6 +41,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"wrapped = /bin/sh -c '{here / 'a11y_app.py'}; exit $?'\n"
                  f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
+                 f"freeze = {here / 'a11y_app.py'} freeze\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -77,6 +78,20 @@ def tool(which, /, **args):
     got = rpc("tools/call", {"name": which, "arguments": args})["result"]
     texts = [c["text"] for c in got["content"] if c["type"] == "text"]
     return "\n".join(texts), bool(got.get("isError")), got["content"]
+
+
+def boxes(said):
+    """take_screenshot's labels: each name's box on the picture."""
+    return {m[1]: tuple(map(int, m.groups()[1:])) for m in
+            re.finditer(r'^\d+ [a-z ]+ "([^"]*)".* @(\d+),(\d+) (\d+)x(\d+)$', said, re.M)}
+
+
+def pixel(content, x, y):
+    """The RGB of a pixel of a call's image."""
+    png = tmp / "pixel.png"
+    png.write_bytes(base64.b64decode(next(c for c in content if c["type"] == "image")["data"]))
+    return subprocess.run([*mcp.CONVERT, str(png), "-crop", f"1x1+{x}+{y}", "-depth", "8",
+                           "rgb:-"], capture_output=True, check=True).stdout
 
 
 init = rpc("initialize", {"protocolVersion": "2025-03-26"})["result"]
@@ -137,6 +152,47 @@ check(rpc("nope")["error"]["code"] == -32601, "an unknown method is an error")
 check(mcp.handle(server, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None,
       "a notification gets no answer")
 
+
+def tree(*rows):
+    return [mcp.Node(depth=d, role=r, name=n, description="", states=s) for d, r, n, s in rows]
+
+
+rows = [(0, "frame", "w", []), (1, "button", "Save", ["focused"]), (1, "label", "Row 1", []),
+        (1, "check box", "Wrap", ["checked"])]
+window = tree(*rows)
+unfocused = [rows[0], (1, "button", "Save", []), *rows[2:]]
+dialog = tree((1, "dialog", "Quit?", []), (2, "button", "OK", []))
+items = [(0, "frame", "w", []), (1, "list", "", []), (2, "list item", "", []),
+       (3, "label", "A", []), (2, "list item", "", []), (3, "label", "B", [])]
+hung = [mcp.Node(depth=0, role="frame", name="hang", description="", states=[], pid=7),
+        *tree((1, "button", "Freeze", []))]
+quiet = mcp.Node(depth=0, role="application", name="", description="", states=[], pid=7,
+                 quiet=True)
+for before, after, want, what in (
+        (window, window, [], "nothing"),
+        (window, tree((0, "frame", "w", []), (1, "button", "Save", []), (1, "label", "Row 2", []),
+                      (1, "check box", "Wrap", ["focused"])),
+         ['~ button "Save", was [focused]', '~ label "Row 2", was "Row 1"',
+          '~ check box "Wrap" [focused], was [checked]'], "renamed, other states"),
+        (window, tree((0, "frame", "w", []), (1, "label", "Row 0", []), *rows[1:]) + dialog
+         + tree((0, "frame", "x", [])),
+         ['+ label "Row 0"', '+ dialog "Quit?"', '+   button "OK"', '+ frame "x"'],
+         "added, above what was there and below, indented only under what's printed"),
+        (window, window[:1] + window[2:], ['- button "Save" [focused]'], "gone"),
+        (window + dialog, window, ['- dialog "Quit?" and 1 inside'], "a subtree gone whole"),
+        (tree(*items), tree(*items[:2], (2, "list item", "", []), (3, "label", "New", []),
+                             *items[2:]),
+         ['+ list item ""', '+   label "New"'], "a row added, from its start"),
+        (window + tree(*unfocused), tree(*unfocused, *rows),
+         ['in frame "w" (window 1):', '~ button "Save", was [focused]',
+          'in frame "w" (window 2):', '~ button "Save" [focused], was []'],
+         "changes in two windows the same, each under which it is"),
+        (window + hung, window + [quiet],
+         ["! application \"\" (pid 7) didn't answer: busy, or hung, so its windows aren't "
+          "compared"], "a program that didn't answer, not its windows gone")):
+    got = mcp.tree_changes(before, after)
+    check(got == want, f"what changed in the tree: {what} ({got})")
+
 said, bad, _ = tool("get_accessible_tree", session="none")
 check(bad and "no session called 'none'" in said, "a session that isn't there: said")
 check(rpc("tools/list", "oops")["error"]["code"] == -32602
@@ -193,25 +249,68 @@ try:
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     w, h = struct.unpack(">II", png[16:24])
     check(not bad and (w, h) == (240, 800) and "12 to a row" in said
+          and said.startswith("12 pictures of 0,0 to 20,800 of the whole screen,")
           and said.endswith("; 240x800."),
           f"take_screenshot: a burst of tall pictures, in one row, not shrunk ({said})")
+    whole, bad, content = tool("take_screenshot", session="t", window="a11y-test", labels=True)
+    full = boxes(whole)
+    cropped = boxes(tool("take_screenshot", session="t", window="a11y-test", labels=True,
+                         crop="200x150+50+100")[0])
+    x, y, w, h = full["Announce"]
+    check(not bad and re.search(r'^1 (push )?button "Save" .*@\d+,\d+ \d+x\d+$', whole, re.M)
+          and not re.search(r'^\d+ (frame|label "Save")', whole, re.M) and "Wrap lines" in full
+          and pixel(content, x, y + h // 2) == b"\xff\x00\xff"
+          and cropped["Announce"] == (max(0, x - 50), y - 100, min(x + w, 250) - max(x, 50), h),
+          f"take_screenshot: labels, a number a named node, its box drawn where the legend says, "
+          f"and moved with a crop ({whole}; {cropped})")
+    zoomed, bad, content = tool("take_screenshot", session="t", window="a11y-test", labels=True,
+                                zoom=[x - 12, y - 12, x + w + 12, y + h + 12])
+    m = re.search(r"is (?:(\d+) \+ )?x/([\d.]+), (?:(\d+) \+ )?y/([\d.]+), with the same "
+                  r"window\.\n", zoomed)
+    ox, kx, oy, ky = (float(v or 0) for v in m.groups()) if m else (0, 1, 0, 1)
+    zx, zy, zw, zh = boxes(zoomed).get("Announce", (0, 0, 0, 0))
+    check(not bad and m and pixel(content, zx, zy + zh // 2) == b"\xff\x00\xff"
+          and all(abs(a - b) <= 1 for a, b in zip(
+              (ox + zx / kx, oy + zy / ky, zw / kx, zh / ky), (x, y, w, h))),
+          f"take_screenshot: labels on a zoom, a box drawn where the legend says, mapped back by "
+          f"the answer to where the tree has it ({zoomed})")
     # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
     # have 1920x1080 seen, with the scale to map an x,y back by.
-    said, bad, _ = tool("start_session", name="big", a11y=False, screen="1920x1080")
-    said, bad, content = tool("take_screenshot", session="big")
-    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
-    check(not bad and struct.unpack(">II", png[16:24]) == (1456, 819)
-          and "1456x819, scaled by 0.7583 from 1920x1080: divide an x,y on it by that" in said,
-          f"take_screenshot: a 1920x1080 screen, shrunk to 1456x819, its scale said ({said})")
-    said, bad, _ = tool("take_screenshot", session="big", crop="1800x1000+100+50")
-    check(not bad and said.endswith("divide an x,y on it by that, then add the crop's x,y, "
-                                    "for click_element."),
-          f"take_screenshot: a crop shrunk, said how to map back with its corner ({said})")
+    said, bad, _ = tool("start_session", name="big", screen="1920x1080")
+    to = "click_element's x,y for a point at x,y on it is"
+    for args, size, want in (
+            ({}, (1456, 819), "the whole screen, 1456x819, scaled by 0.7583 from 1920x1080: "
+             f"{to} x/0.7583, y/0.7583."),
+            ({"crop": "1800x1000+100+50"}, (1462, 812), "100,50 to 1900,1050 of the whole "
+             "screen, 1462x812, scaled by 0.8122 across and 0.812 down from 1800x1000: "
+             f"{to} 100 + x/0.8122, 50 + y/0.812."),
+            ({"zoom": "0,0,1920,1080"}, (1456, 819), "0,0 to 1920,1080 of the whole screen, "
+             f"1456x819, scaled by 0.7583 from 1920x1080: {to} x/0.7583, y/0.7583."),
+            # Thin: each side rounded on its own.
+            ({"zoom": [100, 0, 110, 1080]}, (15, 1568), "100,0 to 110,1080 of the whole screen, "
+             f"15x1568, scaled by 1.5 across and 1.452 down from 10x1080: {to} 100 + x/1.5, "
+             "y/1.452."),
+            ({"zoom": [7.6, 0, 9.6, 2]}, (16, 16), "8,0 to 10,2 of the whole screen, 16x16, "
+             f"scaled by 8 from 2x2: {to} 8 + x/8, y/8.")):
+        said, bad, content = tool("take_screenshot", session="big", **args)
+        png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+        check(not bad and said == f"A picture of {want}"
+              and struct.unpack(">II", png[16:24]) == size,
+              f"take_screenshot {args}: its size and how to map an x,y back said ({said})")
     said, bad, content = tool("take_screenshot", session="big", burst=4)
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     check(not bad and "2 to a row" in said and struct.unpack(">II", png[16:24]) == (1456, 819)
           and said.endswith("; 1456x819, scaled by 0.3792 from 3840x2160."),
           f"take_screenshot: a burst of wide screens, two to a row, shrunk least ({said})")
+    tool("spawn_program", session="big", program="app")
+    tool("wait_for", session="big", what="window", value="a11y-test", timeout=20)
+    x, y = map(int, re.search(r'"Announce" .*@(\d+),(\d+) ', tool(
+        "get_accessible_tree", session="big", bounds=True)[0]).groups())
+    said, bad, content = tool("take_screenshot", session="big", labels=True)
+    k = 1456 / 1920
+    # Its corner: GTK 4.14.5 says its box runs past what it's in, which cuts it.
+    check(not bad and boxes(said)["Announce"][:2] == (round(x * k), round(y * k)),
+          f"take_screenshot: labels on a picture shrunk, their corners moved with it ({said})")
     tool("stop_session", session="big")
     said, bad, _ = tool("start_session", name="huge", a11y=False, screen="7681x4320")
     check(bad and "at most 7680x4320, not 7681x4320" in said and "huge" not in server.sessions,
@@ -259,6 +358,61 @@ try:
     said, bad, _ = tool("take_screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said,
           "take_screenshot: a vision there isn't, refused saying which")
+    # Read off a zoom as an agent would: the buttons, darker than the window
+    # in a column left of any label, mapped back by the answer, are where an
+    # unzoomed picture has them; and Save, clicked there, gets the focus
+    # (Announce has it).
+    def darker(content, cx, rows=None):
+        pic = tmp / "pic.png"
+        pic.write_bytes(base64.b64decode([c for c in content if c["type"] == "image"][0]["data"]))
+        w, h = mcp.png_size(pic)
+        gray = subprocess.run(["convert", str(pic), "-colorspace", "gray", "-depth", "8",
+                               "gray:-"], capture_output=True, check=True).stdout
+        column = [gray[row * w + cx] for row in rows or range(h)]
+        return [m.span() for m in re.finditer("x+", "".join(".x"[max(column) - v > 8]
+                                                          for v in column))], h
+    tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test", bounds=True)
+    (x, y, _, _), (_, ay, aw, ah) = ([int(n) for n in re.search(
+        rf'"{b}".*@(\d+),(\d+) (\d+)x(\d+)', tree).groups()] for b in ("Save", "Announce"))
+    cx = x + 10
+    _, _, whole = tool("take_screenshot", session="t", window="a11y-test")
+    for region in ([x - 12, y - 12, x + aw + 12, ay + ah + 12],
+                   [x - 12, y - 12, 10**30, ay + ah + 12],
+                   [cx - 2, -50, cx + 2, ay + ah + 12]):
+        said, bad, content = tool("take_screenshot", session="t", window="a11y-test",
+                                  zoom=region)
+        m = re.search(r"is (?:(\d+) \+ )?x/([\d.]+), (?:(\d+) \+ )?y/([\d.]+), with the same "
+                      r"window\.$", said)
+        ox, kx, oy, ky = (float(v or 0) for v in m.groups()) if m else (0, 1, 0, 1)
+        top = max(0, region[1])
+        want = [(top + a, top + b) for a, b in darker(whole, cx, range(
+            top, min(darker(whole, cx)[1], region[3])))[0]]
+        got = [(oy + a / ky, oy + b / ky) for a, b in darker(content, round((cx - ox) * kx))[0]]
+        check(not bad and m and len(want) >= 3 and len(got) == len(want)
+              and all(abs(a - b) <= 1 for w, g in zip(want, got) for a, b in zip(w, g)),
+              f"take_screenshot: a zoom on {region}, its buttons mapped back to where they are "
+              f"({said}; {got}, not {want})")
+        if region[2] == x + aw + 12 and got:
+            tool("click_element", session="t", window="a11y-test", x=cx, y=round(sum(got[0]) / 2))
+            tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test")
+            check('"Save" [focusable, focused]' in tree, "take_screenshot: Save read off a "
+                  "zoom, clicked where the answer maps it")
+    refused = [tool("take_screenshot", session="t", window="a11y-test", **a)[:2]
+               for a in (dict(zoom=[0, 0, 10]), dict(zoom="300x200+10+10"),
+                         dict(zoom={"x": 1}), dict(zoom=[10, 0, 5, 5]),
+                         dict(zoom=[0, 0, 5, 5], crop="5x5+0+0"),
+                         dict(zoom=[0, 0, 5, 5], burst=2), dict(zoom=[700, 500, 900, 700]),
+                         dict(crop="10x10+700+500"), dict(crop="10x10+700+500", burst=2),
+                         dict(crop="100x100"), dict(crop="100x100", burst=2))]
+    check(all(bad for _, bad in refused)
+          and all("zoom is [x0, y0, x1, y1]" in said for said, _ in refused[:3])
+          and "right of and below" in refused[3][0]
+          and all("not with crop or burst" in said for said, _ in refused[4:6])
+          and all("has none of the window 'a11y-test' in it, which is" in said
+                  for said, _ in refused[6:9])
+          and all("a crop is WIDTHxHEIGHT+X+Y" in said for said, _ in refused[9:]),
+          f"take_screenshot: a zoom that isn't 4 corners, or with crop or burst, a region with "
+          f"nothing taken in it, or a crop that isn't WIDTHxHEIGHT+X+Y, refused ({refused})")
     said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore="image")
     check(len(said.splitlines()) == 2
           and all(re.fullmatch(r'[a-z ]+ "" .*@\d+,\d+ \d+x\d+: [a-z ]+ with no name',
@@ -282,6 +436,23 @@ try:
               f"get_speech: what Orca says at each stop ({said!r})")
     said, bad, _ = tool("press_keys", session="t", keys="Tab Tab")
     check(not bad and said == "Pressed Tab, Tab.", "press_keys: keys given as text")
+    unchecked, bad, _ = tool("click_element", session="t", name="Wrap lines", changes=True)
+    said, _, _ = tool("click_element", session="t", name="Wrap lines", changes=True)
+    check(not bad and re.search(r'^~ check box "Wrap lines" \[focusable, focused\], was '
+                                r'\[focusable(, focused)?, checked\]$', unchecked, re.M)
+          and re.search(r'\nChanged in the tree, read \d+\.\d s after, once the screen had '
+                        r'held still for 0\.5 s:\n~ check box "Wrap lines" \[focusable, '
+                        r'focused, checked\], was \[focusable, focused\]\Z', said),
+          f"click_element: with changes, what it changed in the tree ({unchecked}; {said})")
+    # A program that stops answering is said to, not its window gone.
+    tool("start_session", name="z")
+    tool("spawn_program", session="z", program="freeze")
+    tool("wait_for", session="z", what="window", value="a11y-test", timeout=20)
+    said, bad, _ = tool("click_element", session="z", name="Freeze", changes=True)
+    check(not bad and re.match(r'Clicked (push )?button "Freeze"', said) and "\n- " not in said
+          and re.search(r'^! application "" \(pid \d+\) didn\'t answer', said, re.M),
+          f"click_element: with changes, a program that stops answering, said ({said})")
+    tool("stop_session", session="z")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.
@@ -369,6 +540,10 @@ try:
     tool("wait_for", session="l", what="stable", window="a11y-test")
     after, after_bad, _ = tool("click_element", session="l", name="Row 25")
     back, back_bad, _ = tool("scroll_wheel", session="l", name="Row 25", dy=-10)
+    tool("wait_for", session="l", what="stable", window="a11y-test")
+    labeled = boxes(tool("take_screenshot", session="l", window="a11y-test", labels=True)[0])
+    check("Row 0" in labeled and "Row 25" not in labeled,
+          f"take_screenshot: labels only on rows in view, not those scrolled out ({labeled})")
     refused = [tool("scroll_wheel", session="l", name="Row 0")[:2],
                tool("scroll_wheel", session="l", x=5, y=5, dy=1000)[:2]]
     check(before_bad and "outside its window" in before and not bad
