@@ -14,6 +14,12 @@
   › Sound's "No Output Devices" (3.23:1). So does text dimmed behind an
   open dialog, as faint as it's drawn (Files' path bar behind its
   preferences). Leave them out with `--ignore` if they're not yours.
+- **MCP's `take_screenshot` says where a point on a picture is for
+  `click_element` as a sum, `100 + x/0.8122, 50 + y/0.812`**, in place
+  of "divide an x,y on it by that, then add the crop's x,y": a client
+  that reads the old sentence needs the new one. Its `crop`, in a burst
+  too, is `WIDTHxHEIGHT+X+Y` only, as `record_video`'s and `wait_for`'s
+  are, not any ImageMagick geometry (`100x100`, `50%x50%+0+0`).
 
 ### Added
 
@@ -60,7 +66,8 @@
 - MCP's `take_screenshot` said one scale for a thin picture, its
   width's, though each side is rounded on its own: a 10x4320 crop said
   0.4 and was 0.363 down. It says both when they differ. A crop with
-  none of what's taken in it is refused, not shown as one pixel.
+  none of what's taken in it is refused, not shown as one pixel, or in
+  a burst, as a sheet of nothing.
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's
   grid unmeasured, which doesn't fail, while text of the same color
   elsewhere failed: the fainter the text, the more of what varies where

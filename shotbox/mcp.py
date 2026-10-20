@@ -459,14 +459,17 @@ class Server:
         s = self.session(session)
         region = None
         if zoom is not None:
-            region = [number(c, "zoom") for c in words(zoom)]
-            if len(region) != 4 or None in region:
+            try:
+                region = [float(c) for c in words(zoom)]
+            except ValueError:
+                region = []
+            if len(region) != 4 or not all(map(math.isfinite, region)):
                 raise Refused(f"zoom is [x0, y0, x1, y1], not {zoom!r}")
             if region[2] <= region[0] or region[3] <= region[1]:
                 raise Refused(f"zoom's x1,y1 is right of and below its x0,y0, not {zoom!r}")
             if crop or burst:
                 raise Refused("zoom is one picture of its own region: not with crop or burst")
-        elif crop and not burst:
+        elif crop:
             box = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", str(crop))
             if not (box and int(box[1]) and int(box[2])):
                 raise Refused(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop!r}")
@@ -490,32 +493,31 @@ class Server:
         nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
+        x0 = y0 = 0
+        if region:
+            # Cut to what's taken: past its edges there's nothing to show.
+            found = s.window(text(window)) if window else None
+            big = found[2:4] if found else s.backend.root_size(s.env)
+            x0, y0, x1, y1 = (min(max(0, round(v)), big[i % 2]) for i, v in enumerate(region))
+            if x1 <= x0 or y1 <= y0:
+                raise Refused(f"{zoom or crop} has none of {what} in it, which is "
+                              f"{big[0]}x{big[1]}")
+            crop = f"{x1 - x0}x{y1 - y0}+{x0}+{y0}"
+            what = f"{x0},{y0} to {x1},{y1} of {what}"
         if burst:
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
-                            window=text(window), crop=text(crop), park=flag(park),
+                            window=text(window), crop=crop, park=flag(park),
                             vision=vision)
             times = ", ".join(f"{at:.2f}" for _, at in taken)
             size, n = laid_out([p for p, _ in taken], out)
             said = (f"{len(taken)} pictures of {what}, {n} to a row, left to right, "
                     f"taken at {times} seconds; {size}.")
         else:
-            s.capture(out, window=text(window), park=flag(park), vision=vision)
-            x0 = y0 = 0
-            if region:
-                # Cut to what's taken: past its edges there's nothing to show.
-                big = png_size(out)
-                x0, y0, x1, y1 = (min(max(0, round(v)), big[i % 2])
-                                  for i, v in enumerate(region))
-                if x1 <= x0 or y1 <= y0:
-                    raise Refused(f"{zoom or crop} has none of {what} in it, which is "
-                                  f"{big[0]}x{big[1]}")
-                subprocess.run([*CONVERT, str(out), "-crop", f"{x1 - x0}x{y1 - y0}+{x0}+{y0}",
-                                "+repage", *QUIET_PNG, str(out)], check=True)
-                what = f"{x0},{y0} to {x1},{y1} of {what}"
+            s.capture(out, window=text(window), crop=crop, park=flag(park), vision=vision)
             size, scale = fit(out, grow=zoom is not None)
             said = f"A picture of {what}, {size}" + (
                 ": " + mapped(x0, y0, scale) + (", with the same window." if window else ".")
-                if scale or region else ".")
+                if scale or x0 or y0 else ".")
         if labels:
             said += "\n" + self.labeled(s, out, nodes, text(window), (x0, y0), scale)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
@@ -1066,7 +1068,7 @@ TOOLS = [
      "its size, if it's scaled or a part how an x,y on it maps to click_element's, and with "
      "labels each number's tree line.",
      schema({"session": SESSION, "window": WINDOW,
-             "crop": CROP,
+             "crop": {"type": "string", "description": "WIDTHxHEIGHT+X+Y, cut to what's taken"},
              "zoom": {"type": "array", "items": {"type": "number"}, "minItems": 4,
                       "maxItems": 4,
                       "description": "[x0, y0, x1, y1]: a region's corners in click_element's "

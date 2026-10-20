@@ -249,6 +249,7 @@ try:
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     w, h = struct.unpack(">II", png[16:24])
     check(not bad and (w, h) == (240, 800) and "12 to a row" in said
+          and said.startswith("12 pictures of 0,0 to 20,800 of the whole screen,")
           and said.endswith("; 240x800."),
           f"take_screenshot: a burst of tall pictures, in one row, not shrunk ({said})")
     whole, bad, content = tool("take_screenshot", session="t", window="a11y-test", labels=True)
@@ -386,17 +387,21 @@ try:
             check('"Save" [focusable, focused]' in tree, "take_screenshot: Save read off a "
                   "zoom, clicked where the answer maps it")
     refused = [tool("take_screenshot", session="t", window="a11y-test", **a)[:2]
-               for a in (dict(zoom=[0, 0, 10]), dict(zoom=[10, 0, 5, 5]),
+               for a in (dict(zoom=[0, 0, 10]), dict(zoom="300x200+10+10"),
+                         dict(zoom={"x": 1}), dict(zoom=[10, 0, 5, 5]),
                          dict(zoom=[0, 0, 5, 5], crop="5x5+0+0"),
                          dict(zoom=[0, 0, 5, 5], burst=2), dict(zoom=[700, 500, 900, 700]),
-                         dict(crop="10x10+700+500"))]
-    check(all(bad for _, bad in refused) and "[x0, y0, x1, y1]" in refused[0][0]
-          and "right of and below" in refused[1][0]
-          and all("not with crop or burst" in said for said, _ in refused[2:4])
+                         dict(crop="10x10+700+500"), dict(crop="10x10+700+500", burst=2),
+                         dict(crop="100x100"), dict(crop="100x100", burst=2))]
+    check(all(bad for _, bad in refused)
+          and all("zoom is [x0, y0, x1, y1]" in said for said, _ in refused[:3])
+          and "right of and below" in refused[3][0]
+          and all("not with crop or burst" in said for said, _ in refused[4:6])
           and all("has none of the window 'a11y-test' in it, which is" in said
-                  for said, _ in refused[4:]),
-          f"take_screenshot: a zoom that isn't 4 corners, or with crop or burst, or a region with "
-          f"nothing taken in it, refused ({refused})")
+                  for said, _ in refused[6:9])
+          and all("a crop is WIDTHxHEIGHT+X+Y" in said for said, _ in refused[9:]),
+          f"take_screenshot: a zoom that isn't 4 corners, or with crop or burst, a region with "
+          f"nothing taken in it, or a crop that isn't WIDTHxHEIGHT+X+Y, refused ({refused})")
     said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore="image")
     check(len(said.splitlines()) == 2
           and all(re.fullmatch(r'[a-z ]+ "" .*@\d+,\d+ \d+x\d+: [a-z ]+ with no name',
