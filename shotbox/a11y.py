@@ -1395,13 +1395,13 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             # this one's: of those, the one whose room starts nearest it, as
             # GTK places each further left and up than it is.
             mid = [got[7][0] + got[3] // 2, got[7][1] + got[4] // 2, 1, 1]
-            like = [t for _, t in sorted(
-                ((room(o)[1], room(o)[0]), t) for o in nodes
+            like = [called(nodes[i], t) for _, i, t in sorted(
+                ((room(o)[1], room(o)[0]), i, t) for i, o in enumerate(nodes)
                 if not (within(o.path, n.path) or within(n.path, o.path))
                 and room(o) and overlap(room(o), mid) == mid
                 for t in texts_of(o) if n.name.lower() in t.lower())[::-1]]
             refused[n.path] = ("twice", "it matches elsewhere too" + (
-                f', in "{like[0]}"' if like else f", {got[5]:.2f}: the same text twice, or like it"))
+                f", in {like[0]}" if like else f", {got[5]:.2f}: the same text twice, or like it"))
             return None
         if not as_wide(n, got[6]):
             refused[n.path] = ("wide", "what matches is drawn wider or narrower than GTK "
@@ -1426,7 +1426,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 if (max(picture.match_over(pic, other, box, until, u) for u in {None, under})
                         >= MATCH_ELSEWHERE if other
                         else n.name.lower() in t.lower()):
-                    refused[n.path] = ("other", f'another node\'s text matches there too: "{t}"')
+                    refused[n.path] = ("other", f"another node's text matches there too: {called(o, t)}")
                     return None
         at = laid(n) or (0, 0)
         return box, tuple(box[i] - n.bounds[i] - at[i] for i in (0, 1)), (got[1], got[2], shape)
@@ -1444,6 +1444,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 continue
             return match >= MATCH_ELSEWHERE
         return False
+
+    def called(o, t):
+        """`o`'s text `t`, as a line says it: by `o`'s name where that's
+        not it."""
+        return f'"{t}"' if t == o.name else f'the {o.role} "{o.name}", whose text is "{t}"'
 
     def faint(n, least):
         """For `n`'s text, not found or not taken: the most contrast any text
@@ -1534,7 +1539,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "neither is taken; see docs/accessibility.md." if case == "twice" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and another node's text "
-               "matches what was found as well (\"Row 10\" over \"Row 1\"), so it isn't "
+               "matches what was found as well, so it isn't "
                "taken for this one's; see docs/accessibility.md." if case == "other" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and what matched isn't as "

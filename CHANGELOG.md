@@ -20,7 +20,8 @@
 - `a11y contrast` says on its line why GTK 4's text it looked for wasn't
   taken, and its why says what that means: `(no match good enough: 0.44
   at best)`, `(it matches elsewhere too, in "unchecked")`, `(another
-  node's text matches there too: "Row 10")`, or `(what matches is drawn
+  node's text matches there too: "Row 10")`, naming the node where it's
+  its text, not its name, that matches, or `(what matches is drawn
   wider or narrower than GTK lays it out)`. All four read "wasn't found
   there alone" before.
 - `a11y contrast --strict` fails on what it couldn't measure, too: for
