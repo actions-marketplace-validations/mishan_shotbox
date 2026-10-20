@@ -973,7 +973,7 @@ if atspi; then
   # and --json keeps what isn't measured apart from what fails.
   # Told to trust it (a GTK whose bounds are right), it finds faint text
   # and its colors, but not a disabled button's label.
-  unfound="not found, but nothing where it can be has the contrast it needs: at most 2\.5[0-9]:1"
+  unfound="not found, but nothing where it can be has the contrast it needs: the best anything there reaches is 2\.5[0-9]:1"
   set +e
   "$sb" run --a11y -- sh -c "'$app' faint lines decoys &
     '$sb' a11y contrast --passes --window a11y-test; s=\$?
@@ -984,6 +984,7 @@ if atspi; then
     && grep -q ': text passes at [0-9]*\.[0-9][0-9]:1, #[0-9a-f]\{6\} on #[0-9a-f]\{6\} (at least 4\.5)' "$tmp/contrast" \
     && python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
 assert [p['problem'][:8] for p in j['problems'] if 'not found' not in p['problem']] == ['text 2.5'], j['problems']
+assert all(p['why'] for p in j['problems'] if 'not found' in p['problem'])
 assert j['notes'] and all(' not measured: ' in n['note'] and n['why'] for n in j['notes'])
 assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in j['passes'])" "$tmp/contrast.json" \
     && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
@@ -1144,7 +1145,7 @@ CASES
         || { fail "a11y: contrast, GTK 4, faint over a grid: $look $args ($st)"; cat "$tmp/contrast"; }
     done <<'CASES'
 color: #3a3446;||1|1\.6[01]:1, #3a3446 on #0f0d14 (at least 4\.5); found -\?[0-9]*,
-color: #3a3446; letter-spacing: 3px;||1|not found, but nothing where it can be has the contrast it needs: at most 1\.[0-9]*:1 (at least 4\.5)$
+color: #3a3446; letter-spacing: 3px;||1|not found, but nothing where it can be has the contrast it needs: the best anything there reaches is 1\.[0-9]*:1 (at least 4\.5)$
 color: #ebe6f0; letter-spacing: 3px;||0|not measured: GTK 4 reports its position wrong$
 color: #ebe6f0; letter-spacing: 3px;|--strict|1|not measured: GTK 4 reports its position wrong$
 CASES

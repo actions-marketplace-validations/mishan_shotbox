@@ -1473,8 +1473,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "than one line; see docs/accessibility.md."
                if n._role in texts and k == "text" and "\n" in n.name else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
-               "it's found drawn near there, by its name in its font, and this wasn't found "
-               "there alone; see docs/accessibility.md." if n._role in texts and k == "text"
+               "it's found drawn near there, by its name in its font, and this wasn't: nothing "
+               "there matched its name well enough, or something else did too (the same text "
+               "twice, or another node's), or what matched is drawn wider or narrower than GTK "
+               "lays it out (letter-spaced, upper case); see docs/accessibility.md."
+               if n._role in texts and k == "text"
                and not unsure(n) else
                f"GTK {version} reports where its widgets are wrong, and how wide text that "
                "isn't all ASCII is, so this can't be told from its name drawn by something "
@@ -1520,7 +1523,15 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         dim = window and n.path in found and not seen and faint(n, least)
         if dim:
             problems.append((n, f"{k} not found, but nothing where it can be has the contrast "
-                                f"it needs: at most {ratio_text(dim)}:1 ({at})"))
+                                f"it needs: the best anything there reaches is "
+                                f"{ratio_text(dim)}:1 ({at})"))
+            n["_why"] = why = (
+                f"GTK {gtk4(n)} reports where its widgets are wrong, so text is measured where "
+                "it's found drawn near there; this wasn't, and nothing where it can be reaches "
+                "the contrast text needs, so whatever text is there is fainter; see "
+                "docs/accessibility.md.")
+            if why not in whys:
+                whys.append(why)
             continue
         if not seen and wrong(n, k):
             continue

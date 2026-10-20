@@ -6,7 +6,8 @@
 
 - **`a11y contrast --window` fails GTK 4's text it doesn't find, where
   nothing there could pass**: `text not found, but nothing where it can
-  be has the contrast it needs: at most 1.65:1 (at least 4.5)`. It was a
+  be has the contrast it needs: the best anything there reaches is
+  1.65:1 (at least 4.5)`, with its `why`. It was a
   note, which doesn't fail, however faint, so a run that passed can
   fail now. Stock libadwaita has some: an empty `AdwEntryRow`'s title
   (1.98:1), Files' preferences group description (3.21:1), and Settings

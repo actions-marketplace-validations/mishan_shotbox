@@ -588,7 +588,8 @@ What isn't found isn't measured, a line each, `text not measured: GTK 4
 reports its position wrong`, and why once (in `--json`, each such line's
 `why`), unless nothing where it can be could measure as text that
 passes: then it fails, `text not found, but nothing where it can be
-has the contrast it needs: at most 1.65:1 (at least 4.5)`. That's
+has the contrast it needs: the best anything there reaches is 1.65:1
+(at least 4.5)`, and why once, as for what isn't measured. That's
 the contrast of the lightest each channel is anywhere it can be on the
 darkest, more than any text there can measure, whatever its background
 (and, for text whose shapes cover no pixel whole, as far again as its
