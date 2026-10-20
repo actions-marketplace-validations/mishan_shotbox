@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- **`a11y contrast --window` fails GTK 4's text it doesn't find, where
+  nothing there could pass**: `text not found, but nothing where it can
+  be has the contrast it needs: at most 1.65:1 (at least 4.5)`. It was a
+  note, which doesn't fail, however faint, so a run that passed can
+  fail now. Stock libadwaita has some: an empty `AdwEntryRow`'s title
+  (1.98:1), Files' preferences group description (3.21:1), and Settings
+  › Sound's "No Output Devices" (3.23:1). Leave them out with `--ignore`
+  if they're not yours.
+
 ### Fixed
 
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's
@@ -11,6 +22,8 @@
   `#0f0d14`), and the less it matched its shape. Where the best match
   falls short, it's worked out again there with the lines through the
   text's box taken off: those labels are found, and fail at 1.61:1.
+- `a11y contrast` let GTK 4's text it didn't find pass quietly however
+  faint (see above).
 
 ## 0.9.0 — 2026-10-19
 

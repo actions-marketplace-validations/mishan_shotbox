@@ -1043,7 +1043,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     switch, slider, check box or the like, and what's outside its window
     (scrolled out of view). A node that can't be placed, and text with
     nothing drawn on its background, are problems too: nothing says they
-    can be read. But for those ignored() leaves out. (problems, what
+    can be read, and so is GTK 4's text not found where nothing has the
+    contrast it needs. But for those ignored() leaves out. (problems, what
     passes, what wasn't measured but doesn't fail, as (node, what): text too small
     to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS; why GTK
     4's weren't, a line each; how many were measured)."""
@@ -1394,6 +1395,34 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         at = laid(n) or (0, 0)
         return box, tuple(box[i] - n.bounds[i] - at[i] for i in (0, 1)), (got[1], got[2], shape)
 
+    def faint(n, least):
+        """For `n`'s text, not found or not taken: the most contrast any text
+        where it can be (room) can measure (picture.most_contrast), if
+        that's less than `least`, so whatever text is there is fainter; or
+        None. Not for text too small to measure, as some shape it can be
+        found as is, nor where it can be outside what's shown: in a
+        popover, past the screen's edge, or past a scrolled window's, or
+        where GTK places it even partly outside its window or what it's
+        in (a carousel's page not shown)."""
+        area, attrs = room(n), font(n)
+        dys = (0, -0.25, 0.25, 0.5) if gtk4_release(n) >= (4, 16) else (0,)
+        kinds = [drawing(n.name, attrs, dy) for dy in dys] if area and attrs is not None else None
+        covers = kinds and None not in kinds and [c for k in kinds for kind in k for _, _, c in kind]
+        if (not covers or popped(n) or not all(area[2:]) or shown(n) != n.bounds
+                or overlap(area, [0, 0, pic.width, pic.height]) != area
+                or min(len(c) - c.count(0) for c in covers) < SMALLEST):
+            return None
+        path = n.path
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            up = parents.get(path)
+            if up and up._role == Atspi.Role.SCROLL_PANE and overlap(area, room(up) or area) != area:
+                return None
+        # Covering no pixel whole, text measures as the color its coverage
+        # steps toward, as far again as its most covered pixel is short.
+        most = picture.most_contrast(pic, area, 255 / min(max(c) for c in covers))
+        return most if most < least else None
+
     def leaf(n):
         return not any(o.path.startswith(n.path + "/") for o in measured)
 
@@ -1483,6 +1512,15 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if why not in whys:
                 whys.append(why)
             continue
+        big = k == "text" and large_text(Atspi, n)
+        least = large if big else text if k == "text" else graphics
+        at = f"at least {least:g}" + (", large text" if big else "")
+        # Only in a window raised: another can be over it, its text faint.
+        dim = window and n.path in found and not seen and faint(n, least)
+        if dim:
+            problems.append((n, f"{k} not found, but nothing where it can be has the contrast "
+                                f"it needs: at most {ratio_text(dim)}:1 ({at})"))
+            continue
         if not seen and wrong(n, k):
             continue
         if not n.bounds:
@@ -1501,9 +1539,6 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if gtk4_release(n) < (4, 14) and paged_out(n):
             notes.append((n, f"{k} not measured: GTK says another node is at its middle"))
             continue
-        big = k == "text" and large_text(Atspi, n)
-        least = large if big else text if k == "text" else graphics
-        at = f"at least {least:g}" + (", large text" if big else "")
         got = picture.text_contrast(pic, box, seen and seen[2])
         # Its coverage says a small glyph's color, which its core is too
         # small to.

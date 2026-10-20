@@ -353,6 +353,19 @@ def backdrop(pic, box):
     return under
 
 
+def most_contrast(pic, box, stretch=1):
+    """The most contrast text drawn in `box` (x, y, width, height) can
+    measure (text_contrast): that of the lightest each channel is there on
+    the darkest, or the darkest on the lightest, either taken `stretch`
+    times as far from the other, and a level and a half more, as
+    covered() can take a color from coverage."""
+    colors = pic.colors(box)
+    hi, lo = ([f(c[k] for c in colors) for k in range(3)] for f in (max, min))
+    lighter = [min(255, x + (y - x + 1.5) * stretch) for x, y in zip(lo, hi)]
+    darker = [max(0, y - (y - x + 1.5) * stretch) for x, y in zip(lo, hi)]
+    return max(ratio(lighter, lo), ratio(hi, darker))
+
+
 # The most places find_text looks at: as many as there are in 600 by 400
 # pixels, a sidebar's height.
 PLACES = 240000

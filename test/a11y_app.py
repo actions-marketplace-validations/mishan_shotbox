@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [slow] [alert]. Its icon-only button,
+[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [slow] [alert]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -18,8 +18,9 @@ named by a label with a mnemonic, `decoys` faint labels drawn otherwise
 than their font says (letter-spaced, upper case), each over an entry
 holding its text or showing it as a placeholder, or a drawing area
 drawing it (not all ASCII), `lines` a button labeled over two lines,
-`letter` a label of one letter, `slow` moves the focus a second after
-Tab, and `alert` says an error
+`letter` a label of one letter, `carousel` a carousel at its second
+page, the first's label outside the window, `slow`
+moves the focus a second after Tab, and `alert` says an error
 and asks in an alert dialog as it starts, again once answered, then
 holds a button that makes a toast.
 The Announce button says something to a screen reader (GTK 4.14+)."""
@@ -155,6 +156,11 @@ def activate(app):
         box = Gtk.ScrolledWindow(child=rows, vexpand=True)
         if "down" in sys.argv:
             GLib.timeout_add(300, lambda: box.get_vadjustment().set_value(60) and False)
+    if "carousel" in sys.argv:
+        box = Adw.Carousel()
+        for text in ("Before", "Shown"):
+            box.append(Gtk.Label(label=text, hexpand=True, vexpand=True))
+        GLib.timeout_add(300, lambda: box.scroll_to(box.get_nth_page(1), False) and False)
     if "keys" in sys.argv:
         box = Gtk.Box()
         for label in ("1", "2", ".", "+", "(Draft)"):

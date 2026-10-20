@@ -575,9 +575,23 @@ and so is what's in a popover, which can be drawn outside both.
 
 What isn't found isn't measured, a line each, `text not measured: GTK 4
 reports its position wrong`, and why once (in `--json`, each such line's
-`why`). Text not looked for says why on its line too: `(a single
-letter: GTK gives it no width)`, `(over more than one line)`, `(not all
-ASCII: GTK measures its width short)`. What isn't found: text in more
+`why`), unless nothing where it can be could measure as text that
+passes: then it fails, `text not found, but nothing where it can be
+has the contrast it needs: at most 1.65:1 (at least 4.5)`. That's
+the contrast of the lightest each channel is anywhere it can be on the
+darkest, more than any text there can measure, whatever its background
+(and, for text whose shapes cover no pixel whole, as far again as its
+most covered pixel is short, as its color is worked out from its
+coverage). Only with `--window`, which raises the window, since
+another can be over it; and not for text that's in a popover, can be
+past the screen's edge or a scrolled window's, is placed even partly
+outside its window or what it's in (a carousel's page not shown), or
+would be too small to measure. Readable text anywhere it can be
+(another node's, say), or anything else with that contrast, keeps it a
+note. Text not looked for says why
+on its line too: `(a single letter: GTK gives it no width)`, `(over
+more than one line)`, `(not all ASCII: GTK measures its width short)`.
+What isn't found: text in more
 than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
 or at the window's, what's drawn outside where GTK's box can be (a
