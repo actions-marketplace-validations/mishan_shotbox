@@ -126,30 +126,47 @@ screens to a row, 728x410 each.
 **What an action changed.** `click_element`, `scroll_wheel`,
 `press_keys` and `type_text` with `changes` read the tree before they
 act and again once the screen has held still for half a second (as
-`wait_for` stable; after 10 seconds, it's read anyway, saying it hadn't),
-and answer with what changed: a tree line a node, `+` added, `-` gone,
-`~` renamed, described otherwise or in other states, with `, was` and
-what it was, indented from the shallowest of them:
+`wait_for` stable), and answer with what changed, and when it was read:
+a tree line a node, `+` added, `-` gone (a subtree gone whole as its
+root, `and 3 inside`), `~` renamed, described otherwise or in other
+states, with `, was` and what it was, each indented under the line above
+it that it's in:
 
     Clicked check box "Wrap lines" [focusable, checked] at the middle of [5, 171, 350, 28].
-    Changed in the tree:
+    Changed in the tree, read 0.6 s after, once the screen had held still for 0.5 s:
     ~ button "Save" [focusable], was [focusable, focused]
     ~ check box "Wrap lines" [focusable, focused], was [focusable, checked]
 
-It's the whole tree, every window's, since a click can open another,
-and where nodes are isn't compared, since a scroll moves them all; a
-field's text isn't in its line, so typing into one changes none. It's
-asked for rather than always said: it costs the two reads, about a
-second, and a page that changes whole could fill an answer the agent
-didn't need.
+What changes after it's read is missed: a program that moves the focus
+a second after a key, or opens a window a second after a click, while
+the screen holds still, is "Nothing changed". `wait_for` focus or
+window waits for that. A screen that never holds still (a spinner, a
+clock) is read after 10 seconds, saying so, which every such call
+pays. It's the whole tree, every window's, since a click can open
+another. Where nodes are isn't compared, since a scroll moves them all,
+nor a field's text, which isn't in its line, so typing into one changes
+none. Nodes are paired by role and name in tree order, and those left
+by role, so a dialog that gives way to another of the same shape is its
+nodes renamed. A program that doesn't answer the tree's read (busy, or
+hung) is said, `! application "" (pid 1234) didn't answer`, and its
+windows left out, not said to be gone; if the tree can't be read again
+at all, the answer says why, after what was done. It's asked for rather
+than always said: it costs the two reads, about a second, and a page
+that changes whole could fill an answer the agent didn't need.
 
 **Numbers on a picture.** `take_screenshot` with `labels` draws each
 named node's box on it in magenta, with a number at its corner, and
 answers with the number's tree line and the box on the picture, scaled
 and cropped as the picture is: what's seen is clicked by name. Not a
 window, whose box is the picture, nor a node named as what it's in (a
-button's label). The boxes are where the tree says, which on GTK 4.14
-and later is off: [GTK 4's positions](accessibility.md#gtk-4s-positions).
+button's label). A box is cut to those of what it's in, so a row
+scrolled out of view, which a toolkit still says is showing, has none;
+numbers at one corner go side by side. Without `window`, a window
+behind another is labeled too, over the one in front. Named nodes whose
+place can't be told (two windows the same size and title) are counted,
+not labeled. The boxes are where the tree says, which on GTK 4.14 and
+later is off, and the answer says so for such a program: [GTK 4's
+positions](accessibility.md#gtk-4s-positions).
 
 **Answers are bounded.** A screen is at most 7680x4320. The tree, what
 an action changed in it, a picture's labels, the checks' answers and

@@ -296,10 +296,16 @@ def sheet_size(paths, across=4):
             sum(max(h for _, h in row) for row in rows))
 
 
+def release(version):
+    """A version, "4.14.5", as numbers to compare."""
+    return tuple(int(p) for p in re.findall(r"\d+", version))
+
+
 def watched(act):
     """A tool that acts, which with changes also says what it changed in
     the tree once the screen has held still, so the agent needn't read the
-    tree again for it. The whole tree: a click can open another window."""
+    tree again for it. The whole tree: a click can open another window.
+    What comes after the tree is read again is missed, and said to be."""
     @functools.wraps(act)
     def acting(self, session, *args, changes=False, **kw):
         if not flag(changes):
@@ -307,16 +313,25 @@ def watched(act):
         s = self.a11y_session(session)
         before = s.a11y_tree()
         said = act(self, session, *args, **kw)
-        late = ""
+        acted = time.monotonic()
+        how = "once the screen had held still for 0.5 s"
+        # It's acted: a failure from here on is said with that, so the
+        # agent doesn't act again.
         try:
-            s.wait_stable(0.5, timeout=SETTLE)
-        except SessionError:
+            try:
+                s.wait_stable(0.5, timeout=SETTLE)
+            except SessionError:
+                if _CANCEL.is_set():
+                    raise
+                how = "though the screen hadn't held still"
+            when = f"read {time.monotonic() - acted:.1f} s after, {how}"
+            found = tree_changes(before, s.a11y_tree())
+        except Exception as e:   # one gone wrong isn't the action undone
             if _CANCEL.is_set():
                 raise
-            late = f" (it hadn't held still after {SETTLE} s)"
-        found = tree_changes(before, s.a11y_tree())
-        return (f"{said}\nChanged in the tree{late}:\n{capped(found)}" if found
-                else f"{said}\nNothing changed in the tree{late}.")
+            return f"{said}\nThe tree couldn't be read again to compare: {e}"
+        return (f"{said}\nChanged in the tree, {when}:\n{capped(found)}" if found
+                else f"{said}\nNothing changed in the tree, {when}.")
     return acting
 
 
@@ -474,36 +489,57 @@ class Server:
         """Draw on the picture at `png` each named node's box and a number,
         and say which node each number is, its box on the picture. Not a
         window's, which is the picture, nor one named as what it's in (a
-        button's label)."""
+        button's label). A box is cut to those of what it's in, so a row
+        scrolled out of view, which GTK says is showing, has none."""
         ox, oy = s.window(window)[4:6] if window else (0, 0)
         corner = crop and re.search(r"\+(\d+)\+(\d+)$", crop)
         if corner:
             ox, oy = ox + int(corner[1]), oy + int(corner[2])
         pw, ph = png_size(png)
-        above, legend, draw = {}, [], []
+        above, inside, legend, draw, unplaced, corners = {}, {}, [], [], 0, {}
         for n in nodes:
             above[n.depth] = n
             parent = above.get(n.depth - 1)
-            if not n.depth or not n.name or not n.bounds or parent and parent.name == n.name:
+            # What it's in, on the picture: x0, y0, x1, y1.
+            box = inside.get(n.depth - 1, (0, 0, pw, ph)) if n.depth else (0, 0, pw, ph)
+            if n.get("bounds"):
+                bx, by, bw, bh = n.bounds
+                box = (max(box[0], round((bx - ox) * scale)), max(box[1], round((by - oy) * scale)),
+                       min(box[2], round((bx + bw - ox) * scale)),
+                       min(box[3], round((by + bh - oy) * scale)))
+            inside[n.depth] = box
+            if not n.depth or not n.name or parent and parent.name == n.name:
                 continue
-            bx, by, bw, bh = n.bounds
-            x0, y0 = max(0, round((bx - ox) * scale)), max(0, round((by - oy) * scale))
-            x1 = min(pw, round((bx + bw - ox) * scale))
-            y1 = min(ph, round((by + bh - oy) * scale))
+            if not n.get("bounds"):
+                unplaced += 1
+                continue
+            x0, y0, x1, y1 = box
             if x1 - x0 < 2 or y1 - y0 < 2:
                 continue
-            legend.append(f"{len(legend) + 1} "
+            number = str(len(legend) + 1)
+            legend.append(f"{number} "
                           + Node({**n, "bounds": [x0, y0, x1 - x0, y1 - y0]}).line(bounds=True))
             if len(legend) <= LINES:
+                # Numbers at the same corner go side by side.
+                at = corners.get((x0, y0), x0 + 1)
+                corners[(x0, y0)] = at + 7 * len(number) + 3
                 draw += ["-stroke", "magenta", "-fill", "none",
                          "-draw", f"rectangle {x0},{y0} {x1 - 1},{y1 - 1}",
                          "-stroke", "none", "-fill", "white",
-                         "-annotate", f"+{x0 + 1}+{y0 + 1}", str(len(legend))]
+                         "-annotate", f"+{at}+{y0 + 1}", number]
+        unsaid = (f"{unplaced} named node{'s' * (unplaced > 1)} not labeled: where "
+                  f"{'they are' if unplaced > 1 else 'it is'} can't be told (as when two "
+                  "windows are the same size and title)." if unplaced else "")
         if not legend:
-            return "No named node to label in it."
+            return unsaid or "No named node to label in it."
         subprocess.run([*CONVERT, str(png), "-gravity", "NorthWest", "-pointsize", "12",
                         "-undercolor", "magenta", *draw, *QUIET_PNG, str(png)], check=True)
-        return "Labeled, by number, at x,y WIDTHxHEIGHT on it:\n" + capped(legend)
+        wrong = sorted({v for n in nodes if not n.depth and (v := n.get("toolkit", ""))
+                        .startswith("GTK 4.") and release(v[4:]) >= (4, 14)})
+        return "\n".join(["Labeled, by number, at x,y WIDTHxHEIGHT on it:", capped(legend)]
+                         + [f"{v} reports where its widgets are wrong: its boxes can be tens of "
+                            "pixels off. Click by name." for v in wrong]
+                         + [unsaid] * bool(unsaid))
 
     def clip(self, path):
         """Where record_video saves to: a new file in the allow file's directory,
@@ -909,8 +945,9 @@ Y = {"type": "integer", "description": "Pixels from the top"}
 IGNORE = {"type": "array", "items": {"type": "string"},
           "description": "Regexes for lines that can't be fixed yet"}
 PROGRAM = {"type": "string", "description": "Its name in the allow list"}
-CHANGES = {"type": "boolean", "description": "Then, once the screen holds still, also say what "
-           "changed in the accessible tree: tree lines, + added, - gone, ~ changed"}
+CHANGES = {"type": "boolean", "description": "Also say what this changed in the accessible "
+           "tree once the screen holds still (not a field's text, nor where things are): "
+           "tree lines, + added, - gone, ~ changed"}
 WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what

@@ -41,6 +41,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"wrapped = /bin/sh -c '{here / 'a11y_app.py'}; exit $?'\n"
                  f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
+                 f"freeze = {here / 'a11y_app.py'} freeze\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -159,18 +160,32 @@ def tree(*rows):
 rows = [(0, "frame", "w", []), (1, "button", "Save", ["focused"]), (1, "label", "Row 1", []),
         (1, "check box", "Wrap", ["checked"])]
 window = tree(*rows)
-for after, want, what in (
-        (window, [], "nothing"),
-        (tree((0, "frame", "w", []), (1, "button", "Save", []), (1, "label", "Row 2", []),
-              (1, "check box", "Wrap", ["focused"])),
+dialog = tree((1, "dialog", "Quit?", []), (2, "button", "OK", []))
+items = [(0, "frame", "w", []), (1, "list", "", []), (2, "list item", "", []),
+       (3, "label", "A", []), (2, "list item", "", []), (3, "label", "B", [])]
+hung = [mcp.Node(depth=0, role="frame", name="hang", description="", states=[], pid=7),
+        *tree((1, "button", "Freeze", []))]
+quiet = mcp.Node(depth=0, role="application", name="", description="", states=[], pid=7,
+                 quiet=True)
+for before, after, want, what in (
+        (window, window, [], "nothing"),
+        (window, tree((0, "frame", "w", []), (1, "button", "Save", []), (1, "label", "Row 2", []),
+                      (1, "check box", "Wrap", ["focused"])),
          ['~ button "Save", was [focused]', '~ label "Row 2", was "Row 1"',
           '~ check box "Wrap" [focused], was [checked]'], "renamed, other states"),
-        (tree((0, "frame", "w", []), (1, "label", "Row 0", []), *rows[1:],
-              (1, "dialog", "Quit?", []), (2, "button", "OK", []), (0, "frame", "x", [])),
-         ['+   label "Row 0"', '+   dialog "Quit?"', '+     button "OK"', '+ frame "x"'],
-         "added, above what was there and below, indented from the shallowest"),
-        (window[:1] + window[2:], ['- button "Save" [focused]'], "gone")):
-    got = mcp.tree_changes(window, after)
+        (window, tree((0, "frame", "w", []), (1, "label", "Row 0", []), *rows[1:]) + dialog
+         + tree((0, "frame", "x", [])),
+         ['+ label "Row 0"', '+ dialog "Quit?"', '+   button "OK"', '+ frame "x"'],
+         "added, above what was there and below, indented only under what's printed"),
+        (window, window[:1] + window[2:], ['- button "Save" [focused]'], "gone"),
+        (window + dialog, window, ['- dialog "Quit?" and 1 inside'], "a subtree gone whole"),
+        (tree(*items), tree(*items[:2], (2, "list item", "", []), (3, "label", "New", []),
+                             *items[2:]),
+         ['+ list item ""', '+   label "New"'], "a row added, from its start"),
+        (window + hung, window + [quiet],
+         ["! application \"\" (pid 7) didn't answer: busy, or hung, so its windows aren't "
+          "compared"], "a program that didn't answer, not its windows gone")):
+    got = mcp.tree_changes(before, after)
     check(got == want, f"what changed in the tree: {what} ({got})")
 
 said, bad, _ = tool("get_accessible_tree", session="none")
@@ -261,14 +276,13 @@ try:
           f"take_screenshot: a burst of wide screens, two to a row, shrunk least ({said})")
     tool("spawn_program", session="big", program="app")
     tool("wait_for", session="big", what="window", value="a11y-test", timeout=20)
-    x, y, w, h = map(int, re.search(r'"Announce" .*@(\d+),(\d+) (\d+)x(\d+)', tool(
+    x, y = map(int, re.search(r'"Announce" .*@(\d+),(\d+) ', tool(
         "get_accessible_tree", session="big", bounds=True)[0]).groups())
     said, bad, content = tool("take_screenshot", session="big", labels=True)
     k = 1456 / 1920
-    check(not bad and boxes(said)["Announce"] == (
-              round(x * k), round(y * k), round((x + w) * k) - round(x * k),
-              round((y + h) * k) - round(y * k)),
-          f"take_screenshot: labels on a picture shrunk, their boxes shrunk with it ({said})")
+    # Its corner: GTK 4.14.5 says its box runs past what it's in, which cuts it.
+    check(not bad and boxes(said)["Announce"][:2] == (round(x * k), round(y * k)),
+          f"take_screenshot: labels on a picture shrunk, their corners moved with it ({said})")
     tool("stop_session", session="big")
     said, bad, _ = tool("start_session", name="huge", a11y=False, screen="7681x4320")
     check(bad and "at most 7680x4320, not 7681x4320" in said and "huge" not in server.sessions,
@@ -343,9 +357,19 @@ try:
     said, _, _ = tool("click_element", session="t", name="Wrap lines", changes=True)
     check(not bad and re.search(r'^~ check box "Wrap lines" \[focusable, focused\], was '
                                 r'\[focusable(, focused)?, checked\]$', unchecked, re.M)
-          and said.endswith('\nChanged in the tree:\n~ check box "Wrap lines" '
-                            '[focusable, focused, checked], was [focusable, focused]'),
+          and re.search(r'\nChanged in the tree, read \d+\.\d s after, once the screen had '
+                        r'held still for 0\.5 s:\n~ check box "Wrap lines" \[focusable, '
+                        r'focused, checked\], was \[focusable, focused\]\Z', said),
           f"click_element: with changes, what it changed in the tree ({unchecked}; {said})")
+    # A program that stops answering is said to, not its window gone.
+    tool("start_session", name="z")
+    tool("spawn_program", session="z", program="freeze")
+    tool("wait_for", session="z", what="window", value="a11y-test", timeout=20)
+    said, bad, _ = tool("click_element", session="z", name="Freeze", changes=True)
+    check(not bad and re.match(r'Clicked (push )?button "Freeze"', said) and "\n- " not in said
+          and re.search(r'^! application "" \(pid \d+\) didn\'t answer', said, re.M),
+          f"click_element: with changes, a program that stops answering, said ({said})")
+    tool("stop_session", session="z")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.
@@ -433,6 +457,10 @@ try:
     tool("wait_for", session="l", what="stable", window="a11y-test")
     after, after_bad, _ = tool("click_element", session="l", name="Row 25")
     back, back_bad, _ = tool("scroll_wheel", session="l", name="Row 25", dy=-10)
+    tool("wait_for", session="l", what="stable", window="a11y-test")
+    labeled = boxes(tool("take_screenshot", session="l", window="a11y-test", labels=True)[0])
+    check("Row 0" in labeled and "Row 25" not in labeled,
+          f"take_screenshot: labels only on rows in view, not those scrolled out ({labeled})")
     refused = [tool("scroll_wheel", session="l", name="Row 0")[:2],
                tool("scroll_wheel", session="l", x=5, y=5, dy=1000)[:2]]
     check(before_bad and "outside its window" in before and not bad

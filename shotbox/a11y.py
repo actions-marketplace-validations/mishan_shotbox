@@ -103,20 +103,42 @@ class Node(dict):
         if self.description:
             out += f' description={json.dumps(self.description, ensure_ascii=False)}'
         out += f" [{', '.join(self.states)}]" if self.states else ""
+        if self.get("quiet"):
+            out += f" (pid {self.pid}) didn't answer: busy, or hung"
         return out + (" @{},{} {}x{}".format(*self["bounds"]) if bounds and self.get("bounds")
                       else "")
 
 
+# Past this many pairs of nodes, what's left between the trees' ends is
+# taken as gone and added: pairing it takes as long as that.
+PAIRED = 1_000_000
+
+
 def changes(before, after):
     """What changed from one tree to another, as a11y_tree has them: a line
-    a node, in tree order, as the tree has it but indented from the
-    shallowest of them, after "+ " for one added, "- " one gone, or "~ "
-    one renamed, described otherwise or in other states, then ", was"
-    and what it was. Nodes are paired by depth, role, name and
-    description, and those left by depth and role, so a row added above
-    others doesn't make them all renamed. Where they are isn't compared:
-    a scroll moves everything."""
-    found = []
+    a node, in tree order, as the tree has it, after "+ " for one added,
+    "- " one gone (a subtree gone whole as its root, with how many were in
+    it), or "~ " one renamed, described otherwise or in other states, then
+    ", was" and what it was; each under the line above it that it's in, if
+    any. Nodes are paired by depth, role, name and description, and those
+    left by depth and role, so a row added above others doesn't make them
+    all renamed; a run added or gone is slid to
+    start at its shallowest node, so a row reads as one. Where they are
+    isn't compared: a scroll moves everything. A program that didn't
+    answer either time is said, after "! ", and its windows left out:
+    they're not gone."""
+    quiet = {n.pid for n in before + after if n.get("quiet")}
+
+    def kept(t):
+        out, skip = [], False
+        for n in t:
+            skip = n.get("pid") in quiet if not n.depth else skip
+            if not skip:
+                out.append(n)
+        return out
+
+    a, b = kept(before), kept(after)
+    runs = []   # (mark, node, was), a list a run
 
     def was(m, n):
         said = [json.dumps(m.name, ensure_ascii=False)] if m.name != n.name else []
@@ -124,34 +146,76 @@ def changes(before, after):
             said.append(f"description={json.dumps(m.description, ensure_ascii=False)}")
         return " ".join(said + [f"[{', '.join(m.states)}]"] * (m.states != n.states))
 
-    def pair(a, b, key, rest):
+    def pair(i0, i1, j0, j1, key, rest):
         # Most of a tree is as it was: its ends are paired before the rest
-        # is searched, which takes as long as their lengths multiplied.
+        # is searched.
         lead = tail = 0
-        while lead < min(len(a), len(b)) and key(a[lead]) == key(b[lead]):
+        while lead < min(i1 - i0, j1 - j0) and key(a[i0 + lead]) == key(b[j0 + lead]):
             lead += 1
-        while (tail < min(len(a), len(b)) - lead
-               and key(a[-1 - tail]) == key(b[-1 - tail])):
+        while (tail < min(i1 - i0, j1 - j0) - lead
+               and key(a[i1 - 1 - tail]) == key(b[j1 - 1 - tail])):
             tail += 1
-        middle = difflib.SequenceMatcher(None, [key(n) for n in a[lead:len(a) - tail]],
-                                         [key(n) for n in b[lead:len(b) - tail]], autojunk=False)
-        for op, i1, i2, j1, j2 in [("equal", 0, lead, 0, lead),
-                                   *[(op, i1 + lead, i2 + lead, j1 + lead, j2 + lead)
-                                     for op, i1, i2, j1, j2 in middle.get_opcodes()],
-                                   ("equal", len(a) - tail, len(a), len(b) - tail, len(b))]:
+        mi, mj = (i0 + lead, i1 - tail), (j0 + lead, j1 - tail)
+        if (mi[1] - mi[0]) * (mj[1] - mj[0]) > PAIRED:
+            middle = [("replace", *mi, *mj)]
+        else:
+            middle = [(op, p + mi[0], q + mi[0], r + mj[0], t + mj[0])
+                      for op, p, q, r, t in difflib.SequenceMatcher(
+                          None, [key(n) for n in a[slice(*mi)]], [key(n) for n in b[slice(*mj)]],
+                          autojunk=False).get_opcodes()]
+        ops = [["equal", i0, mi[0], j0, mj[0]], *map(list, middle),
+               ["equal", mi[1], i1, mj[1], j1]]
+        for k, op in enumerate(ops[1:-1], 1):
+            if op[0] in ("insert", "delete") and ops[k - 1][0] == ops[k + 1][0] == "equal":
+                slide(ops[k - 1], op, ops[k + 1], key)
+        for op, p, q, r, t in ops:
             if op == "equal":
-                found.extend(("~", n, w) for m, n in zip(a[i1:i2], b[j1:j2]) if (w := was(m, n)))
-            else:
-                rest(a[i1:i2], b[j1:j2])
+                runs.extend([("~", n, w)] for m, n in zip(a[p:q], b[r:t]) if (w := was(m, n)))
+            elif p < q or r < t:
+                rest(p, q, r, t)
 
-    def unpaired(a, b):
-        found.extend([("-", n, "") for n in a] + [("+", n, "") for n in b])
+    def slide(before_it, op, after_it, key):
+        """Move an added or gone run as far as it can go and still be the
+        same change, to where it starts at its shallowest node."""
+        seq, lo, hi = (b, op[3], op[4]) if op[0] == "insert" else (a, op[1], op[2])
+        up = down = 0
+        while up < before_it[2] - before_it[1] and key(seq[lo - 1 - up]) == key(seq[hi - 1 - up]):
+            up += 1
+        while down < after_it[2] - after_it[1] and key(seq[lo + down]) == key(seq[hi + down]):
+            down += 1
+        d = min(range(-up, down + 1), key=lambda d: (seq[lo + d].depth, abs(d)))
+        before_it[2] += d
+        before_it[4] += d
+        op[1:] = [v + d for v in op[1:]]
+        after_it[1] += d
+        after_it[3] += d
 
-    pair(before, after, lambda n: (n.depth, n.role, n.name, n.description),
-         lambda a, b: pair(a, b, lambda n: (n.depth, n.role), unpaired))
-    top = min((n.depth for _, n, _ in found), default=0)
-    return [f"{mark} {'  ' * (n.depth - top)}{n.line()}" + (f", was {w}" if w else "")
-            for mark, n, w in found]
+    def unpaired(p, q, r, t):
+        gone = []
+        while p < q:
+            # The subtree, if it's all gone.
+            end = next((k for k in range(p + 1, len(a)) if a[k].depth <= a[p].depth), len(a))
+            whole = end <= q
+            gone.append(("-", a[p], f" and {end - p - 1} inside" if whole and end > p + 1
+                         else ""))
+            p = end if whole else p + 1
+        runs.append(gone + [("+", n, "") for n in b[r:t]])
+
+    pair(0, len(a), 0, len(b), lambda n: (n.depth, n.role, n.name, n.description),
+         lambda p, q, r, t: pair(p, q, r, t, lambda n: (n.depth, n.role), unpaired))
+    out = []
+    for run in runs:
+        above = []  # (depth, indent) of what's printed above that a node can be in
+        for k, (mark, n, w) in enumerate(run):
+            if k and mark != run[k - 1][0]:
+                above = []
+            while above and above[-1][0] >= n.depth:
+                above.pop()
+            above.append((n.depth, above[-1][1] + 1 if above else 0))
+            out.append(f"{mark} {'  ' * above[-1][1]}{n.line()}"
+                       + (f", was {w}" if mark == "~" else w))
+    return [f"! {n.line()}, so its windows aren't compared"
+            for n in after if n.get("quiet")] + out
 
 
 def toplevels(Atspi, window=None, timeout=10):
@@ -196,7 +260,10 @@ def find_toplevels(Atspi, window=None):
 
     hits = []
     for name, _, app in sorted(apps, key=lambda a: a[:2]):
-        tops = [t for t in (app.get_child_at_index(j) for j in range(app.get_child_count()))
+        count = app.get_child_count()
+        if count < 0:   # no answer, after libatspi's timeout: busy, or hung
+            QUIET.add(app.get_process_id())
+        tops = [t for t in (app.get_child_at_index(j) for j in range(count))
                 if t is not None]
         names = [t.get_name() or "" for t in tops]
         if window is None:
@@ -211,6 +278,10 @@ def find_toplevels(Atspi, window=None):
             and app.get_process_id() == shown_pid()))
         hits += [(app, t) for t, got in zip(tops, names) if (picks(got) if got else unnamed)]
     return hits
+
+
+# The pids of the programs that didn't answer when their windows were asked for.
+QUIET = set()
 
 
 def origin(Atspi, top, shown):
@@ -1861,6 +1932,13 @@ def grow_box(box, by):
     return [box[0] - by, box[1] - by, box[2] + 2 * by, box[3] + 2 * by]
 
 
+def made_with(top):
+    """The toolkit `top`'s program is, and its version: "GTK 4.14.5"."""
+    app = top.get_application()
+    return " ".join(filter(None, (app.get_toolkit_name(), app.get_toolkit_version()))
+                    ) if app else ""
+
+
 def gtk4(n):
     """The GTK 4 version `n`'s program is, or None. Asked once a program:
     get_application() asks its way up the tree."""
@@ -2204,7 +2282,14 @@ def main(argv):
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
              "the accessible tree")
     if a.what == "tree":
-        nodes = tree(a.window, a.timeout, bounds=a.json)
+        # Each window with its program's pid and toolkit, then a node for
+        # each program that didn't answer, whose windows aren't there.
+        nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
+                            if not n.depth else {}))
+                 for n in tree(a.window, a.timeout, bounds=a.json)]
+        nodes += [Node(role="application", name="", description="", states=[],
+                       path="application", depth=0, pid=pid, quiet=True)
+                  for pid in sorted(QUIET) if not a.window]
         if a.json:
             print(json.dumps([dict(public(n), depth=n.depth) for n in nodes]))
         else:
