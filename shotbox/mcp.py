@@ -721,13 +721,13 @@ class Server:
                         window)
 
     def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
-                       edges=None, ignore=None, passes=False):
+                       edges=None, ignore=None, passes=False, strict=False):
         got = self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
-            passes=flag(passes))
+            passes=flag(passes), strict=flag(strict))
         notes, passed = got["notes"], got.get("passes")
-        whys = list(dict.fromkeys(n.why for n in notes if "why" in n))
+        whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
         return "\n".join([problems(got["problems"], window)]
                          + ([f"{len(passed)} pass:", problems(passed, window, "contrast")]
                             if passed else [])
@@ -1061,16 +1061,17 @@ TOOLS = [
      "and measures a picture of the screen in each node's bounds. The answer: each node that "
      "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; with "
      "passes, then each that passes, the same; then what it couldn't measure, which doesn't "
-     "fail (too small, off the screen, or GTK 4.14+'s, whose positions are wrong: of that, "
-     "only text is measured, where it's found near them), and why. A window where nothing "
-     "can be measured is an error, not a pass. Switches, sliders, check boxes, disabled nodes "
-     "and what's scrolled out of view are skipped. For missing names, use "
+     "fail unless strict (too small, off the screen, or GTK 4.14+'s, whose positions are "
+     "wrong: of that, only text is measured, where it's found near them), and why. A window "
+     "where nothing can be measured is an error, not a pass. Switches, sliders, check boxes, "
+     "disabled nodes and what's scrolled out of view are skipped. For missing names, use "
      "check_accessible_names.",
      schema({"session": SESSION, "window": WINDOW,
              "text_ratio": {"type": "number", "description": "Least for text (4.5)"},
              "graphics": {"type": "number", "description": "Least for images (3)"},
              "edges": {"type": "number", "description": "Least for edges (unchecked)"},
              "passes": {"type": "boolean", "description": "Also what passes, with its ratio"},
+             "strict": {"type": "boolean", "description": "What it couldn't measure fails too"},
              "ignore": IGNORE}, ["session"])),
     ("check_focus_order",
      "Check the keyboard focus order in one call: press Tab, or key, until the focus comes "

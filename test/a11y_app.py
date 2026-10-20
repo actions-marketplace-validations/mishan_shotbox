@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [slow] [alert]. Its icon-only button,
+[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [lone] [slow] [alert]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -18,8 +18,13 @@ named by a label with a mnemonic, `decoys` faint labels drawn otherwise
 than their font says (letter-spaced, upper case), each over an entry
 holding its text or showing it as a placeholder, or a drawing area
 drawing it (not all ASCII), `lines` a button labeled over two lines,
-`letter` a label of one letter, `slow` moves the focus a second after
-Tab, and `alert` says an error
+`letter` a label of one letter, `carousel` a carousel at its second
+page, the first's label outside the window, `nested` "check" over
+"unchecked" (under "Recheck" with `recheck`), padded below as the
+decoys are, `split` a hidden
+"Open File" over "Open" and "File" side by side, padded so too, `lone`
+an icon button and a faint letter-spaced label alone, `slow`
+moves the focus a second after Tab, and `alert` says an error
 and asks in an alert dialog as it starts, again once answered, then
 holds a button that makes a toast.
 The Announce button says something to a screen reader (GTK 4.14+)."""
@@ -155,6 +160,24 @@ def activate(app):
         box = Gtk.ScrolledWindow(child=rows, vexpand=True)
         if "down" in sys.argv:
             GLib.timeout_add(300, lambda: box.get_vadjustment().set_value(60) and False)
+    if "nested" in sys.argv:
+        pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
+        for text in ("Recheck", "check", "unchecked")[("recheck" not in sys.argv):]:
+            pair.append(Gtk.Label(label=text, halign=Gtk.Align.START))
+        box.append(pair)
+    if "split" in sys.argv:
+        pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
+        pair.append(Gtk.Label(label="Open File", opacity=0, halign=Gtk.Align.START))
+        side = Gtk.Box(spacing=3)
+        for text in ("Open", "File"):
+            side.append(Gtk.Label(label=text))
+        pair.append(side)
+        box.append(pair)
+    if "carousel" in sys.argv:
+        box = Adw.Carousel()
+        for text in ("Before", "Shown"):
+            box.append(Gtk.Label(label=text, hexpand=True, vexpand=True))
+        GLib.timeout_add(300, lambda: box.scroll_to(box.get_nth_page(1), False) and False)
     if "keys" in sys.argv:
         box = Gtk.Box()
         for label in ("1", "2", ".", "+", "(Draft)"):
@@ -167,6 +190,10 @@ def activate(app):
         view.append(Gtk.Button(label="Save"))
         if "unfocusable" in sys.argv:
             view.append(Gtk.Button(label="Play", focusable=False))
+    if "lone" in sys.argv:
+        view = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        view.append(Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Delete"))
+        view.append(Gtk.Label(label="Spaced out", css_classes=["faint", "spaced"]))
     w.set_content(view)
     if "slow" in sys.argv:
         def later(c, key, code, state):

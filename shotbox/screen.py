@@ -816,16 +816,17 @@ class Screen:
         return [Node(n) for n in self._a11y("lint", *args, *([f"--window={window}"] if window else []))]
 
     def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=(), large=3.0,
-                 passes=False):
+                 passes=False, strict=False):
         """What's drawn with too little contrast, as `shotbox a11y contrast
         --json` has it: a dict of `problems`, the nodes that fail, each with
         what's wrong as `problem`: text, buttons and links against their
         background (at least `text`, or `large` for large text), images
         (`graphics`), and with `edges`, a button's or field's edge against
         what's round it; and `notes`, what wasn't measured and doesn't
-        fail, each with its `note`: too small to, or GTK 4's, with `why`.
-        With `passes`, `passes` too, what was measured and passes, each with
-        its ratio as `contrast`. But not those whose "PATH: WHAT" line, or
+        fail, each with its `note`: too small to, or GTK 4's, with `why`;
+        with `strict`, only what's scrolled out of view, the rest being
+        `problems` too. With `passes`, `passes` too, what was measured
+        and passes, each with its ratio as `contrast`. But not those whose "PATH: WHAT" line, or
         "LINE: WHAT" with its tree line, one of the regexes in `ignore` is
         found in. Measured on a picture of the screen, `window` raised.
         Fails, saying why, if nothing could be measured: of a GTK 4 window,
@@ -834,6 +835,7 @@ class Screen:
         args = ["--text", str(text), "--large", str(large), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),
                 *[f"--ignore={i}" for i in ignore], *(["--passes"] if passes else []),
+                *(["--strict"] if strict else []),
                 *([f"--window={window}"] if window else [])]
         return {k: [Node(n) for n in v] for k, v in self._a11y("contrast", *args).items()}
 

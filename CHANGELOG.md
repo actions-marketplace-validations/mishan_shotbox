@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+### Changes to check when upgrading
+
+- **`a11y contrast --window` fails GTK 4's text it doesn't find, where
+  nothing there could pass**: `text not found, but nothing where it can
+  be has the contrast it needs: the best anything there reaches is
+  1.65:1 (at least 4.5)`, with its `why`. It was a
+  note, which doesn't fail, however faint, so a run that passed can
+  fail now. Stock libadwaita has some: an empty `AdwEntryRow`'s title
+  (1.98:1), Files' preferences group description (3.21:1), and Settings
+  › Sound's "No Output Devices" (3.23:1). So does text dimmed behind an
+  open dialog, as faint as it's drawn (Files' path bar behind its
+  preferences). Leave them out with `--ignore` if they're not yours.
+
+### Added
+
+- `a11y contrast` says on its line why GTK 4's text it looked for wasn't
+  taken, and its why says what that means: `(no match good enough: 0.44
+  at best)`, `(it matches elsewhere too, in "unchecked")`, `(another
+  node's text matches there too: "Row 10")`, naming the node where it's
+  its text, not its name, that matches, or `(what matches is drawn
+  wider or narrower than GTK lays it out)`. All four read "wasn't found
+  there alone" before.
+- `a11y contrast --strict` fails on what it couldn't measure, too: for
+  CI that wants every node measured, or ignored with `--ignore`. Those
+  lines are failures, under `problems` in `--json`, each with its `why`
+  if it has one; `Screen.contrast(strict=True)` and MCP's
+  `check_contrast` with `strict` have it too.
+
+### Fixed
+
+- `a11y contrast` didn't take GTK 4's text where another node's shorter
+  text inside it matched there too: "unchecked", under a "check" whose
+  room took it in, was a note. A shorter text can't match all of a
+  longer one, so where it's drawn apart too it doesn't count against it
+  now; "check" itself, matching in both places, still isn't taken.
+- `a11y contrast` left faint GTK 4.14 and later text over a theme's
+  grid unmeasured, which doesn't fail, while text of the same color
+  elsewhere failed: the fainter the text, the more of what varies where
+  it's drawn are the grid's lines (8% of it under `#3a3446` text on
+  `#0f0d14`), and the less it matched its shape. Where the best match
+  falls short, it's worked out again there with the lines through the
+  text's box taken off: those labels are found, and fail at 1.61:1.
+- `a11y contrast` let GTK 4's text it didn't find pass quietly however
+  faint (see above).
+
 ## 0.9.0 — 2026-10-19
 
 GTK 4.14 and later's text measured for contrast again, found where it's

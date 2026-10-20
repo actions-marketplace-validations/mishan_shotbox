@@ -104,7 +104,7 @@ it arbitrary commands, typed with `type_text`.
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
 | `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
-| `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes; `check_contrast` with `passes` says what passes too, with its ratio, as `a11y contrast --passes` does |
+| `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes; `check_contrast` with `passes` says what passes too, with its ratio, as `a11y contrast --passes` does, and with `strict` fails on what it couldn't measure, as `--strict` does |
 | `get_speech` | what Orca, a real screen reader started for the call, says after each press of Tab or of the keys given, with the focused node's tree line: [What a screen reader says](accessibility.md#what-a-screen-reader-says) |
 | `list_announcements` | what's been announced to a screen reader |
 | `record_audio` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
