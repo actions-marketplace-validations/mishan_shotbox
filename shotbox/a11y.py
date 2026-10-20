@@ -7,6 +7,7 @@ reader sees it, for a session started with --a11y.
     shotbox a11y click NAME             click a node, by its name
     shotbox a11y scroll NAME DY [DX]    turn the wheel over a node, by its name
     shotbox a11y contrast               text and controls against their backgrounds
+    shotbox a11y speak [--keys KEY...]  what Orca says as the focus moves (speak.py)
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
 refuses to run without it: otherwise libatspi would go looking for the
@@ -27,7 +28,7 @@ from functools import cache
 
 from . import picture, x
 from .screen import Screen, SessionError, wait_for, wheel
-from .session import ATSPI, bindings
+from .session import ATSPI, bindings, pango_cairo
 
 # The states worth a line in the tree: what a screen reader says about a
 # node, not how it's laid out ("showing", "vertical"). Their AT-SPI names.
@@ -114,7 +115,10 @@ def toplevels(Atspi, window=None, timeout=10):
     if not window:
         return find_toplevels(Atspi)
     what = f"an accessible {x.matcher(window)[1]}"
-    return wait_for(what, lambda: find_toplevels(Atspi, window), timeout)
+    try:
+        return wait_for(what, lambda: find_toplevels(Atspi, window), timeout)
+    except SessionError as e:
+        raise SessionError(f"{e}{Screen().there(window)}") from None
 
 
 def find_toplevels(Atspi, window=None):
@@ -170,32 +174,54 @@ def origin(Atspi, top, shown):
     they're put on the screen by the display's window of the same size,
     and name if it has one: `shown`, as the backend's windows() lists
     them. Chromium on Wayland counts its shadow into its accessible frame
-    and not its window, and can't be placed. GTK 4, to 4.24 at least,
-    loses the window's border (on X11 with no compositor, it has one)
-    from its children: the frame's first child, which fills it but
-    for that, is at the frame's corner rather than inside the border. The
-    border and padding of every other node on the way down are lost too,
-    and can't be told: docs/accessibility.md says how far off that is."""
+    and not its window, and can't be placed. GTK 4 from 4.14, to 4.24 at
+    least, loses the window's border (on X11 with no compositor, it has
+    one) from its children: the frame's first child, which fills it but
+    for that, is at the frame's corner rather than inside the border. From
+    4.14.6 the border and padding of every other node on the way down are
+    lost too, and can't be told: docs/accessibility.md says how far off
+    that is."""
     e = top.get_extents(Atspi.CoordType.WINDOW)
     name = top.get_name() or ""
-    hits = [w for w in shown if (w[2], w[3]) == (e.width, e.height) and (not name or w[1] == name)]
+    app = top.get_application()
+    version = (app.get_toolkit_version() or "") if app and app.get_toolkit_name() == "GTK" else ""
+    gtk4 = version.startswith("4.")
+    # GTK 4 before 4.14 says where its window's content is: inside the
+    # window's own border, as wide all round (5 pixels, its solid-csd).
+    inside = gtk4 and int(version.split(".")[1]) < 14
+
+    def fits(w):
+        grown = w[2] - e.width
+        return ((grown == 0 or inside and 0 < grown <= 20 and grown % 2 == 0)
+                and grown == w[3] - e.height)
+
+    hits = [w for w in shown if fits(w) and (not name or w[1] == name)]
     if len(hits) > 1 and isinstance(hits[0][0], str):   # X11's unmapped windows
         env = Screen().env
         hits = [w for w in hits if x.viewable(env, w[0])]
     if len(hits) != 1:
         return None
     w = hits[0]
+    lost = ((w[2] - e.width) // 2, (w[3] - e.height) // 2)
     # GTK 4 alone: anywhere else a first child at the corner and smaller
     # (a GTK 3 button aligned to the start) is where it says.
-    app = top.get_application()
-    gtk4 = bool(app) and app.get_toolkit_name() == "GTK" and (
-        app.get_toolkit_version() or "").startswith("4.")
-    first = top.get_child_at_index(0) if gtk4 and top.get_child_count() else None
+    first = top.get_child_at_index(0) if gtk4 and not inside and top.get_child_count() else None
     c = first and first.get_extents(Atspi.CoordType.WINDOW)
-    lost = (0, 0)
-    if c and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
+    if c and sized(c) and (c.x, c.y) == (e.x, e.y) and c.width < e.width and c.height < e.height:
         lost = ((e.width - c.width) // 2, (e.height - c.height) // 2)
     return [w[4], w[5], w[2], w[3]], (w[4] - e.x + lost[0], w[5] - e.y + lost[1]), w
+
+
+# The most an X11 window can be. A size past it, or below zero, is none a
+# node can have: GTK 4 sends uninitialized memory for a widget it hasn't
+# realized. The width is what catches it (-1346821116, 744334356): the
+# height can be the other half of a pointer, about 22000, which fits.
+LARGEST = 32767
+
+
+def sized(e):
+    """Whether extents `e` have a size a node can be drawn at."""
+    return 0 <= e.width <= LARGEST and 0 <= e.height <= LARGEST
 
 
 def place(Atspi, n, shown, origins):
@@ -212,10 +238,18 @@ def place(Atspi, n, shown, origins):
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
     except Exception:   # gone since the walk: a closing popover, a toast
         return None
-    return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height]
+    return [o[1][0] + e.x, o[1][1] + e.y, e.width, e.height] if sized(e) else None
 
 
-def node(Atspi, acc, states, path):
+def role_name(Atspi, acc, role):
+    """`acc.get_role_name()` for its `role`, without asking for that again:
+    libatspi names the roles it knows itself."""
+    if 0 <= role <= Atspi.Role.LAST_DEFINED and role != Atspi.Role.EXTENDED:
+        return Atspi.role_get_name(role)
+    return acc.get_role_name()
+
+
+def node(Atspi, acc, states, role, path):
     shown = [s for s in STATES
              if states.contains(getattr(Atspi.StateType, s.upper().replace("-", "_")))]
     if states.contains(Atspi.StateType.EXPANDABLE) and not states.contains(
@@ -223,51 +257,72 @@ def node(Atspi, acc, states, path):
         shown.append("collapsed")
     if not states.contains(Atspi.StateType.SENSITIVE):
         shown.append("disabled")
-    # A field GTK 3 names by its mnemonic label: a screen reader says that.
+    # GTK 4 before 4.10 names what has no name by its class.
     name = acc.get_name() or ""
+    if re.fullmatch(r"Gtk[A-Z]\w*", name) and gtk4_release(Node(_acc=acc)) < (4, 10):
+        name = ""
+    # A field GTK 3 names by its mnemonic label: a screen reader says that.
     if not name and "focusable" in shown:
         name = " ".join(t.get_name() for t in related(Atspi, acc, "LABELLED_BY") if t.get_name())
-    return Node(role=acc.get_role_name(), name=name,
+    return Node(role=role_name(Atspi, acc, role), name=name,
                 description=acc.get_description() or "", states=shown, path=path,
-                _role=int(acc.get_role()),
+                _role=int(role),
                 _showing=states.contains(Atspi.StateType.SHOWING),
                 # Paths alone collide: GTK 3 numbers its objects per program.
                 _id=f"{acc.app.bus_name if acc.app else ''}{acc.path}",
                 _acc=acc)
 
 
-def walk(Atspi, window=None, timeout=10, bounds=False):
+def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
     """Every showing node (in a page, visible) under the toplevels `window`
-    picks, depth first, as (depth, Node). With `bounds`, each has its
-    bounds on the screen, or None where they can't be told."""
+    picks, depth first, as (depth, Node); with `until`, up to the first
+    it's true of. With `bounds`, each has its bounds on the screen, or
+    None where they can't be told."""
     out = []
 
-    def visit(acc, depth, path, web=False):
+    def done():
+        return until and out and until(out[-1][1])
+
+    def visit(acc, role, depth, path, web=False):
         if len(out) > 20000 or depth > 200:
-            return
-        try:
-            states = acc.get_state_set()
-            n = node(Atspi, acc, states, path)
-        except Exception:   # gone while we looked: a closing popover, a toast
             return
         # A toolkit's widget can be visible and not on the screen (in a
         # revealer not revealed); a page's is not showing only scrolled
-        # out of view, as a toolkit's list row is still showing.
-        web = web or n._role == Atspi.Role.DOCUMENT_WEB
-        if not states.contains(Atspi.StateType.VISIBLE if web else Atspi.StateType.SHOWING):
+        # out of view, as a toolkit's list row is still showing. Each
+        # call is a round trip, so what isn't shown isn't asked more. GTK 4
+        # before 4.10.3 says only its windows are showing; it presents
+        # only what's visible, as later ones say is showing.
+        web = web or role == Atspi.Role.DOCUMENT_WEB
+        try:
+            states = acc.get_state_set()
+            old = not web and gtk4_release(Node(_acc=acc)) < (4, 10, 3)
+            if not states.contains(Atspi.StateType.VISIBLE if web or old
+                                   else Atspi.StateType.SHOWING):
+                return
+            n = node(Atspi, acc, states, role, path)
+            if old:
+                n["_showing"] = True
+        except Exception:   # gone while we looked: a closing popover, a toast
             return
         n["_top"] = top
         out.append((depth, n))
         for i in range(acc.get_child_count()):
+            if done():
+                return
             child = acc.get_child_at_index(i)
             if child is not None:
-                visit(child, depth + 1, f"{path}/{child.get_role_name()}[{i}]", web)
+                role = child.get_role()
+                visit(child, role, depth + 1, f"{path}/{role_name(Atspi, child, role)}[{i}]", web)
 
     for _, top in toplevels(Atspi, window, timeout):
+        if done():
+            break
         # libatspi caches states, and hears they've changed only from
         # events, which nothing here dispatches.
         top.clear_cache()
-        visit(top, 0, f"{top.get_role_name()} {json.dumps(top.get_name() or '')}")
+        paged(Atspi, top, window, timeout)
+        role = top.get_role()
+        visit(top, role, 0, f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}")
     if bounds:
         screen, origins = Screen(), {}
         shown = screen.backend.windows(screen.env)
@@ -277,6 +332,65 @@ def walk(Atspi, window=None, timeout=10, bounds=False):
     return out
 
 
+# The browser windows paged() has looked at: Chromium's mode, once on,
+# stays on for the browser's life.
+PAGED = set()
+
+
+def paged(Atspi, top, window, timeout):
+    """Have a Chromium browser window build its page's part of the tree,
+    and wait for it. Chromium builds its tree past the window only for a
+    screen reader, and takes a node's attributes being asked for as one
+    at work: Orca asks, and few else do. A window with no page (a crashed
+    tab), or whose page isn't built in `timeout`, is noted; the one
+    `window` asks for fails, if it has nothing at all or its page isn't
+    built."""
+    key = f"{top.app.bus_name if top.app else ''}{top.path}"
+    app = top.get_application()
+    if key in PAGED or not app or app.get_toolkit_name() != "Chromium":
+        return
+    PAGED.add(key)
+    if (top.get_attributes() or {}).get("class") != "BrowserRootView":
+        return
+
+    def page():
+        top.clear_cache()
+        level = [top]
+        for _ in range(10):
+            level = [c for n in level for c in (n.get_child_at_index(i)
+                                                 for i in range(n.get_child_count())) if c]
+            docs = [c for c in level if c.get_role() == Atspi.Role.DOCUMENT_WEB]
+            if docs:
+                return docs[0]
+
+    def built():
+        doc = page()
+        return doc and doc.get_attributes()
+
+    name = json.dumps(top.get_name() or "")
+    try:
+        wait_for("", page, 2, interval=0.2)
+        # A page's document is first an empty stand-in, with no attributes,
+        # until its tree is built: for a big page, a while. about:blank's
+        # stays one.
+        if not (top.get_name() or "").startswith("about:blank"):
+            wait_for("", built, timeout, interval=0.2)
+    except SessionError:
+        if page():
+            why = (f"{name}: the page's accessible tree wasn't built in {timeout:g}s; "
+                   "a longer --timeout gives it longer")
+            fail = window
+        else:
+            why = (f"{name}: no page in the browser's accessible tree (a crashed tab, or a "
+                   "browser started with --disable-platform-accessibility-integration, "
+                   "which builds none for a reader; --force-renderer-accessibility builds "
+                   "it anyway)")
+            fail = window and not top.get_child_count()
+        if fail:
+            raise SessionError(why) from None
+        sys.stderr.write(f"shotbox: {why}\n")
+
+
 def tree(window=None, timeout=10, bounds=False):
     Atspi = atspi()
     return [Node(n, depth=d) for d, n in walk(Atspi, window, timeout=timeout, bounds=bounds)]
@@ -284,10 +398,8 @@ def tree(window=None, timeout=10, bounds=False):
 
 def focused(Atspi, window=None):
     """The node with the keyboard focus, or None."""
-    for _, n in walk(Atspi, window):
-        if "focused" in n.states:
-            return n
-    return None
+    out = walk(Atspi, window, until=lambda n: "focused" in n.states)
+    return out[-1][1] if out and "focused" in out[-1][1].states else None
 
 
 def roles(Atspi, names):
@@ -358,13 +470,14 @@ def related(Atspi, acc, kind):
 
 
 def undrawn(Atspi, n):
-    """Whether `n` says it has no size: GTK 3's for what it doesn't draw
-    (a notebook's tab, with its tabs hidden), though it's showing."""
+    """Whether `n` says it has no size: GTK 3's -1 by -1 for what it
+    doesn't draw (a notebook's tab, with its tabs hidden), though it's
+    showing."""
     try:
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
     except Exception:   # gone while we looked
         return True
-    return e.width < 0 or e.height < 0
+    return (e.width, e.height) == (-1, -1)
 
 
 # The ways out of a text view, which takes Tab for itself: GTK's key
@@ -380,30 +493,29 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     began in or None): "cycle" once it lands somewhere it has been
     (where it began, or a stop since), "trap" if a press leaves it where
     it was, "lost" if no node has it after one, "max" if none of those;
-    "unfocused" if no node has it to begin with (X11 with no window
-    manager), and nothing is pressed into that. Shift is pressed first:
-    GTK 4 on Wayland says where the focus is only once a key has been (an
-    input method may switch modes on it). A press that leaves it on the one thing in the
-    window that could take it is a cycle of one. `key` isn't pressed in a
-    text view one writes in, which takes Tab for itself: ESCAPES are,
-    noted on it as `tried`, the one that moves the focus as `left_by`,
-    one after which its text changed as `edited`; none is a trap, and
-    one after which the text view isn't there ends the walk, "closed".
-    Escape isn't tried in a dialog, which it would close, nor shift+Tab
-    but in Qt; once that leaves, backward, the walk goes on from the first
-    thing after the text view that takes the focus (grab_focus). Where the walk
-    began in one nothing leaves, it gives the focus to the first thing
-    outside it that takes it (AT-SPI's grab_focus, which GTK 4 doesn't
-    do), so the rest of the window is walked before the trap. With
-    `visible`, each node says how much of the screen round it changed as
-    it took the focus (see shown())."""
+    "unfocused" if no node has it to begin with, after `settle` (X11 with no
+    window manager), and nothing is pressed into that. A press that leaves
+    it on the one thing in the window that could take it is a cycle of one.
+    `key` isn't pressed in a text view one writes in, which takes Tab for
+    itself: ESCAPES are, noted on it as `tried`, the one that moves the
+    focus as `left_by`, one after which its text changed as `edited`; none
+    is a trap, and one after which the text view isn't there ends the walk,
+    "closed". Escape isn't tried in a dialog, which it would close, nor
+    shift+Tab but in Qt; once that leaves, backward, the walk goes on from
+    the first thing after the text view that takes the focus (grab_focus).
+    Where the walk began in one nothing leaves, it gives the focus to the
+    first thing outside it that takes it (AT-SPI's grab_focus, which GTK 4
+    doesn't do), so the rest of the window is walked before the trap. With
+    `visible`, each node says how much of the screen round it changed as it
+    took the focus (see shown())."""
     Atspi = atspi()
     screen = Screen()
 
     def press(k, before):
-        """Press `k`, and once the focus has left `before` for a node, or
-        after `settle`, the node it's on, or None."""
-        screen.key(k)
+        """Press `k`, if any, and once the focus has left `before` for a
+        node, or after `settle`, the node it's on, or None."""
+        if k:
+            screen.key(k)
         end = time.monotonic() + settle
         while True:
             now = focused(Atspi, window)
@@ -413,7 +525,7 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             time.sleep(0.05)
 
     toplevels(Atspi, window, timeout)
-    start = press("shift", None)
+    start = press(None, None)
     if start is None:
         screen.close()
         return [], "unfocused", [], None
@@ -635,17 +747,19 @@ class Look:
     def took(self, n):
         """Note on `n`, which has just taken the focus, how many pixels
         changed in and round it ("changed") and how many it takes to show
-        it ("needed")."""
+        it ("needed"), or that it's outside the screen ("off_screen")."""
         try:
             wait_for("", x.Still(self.screen.env, quiet=0.3, backend=self.screen.backend), 2)
         except SessionError:
             pass
         now = self.grab()
         box = self.where(n)
+        if box and not now.clip(box):
+            n["off_screen"] = True
         # A document takes the focus as a whole, and nobody draws round it;
         # a container shows it on what it passes it to (a notebook's tab).
-        if box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
-                                                      *CONTAINERS)):
+        elif box and n._role not in roles(self.Atspi, ("DOCUMENT_WEB", "DOCUMENT_FRAME",
+                                                        *CONTAINERS)):
             n["changed"], drawn = focus_change(self.last, now, box, *self.was)
             n["needed"] = shown_needs(box)
         n["bounds"] = box
@@ -906,6 +1020,9 @@ def at_node(name, role, window, timeout, act):
     px, py, w, h = overlap(box, origins[n._top][0])
     if not w or not h:
         raise SessionError(f"{n.line()} is outside its window")
+    px, py, w, h = overlap([px, py, w, h], [0, 0, screen.xt.width, screen.xt.height])
+    if not w or not h:
+        raise SessionError(f"{n.line()} is outside the screen")
     try:
         screen.backend.focus(screen.env, origins[n._top][2])
         act(screen, px + w // 2, py + h // 2)
@@ -927,9 +1044,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     (scrolled out of view). A node that can't be placed, and text with
     nothing drawn on its background, are problems too: nothing says they
     can be read. But for those ignored() leaves out. (problems, what
-    wasn't measured but doesn't fail, as (node, what): text too small
-    to, and GTK 4's, see GTK4_BOUNDS; why GTK 4's weren't, a line each;
-    how many were measured)."""
+    passes, what wasn't measured but doesn't fail, as (node, what): text too small
+    to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS; why GTK
+    4's weren't, a line each; how many were measured)."""
     skip = ignored(ignore)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -945,6 +1062,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
                                roles(Atspi, EDGED))
     parents = {n.path: n for n in nodes}
+    ids = {n._id: n for n in nodes}
+    layers = {}
+
+    def within(path, outer):
+        return path == outer or path.startswith(outer + "/")
 
     def disabled(n):
         path = n.path
@@ -981,6 +1103,45 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if outer:
                 box = overlap(box, outer)
         return box if box[2] > 0 and box[3] > 0 else None
+
+    def paged_out(n):
+        """Whether `n` is on a stack's page that isn't shown, which GTK 4
+        before 4.14 still says is where it was: asked what's at its
+        middle, GTK says a node of that stack, or one it's in, but not
+        on `n`'s page (a stack's pages are the nodes with no bounds). A
+        shown page's own child GTK can't pick answers the stack, so it's
+        left out too, with its line."""
+        page = n.path
+        while "/" in page:
+            page = page.rsplit("/", 1)[0]
+            if page in parents and parents[page].bounds is None:
+                break
+        else:
+            return False
+        try:
+            e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+            got = n._top.get_accessible_at_point(e.x + e.width // 2, e.y + e.height // 2,
+                                                 Atspi.CoordType.WINDOW)
+        except Exception:   # gone since the walk
+            return False
+        o = got and ids.get(f"{got.app.bus_name if got.app else ''}{got.path}")
+        stack = page.rsplit("/", 1)[0]
+        return bool(o) and not within(o.path, page) and (
+            within(o.path, stack) or within(stack, o.path))
+
+    def popped(n):
+        """Whether `n` is in a popover, or is one."""
+        path = n.path
+        while "/" in path:
+            if path not in layers:
+                try:
+                    layers[path] = parents[path]._acc.get_layer() == Atspi.ComponentLayer.POPUP
+                except Exception:   # no bounds: a stack's page
+                    layers[path] = False
+            if layers[path]:
+                return True
+            path = path.rsplit("/", 1)[0]
+        return False
 
     def hovered(box):
         """The screen with the pointer over the middle of `box`."""
@@ -1021,18 +1182,263 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return False
 
     measured = [n for n in nodes if kind(n)]
-    problems, notes, whys, count = [], [], [], 0
+    problems, passes, notes, whys, count = [], [], [], [], 0
+    trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
+    kids, rel = {}, {}
+    for n in nodes:
+        kids.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+
+    def relative(n):
+        """`n`'s extents in its parent's, as GTK says them."""
+        if n.path not in rel:
+            try:
+                e = n._acc.get_extents(Atspi.CoordType.PARENT)
+                rel[n.path] = (e.x, e.y, e.width, e.height)
+            except Exception:   # gone since the walk
+                rel[n.path] = None
+        return rel[n.path]
+
+    areas, fonts, drawings, lays = {}, {}, {}, {}
+
+    def room(n):
+        """Where `n`'s text can be on GTK 4.14 and later, which says where
+        it is wrong, [x, y, width, height], cut to its window; or None. GTK
+        can count a stack's page's place twice, the page's and its
+        child's, which is taken off where it does. Up to
+        4.14.5 GTK says where a widget's content starts, and its text is
+        inside that box; from 4.14.6, where its edge is less every
+        container's border and padding, which can only put it further left
+        and up than it is, by no more than the room each container has
+        round what's in it."""
+        if n.path in areas:
+            return areas[n.path]
+        b, win = n.bounds, n._window
+        x, y, more = (b[0], b[1], [0, 0]) if b and win else (0, 0, None)
+        path, child = n.path, n
+        while more and "/" in path:
+            path = path.rsplit("/", 1)[0]
+            up = parents.get(path)
+            if not up or up._acc == n._top:
+                break
+            mine, its = relative(child), relative(up)
+            if not mine or not its:
+                more = None
+            # A page: not a widget, so no actions, with its child's extents.
+            # Its child is placed from it, counted twice, unless GTK sums
+            # past the page, as for libadwaita 1.5's view stack.
+            elif (mine == its and up._acc.get_child_count() == 1
+                    and "Action" not in up._acc.get_interfaces() and child.bounds and up.bounds
+                    and child.bounds[:2] == [up.bounds[0] + its[0], up.bounds[1] + its[1]]):
+                x, y = x - its[0], y - its[1]
+            elif gtk4_release(n) >= (4, 14, 6):
+                for i in (0, 1):
+                    reach = max([o[i] + o[i + 2] for o in map(relative, kids[path]) if o],
+                                default=0)
+                    more[i] += its[i + 2] - min(max(reach, 0), its[i + 2])
+            child = up
+        areas[n.path] = more and overlap([x, y, b[2] + more[0], b[3] + more[1]], list(win))
+        return areas[n.path]
+
+    def out_of_view(n):
+        """Whether where `n`'s text can be is all outside its window, or a
+        scrolled window it's in, which shows nothing outside it (a row
+        scrolled out of view, which GTK calls showing); not in a popover,
+        which can be drawn outside both."""
+        if popped(n):
+            return False
+        area, path = room(n), n.path
+        while area and all(area[2:]) and "/" in path:
+            path = path.rsplit("/", 1)[0]
+            up = parents.get(path)
+            if up and up._role == Atspi.Role.SCROLL_PANE:
+                area = overlap(area, room(up) or area)
+        return bool(area) and not all(area[2:])
+
+    def font(n):
+        if n.path not in fonts:
+            try:
+                fonts[n.path] = Atspi.Text.get_attribute_run(n._acc, 0, True)[0] or {}
+            except Exception:   # no text, or gone since the walk
+                fonts[n.path] = None
+        return fonts[n.path]
+
+    def drawing(text, attrs, dy=0):
+        key = (text, tuple(sorted(attrs.items())), dy)
+        if key not in drawings:
+            drawings[key] = text_shapes(text, attrs, dy)
+        return drawings[key]
+
+    def texts_of(o):
+        """What `o` may draw: its name, unless it's a label's it's named by,
+        and what's in it, if it's edited."""
+        got = []
+        if o.name and not any(t.get_name() == o.name
+                              for t in related(Atspi, o._acc, "LABELLED_BY")):
+            got.append(o.name)
+        if "editable" in o.states:
+            try:
+                got.append(Atspi.Text.get_text(o._acc, 0, -1) or "")
+            except Exception:   # no text, or gone since the walk
+                pass
+        try:
+            got.append((o._acc.get_attributes() or {}).get("placeholder-text", ""))
+        except Exception:   # gone since the walk
+            pass
+        return [t for t in got if t]
+
+    def as_wide(n, shape):
+        """Whether the text GTK lays out for `n` is as wide as its name drawn
+        as `shape` (find_text's), within a pixel and a fiftieth (the sizes
+        shapes are drawn at, a third of a pixel apart, drift from GTK's
+        over a long text): not when GTK draws it otherwise (upper case,
+        letter-spaced), and what's found is the name drawn by something
+        else. GTK says how wide from 4.14.6 (before, the text is looked
+        for in its own box alone), from 4.22.3 a character short; text not
+        all ASCII isn't looked for there (see unsure)."""
+        if gtk4_release(n) < (4, 14, 6):
+            return True
+        end = len(n.name) - (gtk4_release(n) >= (4, 22, 3))
+        if not end:
+            return True   # one with no case: see lone
+        wide = laid(n) and laid(n)[2]
+        kinds = wide and drawing(n.name[:end], font(n))
+        return bool(kinds) and abs(kinds[shape[0]][shape[1]][0] - 4 - wide) <= 1 + wide / 50
+
+    def laid(n):
+        """Where GTK lays out `n`'s text in its own box, (x, y, width), from
+        4.14.6 (before, it doesn't say); or None, as for one character
+        from 4.22.3, whose range is empty, at the box's corner."""
+        if n.path not in lays:
+            lays[n.path] = None
+            if gtk4_release(n) >= (4, 14, 6):
+                try:
+                    r = Atspi.Text.get_range_extents(n._acc, 0, Atspi.Text.get_character_count(
+                        n._acc), Atspi.CoordType.WINDOW)
+                    e = n._acc.get_extents(Atspi.CoordType.WINDOW)
+                    if r.width > 0:
+                        lays[n.path] = (r.x - e.x, r.y - e.y, r.width)
+                except Exception:   # no extents, or gone since the walk
+                    pass
+        return lays[n.path]
+
+    def lone(n):
+        """Whether `n`'s text is one letter, which GTK from 4.22.3 gives no
+        width (a character short): casing alone can turn one into another,
+        not spacing, so only one with no case (a digit, a "+") is looked
+        for."""
+        return (gtk4_release(n) >= (4, 22, 3) and len(n.name) == 1
+                and n.name.upper() != n.name.lower())
+
+    def unsure(n):
+        """Whether how wide GTK lays out `n`'s text can't be told: from
+        4.14.6, for text not all ASCII, GTK turns characters into the
+        layout's bytes backwards, so the range it measures ends short by
+        however many, and nearly any width would do."""
+        return gtk4_release(n) >= (4, 14, 6) and not n.name.isascii()
+
+    def seek(n, until):
+        """Where `n`'s text is drawn, for GTK 4.14 and later: (its box, how
+        far its corner is from where GTK says its text is, or up to 4.14.5,
+        which doesn't say, its box, and where and as what shape it's drawn,
+        for picture.text_contrast), or None if it isn't found, alone, where
+        it can be (room), or another node's text there could be what's
+        found."""
+        area, attrs = room(n) and overlap(room(n), [0, 0, pic.width, pic.height]), font(n)
+        kinds = (area and area[2] > 0 and area[3] > 0 and attrs is not None
+                 and drawing(n.name, attrs))
+        area = kinds and (area[0], area[1], area[0] + area[2], area[1] + area[3])
+        got = kinds and picture.find_text(pic, kinds, area, until)
+        shape = got and kinds[got[6][0]][got[6][1]]
+        if got and got[0] < MATCH and gtk4_release(n) >= (4, 16):
+            # GTK 4.16 and later place text at fractions of a pixel, so a
+            # line set by its baseline can fall between rows.
+            k, i = got[6]
+            phased = [drawing(n.name, attrs, dy)[k][i] for dy in (-0.25, 0.25, 0.5)]
+            again = picture.find_text(pic, [phased], area, until)
+            if again and again[0] > got[0]:
+                shape = phased[again[6][1]]
+                got = again[:5] + (max(got[5], again[5]),) + got[6:]
+        if not got or got[0] < MATCH or got[5] >= MATCH_ELSEWHERE or not as_wide(n, got[6]):
+            return None
+        box = [got[1] + 2, got[2], got[3] - 4, got[4]]
+        for o in nodes:
+            if o is n or within(o.path, n.path) or within(n.path, o.path):
+                continue
+            there = room(o)
+            if not there or not all(overlap(there, box)[2:]):
+                continue
+            for t in texts_of(o):
+                if time.monotonic() > until:
+                    raise TimeoutError
+                other = drawing(t, font(o) or attrs)
+                if (picture.match_over(pic, other, box, until) >= MATCH_ELSEWHERE if other
+                        else n.name.lower() in t.lower()):
+                    return None
+        at = laid(n) or (0, 0)
+        return box, tuple(box[i] - n.bounds[i] - at[i] for i in (0, 1)), (got[1], got[2], shape)
+
+    def leaf(n):
+        return not any(o.path.startswith(n.path + "/") for o in measured)
+
+    found, late, hidden = {}, set(), set()
+    cannot = None
+    until = time.monotonic() + SEARCH
+    for n in measured:
+        if (n._role in texts and n._role not in controls and gtk4_release(n) >= (4, 14)
+                and not trusted and leaf(n)):
+            cannot = cannot or pango_cairo()
+            if not cannot and out_of_view(n):
+                hidden.add(n.path)
+            if cannot or n.path in hidden or unsure(n) or lone(n):
+                continue
+            try:
+                found[n.path] = seek(n, until)
+            except TimeoutError:
+                late.add(n.path)
 
     def wrong(n, k):
         """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
         version = gtk4(n)
-        if (not version or version in GTK4_BOUNDS
-                or os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"):
+        inside = version and gtk4_release(n) < (4, 14)
+        popover = inside and k != "edge" and popped(n)
+        if (not version or version in GTK4_BOUNDS or inside and k != "edge" and not popover
+                or trusted):
             return False
-        notes.append((n, f"{k} not measured: GTK 4 reports its position wrong"))
-        why = (f"GTK {version} reports where its widgets are without their containers' "
+        text = n._role in texts and k == "text" and not (cannot or inside)
+        short = (" (a single letter: GTK gives it no width)" if text and lone(n) else
+                 " (over more than one line)" if text and "\n" in n.name else
+                 " (not all ASCII: GTK measures its width short)" if text and unsure(n) else "")
+        notes.append((n, f"{k} not measured: GTK 4 reports its position wrong{short}"))
+        why = (f"GTK {version} reports where what's in a popover is as if the popover were "
+               "in its window, not where it's drawn; see docs/accessibility.md." if popover else
+               f"GTK {version} reports where a widget's content is, inside its border and "
+               "padding, so its edge can't be measured from what it reports; see "
+               "docs/accessibility.md." if inside else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               f"it's found drawn near there, by its name in its font, but shotbox {cannot}; "
+               "see docs/accessibility.md." if n._role in texts and k == "text" and cannot else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, but a single letter "
+               "isn't: GTK gives it no width to check; see docs/accessibility.md."
+               if n._role in texts and k == "text" and lone(n) else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, but not text over more "
+               "than one line; see docs/accessibility.md."
+               if n._role in texts and k == "text" and "\n" in n.name else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and this wasn't found "
+               "there alone; see docs/accessibility.md." if n._role in texts and k == "text"
+               and not unsure(n) else
+               f"GTK {version} reports where its widgets are wrong, and how wide text that "
+               "isn't all ASCII is, so this can't be told from its name drawn by something "
+               "else nearby; see docs/accessibility.md." if n._role in texts and k == "text" else
+               f"GTK {version} reports where a widget's content starts, not its edge, and a "
+               "stack's child with its place in the stack counted twice, so what isn't text "
+               "can't be measured from what it reports; see docs/accessibility.md."
+               if gtk4_release(n) < (4, 14, 6) else
+               f"GTK {version} reports where its widgets are without their containers' "
                "padding and borders, and a stack's child with its place in the stack counted "
-               "twice, so their contrast can't be measured from what it reports; see "
+               "twice, so what isn't text can't be measured from what it reports; see "
                "docs/accessibility.md.")
         n["_why"] = why
         if why not in whys:
@@ -1041,29 +1447,58 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     for n in measured:
         # A button with a label in it: the label's text is what's measured.
-        if any(o.path.startswith(n.path + "/") for o in measured):
+        if not leaf(n):
             continue
         k = kind(n)
         # GTK 4 puts a label in a control that draws text, so one with none
         # draws an icon: a graphic, held to graphics' ratio.
         if n._role in controls and gtk4(n):
             k = "graphics"
-        if wrong(n, k):
+        seen = found.get(n.path)
+        if n.path in hidden:
+            notes.append((n, f"{k} not measured: not shown (scrolled out of view, or hidden)"))
+            continue
+        if n.path in late:
+            notes.append((n, f"{k} not measured: no time left to look for it"))
+            why = (f"Text GTK {gtk4(n)} places wrong is looked for for {SEARCH:g} seconds in "
+                   "all; see docs/accessibility.md.")
+            n["_why"] = why
+            if why not in whys:
+                whys.append(why)
+            continue
+        if not seen and wrong(n, k):
             continue
         if not n.bounds:
-            problems.append((n, f"{k} not measured: can't tell where it is"))
+            if not undrawn(Atspi, n):
+                problems.append((n, f"{k} not measured: can't tell where it is"))
             continue
-        box = shown(n)
+        box = seen[0] if seen else shown(n)
         if not box:
+            continue
+        # A window can be bigger than the screen, and its nodes past it.
+        on = overlap(box, [0, 0, pic.width, pic.height])
+        if not on[2] or not on[3]:
+            notes.append((n, f"{k} not measured: outside the screen"))
+            continue
+        cut, box = on != box, on
+        if gtk4_release(n) < (4, 14) and paged_out(n):
+            notes.append((n, f"{k} not measured: GTK says another node is at its middle"))
             continue
         big = k == "text" and large_text(Atspi, n)
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
-        got = picture.text_contrast(pic, box)
-        count += bool(got and got[3] >= SMALLEST)
-        if got and got[3] < SMALLEST:
+        got = picture.text_contrast(pic, box, seen and seen[2])
+        # Its coverage says a small glyph's color, which its core is too
+        # small to.
+        small = got and got[3] < SMALLEST and not got[4]
+        count += bool(got and not small)
+        if small:
             notes.append((n, f"{k} too small to measure, {got[3]} pixels"))
         elif got is None and (k == "text" or n._role in controls):
+            # What it draws can be past the screen's edge: right-aligned text.
+            if cut:
+                notes.append((n, f"{k} not measured: partly outside the screen"))
+                continue
             back = picture.hex_of(pic.colors(box).most_common(1)[0][0])
             # A control can be drawn only when the pointer's over it: a tab's
             # close button. Say how it is then, to tell.
@@ -1072,7 +1507,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} ({at})"
                     if over else "")
             problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
-        elif got and got[0] < least:
+        elif got:
+            moved = (f"; found {seen[1][0]},{seen[1][1]} px from " + (
+                f"where GTK {gtk4(n)} says its text is" if laid(n)
+                else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
+            colors = f"{picture.hex_of(got[1])} on {picture.hex_of(got[2])} ({at})"
+            if got[0] >= least:
+                passes.append((n, f"{k} passes at {ratio_text(got[0])}:1, {colors}{moved}"))
+                continue
             said = said_color(Atspi, n)
             # Light or small text covers no pixel whole, so measures short of
             # its color, as text drawn see-through does: say both.
@@ -1080,8 +1522,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
-            problems.append((n, f"{k} {ratio_text(got[0])}:1, {picture.hex_of(got[1])} on "
-                                f"{picture.hex_of(got[2])} ({at}){meant}"))
+            problems.append((n, f"{k} {ratio_text(got[0])}:1, {colors}{meant}{moved}"))
     if edges:
         for n in nodes:
             if not (n._showing and not disabled(n) and (
@@ -1089,25 +1530,47 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     ) or gtk3_switch(Atspi, n) or wrong(n, "edge"):
                 continue
             box = shown(n)
+            if box and not pic.clip(box):
+                notes.append((n, "edge not measured: outside the screen"))
+                continue
             got = box and picture.edge_contrast(pic, box)
             count += bool(got)
             # A field's edge can be what it's in: a frame's.
             field = n._role in (Atspi.Role.TEXT, Atspi.Role.COMBO_BOX)
-            if got and got[0] < edges and not (field and framed(n, box)):
-                problems.append((n, f"edge {ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
-                                    f"{picture.hex_of(got[2])} (at least {edges:g})"))
+            if not got:
+                continue
+            colors = (f"{ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
+                      f"{picture.hex_of(got[2])} (at least {edges:g})")
+            if got[0] >= edges:
+                passes.append((n, f"edge passes at {colors}"))
+            elif field and framed(n, box):
+                passes.append((n, f"edge passes, drawn by what it's in; its own {colors}"))
+            else:
+                problems.append((n, f"edge {colors}"))
     notes = [(n, what) for n, what in notes if not skip(n, what)]
-    return ([(n, what) for n, what in problems if not skip(n, what)], notes,
+    return ([(n, what) for n, what in problems if not skip(n, what)],
+            [(n, what) for n, what in passes if not skip(n, what)], notes,
             [w for w in whys if any(n.get("_why") == w for n, _ in notes)], count)
 
 
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
 SMALLEST = 16
 
-# The GTK 4 releases that say where their widgets are: none yet. Others
-# leave out each container's padding and border, count a stack's child
-# twice, and set a label's text a character short, none of which can be
-# undone from what they say (docs/accessibility.md, "GTK 4's positions").
+# How well text drawn by its name and font must match the place it's found
+# (picture.find_text), and how well nothing apart from that may.
+MATCH, MATCH_ELSEWHERE = 0.98, 0.8
+
+# The most seconds contrast looks for text, in all: well inside the
+# watchdog's minute.
+SEARCH = 30
+
+# The GTK 4 releases from 4.14 that say where their widgets are: none yet.
+# Others count a stack's child's place twice, and say where a widget's
+# content starts (to 4.14.5) or leave out each container's padding and
+# border (from 4.14.6), which can't be undone from what they say, so
+# only their text is measured, where it's found (docs/accessibility.md,
+# "GTK 4's positions"). Before 4.14, GTK 4 says where a widget's content
+# is, which is measured, but for its edge and what's in a popover.
 GTK4_BOUNDS = ()
 
 
@@ -1128,6 +1591,63 @@ def large_text(Atspi, n):
     except Exception:   # gone since the walk
         return False
     return bool(runs) and all(large_run(attrs, bool(gtk4(n))) for attrs in runs)
+
+
+def text_shapes(text, attrs, dy=0):
+    """The kinds of shapes GTK 4 may draw `text` in, in the font its first
+    run's `attrs` say, for picture.find_text: hinted as GTK 4.16 and later
+    may (slightly, or not) and as earlier ones do (fully, its metrics
+    too), each at the sizes its whole pixels may be rounded down from,
+    moved down `dy` pixels. None without pycairo and PangoCairo, or for
+    text on more than a line."""
+    if "\n" in text or pango_cairo():
+        return None
+    import cairo
+    from gi.repository import Pango, PangoCairo
+    font = Pango.FontDescription()
+    font.set_family(attrs.get("family-name", "Sans"))
+    weight = attrs.get("weight", "")
+    # CSS takes any weight (450), which GTK says, and PyGObject only Pango's
+    # named ones: the nearest.
+    font.set_weight(min(Pango.Weight.__enum_values__.values(), key=lambda w: abs(w - int(weight)))
+                    if weight.isdigit() else Pango.Weight.NORMAL)
+    font.set_style(Pango.Style.ITALIC if attrs.get("style") == "italic" else Pango.Style.NORMAL)
+    try:
+        size = float(attrs.get("size", "")) * float(attrs.get("scale", 1))
+    except ValueError:
+        return None
+    kinds = []
+    for hint, metrics in ((cairo.HINT_STYLE_NONE, cairo.HINT_METRICS_OFF),
+                          (cairo.HINT_STYLE_SLIGHT, cairo.HINT_METRICS_OFF),
+                          (cairo.HINT_STYLE_FULL, cairo.HINT_METRICS_ON)):
+        kinds.append([])
+        for more in (0, 1 / 3, 2 / 3):
+            font.set_absolute_size((size + more) * Pango.SCALE)
+            options = cairo.FontOptions()
+            options.set_antialias(cairo.ANTIALIAS_GRAY)
+            options.set_hint_style(hint)
+            options.set_hint_metrics(metrics)
+
+            def layout(cr):
+                got = PangoCairo.create_layout(cr)
+                PangoCairo.context_set_font_options(got.get_context(), options)
+                got.set_font_description(font)
+                got.set_text(text, -1)
+                return got
+            blank = cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1))
+            _, logical = layout(blank).get_pixel_extents()
+            # Two blank columns each side: see find_text.
+            w, h = logical.width + 4, logical.height
+            if logical.width <= 0 or h <= 0:
+                return None
+            surface = cairo.ImageSurface(cairo.FORMAT_A8, w, h)
+            cr = cairo.Context(surface)
+            cr.move_to(2 - logical.x, dy - logical.y)
+            PangoCairo.show_layout(cr, layout(cr))
+            surface.flush()
+            data, stride = bytes(surface.get_data()), surface.get_stride()
+            kinds[-1].append((w, h, b"".join(data[y * stride:y * stride + w] for y in range(h))))
+    return kinds
 
 
 def large_run(attrs, pixels):
@@ -1163,6 +1683,13 @@ def gtk4(n):
 
 
 GTK4 = {}
+
+
+def gtk4_release(n):
+    """The GTK 4 version `n`'s program is, as (4, minor, micro), or (99,)
+    if it isn't GTK 4."""
+    version = gtk4(n)
+    return tuple(int(v) for v in version.split(".") if v.isdigit()) if version else (99,)
 
 
 def gtk3_switch(Atspi, n):
@@ -1224,7 +1751,9 @@ def record(out):
     the bus whether or not anyone has asked to hear it, so a match rule is
     all it takes. A browser's live region is text inserted into a node
     whose container-live attribute is polite or assertive, sent only once
-    a listener has registered for it."""
+    a listener has registered for it. And what Orca says unasked: an
+    alert or info bar as it shows or the focus goes into it, and the
+    focus's new name."""
     from gi.repository import Gio, GLib
     bus = Gio.DBusConnection.new_for_address_sync(
         os.environ["AT_SPI_BUS_ADDRESS"],
@@ -1239,6 +1768,10 @@ def record(out):
 
     def said(conn, sender, path, iface, member, params):
         _, politeness, _, text, _ = params.unpack()
+        now = time.monotonic()
+        for gone in [k for k, at in announcers.items() if now - at > 10]:
+            del announcers[gone]
+        announcers[sender + path] = now
         if isinstance(text, str):
             write(POLITENESS.get(politeness, "polite"), text)
 
@@ -1255,11 +1788,147 @@ def record(out):
                 and text.strip()):
             write(politeness, text)
 
+    def labels(acc, depth=0):
+        # As Orca reads an alert: what its labels say, but not its buttons'.
+        # Visible, not showing: a dialog says it's showing before its labels do.
+        out = []
+        for i in range(acc.get_child_count()):
+            c = acc.get_child_at_index(i)
+            role = int(c.get_role())
+            if role in controls or not c.get_state_set().contains(Atspi.StateType.VISIBLE):
+                continue
+            if role in texts:
+                out.append(c.get_name())
+            elif depth < 20:
+                out += labels(c, depth + 1)
+        return out
+
+    told = set()    # the alerts heard, so the focus going into one isn't
+    announcers = {}     # who has announced something, and when
+
+    def ident(acc):
+        return f"{acc.app.bus_name if acc.app else ''}{acc.path}"
+
+    def alert(acc, role):
+        text = " ".join(dict.fromkeys(filter(None, [acc.get_name(), *labels(acc)])))
+        if not text.strip():
+            return
+        told.add(ident(acc))
+        # libadwaita announces a toast ("A toast appeared: Saved") from the
+        # parent of its node, which is an alert too.
+        now, parent = time.monotonic(), acc.get_parent()
+        if not any(now - announcers.get(ident(a), -10) < 10 for a in (acc, parent) if a):
+            write("polite" if role == Atspi.Role.NOTIFICATION else "assertive", text)
+
+    def shown(event):
+        try:
+            role = int(event.source.get_role())
+            if role in alerts and event.detail1:
+                alert(event.source, role)
+            elif role in alerts:    # gone, so heard again once it's back
+                told.discard(ident(event.source))
+        except Exception:   # gone while we looked
+            pass
+
+    # Orca says the focus again when its name changes ("Copy" to "Copied"),
+    # as 51 decides it: not a name much like the last one it said (a
+    # countdown), nor a list item's that holds a progress bar; and as 46
+    # does, not a combo box's, which is what's picked in it, or a cell's.
+    focus = {}
+
+    def focused(event):
+        if event.detail1:
+            went(event.source)
+
+    def went(acc):
+        try:
+            left = focus.get("alert")
+            focus.update(acc=acc, name=acc.get_name())
+            # GTK 4 says nothing of an alert dialog showing: Orca reads it
+            # as the focus goes into it, as it does any dialog, and again
+            # each time it comes back. A page's alerts are its live regions.
+            up, here = acc.get_parent(), None
+            for _ in range(50):
+                role = int(up.get_role()) if up else None
+                if role in alerts:
+                    here = ident(up)
+                    if here not in told:
+                        alert(up, role)
+                    break
+                if role is None or role in tops:
+                    break
+                up = up.get_parent()
+            focus["alert"] = here
+            if left != here:
+                told.discard(left)
+        except Exception:   # gone
+            pass
+
+    def activated(event):
+        # A program just started can say where its focus is before it can
+        # be asked about what's there, which then can't be heard; so once
+        # it can be, a window that comes up is looked in for its focus, as
+        # Orca reads it.
+        tries = [20]
+
+        def look():
+            try:
+                acc = holding_focus(event.source)
+            except Exception:   # not there yet, or gone
+                tries[0] -= 1
+                return tries[0] > 0
+            if acc:
+                went(acc)
+            return False
+        GLib.timeout_add(100, look)
+
+    def holding_focus(acc, depth=0):
+        if acc.get_state_set().contains(Atspi.StateType.FOCUSED):
+            return acc
+        for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())):
+            if c and depth < 50 and c.get_state_set().contains(Atspi.StateType.SHOWING):
+                found = holding_focus(c, depth + 1)
+                if found:
+                    return found
+        return None
+
+    def renamed(event):
+        name = event.any_data
+        if not (focus and event.source == focus["acc"] and isinstance(name, str)
+                and name.strip() and name != focus["name"]):
+            return
+        old = (focus["name"] or "").lower()
+        if round(difflib.SequenceMatcher(None, old, name.lower()).ratio(), 2) >= 0.85:
+            return
+        focus["name"] = name
+        try:
+            role = event.source.get_role()
+            if role in (Atspi.Role.COMBO_BOX, Atspi.Role.TABLE_CELL) or (
+                    role == Atspi.Role.LIST_ITEM and holds(event.source, Atspi.Role.PROGRESS_BAR)):
+                return
+        except Exception:   # gone
+            return
+        write("polite", name)
+
+    def holds(acc, role, depth=0):
+        return depth < 20 and any(
+            c.get_role() == role or holds(c, role, depth + 1)
+            for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())) if c)
+
     bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "Announcement", None, None,
                          Gio.DBusSignalFlags.NONE, said)
     Atspi = atspi()
+    alerts = roles(Atspi, ("ALERT", "NOTIFICATION", "INFO_BAR"))
+    tops = roles(Atspi, ("APPLICATION", "FRAME", "DOCUMENT_WEB", "DOCUMENT_FRAME"))
+    controls, texts = roles(Atspi, CONTROLS), roles(Atspi, ("LABEL", "STATIC"))
     live = Atspi.EventListener.new(inserted)
     live.register("object:text-changed:insert")
+    listeners = [Atspi.EventListener.new(f) for f in (shown, focused, renamed, activated)]
+    for listener, kind in zip(listeners, ("object:state-changed:showing",
+                                          "object:state-changed:focused",
+                                          "object:property-change:accessible-name",
+                                          "window:activate")):
+        listener.register(kind)
     # A round-trip on libatspi's own connection, after the registration it
     # sent without waiting, so programs started next are told of it.
     Atspi.get_desktop(0).get_child_count()
@@ -1271,11 +1940,14 @@ def record(out):
 
 
 def main(argv):
+    if argv[:1] == ["speak"]:
+        from . import speak
+        return speak.main(argv[1:])
     p = argparse.ArgumentParser(prog="shotbox a11y",
                                 description="Inside `shotbox run --a11y`: read the "
                                             "accessible tree, as a screen reader does.")
     sub = p.add_subparsers(dest="what", required=True,
-                           metavar="{tree,lint,tabwalk,click,scroll,contrast}")
+                           metavar="{tree,lint,tabwalk,click,scroll,contrast,speak}")
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
     ignore = dict(action="append", default=[], metavar="RE",
@@ -1316,6 +1988,8 @@ def main(argv):
                     help="also a button's or field's edge against what's round it, "
                          "at least this (3 is WCAG's)")
     ct.add_argument("--ignore", **ignore)
+    ct.add_argument("--passes", action="store_true",
+                    help="also what passes, with its ratio, after what fails")
     for s in (t, lt, w, c, sc, ct):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
@@ -1326,6 +2000,7 @@ def main(argv):
                        help="how long to wait for the --window (10), or the node")
     for s in (t, lt, w, c, sc, ct):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
+    sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
     rec = sub.add_parser("record")
     rec.add_argument("out")
     a = p.parse_args(argv)
@@ -1345,23 +2020,28 @@ def main(argv):
                 print("  " * n.depth + n.line())
         return 0
     if a.what in ("lint", "contrast"):
-        notes, whys, count = [], [], 1
+        passes, notes, whys, count = [], [], [], 1
         if a.what == "lint":
             problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
         else:
-            problems, notes, whys, count = contrast(a.window, a.text, a.graphics, a.edges,
-                                                    a.timeout, a.ignore, a.large)
-        # Said apart from the lines, on stderr, so stdout is PATH: PROBLEM.
+            problems, passes, notes, whys, count = contrast(
+                a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large)
+            passes = passes if a.passes else []
+        # Said apart from the lines, on stderr, so stdout is PATH: WHAT.
         nothing = not problems and not count and whys
         said = " ".join([f"{len(notes)} not measured"
                          + ("." if nothing else ", which doesn't fail.")] + whys) if notes else ""
-        if a.json:
-            print(json.dumps([dict(public(n), problem=what, fails=fails,
-                                   **({"why": n._why} if "_why" in n else {}))
-                              for found, fails in ((problems, True), (notes, False))
-                              for n, what in found]))
+        if a.json and a.what == "lint":
+            print(json.dumps([dict(public(n), problem=what, fails=True) for n, what in problems]))
+        elif a.json:
+            print(json.dumps({"problems": [dict(public(n), problem=what) for n, what in problems],
+                              **({"passes": [dict(public(n), contrast=what) for n, what in passes]}
+                                 if a.passes else {}),
+                              "notes": [dict(public(n), note=what,
+                                             **({"why": n._why} if "_why" in n else {}))
+                                        for n, what in notes]}))
         else:
-            for n, what in problems + notes:
+            for n, what in problems + passes + notes:
                 print(f"{n.path}: {what}")
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")
@@ -1389,12 +2069,15 @@ def main(argv):
     return 0 if how == "cycle" and not hidden and not (a.reach_all and missed) else 1
 
 
-def walk_lines(key, most, seen, how, missed, began):
-    """What a walk found, a line each, as `shotbox a11y tabwalk` says it."""
+def walk_lines(key, most, seen, how, missed, began, focus="shotbox focus"):
+    """What a walk found, a line each, as `shotbox a11y tabwalk` says it;
+    `focus`, how to give a window the keyboard, for whoever reads it."""
     def marked(n):
         said = []
         if unseen(n):
             said.append(f"focus not shown: {n.changed} pixels changed, {n.needed} needed")
+        if n.get("off_screen"):
+            said.append("focus not measured: outside the screen")
         on = n.get("walked_from") and Node(n.walked_from).line()
         if n.get("left_by"):
             said.append(f"a text view: {n.left_by} leaves it"
@@ -1408,14 +2091,14 @@ def walk_lines(key, most, seen, how, missed, began):
     lines = [f"began in {marked(began)}"] if began else []
     lines += [marked(n) for n in seen]
     lines += [f"not reached by {key}: {n.line()}" for n in missed]
-    lines.append(walk_end(key, most, seen, how, missed))
+    lines.append(walk_end(key, most, seen, how, missed, focus))
     hidden = [n for n in seen if unseen(n)]
     if hidden:
         lines.append(f"focus not shown on {len(hidden)}")
     return lines
 
 
-def walk_end(key, most, seen, how, missed):
+def walk_end(key, most, seen, how, missed, focus="shotbox focus"):
     """How a walk ended, as a line."""
     tried = seen[-1].get("tried") if seen else None
     unreached = f"; {len(missed)} not reached by {key}" if missed else ""
@@ -1427,7 +2110,7 @@ def walk_end(key, most, seen, how, missed):
         "lost": f"lost: after {key}, no node has the focus",
         "closed": f"stopped: after {tried and tried[-1]}, the text view isn't there",
         "unfocused": "no node has the focus to begin with: give the window the keyboard "
-                     "(shotbox focus)",
+                     f"({focus})",
         "max": f"not round again after {most}{unreached}",
     }[how]
 

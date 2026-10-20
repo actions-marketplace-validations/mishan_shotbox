@@ -4,8 +4,8 @@ Everything a screenshot needs to be reproducible and harmless. Nothing run
 inside can reach your desktop: DISPLAY, WAYLAND_DISPLAY and the session bus
 are gone, the environment is rebuilt from an allowlist rather than scrubbed
 from a denylist, and HOME and every XDG directory point into a scratch dir
-that is removed afterwards. Settings are in-memory and portals are off, so
-apps come up with their own defaults instead of yours.
+that is removed afterwards. Settings are the session's own and portals are
+off, so apps come up with their own defaults instead of yours.
 
     with Session(size=(1280, 800)) as s:
         s.spawn(["gnome-text-editor"])
@@ -26,7 +26,9 @@ The pieces, and why each one:
   empty, so nothing gets activated on it behind your back (gvfs, dconf, the
   portals); desktop=True uses the system's service directories instead, for
   things like GNOME Shell that need dconf and friends.
-- Optionally a stand-in system bus, for programs that insist on one.
+- A stand-in system bus, and no printers, so nothing reaches the
+  machine's services (NetworkManager, logind, CUPS...); machine_bus=True
+  gives programs the machine's.
 - Optionally, with a11y=True, an accessibility (AT-SPI) bus of its own,
   started by at-spi-bus-launcher on the private session bus, so the
   program's accessible tree can be read (a11y.py) and nothing of it
@@ -58,10 +60,11 @@ import sysconfig
 import tempfile
 import time
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import pad, usage, wl
+from . import kept, pad, usage, wl, wlinput, xtest
 from .x import CONVERT
 from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for callers)
 
@@ -71,7 +74,7 @@ from .screen import Screen, SessionError, wait_for  # noqa: F401 (wait_for, for 
 PASS = ("PATH", "USER", "LOGNAME", "SHELL", "TERM", "SHOTBOX_SANDBOX")
 
 # Deterministic GTK: X11 on Xvfb, the software renderer, no portals, no
-# accessibility bus, in-memory settings, nothing mounted.
+# accessibility bus, settings in the scratch home's keyfile, nothing mounted.
 SEALED_ENV = {
     "LANG": "C.UTF-8",
     "TZ": "UTC",
@@ -85,7 +88,7 @@ SEALED_ENV = {
     "GTK_A11Y": "none",
     "NO_AT_BRIDGE": "1",
     "GIO_USE_VFS": "local",
-    "GSETTINGS_BACKEND": "memory",
+    "GSETTINGS_BACKEND": "keyfile",
 }
 
 BUS_CONFIG = """<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
@@ -252,14 +255,15 @@ def presets(toolkit, dark, high_contrast, text_scale, minor=None):
 
 def settings(text):
     """The keys `text`, a settings.ini, sets in its [Settings] group, the
-    one GTK reads."""
-    group, keys = None, set()
+    one GTK reads, with their values."""
+    group, keys = None, {}
     for line in text.splitlines():
         bare = line.strip()
         if bare.startswith("["):
             group = bare
         elif group == "[Settings]" and "=" in bare and not bare.startswith(("#", ";")):
-            keys.add(bare.split("=", 1)[0].strip())
+            key, value = bare.split("=", 1)
+            keys[key.strip()] = value.strip()
     return keys
 
 
@@ -347,6 +351,10 @@ def bindings(what, where, *libs):
             if "pipx/venvs/" in Path(sys.prefix).as_posix():
                 return (f"needs {what} from the system, which this install can't see; "
                         f"reinstall with: {REINSTALL}")
+            # uv's tools and uvx's have no way to see them: pipx has.
+            if re.search(r"/uv/(tools|archive-v\d+)/", Path(sys.prefix).as_posix() + "/"):
+                return (f"needs {what} from the system, which uv's tool environments can't "
+                        "see; install with: pipx install --system-site-packages shotbox")
             return (f"needs {what} from the system, which this virtualenv can't see: "
                     "make it with --system-site-packages")
         return f"needs {what}, which this Python can't load ({e}): {where}"
@@ -355,6 +363,23 @@ def bindings(what, where, *libs):
             gi.require_version(lib, version)
     except ValueError as e:
         return f"needs {what}, which this Python can't load ({e}): {where}"
+    return None
+
+
+@cache
+def pango_cairo():
+    """Why text can't be drawn here to look for, as `a11y contrast` does
+    for GTK 4.14 and later's, or None."""
+    where = "they're in python3-gi-cairo and gir1.2-pango-1.0 on Debian"
+    why = bindings("pycairo and PangoCairo", where, ("Pango", "1.0"), ("PangoCairo", "1.0"))
+    if why:
+        return why
+    try:
+        import cairo
+        from gi.repository import PangoCairo
+        PangoCairo.create_layout(cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1)))
+    except Exception as e:   # no pycairo, or PyGObject without its cairo part: a KeyError
+        return f"needs pycairo and PangoCairo, which this Python can't use ({e!r}): {where}"
     return None
 
 
@@ -435,6 +460,8 @@ NEEDS = {
     "--xwayland": lambda: lacks("Xwayland", "xprop"),
     "--desktop": lambda: lacks("gdbus"),
     "--a11y": a11y_needs,
+    "a11y speak": lambda: a11y_needs() or lacks("orca"),
+    "a11y contrast on GTK 4": lambda: a11y_needs() or pango_cairo(),
     "--audio": lambda: lacks("pipewire", "wireplumber", "pw-dump"),
     "--gamepads": gamepad_needs,
     "--net": lambda: lacks("bwrap", "nsenter"),
@@ -559,7 +586,7 @@ class Session(Screen):
     has none, as `shotbox exec`'s: what it runs is sealed the same, but
     nothing a Screen does to a display works on it."""
 
-    def __init__(self, size=(1280, 800), desktop=False, system_bus=False,
+    def __init__(self, size=(1280, 800), desktop=False, machine_bus=False,
                  seed=None, keep=False, env=None, passthrough=(), failed=None,
                  wayland=False, xwayland=False, a11y=False, announce_log=None,
                  dark=False, high_contrast=False, text_scale=None, audio=False, gamepads=0,
@@ -633,7 +660,7 @@ class Session(Screen):
         self.xwayland = xwayland
         self.use_wayland = wayland or xwayland
         self.desktop = desktop
-        self.system_bus = system_bus
+        self.machine_bus = machine_bus
         self.seed = seed
         self.keep = keep
         self.extra_env = dict(env or {})
@@ -641,8 +668,10 @@ class Session(Screen):
         self.scratch = None
         self.env = None
         self.failed = failed
-        self._x = None
+        self._x = self._xsettings = None
+        self._blink = True
         self._procs = []
+        self._watch = None
 
     # --- setup ----------------------------------------------------------------
 
@@ -680,6 +709,8 @@ class Session(Screen):
                                "a shorter one")
         self.scratch = Path(tempfile.mkdtemp(prefix="shotbox-"))
         try:
+            kept.mark(self.scratch, **({"kept": True} if self.keep else {}))
+            self._start_watchdog()
             if self.measure:
                 self._start_usage()
             if self.identity:
@@ -693,15 +724,21 @@ class Session(Screen):
             # display and a bus to add: never the caller's.
             self.env = self._make_env({}, None, None)
             bus = self._start_bus("session")
-            sysbus = self._start_bus("system") if self.system_bus else None
+            sysbus = None if self.machine_bus else self._start_bus("system")
             if not self.display:
                 graphics = {}
             elif self.use_wayland:
-                graphics = self._start_sway(bus)
+                graphics = self._start_sway(bus, sysbus)
             else:
                 display, xauth = self._start_x()
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
+            if self.use_wayland:
+                # A keyboard for the whole session (see wlinput.py).
+                self._serve("the keyboard", "wlinput", self.env, wlinput.KEYBOARD)
+            if not self._blink and "DISPLAY" in self.env and not self.desktop:
+                self._xsettings = xtest.Display(self.env)
+                self._xsettings.own_settings({"Net/CursorBlink": 0})
             if self.desktop:
                 self._activation_env()
             if self.text_scale and "DISPLAY" in self.env:
@@ -726,6 +763,22 @@ class Session(Screen):
             self.__exit__(None, None, None)
             raise
         return self
+
+    def _start_watchdog(self):
+        """A process of its own that, if this one goes without stopping the
+        session (killed outright, say), stops what's left of it and, but with
+        keep, removes the scratch dir, as `shotbox mcp`'s watchdog does for its server's."""
+        from .__main__ import self_command
+        from .mcp import MARKS
+        r, self._watch = os.pipe()
+        # Not marked as a session's itself, as it would be started in one,
+        # so that one's watchdog leaves it to clean up after this one.
+        env = {k: v for k, v in os.environ.items() if os.fsencode(k) not in MARKS}
+        subprocess.Popen([*self_command(), "mcp", "--watch", str(self.scratch),
+                          *["--keep"] * self.keep], stdin=r, env=env,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        os.close(r)
 
     def _start_usage(self):
         """Count what the session's programs use, in a systemd slice of
@@ -807,7 +860,8 @@ class Session(Screen):
             (home / d).mkdir(parents=True, exist_ok=True)
         # GTK apps: no blinking text caret, which a picture would catch on
         # or off at random, and no animations, which it would catch mid-way.
-        # A seeded home's own settings win, but for the presets asked for.
+        # A seeded home's own settings win, but for the presets asked for;
+        # GTK 3's caret is said again where GTK 3 on Wayland and Qt 6 look.
         minor = gtk4_minor()
         for gtk in ("gtk-3.0", "gtk-4.0"):
             ini = home / ".config" / gtk / "settings.ini"
@@ -825,8 +879,25 @@ class Session(Screen):
                 more["gtk-font-rendering"] = "manual"
             if more:
                 ini.write_text(merge(ini.read_text(), more))
+            if gtk == "gtk-3.0":
+                keys = settings(ini.read_text())
+                self._blink = keys.get("gtk-cursor-blink") in (None, "true", "1")
+                still = keys.get("gtk-enable-animations") in ("false", "0")
+        # GTK 3 on Wayland reads these from GSettings, over settings.ini: the
+        # session's own keyfile, which nothing of a seed's stands in for.
+        keyfile = home / ".config" / "glib-2.0" / "settings" / "keyfile"
+        unfold(home, keyfile)
+        keyfile.parent.mkdir(parents=True, exist_ok=True)
+        keyfile.write_text("[org/gnome/desktop/interface]\n" + "".join(
+            f"{k}=false\n" for k, off in (("cursor-blink", not self._blink),
+                                          ("enable-animations", still)) if off))
         run = self.scratch / "run"
         run.mkdir(mode=0o700)
+
+    def _known_env(self):
+        """The caller's environment, with the scratch dir in it: for a process
+        that has no other, to be known as the session's by the watchdog."""
+        return {**os.environ, "SHOTBOX_SCRATCH": str(self.scratch)}
 
     def _start_x(self):
         # Two sessions starting at once can pick the same free number; the
@@ -851,7 +922,7 @@ class Session(Screen):
                  "-screen", "0", f"{w_}x{h}x24", "-nolisten", "tcp", "-noreset"],
                 pass_fds=(w,), stdout=subprocess.DEVNULL,
                 stderr=open(self.scratch / "Xvfb.log", "wb"),
-                start_new_session=True)
+                env=self._known_env(), start_new_session=True)
             os.close(w)
             with os.fdopen(r) as f:
                 got = f.readline().strip()   # blocks until Xvfb listens or exits
@@ -861,7 +932,7 @@ class Session(Screen):
             proc.wait()
         raise SessionError("Xvfb didn't start; see " + str(self.scratch / "Xvfb.log"))
 
-    def _start_sway(self, bus):
+    def _start_sway(self, bus, sysbus):
         """Start sway, headless, and wait until it answers; the variables
         that point a program at it."""
         run = self.scratch / "run"
@@ -876,7 +947,8 @@ class Session(Screen):
                    # No GPU, no seat, no input devices: an output in memory,
                    # drawn in software, the same pixels every run.
                    WLR_BACKENDS="headless", WLR_RENDERER="pixman",
-                   WLR_LIBINPUT_NO_DEVICES="1", WLR_HEADLESS_OUTPUTS="1")
+                   WLR_LIBINPUT_NO_DEVICES="1", WLR_HEADLESS_OUTPUTS="1",
+                   **self._system_env(sysbus))
         log = self.scratch / "sway.log"
         proc = subprocess.Popen(["sway", "-c", str(conf)], env=env,
                                 stdout=subprocess.DEVNULL, stderr=open(log, "wb"),
@@ -945,6 +1017,14 @@ class Session(Screen):
         home = self.scratch / "home"
         env = {k: os.environ[k] for k in self.passthrough if k in os.environ}
         env.update(SEALED_ENV, **self._time_env)
+        # Playwright looks for its browsers in HOME's cache, and the
+        # session's HOME is the scratch home. Not with --identity: the path
+        # has the user's name in it.
+        browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or os.path.join(
+            os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "ms-playwright")
+        if not self.identity and ("PLAYWRIGHT_BROWSERS_PATH" in os.environ
+                                  or os.path.isdir(browsers)):
+            env["PLAYWRIGHT_BROWSERS_PATH"] = browsers
         if self.desktop:
             del env["GSETTINGS_BACKEND"]
         if self.a11y:
@@ -983,13 +1063,21 @@ class Session(Screen):
             env.update(USER=user, LOGNAME=user, HOSTNAME=host)
         if bus:
             env["DBUS_SESSION_BUS_ADDRESS"] = bus
-        if sysbus:
-            env["DBUS_SYSTEM_BUS_ADDRESS"] = sysbus
+        env.update(self._system_env(sysbus))
         env.update(self.extra_env)
         if self._faketime:
             # First, so the clock is libfaketime's whatever else is preloaded.
             env["LD_PRELOAD"] = ":".join(filter(None, (self._faketime, env.get("LD_PRELOAD"))))
         return env
+
+    def _system_env(self, sysbus):
+        """The stand-in system bus, and no printers, with `sysbus`."""
+        if not sysbus:
+            return {}
+        # Without its socket, libcups tries localhost:631; told of one
+        # that isn't there, it finds no scheduler.
+        return {"DBUS_SYSTEM_BUS_ADDRESS": sysbus,
+                "CUPS_SERVER": str(self.scratch / "run" / "cups.sock")}
 
     def _activation_env(self):
         """Give what the session bus activates the session's environment,
@@ -1107,22 +1195,29 @@ class Session(Screen):
         when the thread that made it does (Linux's parent-death signal goes
         by thread), so a Session with gamepads wants a thread that lasts as
         long as it does."""
-        ready = self.scratch / "pads.json"
+        self._pad_nodes = self._serve("the gamepads", "pad", os.environ, "pads.sock",
+                                      self.gamepads, os.getpid())
+
+    def _serve(self, what, module, env, sock, *args):
+        """Start shotbox.`module`'s serve(`sock`'s path in the scratch dir,
+        the file it says it's ready in, *args), in a process of its own
+        the session stops, with `env`; what it says, once it's ready."""
+        ready = self.scratch / f"{Path(sock).stem}.json"
         here = str(Path(__file__).resolve().parent.parent)     # this shotbox, wherever it is
         path = os.pathsep.join(filter(None, (here, os.environ.get("PYTHONPATH"))))
         # del: -c puts the current directory first, ahead of PYTHONPATH.
-        serve = ("import sys; del sys.path[0]; from shotbox.pad import serve; "
+        serve = (f"import sys; del sys.path[0]; from shotbox.{module} import serve; "
                  "sys.exit(serve(*sys.argv[1:]))")
-        proc = subprocess.Popen([sys.executable, "-c", serve, str(self.scratch / "pads.sock"),
-                                 str(self.gamepads), str(ready), str(os.getpid())],
-                                env={**os.environ, "PYTHONPATH": path},
+        proc = subprocess.Popen([sys.executable, "-c", serve, str(self.scratch / sock), str(ready),
+                                 *map(str, args)],
+                                env={**env, "PYTHONPATH": path},
                                 stdout=subprocess.DEVNULL, start_new_session=True)
         self._procs.append(proc)
-        wait_for("the gamepads", ready.exists, 10, alive=proc)
+        wait_for(what, ready.exists, 10, alive=proc)
         got = json.loads(ready.read_text())
         if isinstance(got, dict):
             raise SessionError(got["error"])
-        self._pad_nodes = got
+        return got
 
     def _start_net(self):
         """A network namespace of the session's own, for every program it
@@ -1134,7 +1229,7 @@ class Session(Screen):
                                  "--unshare-net", "--info-fd", str(w), "--", "sleep", "infinity"],
                                 pass_fds=(w,), stdin=subprocess.DEVNULL,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                start_new_session=True)
+                                env=self._known_env(), start_new_session=True)
         os.close(w)
         self._procs.append(proc)
         pid = sandboxed_pid(r, proc)
@@ -1217,6 +1312,12 @@ class Session(Screen):
                 args += ["--ro-bind", masked, str(node)]
         if (dev / "bus/usb").is_dir():
             args += ["--tmpfs", "/dev/bus/usb"]
+        if not self.machine_bus:
+            # For a program that looks for the machine's own sockets.
+            # Not Avahi's: nss-mdns looks up .local names through it.
+            for run in ("/run/dbus", "/run/cups"):
+                if Path(run).is_dir():
+                    args += ["--tmpfs", run]
         if self.identity:
             # A UTS namespace each, every one with the same name in it.
             args += ["--unshare-uts", "--hostname", self.identity[1]]
@@ -1316,6 +1417,15 @@ class Session(Screen):
             self.used = self.usage()
         for proc in reversed(self._procs):
             kill_group(proc)
+        if self._xsettings:
+            self._xsettings.close()
+        if self._watch is not None:
+            # Its processes stopped, the session needs no watchdog, and a
+            # Ctrl-C cutting what's left short mustn't set it on a
+            # recording that's finishing.
+            os.write(self._watch, b"stopped")
+            os.close(self._watch)
+            self._watch = None
         for meter in (self._sampler, self._slice):
             if meter:
                 meter.close()

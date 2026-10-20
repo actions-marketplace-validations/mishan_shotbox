@@ -13,18 +13,31 @@ Sealed:
 - A display, a session bus (nothing activatable on it, so no gvfs, dconf
   or portals start behind your back), an accessibility bus with `--a11y`,
   and a sound server with `--audio` (its sink plays to nowhere), all the
-  session's own. Settings are in-memory, so apps come up with their own
-  defaults, not yours.
+  session's own. Settings (GSettings) are a keyfile in the scratch home,
+  so apps come up with the system's defaults, not yours.
 - Under bubblewrap, which every program the session spawns runs in where it
   can: `/dev/snd` is empty, so nothing plays to the machine's sound
   devices, and `/run/user/UID` is (and `XDG_RUNTIME_DIR`, if that's
   elsewhere), so your desktop's Wayland, PulseAudio, PipeWire and bus
   sockets aren't there to find, and a program can't be run from inside
   it. With `--gamepads`, only the session's pads (see [Gamepads](gamepads.md)).
+- The machine's system bus and printers, unless `--machine-bus`: programs
+  get a stand-in system bus with nothing on it (no NetworkManager, logind,
+  BlueZ or AccountsService), and `CUPS_SERVER` names a socket that isn't
+  there, so they find no printers. Under bubblewrap the machine's bus
+  and CUPS sockets (`/run/dbus`, `/run/cups`) aren't there either;
+  without it, a program that looks for them itself finds them. Either
+  way, CUPS on localhost:631 answers a program that asks it there
+  itself, unless `--net loopback`.
 
 Not sealed:
 - The files: the filesystem is the machine's, readable and writable as
   you, outside the scratch home.
+- Playwright's browsers: `PLAYWRIGHT_BROWSERS_PATH` is set to yours (as
+  it is outside, or `~/.cache/ms-playwright` if that's there), so
+  Playwright in a session finds them, and `npx playwright install` in
+  one installs there. Not with `--identity`, since the path has your
+  name in it: pass it with `--env` then.
 - The network, unless `--net loopback`: a server bound to `0.0.0.0` is
   on your network, and a program reaches whatever you can. With `--net
   loopback`, the session has a network of its own, which every program
@@ -51,9 +64,16 @@ Not sealed:
   `identity` over MCP.
 - The wall clock, unless `--clock TIME`: what it moves and what it
   doesn't, [The clock](commands.md#the-clock).
-- The machine's system bus, unless `--system-bus`: logind,
+- With `--machine-bus`, the machine's system bus and printers: logind,
   NetworkManager and the rest, which may let a program in your desktop's
-  session suspend or power off the machine.
+  session suspend or power off the machine, and CUPS. A desktop's settings
+  (GNOME Settings, with `--desktop`) can show its Wi-Fi networks,
+  Bluetooth devices, user accounts and printers then, and `--identity`
+  doesn't hide your name from its services: check pictures before
+  sharing them.
+- Avahi's socket, `/run/avahi-daemon/socket`, for looking up `.local`
+  names; browsing for services goes over the system bus, which is the
+  stand-in unless `--machine-bus`.
 - Your X server: its sockets, in `/tmp/.X11-unix` and the abstract one,
   are reachable by a program that sets `DISPLAY` and finds your cookie
   itself.

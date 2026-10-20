@@ -45,8 +45,10 @@ that, and one session can take longer to stop than that.
 So every session lives in a directory of the server's, and a watchdog
 (`shotbox mcp --watch DIR`, in a process session of its own, out of the
 client's reach) holds a pipe from the server. However the server ends,
-SIGKILL included, the pipe closes. The watchdog then kills every process
-it knows for a session's by its environment, and removes the directory.
+SIGKILL included, the pipe closes. The watchdog then stops every process
+it knows for a session's by its environment (SIGTERM, so a recording
+finishes its file if it can, and SIGKILL for what's left 5 seconds on), and removes
+the directory.
 A session's process has its scratch dir, runtime dir or home in the
 directory, or the server's own `SHOTBOX_MCP` naming it, for what inherits
 the server's environment (Xvfb). Nothing else is killed: not a shell
@@ -70,7 +72,7 @@ with:
 A command with a slash that isn't absolute is relative to the file, and
 every program starts in the file's directory, with nothing on its stdin. Without `--allow`, nothing
 can be spawned, and the tools say so. A program's output goes to a log in
-the session, which `program_output` reads: the answer to a window that
+the session, which `get_program_output` reads: the answer to a window that
 never came up.
 
 **Sealing is the safety.** A session reaches nothing of the desktop the
@@ -78,42 +80,93 @@ server runs on: not its display, its session bus, its home, its settings,
 its sound, or its screen reader. The program is the person's, from their
 list, and what it can reach of the machine is up to it. What the agent
 adds is clicks and keys on a display no one else is looking at. The one
-thing it writes outside a session is `record`'s clips, new .mp4 files
+thing it writes outside a session is `record_video`'s clips, new .mp4 files
 in the `--allow` file's directory, never over a file that's there.
+
+**The allow file's directory is the agent's to read.** `wait_for` line
+and `record_video`'s `until_line` read any text file under it and answer
+with the line they find, so keep the allow file in a directory of its
+own or the project's, not your home. And what's on the list is the
+agent's to drive: allowing a terminal, a browser or a file manager hands
+it arbitrary commands, typed with `type_text`.
 
 ## The tools
 
 | | |
 |---|---|
-| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size, gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
-| `spawn`, `program_output` | a program from the list, and how it's doing |
-| `accessible_tree` | the tree, a node a line, with bounds if asked |
-| `screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image |
-| `record` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
-| `click` | by a node's name (and role), or a point, the button held a while or left down if asked |
-| `scroll` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
+| `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size (up to 7680x4320), gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
+| `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
+| `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
+| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image; with its size |
+| `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
+| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked |
+| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
-| `gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
+| `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
-| `lint`, `contrast`, `tab_walk` | the checks `shotbox a11y` makes |
-| `announcements` | what's been announced to a screen reader |
-| `sound` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
+| `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes; `check_contrast` with `passes` says what passes too, with its ratio, as `a11y contrast --passes` does |
+| `get_speech` | what Orca, a real screen reader started for the call, says after each press of Tab or of the keys given, with the focused node's tree line: [What a screen reader says](accessibility.md#what-a-screen-reader-says) |
+| `list_announcements` | what's been announced to a screen reader |
+| `record_audio` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
 
 Each description says what the tool is for, what to read in its answer,
 and what to use instead when it's the wrong one: an agent knows a tool
 by nothing else.
 
-A failure is an answer, marked `isError`, in a sentence saying what to do
-instead: a program not on the list says what is, a session that isn't
-there names the ones that are, and an argument a tool doesn't take is
+**A picture is what the model sees.** Claude scales an image past a
+long edge of 1568 px, or past 1568 patches of 28x28 px, so an x,y read
+off a 1920x1080 screen would be off by a factor of 1.32 when given
+to `click_element`. `take_screenshot` and `record_video` shrink a picture
+past that themselves (1920x1080 to 1456x819) and say its size and the
+scale: divide an x,y by it (and add a crop's corner) for `click_element`
+with the same window, or click by name. A burst's or a clip's pictures
+are laid out as many to a row as shrinks them least: two 1920x1080
+screens to a row, 728x410 each.
+
+**Answers are bounded.** A screen is at most 7680x4320. The tree, the
+checks' answers and `list_announcements` (its latest) stop at 500 lines,
+saying how many more and how to narrow it, if it can be; GTK apps' whole windows
+measured 63 to 314. A line a program wrote, and a tree line, stops at
+500 characters, saying how many more.
+
+**A program's text is marked.** What a program wrote, in
+`get_program_output`, `wait_for` line's and `until_line`'s line and
+`list_announcements`, comes a line each after `| `, and a title or a
+node's name is quoted; the instructions say both are the programs', not
+the person's: a log line or a web page can say anything.
+
+**Without PyGObject**, as plain `pipx install` or uvx installs it,
+`start_session` still starts, without the accessibility bus, and its
+answer says which tools won't work and how to fix it
+(`pipx install --force --system-site-packages shotbox`, or the system's
+packages; uvx and uv's tools can't see them, so use pipx), as it says
+what it couldn't seal.
+
+A tool it doesn't have is a protocol error, -32602, naming a renamed
+tool's new name. Any other failure is an answer, marked `isError`, in a
+sentence saying what to do instead: a program not on the list says
+what is, a session that isn't there names the ones that are, and an argument a tool doesn't take is
 named, as is a choice that isn't one before what a call lacks. A node's
-name, for `click` and `wait_for`'s focus, is taken as it is, and failing
+name, for `click_element` and `wait_for`'s focus, is taken as it is, and failing
 that as a regex: `+` and `(Draft)` are labels, not regexes, as in
 [Clicking by name](accessibility.md#clicking-by-name). Two nodes matching
-are listed as `accessible_tree` lines with their bounds; none, the
-nearest names. `lint` and `contrast` answer in tree lines too, with
-bounds, and an `ignore` regex leaves out a problem it's found in, the
-tree line's or the node's path's, as `shotbox a11y lint --ignore` does.
+are listed as `get_accessible_tree` lines with their bounds; none, the
+nearest names. `wait_for` a window, given the name a program was spawned by,
+waits for a window of that program's, whatever its title: of a process in
+the process session of any spawned by that name, so a shell wrapper, what
+it forks, and a second `gnome-text-editor` handing its window to the
+first count too, by `_NET_WM_PID` on X11 and the pid sway has on
+Wayland. The name wins over a window titled the same, which is likely
+another program's (`^name$` asks for that); with no window of its own,
+one titled exactly the name will do. Otherwise not found by the name:
+a window of a process started some other way (by D-Bus, or by another
+name), one that left its session (a daemon, with `setsid`), or one in a
+PID namespace of its own, as Flatpak's are, whose `_NET_WM_PID` on X11
+is its pid inside that (on Wayland, the pid sway has may still find it).
+Wait by its title. A window wait that gives up lists the windows there
+are, the nearest first. `check_accessible_names` and `check_contrast` answer in
+tree lines too, with bounds, and an `ignore` regex leaves out a problem
+it's found in, the tree line's or the node's path's, as `shotbox a11y lint --ignore` does.
 Arguments are taken however the client sends them, since clients
 don't pass them through as typed. A number can come as text, and a list
 as text with commas or spaces: `"Tab Tab"` for `["Tab", "Tab"]`.
@@ -142,11 +195,16 @@ From a checkout, the command is the checkout's `bin/shotbox`.
 ## How it's built
 
 JSON-RPC 2.0 over newline-delimited stdin and stdout, by hand: the
-methods MCP's tools need (`initialize`, `ping`, `tools/list`,
-`tools/call`), as liverykit does it. The SDK would be shotbox's first
-Python dependency, for four methods. `initialize` answers with the
-protocol version the client asked for, when it's one it knows, and
-otherwise its newest.
+methods MCP's tools need (`server/discover`, `initialize`, `ping`,
+`tools/list`, `tools/call`), as liverykit does it. The SDK would be
+shotbox's first Python dependency, for five methods. It speaks the MCP
+revisions 2024-11-05, 2025-03-26, 2025-06-18 and 2025-11-25, which open
+with `initialize`: it answers with the version the client asked for,
+when it's one of those, and otherwise 2025-11-25. And it speaks
+2026-07-28, which has no `initialize`: each request names its version in
+`_meta`, and one it doesn't speak is refused with -32022 and the
+versions it does. `server/discover` gives 2026-07-28, the tools
+capability and the instructions.
 
 Nothing but the protocol goes to stdout, since one stray line there ends
 the connection, and nothing but the server reads stdin, where a program
@@ -158,9 +216,9 @@ Calls are answered one at a time, in turn, and the waits are bounded: a
 timeout of at most 300 seconds, and a Tab walk of at most 200 presses. A
 thread reads stdin as requests come, so `ping` is answered at once, even
 during a long call, and `notifications/cancelled` calls off the request
-it names: its waits stop, as do a click by name, `tab_walk`, `lint`,
-`contrast` or a recording it's in the middle of (the clip is finished
-short), its answer isn't sent, and the session is left as it was. When
+it names: its waits stop, as do a click by name, `check_focus_order`, `get_speech`,
+`check_accessible_names`, `check_contrast` or a recording it's in the
+middle of (the clip is finished short), its answer isn't sent, and the session is left as it was. When
 stdin closes, the call running is called off the same way, those sent
 after it are answered, and then the sessions stop. A call given a `progressToken` (in `params._meta`) sends
 `notifications/progress` every 5 seconds until it's answered, its
@@ -170,9 +228,10 @@ for that request, not the end of the server.
 Most calls take a second or two. Those that can run long:
 
 - `wait_for`, up to its `timeout`, 300 seconds at most;
-- `record`, up to 60 seconds and then a few for its frames;
-- `tab_walk`, a few seconds a press, up to 200 presses;
-- `click` by name, up to its `timeout`, while the node doesn't show.
+- `record_video`, up to 60 seconds and then a few for its frames;
+- `check_focus_order`, a few seconds a press, up to 200 presses;
+- `get_speech`, a few seconds for Orca to start, and a second a press;
+- `click_element` by name, up to its `timeout`, while the node doesn't show.
 
 Many clients give up on a call after about 60 seconds, and cancel it.
 Some count from the last progress (the TypeScript SDK's
@@ -191,9 +250,12 @@ process, with a real session behind it, as a client would send them:
 - initialize, with the version asked for and with an unknown one;
 - each tool on a libadwaita window;
 - each refusal: a program not on the list, a session that isn't there,
-  an argument a tool doesn't take.
+  an argument a tool doesn't take, a screen past 8K;
+- a 1920x1080 picture shrunk to 1456x819, with its scale; the tree cut
+  short, with what's left; a program's output fenced, a long line cut.
 
 It then runs the server over stdio, as a client runs it, and checks that
 nothing but answers comes out on stdout, that a ping is answered during
 a long call, which sends progress and, cancelled, no answer, and that
-the session stops when stdin closes.
+the session stops when stdin closes. From a virtualenv that can't see
+PyGObject, a session still starts, saying what won't work.

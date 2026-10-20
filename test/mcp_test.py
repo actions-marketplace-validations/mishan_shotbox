@@ -38,6 +38,8 @@ allow = tmp / "programs"
 # `where` says where its session is, and takes a second to go when told to.
 allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the window\n"
                  f"long = {here / 'a11y_app.py'} long\n"
+                 f"wrapped = /bin/sh -c '{here / 'a11y_app.py'}; exit $?'\n"
+                 f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
@@ -45,6 +47,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
                  f"tone = paplay {tmp / 'tone.wav'}\n"
                  f"late_tone = /bin/sh -c 'sleep 0.5; exec paplay {tmp / 'tone.wav'}'\n"
+                 f"talk = {sys.executable} -c \"print('one\\\\rtwo'); print('x' * 600)\"\n"
                  "where = /bin/sh -c 'echo \"$SHOTBOX_SCRATCH\"; trap \"sleep 1; exit\" TERM;"
                  " while :; do sleep 0.1; done'\n")
 allowed, home = mcp.programs(allow)
@@ -81,10 +84,50 @@ check(init["protocolVersion"] == "2025-03-26" and "tools" in init["capabilities"
       "initialize: the version asked for, and tools")
 check(rpc("initialize", {"protocolVersion": "1999-01-01"})["result"]["protocolVersion"]
       == mcp.PROTOCOLS[0], "initialize: an unknown version gets the newest")
+check([rpc("initialize", {"protocolVersion": v})["result"]["protocolVersion"]
+       for v in ("2025-11-25", "2025-06-18", "2024-11-05", "2026-07-28")]
+      == ["2025-11-25", "2025-06-18", "2024-11-05", "2025-11-25"]
+      and "resultType" not in init,
+      "initialize: each version it knows, as before; a stateless one gets the newest that isn't")
+
+
+def modern(method, version="2026-07-28", **params):
+    meta = {"io.modelcontextprotocol/protocolVersion": version,
+            "io.modelcontextprotocol/clientCapabilities": {}}
+    return rpc(method, {"_meta": meta, **params})
+
+
+found = modern("server/discover")["result"]
+check(found["instructions"] == mcp.INSTRUCTIONS and "tools" in found["capabilities"]
+      and found["supportedVersions"] == ["2026-07-28"]
+      and found["resultType"] == "complete" and found["cacheScope"] == "public"
+      and found["ttlMs"] > 0
+      and found["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "shotbox",
+      "server/discover: the versions, the tools, the instructions, how long to keep it")
+tools = modern("tools/list")["result"]
+called = modern("tools/call", name=mcp.TOOLS[0][0], arguments=[1])["result"]
+check(tools["resultType"] == called["resultType"] == "complete"
+      and tools["tools"] == mcp.tool_list(allowed) and tools["ttlMs"] > 0
+      and called["isError"] and "resultType" not in rpc("tools/list")["result"],
+      "2026-07-28: the version in _meta, no initialize, every result complete;"
+      " the older versions' results as they were")
+refused = modern("tools/list", "1900-01-01")["error"]
+check(refused["code"] == -32022 and refused["data"]["requested"] == "1900-01-01"
+      and refused["data"]["supported"] == list(mcp.STATELESS + mcp.PROTOCOLS)
+      and modern("server/discover", "1900-01-01")["error"]["code"] == -32022,
+      "a version it doesn't speak: refused, with the ones it does")
+check(rpc("server/discover")["error"]["code"]
+      == rpc("tools/list", {"_meta": {"io.modelcontextprotocol/protocolVersion":
+                                      "2026-07-28"}})["error"]["code"] == -32602
+      and "result" in rpc("initialize", {"protocolVersion": "2025-06-18"})
+      and modern("initialize", protocolVersion="2025-06-18")["error"]["code"] == -32601,
+      "server/discover without a version, or 2026-07-28 without capabilities: malformed;"
+      " initialize still answered after, but not as 2026-07-28, which has none")
 listed = {t["name"]: t["inputSchema"]["properties"] for t in rpc("tools/list")["result"]["tools"]}
-check({"start_session", "spawn", "accessible_tree", "screenshot", "click"} <= set(listed),
+check({"start_session", "spawn_program", "get_accessible_tree", "take_screenshot",
+       "click_element"} <= set(listed),
       f"tools/list ({len(listed)} tools)")
-check(listed["spawn"]["program"]["enum"] == listed["program_output"]["program"]["enum"]
+check(listed["spawn_program"]["program"]["enum"] == listed["get_program_output"]["program"]["enum"]
       == list(allowed) and all("enum" not in t["inputSchema"]["properties"].get("program", {})
                                for t in mcp.tool_list()),
       "tools/list: program is one of the allowed programs, unless there are none")
@@ -94,11 +137,11 @@ check(rpc("nope")["error"]["code"] == -32601, "an unknown method is an error")
 check(mcp.handle(server, {"jsonrpc": "2.0", "method": "notifications/initialized"}) is None,
       "a notification gets no answer")
 
-said, bad, _ = tool("accessible_tree", session="none")
+said, bad, _ = tool("get_accessible_tree", session="none")
 check(bad and "no session called 'none'" in said, "a session that isn't there: said")
 check(rpc("tools/list", "oops")["error"]["code"] == -32602
       and mcp.handle(server, {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
-                              "params": {"name": "lint", "arguments": [1]}})
+                              "params": {"name": "check_accessible_names", "arguments": [1]}})
       ["result"]["isError"], "params and arguments that aren't objects: said, not fatal")
 
 said, bad, _ = tool("start_session", name="small", text_scale=0.05)
@@ -107,11 +150,11 @@ check(bad and "at least 0.1" in said and "small" not in server.sessions,
 try:
     said, bad, _ = tool("start_session", name="t")
     check(not bad and "app" in said, f"start_session says what it can spawn ({said})")
-    said, bad, _ = tool("spawn", session="t", program="rm -rf ~")
+    said, bad, _ = tool("spawn_program", session="t", program="rm -rf ~")
     check(bad and "isn't one of the programs" in said and "app" in said,
-          "spawn: what isn't on the list is refused, saying what is")
-    said, bad, _ = tool("spawn", session="t", program="app")
-    check(not bad, "spawn: a program on the list")
+          "spawn_program: what isn't on the list is refused, saying what is")
+    said, bad, _ = tool("spawn_program", session="t", program="app")
+    check(not bad, "spawn_program: a program on the list")
     said, bad, _ = tool("wait_for", session="t", what="window", value="x", timeout="nan")
     check(bad and "number" in said, "wait_for: a timeout that's no number is refused")
     began = time.monotonic()
@@ -119,61 +162,88 @@ try:
     check(bad and time.monotonic() - began < 5, "wait_for: a timeout of 0 gives up at once")
     said, bad, _ = tool("wait_for", session="t", what="window", value="a11y-test", timeout="20")
     check(not bad, f"wait_for: a window, its timeout given as text ({said})")
-    said, bad, _ = tool("accessible_tree", session="t", window="a11y-test")
-    check('"Save" [focusable, focused]' in said, "accessible_tree: the tree, as text")
-    said, bad, _ = tool("click", session="t", name="Announce", window="a11y-test")
-    check(not bad and "Announce" in said, "click: by a node's name")
+    said, bad, _ = tool("get_accessible_tree", session="t", window="a11y-test")
+    check('"Save" [focusable, focused]' in said, "get_accessible_tree: the tree, as text")
+    said, bad, _ = tool("click_element", session="t", name="Announce", window="a11y-test")
+    check(not bad and "Announce" in said, "click_element: by a node's name")
     said, bad, _ = tool("wait_for", session="t", what="announcement", value="notes")
     check(not bad, "wait_for: an announcement")
-    said, _, _ = tool("announcements", session="t")
-    check(said == "polite: Saved to notes.md", f"announcements ({said!r})")
-    said, bad, content = tool("screenshot", session="t", window="a11y-test")
+    said, _, _ = tool("list_announcements", session="t")
+    check(said == "| polite: Saved to notes.md", f"list_announcements, fenced ({said!r})")
+    said, bad, content = tool("take_screenshot", session="t", window="a11y-test")
     png = [c for c in content if c["type"] == "image"]
     check(len(png) == 1 and png[0]["mimeType"] == "image/png"
-          and base64.b64decode(png[0]["data"])[:4] == b"\x89PNG",
-          "screenshot: an image, returned")
-    said, bad, content = tool("screenshot", session="t", window="a11y-test", vision="tritanopia")
+          and base64.b64decode(png[0]["data"])[:4] == b"\x89PNG"
+          and re.fullmatch(r"A picture of the window 'a11y-test', \d+x\d+\.", said),
+          f"take_screenshot: an image, returned, and its size ({said})")
+    said, bad, content = tool("take_screenshot", session="t", window="a11y-test",
+                              vision="tritanopia")
     check(not bad and "as seen with tritanopia" in said
-          and any(c["type"] == "image" for c in content), "screenshot: with a kind of color vision")
-    said, bad, content = tool("screenshot", session="t", window="a11y-test", burst=3, every=0.1)
+          and any(c["type"] == "image" for c in content),
+          "take_screenshot: with a kind of color vision")
+    said, bad, content = tool("take_screenshot", session="t", window="a11y-test", burst=3,
+                              every=0.1)
     png = [c for c in content if c["type"] == "image"]
     # every is the least gap: under load, more. Times to two places.
     times = [float(t) for t in re.search(r"taken at (.*) seconds", said)[1].split(", ")]
     check(not bad and len(png) == 1 and said.startswith("3 pictures") and len(times) == 3
           and all(b - a >= 0.09 for a, b in zip(times, times[1:])),
-          f"screenshot: a burst, as one sheet ({said})")
-    said, bad, content = tool("screenshot", session="t", burst=12, crop="20x800+0+0")
+          f"take_screenshot: a burst, as one sheet ({said})")
+    said, bad, content = tool("take_screenshot", session="t", burst=12, crop="20x800+0+0")
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     w, h = struct.unpack(">II", png[16:24])
-    check(not bad and max(w, h) <= 1920, f"screenshot: a burst of tall pictures, shrunk to fit ({w}x{h})")
-    said, bad, _ = tool("screenshot", session="t", burst=40)
-    check(bad and "2 to 12" in said, "screenshot: a burst too big, refused")
-    said, bad, content = tool("record", session="t", seconds=1, window="a11y-test")
+    check(not bad and (w, h) == (240, 800) and "12 to a row" in said
+          and said.endswith("; 240x800."),
+          f"take_screenshot: a burst of tall pictures, in one row, not shrunk ({said})")
+    # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
+    # have 1920x1080 seen, with the scale to map an x,y back by.
+    said, bad, _ = tool("start_session", name="big", a11y=False, screen="1920x1080")
+    said, bad, content = tool("take_screenshot", session="big")
+    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+    check(not bad and struct.unpack(">II", png[16:24]) == (1456, 819)
+          and "1456x819, scaled by 0.7583 from 1920x1080: divide an x,y on it by that" in said,
+          f"take_screenshot: a 1920x1080 screen, shrunk to 1456x819, its scale said ({said})")
+    said, bad, _ = tool("take_screenshot", session="big", crop="1800x1000+100+50")
+    check(not bad and said.endswith("divide an x,y on it by that, then add the crop's x,y, "
+                                    "for click_element."),
+          f"take_screenshot: a crop shrunk, said how to map back with its corner ({said})")
+    said, bad, content = tool("take_screenshot", session="big", burst=4)
+    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+    check(not bad and "2 to a row" in said and struct.unpack(">II", png[16:24]) == (1456, 819)
+          and said.endswith("; 1456x819, scaled by 0.3792 from 3840x2160."),
+          f"take_screenshot: a burst of wide screens, two to a row, shrunk least ({said})")
+    tool("stop_session", session="big")
+    said, bad, _ = tool("start_session", name="huge", a11y=False, screen="7681x4320")
+    check(bad and "at most 7680x4320, not 7681x4320" in said and "huge" not in server.sessions,
+          f"start_session: a screen past 8K, refused ({said})")
+    said, bad, _ = tool("take_screenshot", session="t", burst=40)
+    check(bad and "2 to 12" in said, "take_screenshot: a burst too big, refused")
+    said, bad, content = tool("record_video", session="t", seconds=1, window="a11y-test")
     saved = re.match(r"Saved (.+?), ([\d.]+) seconds", said)
     length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                    "-of", "csv=p=0", saved[1]], capture_output=True,
                                   text=True).stdout or 0) if saved else 0
-    times = re.search(r"at (.*) seconds\.", said)
+    times = re.search(r"at (.*) seconds; \d+x\d+", said)
     check(not bad and abs(length - 1) < 0.15 and float(saved[2]) == round(length, 2)
           and saved[1].startswith(str(server.sessions["t"].scratch))
           and [c["type"] for c in content] == ["image", "text"]
           and len(times[1].split(", ")) == 8,
-          f"record: a clip of the length asked for, and a sheet of 8 frames ({said})")
-    said, bad, _ = tool("record", session="t", seconds=0.1, path="clips/one.mp4")
-    times = re.search(r"at (.*) seconds\.", said)
+          f"record_video: a clip of the length asked for, and a sheet of 8 frames ({said})")
+    said, bad, _ = tool("record_video", session="t", seconds=0.1, path="clips/one.mp4")
+    times = re.search(r"at (.*) seconds; \d+x\d+", said)
     check(not bad and (tmp / "clips/one.mp4").stat().st_size
           and str(tmp / "clips/one.mp4") in said and 1 <= len(times[1].split(", ")) < 8,
-          f"record: a short clip, saved at a path in the allow file's directory ({said})")
+          f"record_video: a short clip, saved at a path in the allow file's directory ({said})")
     mcp.RECORD_SIZE, size = 1, mcp.RECORD_SIZE
     try:
-        said, bad, _ = tool("record", session="t", seconds=3)
+        said, bad, _ = tool("record_video", session="t", seconds=3)
     finally:
         mcp.RECORD_SIZE = size
     saved = re.match(r"Saved (.+?), ([\d.]+) seconds", said)
     check(not bad and float(saved[2]) < 2 and "it reached" in said,
-          f"record: a clip stopped at its size, said ({said})")
+          f"record_video: a clip stopped at its size, said ({said})")
     (tmp / "dir.mp4").mkdir()
-    refused = [tool("record", session="t", seconds=secs, path=p, sound=a)[:2]
+    refused = [tool("record_video", session="t", seconds=secs, path=p, sound=a)[:2]
                for secs, p, a in ((61, None, False), ("", None, False), (1, "/tmp/x.mp4", False),
                                   (1, "../" * 20 + "tmp/x.mp4", False), (1, "x.webm", False),
                                   (1, None, True), (1, "clips/one.mp4", False),
@@ -184,38 +254,44 @@ try:
           and "start a session with audio" in refused[5][0]
           and "a file at" in refused[6][0] and "a directory at" in refused[7][0]
           and "is a file, not a directory" in refused[8][0],
-          "record: too long or no length, a path outside the allow file's directory, not an "
+          "record_video: too long or no length, a path outside the allow file's directory, not an "
           ".mp4 or there already, and sound without audio, refused")
-    said, bad, _ = tool("screenshot", session="t", vision="martian")
-    check(bad and "deuteranopia" in said, "screenshot: a vision there isn't, refused saying which")
-    said, _, _ = tool("lint", session="t", window="a11y-test", ignore="image")
+    said, bad, _ = tool("take_screenshot", session="t", vision="martian")
+    check(bad and "deuteranopia" in said,
+          "take_screenshot: a vision there isn't, refused saying which")
+    said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore="image")
     check(len(said.splitlines()) == 2
           and all(re.fullmatch(r'[a-z ]+ "" .*@\d+,\d+ \d+x\d+: [a-z ]+ with no name',
                                line) for line in said.splitlines())
-          and "isn't one" in tool("lint", session="t", ignore="(")[0],
-          f"lint: tree lines with bounds, ignoring images given as text ({said!r})")
-    said, _, _ = tool("lint", session="t", window="a11y-test", ignore=["image", '^panel ""'])
+          and "isn't one" in tool("check_accessible_names", session="t", ignore="(")[0],
+          f"check_accessible_names: tree lines with bounds, ignoring images given as text ({said!r})")
+    said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore=["image", '^panel ""'])
     check(len(said.splitlines()) == 1 and "button with no name" in said,
-          f"lint: ignore found in a tree line, by a path ({said!r})")
-    said, bad, _ = tool("contrast", session="t", window="a11y-test")
-    check(bad and "nothing measured" in said and "reports where its widgets are" in said,
-          f"contrast: GTK 4, nothing measured, said ({said!r})")
-    said, _, _ = tool("tab_walk", session="t", window="a11y-test", visible=True,
+          f"check_accessible_names: ignore found in a tree line, by a path ({said!r})")
+    said, bad, _ = tool("check_contrast", session="t", window="a11y-test", passes=True)
+    check(not bad and "not measured, which doesn't fail" in said and "reports where" in said
+          and re.search(r"^\d+ pass:\n.*: text passes at ", said, re.M),
+          f"check_contrast: GTK 4, its text found and passing, the rest not measured, said ({said!r})")
+    said, _, _ = tool("check_focus_order", session="t", window="a11y-test", visible=True,
                       ignore=['button "(Minimize|Maximize|Close)"'])
     check("focus not shown" in said and said.endswith("round again after 6\nfocus not shown on 1"),
-          "tab_walk: the order, and where the focus doesn't show")
+          "check_focus_order: the order, and where the focus doesn't show")
+    if shutil.which("orca"):
+        said, bad, _ = tool("get_speech", session="t", window="a11y-test")
+        check(not bad and re.search(r'^(push )?button "Save" .*  says "Save (push )?button\.?"$', said, re.M),
+              f"get_speech: what Orca says at each stop ({said!r})")
     said, bad, _ = tool("press_keys", session="t", keys="Tab Tab")
     check(not bad and said == "Pressed Tab, Tab.", "press_keys: keys given as text")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.
     tool("start_session", name="h")
-    tool("spawn", session="h", program="held")
+    tool("spawn_program", session="h", program="held")
     tool("wait_for", session="h", what="window", value="held", timeout="20")
     tool("wait_for", session="h", what="stable", window="held")
     said, bad, _ = tool("wait_for", session="h", what="change", window="held", timeout=1)
     check(bad and "to change" in said, f"wait_for: change gives up on a still window ({said})")
-    _, _, content = tool("screenshot", session="h", window="held")
+    _, _, content = tool("take_screenshot", session="h", window="held")
     png = next(c for c in content if c["type"] == "image")
     (tmp / "held.png").write_bytes(base64.b64decode(png["data"]))
     said, bad, _ = tool("wait_for", session="h", what="match", value="held.png", window="held")
@@ -233,32 +309,33 @@ try:
                for f in ("/etc/hostname", "../" * 20 + "etc/hostname", ".")]
     threading.Timer(0.5, (tmp / "later.log").symlink_to, ["/etc/hostname"]).start()
     later, later_bad, _ = tool("wait_for", session="h", what="line", value="", file="later.log")
-    check(not bad and said == "beacon_claimed 2"
+    check(not bad and said == "The line:\n| beacon_claimed 2"
           and all(bad and "by its path from there" in said for said, bad in refused)
           and later_bad and "outside" in later,
           f"wait_for: line, a new one, in a file in the allow file's directory only ({said})")
     with open(tmp / "game.log", "a") as log:
         threading.Timer(1, lambda: log.write("run_end 3\n") and log.flush()).start()
-        said, bad, _ = tool("record", session="h", until_line="run_", file="game.log",
+        said, bad, _ = tool("record_video", session="h", until_line="run_", file="game.log",
                             tail=0.5)
     saved = re.match(r"Saved (.+?), ([\d.]+) seconds", said)
-    capped, capped_bad, _ = tool("record", session="h", until_line="nope", file="game.log",
+    capped, capped_bad, _ = tool("record_video", session="h", until_line="nope", file="game.log",
                                  seconds=0.5)
     threading.Timer(0.5, (tmp / "later2.log").symlink_to, ["/etc/hostname"]).start()
-    refused = [tool("record", session="h", until_line="x", file=f)[:2]
+    refused = [tool("record_video", session="h", until_line="x", file=f)[:2]
                for f in ("later2.log", "/etc/hostname", None)]
     check(not bad and saved and 1.2 <= float(saved[2]) < 2.5
-          and said.endswith("It ended on the line: run_end 3")
+          and said.endswith("It ended on the line:\n| run_end 3")
           and not capped_bad and "No line matching 'nope' came in its 0.5 seconds" in capped
           and "outside" in refused[0][0] and "by its path from there" in refused[1][0]
           and "needs a file" in refused[2][0] and all(bad for _, bad in refused)
-          and "tail goes with until_line" in tool("record", session="h", seconds=1, tail=1)[0],
-          f"record: until_line, ended by a new line, and tail; else by seconds; its file in "
+          and "tail goes with until_line" in tool("record_video", session="h", seconds=1,
+                                                  tail=1)[0],
+          f"record_video: until_line, ended by a new line, and tail; else by seconds; its file in "
           f"the allow file's directory only ({said})")
-    steps = [("click", dict(x=50, y=50, window="held")),
+    steps = [("click_element", dict(x=50, y=50, window="held")),
              ("press_keys", dict(keys="w", state="down")),
-             ("click", dict(x=60, y=60, window="held", state="down")),
-             ("click", dict(x=60, y=60, window="held", state="up")),
+             ("click_element", dict(x=60, y=60, window="held", state="down")),
+             ("click_element", dict(x=60, y=60, window="held", state="up")),
              ("press_keys", dict(keys="w", state="up")),
              ("press_keys", dict(keys="d", hold="0.3"))]
     said = [tool(name, session="h", **args) for name, args in steps]
@@ -276,37 +353,65 @@ try:
             ["press", "d"], ["release", "d"]]
     check(not any(bad for _, bad, _ in said) and events == want
           and said[1][0] == "Pressed and left down w." and said[5][0] == "Held for 0.3 s d.",
-          f"press_keys and click: held down across calls, and for a while ({events})")
+          f"press_keys and click_element: held down across calls, and for a while ({events})")
     said, bad, _ = tool("press_keys", session="h", keys="w", hold=1, state="down")
     check(bad and "not both" in said, "press_keys: hold and state together, refused")
     said, bad, _ = tool("press_keys", session="h", keys="w", hold=120)
     check(bad and "0 to 60" in said, "press_keys: a hold too long, refused")
-    said, bad, _ = tool("click", session="h", x=5, y=5, double=True, hold=1)
-    check(bad and "not together" in said, "click: double with hold, refused")
+    said, bad, _ = tool("click_element", session="h", x=5, y=5, double=True, hold=1)
+    check(bad and "not together" in said, "click_element: double with hold, refused")
     tool("stop_session", session="h")
     tool("start_session", name="l")
-    tool("spawn", session="l", program="long")
+    tool("spawn_program", session="l", program="long")
     tool("wait_for", session="l", what="window", value="a11y-test", timeout="20")
-    before, before_bad, _ = tool("click", session="l", name="Row 25")
-    said, bad, _ = tool("scroll", session="l", name="Row 0", dy=10)
+    before, before_bad, _ = tool("click_element", session="l", name="Row 25")
+    said, bad, _ = tool("scroll_wheel", session="l", name="Row 0", dy=10)
     tool("wait_for", session="l", what="stable", window="a11y-test")
-    after, after_bad, _ = tool("click", session="l", name="Row 25")
-    back, back_bad, _ = tool("scroll", session="l", name="Row 25", dy=-10)
-    refused = [tool("scroll", session="l", name="Row 0")[:2],
-               tool("scroll", session="l", x=5, y=5, dy=1000)[:2]]
+    after, after_bad, _ = tool("click_element", session="l", name="Row 25")
+    back, back_bad, _ = tool("scroll_wheel", session="l", name="Row 25", dy=-10)
+    refused = [tool("scroll_wheel", session="l", name="Row 0")[:2],
+               tool("scroll_wheel", session="l", x=5, y=5, dy=1000)[:2]]
     check(before_bad and "outside its window" in before and not bad
           and said.startswith('Scrolled 10 down over label "Row 0"') and not after_bad
           and not back_bad and back.startswith('Scrolled 10 up over label "Row 25"')
           and all(bad for _, bad in refused) and "nothing to scroll" in refused[0][0]
           and "-100 to 100, not 1000" in refused[1][0],
-          f"scroll: by a node's name, a row past the end into view, and back; none or too "
+          f"scroll_wheel: by a node's name, a row past the end into view, and back; none or too "
           f"far, refused ({said}; {back})")
+    mcp.LINES, most = 5, mcp.LINES
+    try:
+        said, bad, _ = tool("get_accessible_tree", session="l")
+    finally:
+        mcp.LINES = most
+    check(not bad and len(said.splitlines()) == 6
+          and re.fullmatch(r"… \d+ more lines: narrow it with window", said.splitlines()[-1]),
+          f"get_accessible_tree: capped, saying how many more and how to narrow it ({said})")
     tool("stop_session", session="l")
+    # By the name it was spawned by, a program behind a shell, whose window's
+    # title isn't that; and a title that isn't there, the window that is said.
+    for wayland in (False, True):
+        tool("start_session", name="w", wayland=wayland)
+        said, _, _ = tool("spawn_program", session="w", program="wrapped")
+        up, up_bad, _ = tool("wait_for", session="w", what="window", value="wrapped",
+                             timeout=20)
+        none, none_bad, _ = tool("wait_for", session="w", what="window", value="a11y",
+                                 timeout=0)
+        tool("spawn_program", session="w", program="daemon")
+        daemon, daemon_bad, _ = tool("wait_for", session="w", what="window", value="daemon",
+                                     timeout=20)
+        tool("stop_session", session="w")
+        check("wait_for window 'wrapped'" in said and not up_bad
+              and up.startswith("'a11y-test' is up") and none_bad
+              and 'there are: "a11y-test"' in none
+              and not daemon_bad and daemon.startswith("'daemon' is up"),
+              f"wait_for window{' on Wayland' if wayland else ''}: by the name spawned, or a "
+              f"daemon's by its title, and giving up, the windows there are "
+              f"({up}; {none}; {daemon})")
     if os.access("/dev/uinput", os.W_OK) and shutil.which("bwrap") and subprocess.run(
             ["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0:
         said, bad, _ = tool("start_session", name="g", a11y=False, gamepads=1)
         check(not bad and "1 gamepad" in said, f"start_session with a gamepad ({said})")
-        said, _, _ = tool("spawn", session="g", program="padread")
+        said, _, _ = tool("spawn_program", session="g", program="padread")
         pid = re.search(r"pid (\d+)", said)[1]
         log, end = tmp / "pad.log", time.monotonic() + 10
         while not (log.exists() and "ready" in log.read_text()) and time.monotonic() < end:
@@ -314,64 +419,65 @@ try:
         # Once it's ready: before then, bwrap's child may not be the program yet.
         check(Path(f"/proc/{pid}/comm").read_text().strip() != "bwrap"
               and "pad_read" in Path(f"/proc/{pid}/cmdline").read_text(),
-              "spawn in a gamepad session: the program's own pid, not the sandbox's")
-        said = [tool("gamepad", session="g", action="press", buttons="a"),
-                tool("gamepad", session="g", action="stick", which="left", x=1, y=0, hold=0.1),
-                tool("gamepad", session="g", action="press", buttons="y", state="down"),
-                tool("gamepad", session="g", action="neutral")]
+              "spawn_program in a gamepad session: the program's own pid, not the sandbox's")
+        said = [tool("use_gamepad", session="g", action="press", buttons="a"),
+                tool("use_gamepad", session="g", action="stick", which="left", x=1, y=0, hold=0.1),
+                tool("use_gamepad", session="g", action="press", buttons="y", state="down"),
+                tool("use_gamepad", session="g", action="neutral")]
         time.sleep(0.3)
         # The kernel passes on only what changes: y stays 0, so says nothing.
         got = [line for line in log.read_text().splitlines() if line.startswith(("key", "abs"))]
         check(not any(bad for _, bad, _ in said)
               and got == ["key 304 1", "key 304 0", "abs 0 32767", "abs 0 0",
                           "key 308 1", "key 308 0"],
-              f"gamepad: press, a stick held a while, a button left down, neutral ({got})")
-        said, bad, _ = tool("gamepad", session="g", action="press", buttons="z")
-        check(bad and "no button z" in said, "gamepad: a button there isn't, said")
-        refused = [tool("gamepad", session="g", action="press", buttons="a", pad=7),
-                   tool("gamepad", session="g", action="stick", which="left", x=5, y=0),
-                   tool("gamepad", session="g", action="trigger", which="left", value=-1),
+              f"use_gamepad: press, a stick held a while, a button left down, neutral ({got})")
+        said, bad, _ = tool("use_gamepad", session="g", action="press", buttons="z")
+        check(bad and "no button z" in said, "use_gamepad: a button there isn't, said")
+        refused = [tool("use_gamepad", session="g", action="press", buttons="a", pad=7),
+                   tool("use_gamepad", session="g", action="stick", which="left", x=5, y=0),
+                   tool("use_gamepad", session="g", action="trigger", which="left", value=-1),
                    tool("start_session", name="g9", gamepads=9)]
         check(all(bad for _, bad, _ in refused) and "1 to 4, not 7" in refused[0][0]
               and "-1 to 1, not 5" in refused[1][0] and "0 to 4, not 9" in refused[3][0],
-              "gamepad: a pad, stick, trigger or count out of range, refused")
+              "use_gamepad: a pad, stick, trigger or count out of range, refused")
         tool("stop_session", session="g")
     else:
-        print("skip  gamepad: no writable /dev/uinput or no bwrap")
+        print("skip  use_gamepad: no writable /dev/uinput or no bwrap")
     if shutil.which("pipewire") and shutil.which("wireplumber") and shutil.which("paplay"):
         with wave.open(str(tmp / "tone.wav"), "wb") as w:
             w.setnchannels(2), w.setsampwidth(2), w.setframerate(48000)
             w.writeframes(b"".join(struct.pack("<hh", v, v) for v in (
                 int(8000 * math.sin(2 * math.pi * 440 * i / 48000)) for i in range(24000))))
         tool("start_session", name="a", a11y=False, audio=True)
-        said, bad, _ = tool("sound", session="a", action="stop")
-        check(bad and "action start first" in said, "sound: stop before start, refused")
-        tool("sound", session="a", action="start")
-        tool("spawn", session="a", program="tone")
+        said, bad, _ = tool("record_audio", session="a", action="stop")
+        check(bad and "action start first" in said, "record_audio: stop before start, refused")
+        tool("record_audio", session="a", action="start")
+        tool("spawn_program", session="a", program="tone")
         time.sleep(1.5)
-        said, bad, _ = tool("sound", session="a", action="stop")
+        said, bad, _ = tool("record_audio", session="a", action="stop")
         check(not bad and "No gaps, clipping or silence." in said
               and re.search(r"peak -12\.\d dBFS", said),
-              f"sound: what a program played, heard ({said})")
-        tool("spawn", session="a", program="late_tone")
-        said, bad, content = tool("record", session="a", seconds=1.5, sound=True)
+              f"record_audio: what a program played, heard ({said})")
+        tool("spawn_program", session="a", program="late_tone")
+        said, bad, content = tool("record_video", session="a", seconds=1.5, sound=True)
         check(not bad and said.startswith("Saved") and "No gaps, clipping or silence." in said
               and re.search(r"peak -12\.\d dBFS", said) and content[0]["type"] == "image",
-              f"record: with sound, what was heard said too ({said})")
+              f"record_video: with sound, what was heard said too ({said})")
         tool("stop_session", session="a")
-        said, bad, _ = tool("sound", session="t", action="start")
-        check(bad and "start a session with audio" in said, "sound: no audio, refused")
+        said, bad, _ = tool("record_audio", session="t", action="start")
+        check(bad and "start a session with audio" in said, "record_audio: no audio, refused")
     else:
-        print("skip  sound: no PipeWire, WirePlumber or paplay")
+        print("skip  record_audio: no PipeWire, WirePlumber or paplay")
     # Names as a calculator's buttons have them: as they are first, then as regexes.
     tool("start_session", name="n")
-    tool("spawn", session="n", program="keys")
+    tool("spawn_program", session="n", program="keys")
     tool("wait_for", session="n", what="window", value="a11y-test", timeout=20)
-    said = [tool("click", session="n", name=v, timeout=0.5)[:2] for v in (".", "+", "(Draft)")]
+    said = [tool("click_element", session="n", name=v, timeout=0.5)[:2]
+            for v in (".", "+", "(Draft)")]
     check(all(not bad and f'button {json.dumps(v)} ' in got
               for (got, bad), v in zip(said, (".", "+", "(Draft)"))),
-          f"click: a name as it is, before it as a regex ({said})")
-    refused = [tool("click", session="n", timeout=0.5, **a)[:2]
+          f"click_element: a name as it is, before it as a regex ({said})")
+    refused = [tool("click_element", session="n", timeout=0.5, **a)[:2]
                for a in (dict(name="[12]"), dict(name="Draft"), dict(name="*"),
                          dict(name="1", role="("))]
     check(all(bad for _, bad in refused)
@@ -381,7 +487,7 @@ try:
           and "'*' (exactly: it isn't a regex" in refused[2][0]
           and "role '(' (exactly: it isn't a regex" in refused[3][0]
           and "nearest" not in refused[3][0],
-          f"click: two matches with where they are, the nearest names to none, and what "
+          f"click_element: two matches with where they are, the nearest names to none, and what "
           f"isn't a regex, said ({refused})")
     said, bad, _ = tool("wait_for", session="n", what="sleep")
     check(bad and said.startswith("wait_for waits for window") and "not 'sleep'" in said,
@@ -391,10 +497,23 @@ try:
     said, bad, _ = tool("stop_session", session="u")
     check(not bad and "used, over" in said and "peak memory" in said,
           f"stop_session: what a session with usage used, said ({said})")
-    said, bad, _ = tool("click", session="t", nmae="Save")
+    said, bad, _ = tool("click_element", session="t", nmae="Save")
     check(bad and "doesn't take nmae" in said, "an argument a tool doesn't take: said")
-    said, bad, _ = tool("program_output", session="t", program="app")
-    check(not bad and "still running" in said, "program_output")
+    unknown = [rpc("tools/call", {"name": n, "arguments": {}})["error"]
+               for n in ("click", "nope", ["click"])]
+    check([e["code"] for e in unknown] == [-32602] * 3
+          and [e["message"] for e in unknown]
+          == ["Unknown tool: click; it's click_element now", "Unknown tool: nope",
+              "Unknown tool: ['click']"],
+          f"a tool it doesn't have: a protocol error, an old name's new one said ({unknown})")
+    said, bad, _ = tool("get_program_output", session="t", program="app")
+    check(not bad and "still running" in said, "get_program_output")
+    tool("spawn_program", session="t", program="talk")
+    time.sleep(1)
+    said, bad, _ = tool("get_program_output", session="t", program="talk")
+    check(not bad and said.split("\n", 1)[1]
+          == "| one\n| two\n| " + "x" * 500 + "… (100 more characters)",
+          f"get_program_output: each line fenced, a long one cut ({said!r})")
     scratch = server.sessions["t"].scratch
     said, bad, _ = tool("stop_session", session="t")
     check(not bad and not scratch.exists() and not server.sessions,
@@ -440,8 +559,8 @@ def gone(pid):
 proc, answers = serve({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
                       {"jsonrpc": "2.0", "method": "notifications/initialized"},
                       call_q(2, "start_session", name="io"),
-                      call_q(3, "spawn", session="io", program="reader"),
-                      call_q(4, "spawn", session="io", program="app"),
+                      call_q(3, "spawn_program", session="io", program="reader"),
+                      call_q(4, "spawn_program", session="io", program="app"),
                       {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": [1]},
                       {"jsonrpc": "2.0", "method": "notifications/cancelled",
                        "params": {"requestId": [2]}},
@@ -473,12 +592,12 @@ def until_gone(*paths_or_pids, wait=5):
 # alone. The watchdog stops what the server can't, either way.
 for how in ("claude", "kill"):
     proc, answers = serve(call_q(1, "start_session", name=how, wayland=how == "kill"),
-                          call_q(2, "spawn", session=how, program="app"),
-                          call_q(3, "spawn", session=how, program="where"),
+                          call_q(2, "spawn_program", session=how, program="app"),
+                          call_q(3, "spawn_program", session=how, program="where"),
                           call_q(4, "wait_for", session=how, what="stable"),
-                          call_q(5, "program_output", session=how, program="where"))
+                          call_q(5, "get_program_output", session=how, program="where"))
     app, where = pid_of(answers[1]), pid_of(answers[2])
-    scratch = answers[4]["result"]["content"][0]["text"].splitlines()[1]
+    scratch = answers[4]["result"]["content"][0]["text"].splitlines()[1].removeprefix("| ")
     # Not the session's: a shell that cd'd there, its PWD in the directory.
     onlooker = subprocess.Popen(["sleep", "300"], cwd=scratch,
                                 env=dict(os.environ, PWD=scratch))
@@ -532,8 +651,25 @@ piped = subprocess.run([sys.argv[1], "mcp"], capture_output=True, text=True, tim
 ids = [json.loads(line).get("id") for line in piped.stdout.splitlines()]
 check(ids == [1, None, 2, 3] and "is up" in piped.stdout,
       f"over stdio: requests piped in before stdin closes are all answered ({ids})")
+# From a virtualenv that can't see the system's PyGObject, as plain pipx
+# install and uvx make: the session starts, saying what won't work and why.
+venv = tmp / "venv"
+subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+blind = subprocess.run([str(venv / "bin/python"), sys.argv[1], "mcp"], capture_output=True,
+                       text=True, timeout=120, input="".join(json.dumps(q) + "\n" for q in (
+                           call_q(1, "start_session", name="blind"),
+                           call_q(2, "get_accessible_tree", session="blind"))))
+started, tree = (json.loads(line)["result"] for line in blind.stdout.splitlines())
+check("is up" in started["content"][0]["text"] and "Note: the accessibility tools "
+      "(get_accessible_tree, check_*, list_announcements, and anything by a node's name) "
+      "won't work: needs PyGObject and AT-SPI from the system, which this virtualenv can't "
+      "see: make it with --system-site-packages." in started["content"][0]["text"]
+      and tree["isError"] and "--system-site-packages" in tree["content"][0]["text"],
+      f"start_session with no PyGObject in sight: up, saying what won't work and how to fix "
+      f"it ({started}; {tree})")
 # stdin closed during a long click by name: called off, not waited out.
-proc.stdin.write(json.dumps(call_q(5, "click", session="long", name="never", timeout=60)) + "\n")
+proc.stdin.write(json.dumps(call_q(5, "click_element", session="long", name="never",
+                                   timeout=60)) + "\n")
 proc.stdin.flush()
 time.sleep(1)
 sent = time.monotonic()
@@ -542,7 +678,7 @@ proc.wait(60)
 check(time.monotonic() - sent < 20, f"over stdio: stdin closed during a long call stops the "
       f"server then ({time.monotonic() - sent:.1f} s)")
 proc, answers = serve(call_q(1, "start_session", name="hup"),
-                      call_q(2, "spawn", session="hup", program="app"))
+                      call_q(2, "spawn_program", session="hup", program="app"))
 pid = int(re.search(r"pid (\d+)", answers[1]["result"]["content"][0]["text"])[1])
 proc.send_signal(signal.SIGHUP)
 proc.wait(60)

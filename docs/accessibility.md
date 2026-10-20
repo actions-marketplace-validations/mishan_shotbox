@@ -27,14 +27,21 @@ Inside a session with `--a11y`:
   down and DX right (negative, up and left): a list by itself or by a
   row still in view (one scrolled out of it is refused, as `click`
   refuses it).
-- **`shotbox a11y contrast [--window RE]`** measures the contrast of
+- **`shotbox a11y contrast [--window RE] [--passes]`** measures the contrast of
   what each node draws against its background, and fails, a line each:
-  `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`.
-  [Contrast](#contrast).
+  `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`; with `--passes`,
+  what passes too: `PATH: text passes at 12.23:1, #323236 on #fafafb (at
+  least 4.5)`. [Contrast](#contrast).
+- **`shotbox a11y speak [--keys KEY...] [--max 50] [--window RE]`**
+  starts Orca in the session, presses Tab until the focus comes round
+  (or the keys, in turn), and prints what Orca said after each press,
+  with what has the focus: [What a screen reader says](#what-a-screen-reader-says).
 - **`shotbox wait announce RE`** waits for a program to announce
   something matching RE (found anywhere in it) to a screen reader:
-  GTK 4.14's `gtk_accessible_announce()`, or text put in a browser's
-  live region (`aria-live`, `role="status"`). [Announcements](#announcements).
+  GTK 4.14's `gtk_accessible_announce()`, text put in a browser's
+  live region (`aria-live`, `role="status"`), an alert or info bar
+  appearing (GTK 3's message dialogs, Qt's `QMessageBox`, libadwaita's
+  `AdwAlertDialog`), or the focus renamed. [Announcements](#announcements).
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &
@@ -47,9 +54,8 @@ finds that the editor's text area has no name.
 waits up to `--timeout` (10s) for it to appear in the tree. Without it,
 every program's windows are there. It works on X11, Wayland and
 Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
-Bevy, GTK built with it), and for Chromium, headed, given
-`--force-renderer-accessibility` (the Node package's `accessible`), on
-X11.
+Bevy, GTK built with it), and for Chromium (Google Chrome, Playwright's
+Chromium, and the browsers built on it), headed, on X11.
 
 ## The bus
 
@@ -80,8 +86,34 @@ Wayland count the surface's shadow in, consistently, and are placed
 right. Chromium also asks `org.a11y.Status`'s `IsEnabled` whether a screen
 reader is running, which here says no (the launcher aborts when told
 otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
-yes, which the session sets; it still needs `--force-renderer-accessibility`
-for a page's part of the tree, and is tested headed. Everything runs in
+yes, which the session sets. That puts its windows on the bus, and no
+more: it builds the rest of its tree, a page's too, only once it takes a
+screen reader to be at work, which it does when a node's attributes are
+asked for, as Orca asks. `shotbox a11y` asks a browser window's, the
+first time a command reads it, and waits for its page, so no
+`--force-renderer-accessibility` is needed: up to 2 seconds for the
+page's document, then up to `--timeout` for its tree to be built (the
+document is an empty stand-in till then; a page of thousands of
+controls takes seconds). A page whose tree isn't built in time is noted
+on stderr, and the window `--window` asks for fails. That turns on
+Chromium's accessibility (its basic and extended-properties modes) for
+the whole browser, for as long as it runs, which slows its pages a
+little: a measure of a page's performance in the same session counts
+that in. It's a little less than the switch turns on (no screen-reader
+mode); the trees came out the same in testing. A window with no page
+(a crashed tab, or a browser started with
+`--disable-platform-accessibility-integration`, which builds no page's
+tree for a reader) is noted on stderr, and the rest read; the window
+`--window` asks for, with nothing in its tree at all, fails saying so,
+rather than give the window alone. `--force-renderer-accessibility`
+builds the tree anyway. Electron's programs (VS Code, Slack; not
+tested) have windows of another kind: they're asked too, which turns
+their accessibility on, but not waited for or noted, so the first read
+can come before the page is there. Nothing tells the other programs in
+the session a screen reader is running. Playwright, in a session, looks
+for its browsers in the scratch home's cache; the session sets
+`PLAYWRIGHT_BROWSERS_PATH` to yours ([What's sealed](sealed.md)) so it
+finds them. Everything runs in
 the launcher's process group, which goes with the session's other groups
 at the end.
 
@@ -102,11 +134,15 @@ the one `--window` picks there, matched to its program by process, unless
 one of that program's named windows is picked. A pattern that matches an
 empty name, like `.*`, picks every unnamed window.
 
-The tree leaves out nodes that aren't showing (a hidden widget, a stack
-page not shown, what's in a revealer not revealed, which the toolkit
-calls visible), and in a web page those that aren't visible, since a
-page's nodes scrolled out of view aren't showing, where a toolkit's still
-are. A field with no name of its own goes by what labels it
+The tree leaves out nodes that aren't showing (a hidden widget, what's
+in a revealer not revealed, which the toolkit calls visible), and in a
+web page those that aren't visible, since a page's nodes scrolled out of
+view aren't showing, where a toolkit's still are. GTK 4 says a stack's
+pages not shown are showing, so they're in it. GTK 4 before 4.10.3 says
+only its windows are showing, so in it the tree takes what's visible,
+all it presents, as later ones say it's showing; and before 4.10 it
+names a node with no name by its class (`GtkButton`), which the tree
+takes as no name. A field with no name of its own goes by what labels it
 ([Lint](#lint)). It lists the states a screen reader says, not the ones
 about layout: focusable, focused, selected, checked, indeterminate,
 pressed, expanded or collapsed, editable, read-only, modal, required,
@@ -133,16 +169,25 @@ it can't tell, a node's bounds are `null`, and clicking it says so:
   right.
 - GTK 4 loses border and padding on the way down, and how depends on
   its version. On X11 with no compositor a window has a border and
-  padding of its own (5 pixels, its `solid-csd` style), and every
-  version loses that from the window's children; shotbox makes it up,
-  telling it from the frame and its first child, which fills the frame
-  but for it. Up to 4.14.5, GTK places each node at its own content
-  area, past its border and padding: a button by about 17 pixels across.
+  padding of its own (5 pixels, its `solid-csd` style). Before 4.14,
+  the frame is what's inside it, so the display's window is that much
+  bigger all round, and shotbox places the frame inside it. From 4.14,
+  the frame is all of it, and GTK loses it from the window's
+  children; shotbox makes it up, telling it from the frame and its first
+  child, which fills the frame but for it. Up to 4.14.5, GTK places each
+  node at its own content area, past its border and padding: a button by
+  about 17 pixels across. Before 4.14 that's right, for what's inside the
+  border and padding ([GTK 4's positions](#gtk-4s-positions)).
   From 4.14.6, it places each node relative to its parent's corner,
   short of the parent's border and padding: a button's label at the
   button's corner. Neither can be told from the tree. A GTK with this
   fixed, each node relative to its parent's bounds and a window at
   zero, is placed right.
+- A size below zero, or over 32767 (the most an X11 window can be), is
+  none a node can be drawn at: GTK 3's -1 for what it doesn't draw, and
+  GTK 4's for a widget it hasn't realized (a notebook's page never
+  shown), which it sends unset, a different one each run
+  (-1346821116 wide).
 
 ## Lint
 
@@ -150,8 +195,8 @@ Few rules, each one something a screen reader user would trip over. A
 node that takes the focus and has no name of its own is named by what
 labels it (a labelled-by relation, as GTK 3 has between a field and its
 mnemonic label), as a screen reader says it, in the tree too. A node
-that says it has no size (GTK 3's notebook tab, with its tabs hidden)
-isn't drawn, and isn't linted:
+that says it has no size (GTK 3's -1 by -1, for a notebook's tab with
+its tabs hidden) isn't drawn, and isn't linted:
 
 | A node with no name that's | Why it's a problem |
 |---|---|
@@ -178,14 +223,13 @@ scroller), so the rest can be held to in CI.
 
 `tabwalk` notes where the focus is, presses the key (over XTEST, or
 sway's virtual keyboard), and waits up to two seconds for the focus to
-land somewhere new. It presses Shift first, since GTK 4 on Wayland says
-where the focus is only once a key has been pressed. Few programs act
-on Shift alone, but an input method can (Chinese ones, ibus-libpinyin,
-fcitx5 and rime, switch modes on it), and so can a program's own
-binding for it. If no node has the focus even then, it presses nothing
-more, since it can't tell what a key would do there, and says so, exit
-1: on X11 with no window manager a window can lack the keyboard
-(`shotbox focus` gives it). It stops:
+land somewhere new. GTK says where the focus is only while there's a
+keyboard, which on Wayland is the session's: made as it starts and
+kept till it stops, so the focus is there to read between commands, and
+before any key is pressed, as on X11. If no node has the focus to begin
+with, it presses nothing, since it can't tell what a key would do
+there, and says so, exit 1: on X11 with no window manager a window can
+lack the keyboard (`shotbox focus` gives it). It stops:
 
 - when it lands on a node it has been on: where it began, or any stop
   since, since focus can settle into a round (through a list's rows,
@@ -273,7 +317,9 @@ of that, since an old GTK 4 places a node past its padding, and part of
 its ring outside what's counted. A web document, which takes the focus
 as a whole and has nothing drawn round it, and a container, which shows
 it on what it passes it to (a notebook, on its tab), aren't checked. It
-needs the node's bounds, so what can't be placed isn't checked either.
+needs the node's bounds, so what can't be placed isn't checked either,
+nor what's outside the screen (a window bigger than it), which says
+`focus not measured: outside the screen`.
 
 Nodes are told apart by their program's name on the bus and their
 object path, not by their names, so two buttons with the same name are
@@ -293,8 +339,8 @@ whose field it names, which matches too (the field takes the focus);
 fails if more than one is left, saying which, as tree lines with where
 each is; raises the `--window`; and clicks the middle of its bounds,
 cut to its window's (a node scrolled out of view is still "showing";
-one wholly outside its window is refused), over XTEST or sway's virtual
-pointer, as `shotbox click` does. A real
+one wholly outside its window, or the screen, is refused), over XTEST
+or sway's virtual pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would. `scroll NAME DY [DX]` finds the node the same way and turns the
@@ -320,7 +366,8 @@ Wayland by sway's `focus`.
 ## Contrast
 
 `contrast` raises the `--window`, takes a picture of the screen, with
-the pointer parked, and measures each node in its bounds, but GTK 4's
+the pointer parked, and measures each node in its bounds, but GTK 4.14
+and later's, whose text is measured where it's found
 ([below](#gtk-4s-positions)):
 
 - **Text**: a node with a name whose role is text (a label, heading,
@@ -338,13 +385,24 @@ the pointer parked, and measures each node in its bounds, but GTK 4's
   its label's own size. Fewer
   than 16 pixels that aren't the background have no core of their color
   to measure, in any toolkit: a ".", "-", ":" or ",". That's said, "too
-  small to measure", and passes.
+  small to measure", and passes, unless it's GTK 4 text found whose
+  color its coverage says (below). Text found counts the pixels its
+  shape covers, not a grid or texture drawn behind it.
   Light or small text covers no pixel whole, so its core is lighter than
   its color, by more on one font and renderer than another, and can fail
   though its color passes. It's still measured as drawn, since text
   drawn see-through looks the same; where GTK 3 says the text's color
   and what's drawn is a lighter shade of it, a failure says that color
-  too, to tell which (GTK 4 doesn't say).
+  too, to tell which (GTK 4 doesn't say). GTK 4.14 and later's text,
+  found where it's drawn (below), whose glyphs cover fewer than three
+  pixels whole, as stems thinner than a pixel do on any GTK 4 release
+  (DejaVu Sans's "l" at 9 to 13px), is measured at the color a pixel
+  they covered whole would be, from how much of each they cover: its
+  color, or what see-through text makes of it. That's only where the
+  shape found accounts for every pixel, to a level and a half: not at a
+  size between the thirds of a pixel shapes are drawn at, as
+  `font-size: smaller` can make, nor under a shadow, either of which
+  would measure darker than its color; those are measured as above.
   GTK 4.16 and later draw text with `gtk-font-rendering = automatic`
   unless told otherwise, which ignores fontconfig's hinting and places
   glyphs at fractions of a pixel: a stem thinner than a pixel covers
@@ -356,7 +414,9 @@ the pointer parked, and measures each node in its bounds, but GTK 4's
   check passes or fails the same on any distribution. That's how the
   text is set, not how GTK draws it on a desktop left at automatic: to
   measure that, seed a home whose `.config/gtk-4.0/settings.ini` sets
-  `gtk-font-rendering = automatic` (`--seed`), which a session keeps.
+  `gtk-font-rendering = automatic` (`--seed`), which a session keeps
+  (text found where it's drawn, as above, measures at its color either
+  way).
   A control may draw its name or an icon, and GTK 3's and Qt's buttons
   keep their text to themselves, so the tree can't tell which: it's held
   to text's ratio. GTK 4 puts a label in a control that draws text, so a
@@ -373,7 +433,8 @@ the pointer parked, and measures each node in its bounds, but GTK 4's
   of its background, and a control, text or icon, of one color. For a
   control, that says how it measures with the pointer over it too,
   since some are drawn only then (a tab's close button). An image of one
-  color passes.
+  color passes, and a node that says it has no size, which isn't drawn
+  ([Lint](#lint)), is left out.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
@@ -391,8 +452,12 @@ A node with something measured inside it (a button's label) is measured
 by that. Each node's bounds are cut to its window's and to those of
 every node it's inside, so a row scrolled out of view, which GTK still
 calls showing, is cut to nothing by its scrolled window, and isn't
-measured. Disabled nodes and what's in them (a disabled button's label)
-are left out, as WCAG leaves out inactive controls. `--ignore RE`, as
+measured. Then to the screen: what's outside it (in a window bigger
+than the screen) isn't measured either, and says so, `text not
+measured: outside the screen`; nor is what the screen cuts and shows
+one color of (right-aligned text past its edge), `partly outside the
+screen`. Disabled nodes and what's in them (a
+disabled button's label) are left out, as WCAG leaves out inactive controls. `--ignore RE`, as
 lint has, leaves out each line the regex is found in. The colors are what's on the screen, after opacity and
 antialiasing: a check of what someone sees, not of the stylesheet. Text
 drawn with subpixel (LCD) antialiasing has every pixel of a thin glyph
@@ -401,45 +466,244 @@ tinted, none of its own color, and measures low: Chromium needs
 shotbox's displays draws grayscale; Qt's does it too (a Qt label set at
 3.00:1 measures 2.75).
 
-What wasn't measured (too small, GTK 4's) is said after the failures,
-a line each, and how many and why on stderr, so stdout is only
-`PATH: PROBLEM` lines; `--json` gives each line `fails`. The exit status
-is 1 if anything failed, 0 if what was measured passed, and 2 if
-nothing was measured at all and GTK 4's was left out: a GTK 4 window,
-`shotbox: nothing measured: ...` (text too small to measure, alone,
-passes). With `--json` it's 0 with failures, which the lines say, and 2
-when nothing was measured. `Screen.contrast()` raises then, and MCP's `contrast`
-says so as an error.
+What wasn't measured (too small, outside the screen, GTK 4's) is said
+after the failures, a line each, and how many and why on stderr, so stdout is only
+`PATH: WHAT` lines. `--passes` says what passes, with its ratio, between
+the failures and those, to compare one version with another or check
+where GTK 4's text was found. It doesn't list an image of one color, or
+an edge with nothing round it to measure, which have no ratio. `--json`
+gives an object of lists: `problems`, each node with its `problem`;
+with `--passes`, `passes`, each with its `contrast`; and `notes`, what
+wasn't measured, each with its `note` and, for GTK 4's, its `why`. The
+exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
+nothing was measured at all and GTK 4's was left out: a window on GTK
+4.14 or later none of whose text was found, `shotbox: nothing measured:
+...` (text too small to measure, alone, doesn't fail). With `--json` it's 0
+with failures, which the lines say, and 2 when nothing was measured. `Screen.contrast()` raises
+then, and MCP's `check_contrast` says so as an error.
 
 ### GTK 4's positions
 
-A GTK 4 app isn't checked: GTK 4 doesn't say where its widgets are,
-so contrast isn't measured on them, a line each, `not measured: GTK 4
-reports its position wrong`, and why once (in `--json`, each such line's
-`why`). gnome-calculator's "=", white on blue at 3.76:1, fails WCAG and
-isn't reported. What GTK 4 gets wrong, which can't be undone from what
-it says:
+GTK 4.14 and later don't say where their widgets are. What they get
+wrong:
 
-- each widget is placed without its containers' padding and borders,
-  so a label is off by everything round it (a dialog's button's label
-  by 44 pixels across and 22 down);
-- a stack's child is placed with its place in the stack counted twice;
-- a label's text is said to end a character short (more, for text that
-  isn't ASCII), without the label's own padding and border.
+- a stack's child is placed with its place in the stack counted twice
+  (12 pixels right and down for every key in gnome-calculator);
+- up to 4.14.5 (Ubuntu 24.04's), a widget is placed where its content
+  starts, inside its own border and padding, at its whole size, so its
+  box runs past its right and bottom edges by those;
+- from 4.14.6, to 4.24 at least, a widget is placed without its
+  containers' padding and borders, so it's said to be further left and
+  up than it is by all of them (a dialog's button's label by 44 pixels
+  across and 22 down).
 
 Measuring at those places measures what's there instead: a button's
-fill, a neighbor's text. The stack's is in GTK 4.14 and later, the rest
-in 4.14.6 and later, up to 4.24 at least; before 4.14, GTK 4 said where
-a widget's content is, which hasn't been checked here, so it isn't
-measured either. GTK 3, Qt and browsers say where their widgets are, and
-are measured.
-Large text and disabled nodes don't come into it for GTK 4, since
-nothing of it is measured. `SHOTBOX_TRUST_GTK4_BOUNDS=1` in the
-session's environment (`--env`) measures GTK 4 at its bounds as said:
-for a GTK whose bounds you've checked, which needs all three fixed (one
-with the padding alone fixed still has gnome-calculator's keypad 12
-pixels off). libadwaita's view stack and tab view pages take their
-bounds from their child, as GTK's stack pages do.
+fill, a neighbor's text. So only text is measured on them, where it's
+found: shotbox draws the node's name in the font GTK says it has, at
+each size its whole pixels may be rounded down from, hinted as 4.14
+and as 4.16 and later draw, and looks for it where the box GTK says can
+be. A stack's page is a node with no actions (not a widget) whose only
+child has its extents and is placed from them, which comes off; then up
+to 4.14.5 the text is inside the box, and from 4.14.6 inside it moved
+right and down by up to the room each container has round what's in
+it, since padding and borders can only put it further left and up.
+It's taken where it matches what's drawn best (a correlation of 0.98 or
+more of the drawn text's coverage with the picture's lightness, with two
+blank columns each side, worked out for each size and hinting at every
+place in the room, and on 4.16 and later, if none reaches 0.98, for
+the best of them a quarter of a pixel up, or a quarter or half down:
+those place text at fractions of a pixel, so a line set by its baseline
+can fall between rows), and not where anything else in that room
+matches 0.8 or more (the same text twice). Other text can match nearly
+as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
+"Button" 0.96, a letter-spaced or upper-case label over an entry
+holding its text 0.96. So every other node whose own room takes in
+what's found, disabled, left out or not, is drawn there too, by its
+name (not a name it takes from its label) and, for an entry, what's in
+it or its placeholder: if any matches 0.8 or more, nothing is taken.
+Text drawn by what has no text of its own (a drawing area, a widget
+drawing round its child) can't be, so from 4.14.6 the text GTK lays
+out must also be as wide as the name drawn as found, within a pixel
+and a fiftieth (GTK says how wide, from 4.22.3 a character short): a
+label drawn upper case or letter-spaced isn't, and isn't taken for
+its name drawn nearby. From 4.22.3 GTK gives a single character no
+width, so a one-character name is looked for only if it has no case (a
+digit, a "+"); a letter isn't, and its line says so.
+Text that isn't all ASCII ("Über", "€ 5", "…", "÷", "×", an arrow, a
+curly quote) isn't measured from 4.14.6, until a GTK that measures its
+extents right ships, a line each saying why: GTK measures it short by
+however many characters, so it can't be told apart. Up to 4.14.5 GTK
+doesn't say, and the text is looked for in the label's own box alone. A label hidden under
+something opaque, but drawn in its own font, can still be taken for
+the same text drawn visibly in the room round it. The text is measured
+in its own box, and a failure says how far its top-left corner is from
+where GTK says the text is, which is how far GTK has it wrong (its
+containers' padding and borders, right and down, less a stack's place,
+counted twice), with `--passes` too: a left-aligned label in a
+full-width row, under a theme on 4.24,
+
+```
+.../list item[0]/panel[0]/panel[0]/label[0]: text passes at 14.94:1, #ebe6f0 on #16131d (at least 4.5); found 2,2 px from where GTK 4.24.1 says its text is
+```
+
+Up to 4.14.5, and for one character from 4.22.3, GTK doesn't say where
+its text is, and it's how far from the corner of GTK's box, which takes
+in where the text sits in it (centered, or lower in a taller key):
+gnome-calculator's "=" on 4.24, white on blue,
+
+```
+.../button[23]/label[0]: text 3.76:1, #ffffff on #3584e4 (at least 4.5); found 14,19 px from the corner of the box GTK 4.24.1 says
+```
+
+Text all outside its window, or outside a scrolled window it's in,
+wherever GTK's box can put it, isn't looked for: a row scrolled out of
+view, which GTK still calls showing, `text not measured: not shown
+(scrolled out of view, or hidden)`. A row partly in view is looked for,
+and so is what's in a popover, which can be drawn outside both.
+
+What isn't found isn't measured, a line each, `text not measured: GTK 4
+reports its position wrong`, and why once (in `--json`, each such line's
+`why`). Text not looked for says why on its line too: `(a single
+letter: GTK gives it no width)`, `(over more than one line)`, `(not all
+ASCII: GTK measures its width short)`. What isn't found: text in more
+than one font (a superscript), letter-spaced (which GTK doesn't say), a
+name that isn't what's drawn, text with its own background at its edge
+or at the window's, what's drawn outside where GTK's box can be (a
+popover's label), and text with more than 600 by 400 pixels to look in.
+Looking takes up to 30 seconds in all; text not looked for by then is
+`text not measured: no time left to look for it`. Finding it needs
+pycairo and PangoCairo (`python3-gi-cairo` and `gir1.2-pango-1.0` on
+Debian, which the Action's `a11y: true` installs, and `shotbox doctor`
+checks): without them, no text is found, and the why says so. Images,
+controls that draw an icon, and edges (`--edges`) aren't measured
+either, a line each: nothing says where they are. Thin text found is
+measured from how much of each pixel its glyphs cover (as above), at
+its color; at GTK's own bounds, with `SHOTBOX_TRUST_GTK4_BOUNDS=1`,
+it's measured as drawn, and can measure lighter: `#b0b0b0` text as
+`#c1c1c0`.
+
+On gnome-calculator, gnome-text-editor, Files and test windows (borders
+and padding nested, stacks, libadwaita's view stack, keys in a grid,
+twins and decoys), on GTK 4.24.1 (X11, Wayland and Xwayland) and
+4.14.5, every text found was where GTK draws it, to the pixel, against
+its true place read in the program, and no text was taken for another.
+GTK 3, Qt and browsers say where their widgets are, and are measured.
+
+Before 4.14, GTK 4 says where a widget's content is: inside its own
+border and padding, placed right. On GTK 4.6.9 (Ubuntu 22.04) and 4.8.3
+(Debian 12), each node's bounds were its content box to the pixel, in
+nested boxes with borders and padding, a stack and a button inside it,
+and in gtk4-widget-factory, gtk4-demo, gnome-text-editor and Debian's
+gnome-calculator. So it's measured: a label's text is inside its
+content, on what's round it, and a button's label or icon on the
+button's fill (Debian 12's gnome-calculator "=", white on orange, fails
+at 2.64:1). Its edges aren't (`--edges`), being outside that, a line
+each, as for later GTK 4. Nor, a line each:
+
+- what's in a popover, which GTK places as if the popover were in its
+  window, not where it's drawn (a popover's label 34 pixels above it,
+  over the button that opened it);
+- a stack's page no longer shown, still said to be where it was: a node
+  on a stack's page where GTK, asked what's at its middle, says another
+  node of that stack (or one it's in), `not measured: GTK says another
+  node is at its middle`. A shown page's own child that can't be
+  clicked (`can_target` off) comes out the same.
+
+Close popovers before measuring on these versions: what's under an
+open one is measured against the popover's pixels, since GTK doesn't
+say where the popover really is.
+
+`SHOTBOX_TRUST_GTK4_BOUNDS=1` in the session's environment (`--env`)
+measures GTK 4 at its bounds as said, edges and all, rather than
+looking for its text: for a GTK whose bounds you've checked, which
+needs the stack's and the padding's fixed (one with the padding alone
+fixed still has gnome-calculator's keypad 12 pixels off). libadwaita's
+view stack and tab view pages take their bounds from their child, as
+GTK's stack pages do.
+
+## What a screen reader says
+
+The tree says what a screen reader finds, not what it makes of it: a
+field's mnemonic, the label it's named by, a description, a state, all
+come out as the reader puts them, and a node can have a name and still
+say nothing. `shotbox a11y speak` asks a real one, Orca:
+
+```
+$ shotbox run --a11y -- sh -c 'test/a11y_app.py form &
+    shotbox a11y speak --window a11y-test'
+(start) button "Save" [focusable, focused]  says "Screen reader on.", "a11y-test", "Save button"
+button "" [focusable, focused]  says "button"
+button "Announce" [focusable, focused]  says "Announce button"
+check box "Wrap lines" [focusable, focused, checked]  says "Wrap lines check box checked"
+text "File name" [focusable, focused, editable]  says "File name text", "opens popup"
+panel "" [focusable, focused]  says nothing
+text "Name:" [focusable, focused, editable]  says "Name: text", "N opens popup"
+button "Save" [focusable, focused]  says "Save button"
+```
+
+First, `(start)`: what has the focus as Orca starts, and what it says
+then (a dialog's title and text, say). Then a line a press: the node
+with the focus, as the tree has it, then each thing Orca said (a line
+break in one as `\n`), or `says nothing` (the drawing area above, which
+a person tabbing through hears nothing of); `(no node has the focus)`
+where none has it, as on X11 with no window manager until the window is
+given the keyboard (`shotbox focus`); `(the focus didn't move)` where
+the press left it where it was. A press is done once the focus has left
+where it was (or after two seconds, if it doesn't), and then once
+Orca's log has been still for half a second, so a program slow to move
+the focus is still heard.
+
+Without `--keys` it presses Tab until the focus lands where it has
+been, at most `--max` times, as `tabwalk` does, but never in a text view
+one writes in, which would take the tab as typing: it stops before one,
+saying which key leaves it (`ctrl+Tab`, or in Qt `shift+Tab`), and
+nothing is typed. `--keys Tab Tab space alt+n` presses those, in turn,
+a line each, whatever the focus does: what Orca says as a check box is
+toggled, or a mnemonic used. `--json` gives `start` and each of
+`presses` as `key`, `focus` (a node, as `tree --json` has it, or null),
+`moved` and `speech` (a list), and `text_view`, if Tab stopped at one,
+the key that leaves it. From Python,
+`Screen.speak()`; from MCP, `get_speech`.
+
+It needs Orca (`orca` on Debian and Fedora), which takes a few seconds
+to start, and is stopped, with what it started, once the keys are
+pressed. Orca is run so it stays in the session:
+
+- with a home of its own in the session's scratch dir
+  (`XDG_CONFIG_HOME` and `XDG_DATA_HOME`), so it starts from its
+  defaults and never reads or writes your settings, and its GSettings
+  in a keyfile there;
+- with no speech or braille: speech-dispatcher's, Spiel's and BrlAPI's
+  Python modules are taken out as it starts, so it says nothing out
+  loud nor on a braille display, and its debug log has what it would
+  have said, which is what's read;
+- with no key echo, which would say each key before what it moved the
+  focus to;
+- past its check for another Orca: it won't start while any of your
+  user's runs, your desktop's own included, so the `pgrep` it asks
+  finds none. `--replace`, which kills every Orca of yours, isn't
+  passed;
+- named `shotbox-orca`, not `orca`, so your desktop's Orca, started by
+  hand or by GNOME's `orca --replace`, doesn't find it in turn and
+  refuse to start, or kill it: it's run by its interpreter
+  (`python3 /usr/bin/orca`) and names itself through a stand-in for
+  `setproctitle`.
+
+All but the `pgrep` are a `sitecustomize.py` on Orca's `PYTHONPATH`, so
+an Orca whose interpreter is told to leave those out (`-I`, `-E`, `-s`
+or `-S` in its `#!` line) isn't started: it's refused, saying why.
+
+What's read of Orca's debug log is its `SPEECH OUTPUT: 'TEXT'` entries and
+nothing else, as the log isn't an interface and changes between
+releases. Checked with Orca 51.1 (Debian's), and 50.3, 48.0 and 46.1
+(Ubuntu's packages, run from the package's files): they say the same
+things, but for a period at the end before 51 (`"Save button."`), a
+mnemonic said (`"N opens popup"`) from 50, and a checked box said
+checked twice by 46 here (not with Ubuntu 24.04's own libraries, as CI
+runs it). A role is said as at-spi2-core names it, as the tree shows it:
+before 2.54 (Ubuntu 24.04's 2.52), a button is a `push button`
+(`"Save push button."`). Checked on X11 and Wayland, with GTK 4's
+windows.
 
 ## Announcements
 
@@ -470,6 +734,40 @@ is replaced sends all of the new text, and an element put in one sends
 its own. Text outside a live region, and a busy region's, isn't
 recorded. GTK has no live regions.
 
+What Orca says as it appears is recorded too: a node whose role is
+alert, notification or info bar saying it's showing
+(`object:state-changed:showing`), as GTK 3's message dialogs and
+`GtkInfoBar`, and Qt's `QMessageBox`, do; or the focus going into one,
+as into libadwaita's `AdwAlertDialog`, which GTK 4 doesn't say is
+showing. That's once while the focus stays in it, and again each time it
+comes back, as Orca reads it; and a window that comes up is looked in
+for the focus, as Orca does, since a program just started can say where
+it is before what's there can be asked about. Before libadwaita 1.6
+(Ubuntu 24.04's 1.5), an alert dialog is a dialog with no name, of
+which Orca 46 says only "dialog", and isn't recorded. It's written with
+its name and the names of the labels in it, but not its buttons':
+`assertive: Warning Delete notes.md? It can't be undone.`, and
+`polite:` for a notification. Orca says less, and not
+always: it leaves out a label of under three words, or one that takes
+the focus, as Qt's do (51 says that `QMessageBox` as `alert Warning`);
+it reads a dialog only once it's the active window; and 51 loses a GTK 3
+info bar to its filter of events that come too close together (46 says
+it). An info bar revealed (`gtk_info_bar_set_revealed()`) rather than
+shown says nothing of showing, and is heard by neither. A browser's
+`role="alert"` is a live region, recorded as one, and an alert that's
+announced something, or whose parent has, in the 10 seconds before isn't
+written: libadwaita (from 1.6) announces a toast (`A toast appeared:
+Saved`) from the parent of its node, an alert.
+
+And the focus renamed, as a button that says Copied once it's clicked:
+it's written `polite: Copied`, where Orca says it. As Orca 51 decides,
+that's not a name much like the last one said (a similarity of 0.85 or
+more, so not a button counting down, `Resend in 9s` to `8s`), nor a list
+item's that holds a progress bar; and as 46 does, not a combo box's,
+whose name is what's picked in it, or a table cell's. A value changed (a
+slider moved) isn't: Orca says it, but it's what the keys just did, not
+something the program said.
+
 ## Display presets
 
 What each preset sets, and what honors it. libadwaita takes its style
@@ -494,8 +792,8 @@ writes only keys that version knows.
 On X11 (and Xwayland), GTK takes the font DPI from the X server's
 `RESOURCE_MANAGER` over `settings.ini`, so `--text-scale` sets
 `Xft.dpi` there, at 96 times N. GTK 3 on Wayland reads text scaling from
-GSettings alone, which a sealed session keeps in memory, so it doesn't
-scale.
+GSettings alone, which a sealed session keeps in a keyfile of its own
+with no text scaling in it, so it doesn't scale.
 
 GTK 3's dark variant is its theme's: Ubuntu's GTK 3 defaults to Yaru,
 and where Yaru isn't installed (a CI image), it falls back to Adwaita

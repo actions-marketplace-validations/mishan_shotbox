@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long] [keys]. Its icon-only button,
+[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [slow] [alert]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -11,8 +11,17 @@ is lists and a notebook instead, `one` a single button, and
 `unfocusable` that, and a button Tab can't reach;
 `faint` adds a label too light to read and a disabled button, `thin` one in small monospace
 spaced by a fraction of a pixel, whose stems are thinner than one, `long` is a scrolled
-list running far past the window, and `keys` buttons named as a calculator's are, which
-aren't regexes or match more than themselves as one.
+list running far past the window (scrolled 60 pixels down, `down`), and `keys`
+buttons named as a calculator's are, which aren't regexes or match more than
+themselves as one; `form` adds a field
+named by a label with a mnemonic, `decoys` faint labels drawn otherwise
+than their font says (letter-spaced, upper case), each over an entry
+holding its text or showing it as a placeholder, or a drawing area
+drawing it (not all ASCII), `lines` a button labeled over two lines,
+`letter` a label of one letter, `slow` moves the focus a second after
+Tab, and `alert` says an error
+and asks in an alert dialog as it starts, again once answered, then
+holds a button that makes a toast.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -21,7 +30,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk, PangoCairo  # noqa: E402
 
 
 def lists():
@@ -46,6 +55,17 @@ def lists():
     box.append(Gtk.Button(label="Save"))
     box.append(tabs)
     return box
+
+
+def drawn(text):
+    """A drawing area drawing `text`, which it has no text of its own for."""
+    area = Gtk.DrawingArea(content_width=80, content_height=24)
+
+    def draw(widget, cr, width, height):
+        cr.set_source_rgb(0.1, 0.1, 0.1)
+        PangoCairo.show_layout(cr, widget.create_pango_layout(text))
+    area.set_draw_func(draw)
+    return area
 
 
 def activate(app):
@@ -75,7 +95,10 @@ def activate(app):
     thin = Gtk.Label(label="CONTACT", visible="thin" in sys.argv)
     css = Gtk.CssProvider()
     css.load_from_string("label.faint { color: #a0a0a0; } label.thin { color: #5f5670;"
-                         " font-family: monospace; font-size: 9.4px; letter-spacing: 0.37px; }")
+                         " font-family: monospace; font-size: 9.4px; letter-spacing: 0.37px; }"
+                         " label.spaced { letter-spacing: 2px; }"
+                         " label.upper { text-transform: uppercase; }"
+                         " box.decoy { padding: 4px 4px 40px; }")
     faint.add_css_class("faint")
     thin.add_css_class("thin")
     Gtk.StyleContext.add_provider_for_display(w.get_display(), css,
@@ -87,6 +110,27 @@ def activate(app):
                      accessible_role=Gtk.AccessibleRole.PRESENTATION)
     for widget in (save, delete, announce, wrap, entry, status, mark, sketch, faint, thin, later):
         box.append(widget)
+    if "form" in sys.argv:
+        name = Gtk.Entry()
+        box.append(Gtk.Label.new_with_mnemonic("_Name:"))
+        box.get_last_child().set_mnemonic_widget(name)
+        box.append(name)
+    if "decoys" in sys.argv:
+        # Padded below, which GTK 4.14.6 and later lose, so where each
+        # label can be takes in what's under it.
+        for text, look, field in (("Search", "spaced", Gtk.Entry(text="Search")),
+                                  ("Save", "upper", Gtk.Entry(text="Save")),
+                                  ("Find", "upper", Gtk.SearchEntry(placeholder_text="Find")),
+                                  ("Über", "upper", drawn("Über"))):
+            pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
+            pair.append(Gtk.Label(label=text, css_classes=["faint", look], halign=Gtk.Align.START))
+            field.set_halign(Gtk.Align.START)
+            pair.append(field)
+            box.append(pair)
+    if "lines" in sys.argv:
+        box.append(Gtk.Button(label="Line one\nLine two"))
+    if "letter" in sys.argv:
+        box.append(Gtk.Label(label="x"))
     notes = Gtk.TextView()
     notes.get_buffer().set_text("notes")
     notes.get_buffer().connect("changed", lambda b: print(repr(b.props.text), flush=True))
@@ -109,6 +153,8 @@ def activate(app):
         for i in range(200):
             rows.append(Gtk.Label(label=f"Row {i}"))
         box = Gtk.ScrolledWindow(child=rows, vexpand=True)
+        if "down" in sys.argv:
+            GLib.timeout_add(300, lambda: box.get_vadjustment().set_value(60) and False)
     if "keys" in sys.argv:
         box = Gtk.Box()
         for label in ("1", "2", ".", "+", "(Draft)"):
@@ -122,6 +168,15 @@ def activate(app):
         if "unfocusable" in sys.argv:
             view.append(Gtk.Button(label="Play", focusable=False))
     w.set_content(view)
+    if "slow" in sys.argv:
+        def later(c, key, code, state):
+            if key != Gdk.KEY_Tab:
+                return False
+            GLib.timeout_add(1000, lambda: w.child_focus(Gtk.DirectionType.TAB_FORWARD) and False)
+            return True
+        slow = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        slow.connect("key-pressed", later)
+        w.add_controller(slow)
     w.present()
     if "dialog" in sys.argv:
         # Escape, a way out of a text view elsewhere, closes a dialog.
@@ -130,6 +185,24 @@ def activate(app):
         inside.append(Gtk.Button(label="Send"))
         Adw.Dialog(child=inside, title="Reply").present(w)
         notes.grab_focus()
+    if "alert" in sys.argv:
+        # Said, then asked in an alert dialog, twice, then a toast.
+        toasts = Adw.ToastOverlay(child=Gtk.Button(label="Toast"))
+        toasts.get_child().connect("clicked", lambda b: toasts.add_toast(
+            Adw.Toast(title="Saved to notes.md")))
+        w.set_content(toasts)
+        w.announce("Error: Name is taken, pick another",
+                   Gtk.AccessibleAnnouncementPriority.MEDIUM)
+        ask = Adw.AlertDialog(heading="Name is taken", default_response="ok")
+        ask.add_response("ok", "OK")
+        asked = [1]
+
+        def again(d, response):
+            if asked[0] < 2:
+                asked[0] += 1
+                GLib.idle_add(lambda: d.present(w))
+        ask.connect("response", again)
+        ask.present(w)
     if "second" in sys.argv:
         other = Adw.ApplicationWindow(application=app)
         other.set_content(Gtk.Label(label="second"))

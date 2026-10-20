@@ -26,6 +26,7 @@
     shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox doctor                                  what's here of what each command needs
+    shotbox --version                               which shotbox this is
     shotbox vision IN.png OUT.png --as KIND         a picture as colorblind eyes see it
     shotbox listen IN.wav                           its level, clipping and dropouts
     shotbox compare A.png B.png [--diff D.png]      how many pixels differ
@@ -53,7 +54,7 @@ import time
 import wave
 from pathlib import Path
 
-from . import a11y, kept, mcp, pad, sound, term, usage, x, xtest
+from . import __version__, a11y, kept, mcp, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
@@ -77,6 +78,12 @@ def size(s):
     return int(w), int(h)
 
 
+class Gone(argparse.Action):
+    """An option that's gone: what to use instead, its const."""
+    def __call__(self, p, *_):
+        p.error(self.const)
+
+
 def session_options(p, display=True):
     """The options `run`, `shoot` and `start` take; without `display`, as
     `exec` takes them, those that are about a display left out, and off."""
@@ -86,9 +93,18 @@ def session_options(p, display=True):
                        help="the display's size (1280x800)")
     g.add_argument("--desktop", action="store_true",
                    help="real GSettings (dconf) and the system's D-Bus services, "
-                        "for desktop shells; the default is in-memory settings "
+                        "for desktop shells; the default is settings of its own "
                         "and nothing activatable")
-    g.add_argument("--system-bus", action="store_true", help="a stand-in system bus too")
+    g.add_argument("--machine-bus", action="store_true",
+                   help="the machine's system bus and printers, for a program that "
+                        "needs its services (NetworkManager, logind, CUPS); the "
+                        "default is a stand-in bus and no printers. A desktop's "
+                        "settings can show its Wi-Fi networks, Bluetooth devices, "
+                        "user accounts and printers then: check pictures before "
+                        "sharing them")
+    g.add_argument("--system-bus", nargs=0, action=Gone, help=argparse.SUPPRESS,
+                   const="--system-bus is gone: the stand-in system bus is the default "
+                         "now; --machine-bus for the machine's")
     g.add_argument("--seed", metavar="DIR", help="start the scratch home as a copy of DIR")
     g.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                    help="set a variable inside (repeatable)")
@@ -158,7 +174,7 @@ def make_session(a):
     # rather than leave its display and programs running.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     env = dict(e.split("=", 1) for e in a.env)
-    return Session(size=a.screen, desktop=a.desktop, system_bus=a.system_bus,
+    return Session(size=a.screen, desktop=a.desktop, machine_bus=a.machine_bus,
                    seed=a.seed, keep=a.keep, env=env, passthrough=a.passthrough,
                    wayland=a.wayland, xwayland=a.xwayland, a11y=a.a11y,
                    announce_log=a.announce_log, dark=a.dark,
@@ -318,7 +334,7 @@ def twice(a, cmd, waits):
     with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
         pics = [Path(tmp) / "1.png", Path(tmp) / "2.png"]
         for pic in pics:
-            if take(a, cmd, waits, pic):
+            if take(a, cmd, waits, pic, watch=pic == pics[0]):
                 return 1
         try:
             n, box = x.compare(*pics, fuzz=fuzz, box=True)
@@ -335,8 +351,13 @@ def twice(a, cmd, waits):
     return 0
 
 
-def take(a, cmd, waits, out):
-    """shoot's picture, to `out`, in a session of its own."""
+def take(a, cmd, waits, out, watch=False):
+    """shoot's picture, to `out`, in a session of its own. With `watch`,
+    then watched for something blinking, a caret drawn on a timer of its
+    own, say, which two runs would catch in the same phase: each starts
+    the program at the same time. 2.5 seconds is two blinks of GTK's,
+    the slowest common one; after the picture, so it's taken when the
+    other run's is."""
     with session(a) as s:
         s.failed = a.failed or str(Path(a.out).with_name(Path(a.out).stem + "-failed.png"))
         log = a.log or str(s.scratch / "command.log")
@@ -355,6 +376,16 @@ def take(a, cmd, waits, out):
             if not crop and (s.scratch / "crop").exists():
                 crop = (s.scratch / "crop").read_text().strip()
             s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision)
+            # Tiles of 4, so a caret of 7 pixels fills one; a look held
+            # up to a second, three times, is one GTK holds for 800 ms.
+            blink = watch and next((f for f in s.flicker(2.5, window=a.window, crop=crop, tile=4,
+                                                         brief=1, times=3)[0]
+                                    if f["kind"] == "flicker"), None)
+            if blink:
+                sys.stderr.write(f"shotbox: taken twice, but a cursor (or something) blinks at "
+                                 f"{blink['box']} every {blink['every'] * 1000:.0f} ms, so the "
+                                 "picture depends on when it's taken\n")
+                return 1
         except SessionError as e:
             sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
             return 1
@@ -422,14 +453,54 @@ def cmd_doctor(argv):
         why = check()
         print(f"no    {part}: {why}" if why else f"ok    {part}")
         missing += [part] * bool(why)
+    gone, tmp = kept.stale(), tempfile.gettempdir()
+    print(f"no    scratch dirs: {len(gone)} stale in {tmp}, "
+          f"{megabytes(sum(kept.size(d) for d, _ in gone))} "
+          "(`shotbox sessions --stale` lists them)" if gone
+          else f"ok    scratch dirs: none stale in {tmp}")
     return 1 if {"sessions", "X11"} & set(missing) else 0
 
 
+def megabytes(n):
+    return f"{n / 1e6:.1f} MB" if n >= 1e6 else f"{n / 1e3:.0f} kB"
+
+
 def cmd_sessions(argv):
-    argparse.ArgumentParser(prog="shotbox sessions",
-                            description="The lasting sessions there are.").parse_args(argv)
-    for name in kept.names():
-        print(name)
+    p = argparse.ArgumentParser(prog="shotbox sessions",
+                                description="The lasting sessions there are; or what's "
+                                            "stale: scratch dirs whose sessions have gone, "
+                                            "and lasting sessions idle a day or more.")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--stale", action="store_true",
+                   help="list the stale, each with its size and what made it")
+    g.add_argument("--clean", action="store_true",
+                   help="remove stale scratch dirs, and what's left running of their "
+                        "sessions; idle lasting sessions are listed, not stopped")
+    p.add_argument("--unmarked", action="store_true",
+                   help="with --clean, remove dirs an older shotbox made too, which may "
+                        "be ones it kept with --keep")
+    a = p.parse_args(argv)
+    if a.unmarked and not a.clean:
+        p.error("--unmarked goes with --clean")
+    if not (a.stale or a.clean):
+        for name in kept.names():
+            print(name)
+        return 0
+    for d, made in kept.stale():
+        what = ("made by an older shotbox" if made is None else
+                f"{shlex.join([Path(made['command'][0]).name, *made['command'][1:]])}, "
+                f"pid {made['pid']}, "
+                f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(made['time']))}")
+        took = megabytes(kept.size(d))
+        if a.clean and made is None and not a.unmarked:
+            print(f"left {d}  {took}  {what}, which may have kept it: --unmarked removes it")
+        elif a.clean:
+            mcp.reap(d)
+            print(f"removed {d}  {took}  {what}")
+        else:
+            print(f"{d}  {took}  {what}")
+    for name, since in kept.idle():
+        print(f"{name}  a lasting session, idle {since / 3600:.0f} hours: `shotbox stop {name}`")
     return 0
 
 
@@ -667,17 +738,17 @@ def cmd_key(argv):
                                             "chord in turn, e.g. ctrl+comma, Return, "
                                             "alt+shift+Tab.")
     p.add_argument("chords", nargs="+", metavar="CHORD")
-    held_options(p, "the chords", "them")
+    held_options(p, "the chords", "them", where="")
     a = p.parse_args(argv)
     for c in a.chords:
         xtest.parse_chord(c)
-    held_here(inside(), a).key(*a.chords, hold=a.hold, state=a.state)
+    inside().key(*a.chords, hold=a.hold, state=a.state)
     return 0
 
 
 def held_here(screen, a):
     """The screen, unless --down can't work on it: a Wayland virtual
-    keyboard's keys and pointer's buttons go up when this command ends."""
+    pointer's buttons go up when this command ends."""
     if a.state == "down" and screen.wayland:
         raise SessionError("on Wayland, what --down presses is let go when the command "
                            "ends: use --hold SECS instead (in the background, with `&`, "
@@ -1228,6 +1299,9 @@ def main(argv=None):
         session, argv = argv[1], argv[2:]
     elif argv and argv[0].startswith("--session="):
         session, argv = argv[0].split("=", 1)[1], argv[1:]
+    if argv[:1] == ["--version"]:
+        print(f"shotbox {__version__}")
+        return 0
     if not argv or argv[0] in ("-h", "--help") or argv[0] not in COMMANDS:
         sys.stdout.write(__doc__.lstrip())
         return 0 if not argv or argv[0] in ("-h", "--help") else 2

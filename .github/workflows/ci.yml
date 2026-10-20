@@ -18,8 +18,14 @@ permissions:
   contents: read
 
 jobs:
+  # test/run.sh's parts, at once: a part of it each, on its own runner,
+  # so the ones that time what's on the screen aren't crowded by the rest.
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [core, input, a11y, record]
     steps:
       - uses: actions/checkout@v5
 
@@ -28,23 +34,33 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The packages' downloads, kept until the runner's image changes.
+      - run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: ~/apt/*.deb
+          key: apt-${{ env.image }}-${{ hashFiles('.github/workflows/ci.yml') }}
+
       # The README's list, and what the tests use besides: GTK 3 for the
       # Python API's button, and cairo for its windows that draw, gdbus
       # to ask the bus what it would activate,
       # ffmpeg for the gif and record, xdotool to move a window off the
       # screen, a monospace font for the terminal, and GTK 4
       # and libadwaita for the accessibility checks' window, and PipeWire,
-      # WirePlumber and pactl for --audio, and libfaketime for --clock.
+      # WirePlumber and pactl for --audio, libfaketime for --clock, and
+      # Orca for a11y speak: Ubuntu 24.04's is 46.1, one of those it's
+      # been checked with.
       - name: Install what shotbox runs
         run: |
+          mkdir -p ~/apt/partial
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends -o Dir::Cache::Archives="$HOME/apt" \
             xvfb xauth dbus-daemon imagemagick x11-utils \
             python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-vte-2.91 \
             libglib2.0-bin ffmpeg fonts-dejavu-core \
             sway grim xwayland wf-recorder \
             at-spi2-core gir1.2-atspi-2.0 gir1.2-gtk-4.0 gir1.2-adw-1 \
-            pipewire wireplumber pulseaudio-utils bubblewrap xdotool libfaketime
+            pipewire wireplumber pulseaudio-utils bubblewrap xdotool libfaketime orca
 
       # For --gamepads: uinput, and its pads, for this user (a desktop's
       # udev gives them to the seat's user; a runner has no seat), and
@@ -66,12 +82,14 @@ jobs:
 
       - run: test/run.sh
         env:
+          SHOTBOX_PART: ${{ matrix.part }}
           SHOTBOX_BROWSER: required
           SHOTBOX_WAYLAND: required
           SHOTBOX_A11Y: required
           SHOTBOX_AUDIO: required
           SHOTBOX_GAMEPAD: required
           SHOTBOX_CLOCK: required
+          SHOTBOX_ORCA: required
 
   # The Action, as another project's job would use it: from a runner with
   # nothing of shotbox's on it, each feature it installs for, sandboxed.
@@ -105,6 +123,21 @@ jobs:
           test -s quiet.wav
           shotbox run --gamepads 1 -- sh -c 'ls /dev/input | grep -q event'
           shotbox exec --clock 2026-09-26T18:40:00 -- date | grep -q 18:40
+
+  # speak on its own, so a11y alone is tried above without Orca, and here
+  # speak brings what a11y does: Orca starts from what the Action installed.
+  action-speak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./
+        with:
+          speak: true
+      - name: Use it
+        working-directory: /tmp
+        run: |
+          shotbox run --a11y -- shotbox a11y tree > /dev/null
+          shotbox run --a11y -- shotbox a11y speak --keys Tab | grep -q '^(start) '
 
   # What gets published, built and used the way someone who installs it
   # would: the wheel in a fresh venv (with the system's PyGObject, as the

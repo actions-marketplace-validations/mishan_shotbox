@@ -37,9 +37,9 @@ magick -size 890x520 xc:'#1f2430' \( "$logo" -resize 170x170 \) -geometry +80+15
   -annotate +290+236 'Eyes, ears and hands for agents on real GUI programs' \
   -font DejaVu-Sans-Mono -pointsize 14 -fill '#a3d97a' \
   -annotate +290+284 'claude mcp add shotbox -- shotbox mcp --allow PROGRAMS' \
-  -fill '#81a1c1' -annotate +290+318 'start_session  spawn  accessible_tree  screenshot' \
-  -annotate +290+340 'click  type_text  press_keys  gamepad  wait_for  record' \
-  -annotate +290+362 'lint  contrast  tab_walk  sound  ...' "$work/card.png"
+  -fill '#81a1c1' -annotate +290+318 'start_session  spawn_program  get_accessible_tree  take_screenshot' \
+  -annotate +290+340 'click_element  type_text  press_keys  wait_for  record_video' \
+  -annotate +290+362 'check_accessible_names  check_contrast  check_focus_order  ...' "$work/card.png"
 
 # Each scene padded to 890x520 for its caption, with a silent track where
 # it has no sound of its own, then one after another.

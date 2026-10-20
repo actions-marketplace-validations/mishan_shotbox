@@ -23,6 +23,8 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 from .screen import SessionError, wait_for
@@ -56,6 +58,92 @@ def started(pid):
         return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
     except (OSError, IndexError, ValueError):
         return None
+
+
+# mkdtemp's names: a session's scratch dir, and the MCP server's, which
+# holds its sessions'.
+SCRATCH = re.compile(r"(shotbox|sbm)-[a-z0-9_]{8}")
+IDLE = 24 * 3600    # a lasting session untouched this long has likely been forgotten
+
+
+def pid_ns():
+    return os.stat("/proc/self/ns/pid").st_ino
+
+
+def mark(d, **more):
+    """Say in scratch dir `d` what made it: this process, by its pid and when
+    it started, which `stale` tells the dir's life by."""
+    (d / "shotbox.json").write_text(json.dumps(
+        {"pid": os.getpid(), "started": started(os.getpid()), "ns": pid_ns(),
+         "command": sys.argv, "time": time.time(), **more}))
+
+
+def stale():
+    """The user's scratch dirs in TMPDIR whose session has gone, and the mark
+    each has (None from a shotbox that made none): gone, its maker has; with
+    no mark, nothing of the user's has it in its environment. Not a dir kept
+    with --keep, nor one whose maker is in another pid namespace, which this
+    can't tell the life of."""
+    from .mcp import ours
+    me, uid = os.getpid(), os.getuid()
+    envs = []
+    for p in Path("/proc").glob("[0-9]*"):
+        try:
+            if int(p.name) != me and p.stat().st_uid == uid:
+                envs.append((p / "environ").read_bytes())
+        except OSError:
+            continue
+    out = []
+    for d in sorted(Path(tempfile.gettempdir()).iterdir()):
+        # kept.home()'s, without a runtime dir, isn't a scratch dir.
+        if not SCRATCH.fullmatch(d.name) or d.name == f"shotbox-{uid}":
+            continue
+        try:
+            st = d.lstat()
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid:
+                continue
+            try:
+                made = json.loads((d / "shotbox.json").read_text())
+            except FileNotFoundError:
+                made = None
+            if made is None:
+                # Made a moment ago, it may not have its mark yet.
+                if time.time() - st.st_mtime < 60 or any(ours(e, os.fsencode(d)) for e in envs):
+                    continue
+            elif (made.get("kept") or made.get("ns") != pid_ns()
+                  or started(made.get("pid")) == made.get("started")):
+                continue
+        except (OSError, ValueError, AttributeError):
+            continue    # can't tell
+        out.append((d, made))
+    return out
+
+
+def idle():
+    """The lasting sessions untouched for IDLE seconds or more: (name,
+    seconds). A command run with --session, and a spawn, touches its scratch
+    dir."""
+    out = []
+    for name in names():
+        try:
+            since = time.time() - os.stat(find(name)["env"]["SHOTBOX_SCRATCH"]).st_mtime
+        except (OSError, KeyError, SessionError):
+            continue
+        if since >= IDLE:
+            out.append((name, since))
+    return out
+
+
+def size(d):
+    """What `d` holds, in bytes."""
+    total = 0
+    for root, dirs, files in os.walk(d):
+        for f in dirs + files:
+            try:
+                total += os.lstat(os.path.join(root, f)).st_blocks * 512
+            except OSError:
+                pass
+    return total
 
 
 def check(name):
@@ -220,6 +308,7 @@ def answer(session, conn):
     stop."""
     for proc in session._procs:   # reaps what's exited
         proc.poll()
+    os.utime(session.scratch)   # for idle()
     going = False
     try:
         request = json.loads(conn.makefile().readline())
@@ -266,6 +355,7 @@ def enter(name):
     """Put this process inside the kept session `name`, as `shotbox run`
     puts the command it runs."""
     env = find(name)["env"]
+    os.utime(env["SHOTBOX_SCRATCH"])   # for idle()
     os.environ.clear()
     os.environ.update(env)
 

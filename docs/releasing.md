@@ -10,7 +10,8 @@ changelog's newest heading; `test/run.sh` fails if they disagree.
 1. Set the version: `__version__` in `shotbox/__init__.py`, `"version"` in
    `package.json` (by hand: `npm version` reformats the whole file), then
    `npm install --package-lock-only` for the lockfile, and both
-   `"version"`s in `server.json`, the MCP registry's entry.
+   `"version"`s in `server.json`, the MCP registry's entry, and the
+   Action's `uses: mishan/shotbox@vX.Y.Z` in README.md and docs/recipes.md.
 2. Turn the changelog's `## Unreleased` into `## X.Y.Z — DATE`, with a
    line or two on what the release is.
 3. Merge that to main, then tag it and push the tag:

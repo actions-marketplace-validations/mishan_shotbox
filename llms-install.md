@@ -5,14 +5,19 @@ shotbox's MCP server for a person. shotbox runs graphical programs in a
 sealed X11 or Wayland session of their own, so the agent can see, hear
 and drive them. It runs on Linux only.
 
+The setup is done when the MCP server is in the client's settings and
+answers (step 5), not when the command works: do all five steps. Kill
+only processes you started, by their PIDs: other shotbox sessions (their
+Xvfb, sway and PipeWire) may be someone else's.
+
 ## 1. The system's packages
 
 On Debian or Ubuntu:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils python3-gi gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap \
-  libfaketime pipx
+  at-spi2-core gir1.2-atspi-2.0 python3-gi-cairo gir1.2-pango-1.0 libglib2.0-bin pipewire \
+  wireplumber ffmpeg bubblewrap libfaketime pipx
 ```
 
 Elsewhere, install shotbox first (step 2), then run `shotbox doctor`: it
@@ -40,8 +45,8 @@ doesn't need.
 
 The agent can't run a command, only a program named in an allow file,
 which the person chooses. Ask them which programs they want it to work
-on, and write one `NAME = COMMAND` per line, for example to
-`~/.config/shotbox/programs`:
+on before writing the file (at least one, for step 5), and write one
+`NAME = COMMAND` per line, for example to `~/.config/shotbox/programs`:
 
 ```
 # NAME = COMMAND ARGS..., split as a shell would
@@ -78,9 +83,11 @@ doesn't find it, use its full path (`command -v shotbox`, usually
 
 ## 5. Check it
 
-Call `start_session`, then `spawn` one of the person's programs and
-`wait_for` its window, then `accessible_tree` or `screenshot`, then
-`stop_session`. The server's instructions, sent as it connects, say how
-the tools fit together.
+If the client doesn't list shotbox's tools yet, ask the person to reload
+it (in VS Code, Developer: Reload Window), then go on. Call
+`start_session`, start one of the person's programs with
+`spawn_program`, `wait_for` its window, then `get_accessible_tree` or
+`take_screenshot`, then `stop_session`. The server's instructions, sent
+as it connects, say how the tools fit together.
 
 More: [docs/mcp.md](https://github.com/mishan/shotbox/blob/main/docs/mcp.md).

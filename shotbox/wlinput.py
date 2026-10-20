@@ -7,23 +7,33 @@ protocols wlroots compositors have for exactly this: a virtual keyboard
 No Python Wayland binding and no wtype: the standard library, with the
 keymap passed as a file descriptor.
 
-The keyboard is made once per connection, with a keymap holding every key
-shotbox can press, laid out as a US keyboard is: a and A, 1 and !, Tab and
-back-tab on one key, the second with Shift. So a shifted symbol is typed
-with Shift held, and Shift in a chord gives the key's shifted symbol, as
-on X11; and the keymap never changes. A program meets a new keyboard's keymap
-along with its first key, and wtype, which makes a keyboard every time it
-runs, was seen to drop a first key. So a new keyboard first presses a key
-with no symbol, then waits for that to go through and a moment more. In
-testing no key went missing with or without that; it's cheap to keep.
+A session's keyboard is made once, by a server it starts (serve), and
+lasts as long as it does: headless sway has no keyboard of its own, and
+while there's none GTK has no keyboard focus, so it says nothing has the
+focus and draws no caret. Every command presses keys through that
+server, so a key one leaves down stays down for the next; a pointer is
+made a command.
+
+The keyboard's keymap holds every key shotbox can press, laid out as a US
+keyboard is: a and A, 1 and !, Tab and back-tab on one key, the second
+with Shift. So a shifted symbol is typed with Shift held, and Shift in a
+chord gives the key's shifted symbol, as on X11; and the keymap never
+changes. A program meets a new keyboard's keymap along with its first key,
+and wtype, which makes a keyboard every time it runs, was seen to drop a
+first key. So a new keyboard first presses a key with no symbol, then
+waits for that to go through and a moment more. In testing no key went
+missing with or without that; it's cheap to keep.
 """
 
+import json
 import os
+from functools import cached_property
 import socket
 import struct
 import time
 
 from . import wl
+from .pad import REQUEST_SECONDS, read_line, write_ready
 from .xtest import KEYSYMS, SHIFT, XError, parse_chord
 
 # Real modifier bits, as the keymap below maps them.
@@ -32,6 +42,7 @@ MOD_BITS = {0xFFE1: 0x01, 0xFFE3: 0x04, 0xFFE9: 0x08, 0xFFE7: 0x08, 0xFFEB: 0x40
 BUTTONS = {1: 0x110, 2: 0x112, 3: 0x111}
 PRESSED, RELEASED = 1, 0
 KEYMAP_XKB_V1 = 1
+KEYBOARD = "keyboard.sock"      # the keyboard server's, in the session's scratch dir
 
 # What the keymap holds, besides a key with no symbol for the first press
 # and the modifiers: printable ASCII, a US keyboard's pairs on two levels,
@@ -86,16 +97,18 @@ def _string(s):
 
 class Display:
     """A connection to the compositor in `env` (XDG_RUNTIME_DIR and
-    WAYLAND_DISPLAY), with a keyboard and a pointer of its own. The screen's
-    size, for the pointer, comes from sway's IPC ($SWAYSOCK)."""
+    WAYLAND_DISPLAY), with a pointer of its own, and the keyboard of the
+    session's server (in SHOTBOX_SCRATCH), or else one of its own. With
+    `pointer` off, a keyboard of its own and no pointer: the server's. The
+    screen's size, for the pointer, comes from sway's IPC ($SWAYSOCK)."""
 
-    def __init__(self, env=None):
+    def __init__(self, env=None, pointer=True):
         env = os.environ if env is None else env
         path = os.path.join(env.get("XDG_RUNTIME_DIR", ""), env.get("WAYLAND_DISPLAY", ""))
         self.sock = socket.socket(socket.AF_UNIX)
         try:
             self.sock.connect(path)
-            self._setup(env)
+            self._setup(env, pointer)
         except OSError as e:
             self.sock.close()
             raise XError(f"can't reach the Wayland compositor at {path}: {e.strerror or e}")
@@ -103,7 +116,7 @@ class Display:
             self.sock.close()
             raise
 
-    def _setup(self, env):
+    def _setup(self, env, pointer):
         self.buf = b""
         self.next_id = 2
         self.waiting, self.done = set(), set()
@@ -111,19 +124,23 @@ class Display:
         self.registry = self._new()
         self._send(1, 1, struct.pack("<I", self.registry))    # wl_display.get_registry
         self.sync()
-        missing = [i for i in ("wl_seat", "zwp_virtual_keyboard_manager_v1",
-                               "zwlr_virtual_pointer_manager_v1") if i not in self.globals]
+        server = env.get("SHOTBOX_SCRATCH") and os.path.join(env["SHOTBOX_SCRATCH"], KEYBOARD)
+        self.shared = server if pointer and server and os.path.exists(server) else None
+        missing = [i for i, need in (("wl_seat", True),
+                                     ("zwp_virtual_keyboard_manager_v1", not self.shared),
+                                     ("zwlr_virtual_pointer_manager_v1", pointer))
+                   if need and i not in self.globals]
         if missing:
             raise XError("the compositor has no " + ", ".join(missing))
-        seat = self._bind("wl_seat", 1)
-        kbd_manager = self._bind("zwp_virtual_keyboard_manager_v1", 1)
-        ptr_manager = self._bind("zwlr_virtual_pointer_manager_v1", 1)
-        self.keyboard = self._new()
-        self._send(kbd_manager, 0, struct.pack("<II", seat, self.keyboard))
-        self.pointer = self._new()
-        self._send(ptr_manager, 0, struct.pack("<II", seat, self.pointer))
-
+        self.env = env
+        self.seat = self._bind("wl_seat", 1)
         text, self.blank, self.keys = keymap()
+        self.held = {}          # keysym: its modifier bits, while `down`
+        if self.shared:
+            return
+        kbd_manager = self._bind("zwp_virtual_keyboard_manager_v1", 1)
+        self.keyboard = self._new()
+        self._send(kbd_manager, 0, struct.pack("<II", self.seat, self.keyboard))
         data = text.encode() + b"\0"
         fd = os.memfd_create("shotbox-keymap")
         try:
@@ -136,8 +153,6 @@ class Display:
         self._key(self.blank)
         self.sync()
         time.sleep(0.05)
-        self.width, self.height = wl.root_size(env)
-        self.held = {}          # keysym: its modifier bits, while `down`
 
     # --- the wire -------------------------------------------------------------
 
@@ -208,20 +223,20 @@ class Display:
         self._send(self.keyboard, 2, struct.pack("<IIII", mask, 0, 0, 0))
 
     def _code(self, keysym, modifiers):
-        """The key's keycode, and the modifier bits to hold with it: Shift
-        too if the key's symbol is on its shifted level."""
+        """The key's keycode, and the modifier bits to hold with it: its
+        own, for a modifier, and Shift too if the key's symbol is on its
+        shifted level."""
         if keysym not in self.keys:
             raise XError(f"no key for keysym 0x{keysym:x} in shotbox's keymap")
         code, shifted = self.keys[keysym]
-        mask = MOD_BITS[SHIFT] if shifted else 0
+        mask = MOD_BITS.get(keysym, 0) | (MOD_BITS[SHIFT] if shifted else 0)
         for m in modifiers:
             mask |= MOD_BITS[m]
         return code, mask
 
     def _held(self, keep):
         """The modifier bits held keys need, and the keycodes they hold: this
-        keyboard's, and the chords in `keep`, held by other commands, whose
-        keyboards a program doesn't tell apart from this one."""
+        keyboard's, and the chords in `keep`, held by other commands."""
         mask, codes = 0, set()
         for m in self.held.values():
             mask |= m
@@ -234,8 +249,7 @@ class Display:
     def press(self, keysym, modifiers=(), keep=()):
         """Press and release one key, holding the modifier keysyms down, and
         leaving down what the chords in `keep`, held, hold. A key they hold
-        isn't pressed, as on X11: this keyboard would let go of it when its
-        connection closes, though the other's still holds it."""
+        isn't pressed, as on X11: letting go of it would end their hold."""
         code, mask = self._code(keysym, modifiers)
         held, codes = self._held(keep)
         if code in codes:
@@ -249,8 +263,8 @@ class Display:
     def down(self, keysym, modifiers=(), keep=()):
         """Press a key with its modifiers and leave it down, with the
         modifiers the chords in `keep` hold too. A virtual keyboard's keys go
-        up when its connection closes, so on Wayland a key stays down only
-        as long as this Display does."""
+        up when its connection closes: the session's server's, when the
+        session stops."""
         code, mask = self._code(keysym, modifiers)
         self.held[keysym] = mask
         self._mods(self._held(keep)[0])
@@ -277,6 +291,8 @@ class Display:
         """Press and release a chord: `ctrl+comma`, `Return`, `alt+shift+Tab`;
         or with `state` "down" or "up", only press it or only let it go
         (leaving down what the chords in `keep` hold)."""
+        if self.shared:
+            return self._ask("chord", spec, state, list(keep))
         sym, mods = parse_chord(spec)
         if state == "down":
             self.down(sym, mods, keep)
@@ -286,10 +302,53 @@ class Display:
     def type(self, text, keep=()):
         """Type text, one key at a time. ASCII only, as on X11. What the
         chords in `keep` hold stays down."""
+        if self.shared:
+            return self._ask("type", text, list(keep))
         for ch in text:
             self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)), keep=keep)
 
+    def _ask(self, *call):
+        """Have the session's keyboard server make `call`."""
+        try:
+            with socket.socket(socket.AF_UNIX) as s:
+                s.settimeout(30)
+                s.connect(self.shared)
+                s.sendall(json.dumps(call).encode() + b"\n")
+                reply = json.loads(s.makefile("rb").readline() or b"null")
+        except TimeoutError:
+            raise XError("the session's keyboard didn't answer in time: busy, or stuck")
+        except OSError as e:
+            raise XError(f"the session's keyboard has gone ({e.strerror or e})")
+        if not isinstance(reply, dict):
+            raise XError("the session's keyboard has gone (no answer)")
+        if "error" in reply:
+            raise XError(reply["error"])
+
     # --- the pointer ----------------------------------------------------------
+
+    # Made, and the screen's size asked of sway, only once a command
+    # points: one that only presses keys needs neither. The size is asked
+    # after the pointer's made, which gives a program the moment it needs
+    # to take up the new pointer before the first move.
+    @cached_property
+    def pointer(self):
+        manager = self._bind("zwlr_virtual_pointer_manager_v1", 1)
+        pointer = self._new()
+        self._send(manager, 0, struct.pack("<II", self.seat, pointer))
+        return pointer
+
+    @cached_property
+    def _size(self):
+        self.pointer
+        return wl.root_size(self.env)
+
+    @property
+    def width(self):
+        return self._size[0]
+
+    @property
+    def height(self):
+        return self._size[1]
 
     def _frame(self):
         self._send(self.pointer, 4)
@@ -357,3 +416,36 @@ class Display:
 
     def __exit__(self, *exc):
         self.close()
+
+
+def serve(sock_path, ready):
+    """The session's keyboard: make it, write to `ready` that it's there
+    (or why not), then press what's asked on the Unix socket at
+    `sock_path`, a JSON line each, ["chord", spec, state, keep] or
+    ["type", text, keep], one at a time, until stopped."""
+    try:
+        d = Display(pointer=False)
+    except XError as e:
+        write_ready(ready, {"error": str(e)})
+        return 1
+    srv = socket.socket(socket.AF_UNIX)
+    srv.bind(sock_path)
+    srv.listen(8)
+    write_ready(ready, [])
+    calls = {"chord": d.chord, "type": d.type}
+    while True:
+        conn, _ = srv.accept()
+        with conn:
+            try:
+                line = read_line(conn, REQUEST_SECONDS)
+                if not line:
+                    continue
+                try:
+                    call, *args = json.loads(line)
+                    calls[call](*args)
+                    reply = {}
+                except Exception as e:      # whatever a request is, the keyboard stays
+                    reply = {"error": str(e) if isinstance(e, XError) else f"bad request: {e}"}
+                conn.sendall(json.dumps(reply).encode() + b"\n")
+            except OSError:
+                pass

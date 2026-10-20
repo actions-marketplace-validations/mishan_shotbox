@@ -13,7 +13,7 @@ import struct
 import subprocess
 from pathlib import Path
 
-from .x import CONVERT, QUIET_PNG, matcher, ppm
+from .x import CONVERT, QUIET_PNG, in_sessions, matcher, ppm
 
 MAGIC = b"i3-ipc"
 RUN_COMMAND, GET_OUTPUTS, GET_TREE, GET_VERSION = 0, 3, 4, 7
@@ -72,12 +72,18 @@ def window_pid(env, wid):
     return next((w[8] for w in windows(env) if w[0] == wid), None)
 
 
-def find_window(env, spec):
-    """The biggest visible window `spec` asks for (see x.matcher), or None:
-    the same rule as x.find_window, less the 1x1 helpers, which Wayland
-    doesn't have."""
-    test, _ = matcher(spec)
-    hits = [w[:6] for w in windows(env) if w[7] and test(w[1], w[6])]
+def shown(env, spec=None, sids=()):
+    """As x.shown: the visible windows, with `sids` by the pid sway has
+    for each, a Wayland client's or an Xwayland window's."""
+    test = matcher(spec)[0] if spec else lambda name, apps: True
+    return [w[:7] for w in windows(env) if w[7] and test(w[1], w[6])
+            and (not sids or in_sessions(w[8], sids))]
+
+
+def find_window(env, spec=None, sids=()):
+    """The biggest of the windows shown() finds, or None: the same rule as
+    x.find_window, less the 1x1 helpers, which Wayland doesn't have."""
+    hits = [w[:6] for w in shown(env, spec, sids)]
     return max(hits, key=lambda w: w[2] * w[3]) if hits else None
 
 

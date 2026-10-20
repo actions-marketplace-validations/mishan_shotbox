@@ -294,6 +294,27 @@ class Display:
         self._request(struct.pack("<BBHII", 42, 1, 3, wid, 0))         # SetInputFocus
         self.sync()
 
+    def atom(self, name):
+        name = name.encode()
+        self._request(struct.pack("<BxHHxx", 16, 2 + (len(name) + _pad(len(name))) // 4,
+                                  len(name)) + name + b"\0" * _pad(len(name)))
+        return struct.unpack_from("<I", self._reply(), 8)[0]
+
+    def own_settings(self, ints):
+        """Be the display's XSETTINGS manager, with `ints` ({name: value}),
+        while this connection lasts: what a desktop tells X toolkits, Qt 6
+        among them. The root window holds them: readers look for them on
+        whatever window owns the selection."""
+        data = struct.pack("<BxxxII", 0, 0, len(ints)) + b"".join(
+            struct.pack("<BxH", 0, len(n)) + n.encode() + b"\0" * _pad(len(n))
+            + struct.pack("<Ii", 0, v) for n, v in ints.items())
+        prop = self.atom("_XSETTINGS_SETTINGS")
+        self._request(struct.pack("<BBHIIIBxxxI", 18, 0, 6 + len(data) // 4, self.root, prop,
+                                  prop, 8, len(data)) + data)          # ChangeProperty
+        self._request(struct.pack("<BxHIII", 22, 4, self.root,
+                                  self.atom("_XSETTINGS_S0"), 0))     # SetSelectionOwner
+        self.sync()
+
     def close(self):
         self.sock.close()
 

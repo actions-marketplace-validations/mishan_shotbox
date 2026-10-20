@@ -85,7 +85,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: mishan/shotbox@v0.6.0
+      - uses: mishan/shotbox@v0.9.0
         with:
           term: true
           clock: true
@@ -150,7 +150,7 @@ for preset in ({}, {"dark": True}, {"high_contrast": True}, {"text_scale": 1.5})
     with shotbox.Session(a11y=True, **preset) as s:
         s.spawn(["gnome-calculator"], log="calculator.log")
         s.wait_window("Calculator")
-        for node in s.contrast(window="Calculator"):
+        for node in s.contrast(window="Calculator")["problems"]:
             print(preset, node.name or node.role, node.problem)
 ```
 
@@ -220,12 +220,12 @@ clock at 2026-03-02 09:00, open the calendar, open its main menu, show
 me, and lint it." It calls:
 
 - `start_session` with `clock: "2026-03-02T09:00:00"`;
-- `spawn` with `program: "calendar"`, and `wait_for` the window;
-- `click` with `name: "Main Menu"`, then `wait_for` `stable`;
-- `screenshot` of the window, which comes back as an image;
-- `lint`, which finds the menu's items have no names;
+- `spawn_program` with `program: "calendar"`, and `wait_for` the window;
+- `click_element` with `name: "Main Menu"`, then `wait_for` `stable`;
+- `take_screenshot` of the window, which comes back as an image;
+- `check_accessible_names`, which finds the menu's items have no names;
 - `stop_session`.
 
-The tree (`accessible_tree`) is the cheap way for it to look, and a
+The tree (`get_accessible_tree`) is the cheap way for it to look, and a
 screenshot is for what only pixels say. Each tool and what it takes:
 [mcp.md](mcp.md).

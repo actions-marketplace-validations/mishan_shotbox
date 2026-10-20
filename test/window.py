@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
+TITLE caret MS, or TITLE spinner, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
-or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
-or TITLE text, pages, redraw, stair, poles, line, gradient, passer, skip,
-edge, gray, busy, icon, dropout, beep or fields. With LOG, it holds an entry instead,
+or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
+or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
+edge, gray, busy, icon, dropout, beep, fields, alert or wide. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -16,7 +17,12 @@ text, which needs only 3:1; and a dot, too small to measure. With slow, a square
 turns dark MS milliseconds after the pointer comes into the window, and
 light again that long after it leaves: a known latency. With fields, an
 entry named by its mnemonic label, and a search bar not revealed, in a
-notebook with its tabs hidden. With dot, a "." and nothing else."""
+notebook with its tabs hidden. With alert, a Check button that shows an
+error in an info bar and is renamed Checked, a Resend button that counts
+down to 1s, and a Delete button that asks in a message dialog, its window
+titled Delete. With dot,
+a "." and nothing else. With wide, a window 1000 pixels wide, a label
+as wide, its text at the right, and below it a button at each end."""
 
 import sys
 
@@ -51,6 +57,16 @@ if sys.argv[2:] == ["contrast"]:
     for widget in (light, dim, switch, frame, big, Gtk.Label(label=".")):
         box.add(widget)
     w.add(box)
+elif sys.argv[2:] == ["wide"]:
+    box = Gtk.Box()
+    box.pack_start(Gtk.Button(label="Here"), False, False, 0)
+    box.pack_end(Gtk.Button(label="There"), False, False, 0)
+    # Spaced, so the buttons' shadow isn't in the label's box.
+    rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    rows.add(Gtk.Label(label="Far", xalign=1))
+    rows.add(box)
+    w.set_size_request(1000, 120)
+    w.add(rows)
 elif sys.argv[2:] == ["dot"]:
     w.add(Gtk.Label(label="."))
 elif sys.argv[2:] == ["fields"]:
@@ -68,6 +84,29 @@ elif sys.argv[2:] == ["fields"]:
     book = Gtk.Notebook(show_tabs=False)
     book.append_page(box)
     w.add(book)
+elif sys.argv[2:] == ["alert"]:
+    # The bar shown, not revealed: revealing one says nothing of it showing.
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    bar = Gtk.InfoBar(message_type=Gtk.MessageType.ERROR, no_show_all=True)
+    bar.get_content_area().add(Gtk.Label(label="Name is taken", visible=True))
+    check = Gtk.Button(label="Check")
+    check.connect("clicked", lambda b: (bar.show(), b.set_label("Checked")))
+    resend = Gtk.Button(label="Resend in 5s")
+
+    def tick(left):
+        resend.set_label(f"Resend in {left}s")
+        if left > 1:
+            GLib.timeout_add(200, tick, left - 1)
+        return False
+    resend.connect("clicked", lambda b: tick(4))
+    delete = Gtk.Button(label="Delete")
+    delete.connect("clicked", lambda b: Gtk.MessageDialog(
+        transient_for=w, title="Delete", message_type=Gtk.MessageType.WARNING,
+        buttons=Gtk.ButtonsType.OK_CANCEL, text="Delete notes.md?",
+        secondary_text="It can't be undone.").show())
+    for widget in (bar, check, resend, delete):
+        box.add(widget)
+    w.add(box)
 elif sys.argv[2:3] == ["slow"]:
     late = int(sys.argv[3])
     square = Gtk.DrawingArea()
@@ -95,6 +134,28 @@ elif sys.argv[2:3] == ["flip"]:
         return True
     GLib.timeout_add(int(sys.argv[3]), flip)
     w.add(square)
+elif sys.argv[2:3] == ["caret"]:
+    # A caret drawn on a timer of its own, as a game's is: a bar 2 by 16
+    # after a word, shown and hidden every MS milliseconds.
+    area, shown = Gtk.DrawingArea(), [True]
+
+    def draw(a, cr):
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0)
+        cr.move_to(10, 30)
+        cr.show_text("hello")
+        if shown[0]:
+            cr.rectangle(50, 18, 2, 16)
+            cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(int(sys.argv[3]), lambda: shown.__setitem__(0, not shown[0])
+                     or area.queue_draw() or True)
+    w.add(area)
+elif sys.argv[2:] == ["spinner"]:
+    spinner = Gtk.Spinner()
+    spinner.start()
+    w.add(spinner)
 elif sys.argv[2:3] == ["flash"]:
     # A green square that goes black for MS milliseconds, every second.
     square, black = Gtk.DrawingArea(), [False]
@@ -472,6 +533,23 @@ elif sys.argv[2:3] in (["edge"], ["gray"]):
     GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     GLib.timeout_add(150, lambda: area.queue_draw() or True)
     w.add(area)
+elif sys.argv[2:3] == ["grating"]:
+    # Black and white stripes 6 pixels wide swapping every 30 ms, a white
+    # rule every 10 rows: each look is the other moved a stripe across,
+    # which isn't scrolling.
+    area, n = Gtk.DrawingArea(), [0]
+
+    def draw(a, cr):
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        cr.set_source_rgb(0, 0, 0)
+        for x in range(n[0] % 2 * 6, 200, 12):
+            for y in range(0, 120, 10):
+                cr.rectangle(x, y + 1, 6, 9)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(30, lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
+    w.add(area)
 elif sys.argv[2:3] == ["gradient"]:
     # Two faces 8% apart, the edge between them sweeping past unevenly,
     # forward and back a little each frame, as a turning view's do.
@@ -523,10 +601,10 @@ elif sys.argv[2:3] == ["strip"]:
         return True
     GLib.timeout_add(30, swap)
     w.add(area)
-elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"], ["fast"]):
+elif sys.argv[2:3] in (["move"], ["scroll"], ["smooth"], ["spaced"], ["fast"]):
     # Motion, which is neither: a black square crossing white at 300
-    # pixels a second, or lines of text scrolling up at 200.
-    area, began = Gtk.DrawingArea(), GLib.get_monotonic_time()
+    # pixels a second, or lines of text scrolling up at 200, or at 250.
+    area, began, n = Gtk.DrawingArea(), GLib.get_monotonic_time(), [0]
 
     def draw(a, cr):
         t = (GLib.get_monotonic_time() - began) / 1e6
@@ -542,14 +620,17 @@ elif sys.argv[2:3] in (["move"], ["scroll"], ["spaced"], ["fast"]):
             cr.fill()
         else:
             # Lines 14 pixels apart, scrolled by whole pixels as a terminal
-            # or a GTK 3 list is, or 40, smoothly, with white between.
-            gap = 14 if sys.argv[2] == "scroll" else 40
-            dy = int(t * 200) if gap == 14 else t * 200
+            # or a GTK 3 list is, or 40, smoothly, with white between; or 15,
+            # by half a line a frame, as GTK 4 scrolls by fractions of a
+            # pixel: rows the same every other frame, never shifted whole.
+            gap = {"scroll": 14, "smooth": 15}.get(sys.argv[2], 40)
+            dy = {"scroll": int(t * 200), "smooth": n[0] * 7.5}.get(sys.argv[2], t * 200)
             for line in range(120 // gap + 2):
                 cr.move_to(4, 14 + line * gap - dy % gap)
-                cr.show_text(f"line {line + int(t * 200 / gap)}: the quick brown fox")
+                cr.show_text(f"line {line + int(dy / gap)}: the quick brown fox")
     area.connect("draw", draw)
-    GLib.timeout_add(16, lambda: area.queue_draw() or True)
+    GLib.timeout_add(30 if sys.argv[2] == "smooth" else 16,
+                     lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)
 elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)

@@ -10,15 +10,22 @@ Every session needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick, `xwininfo` and 
 at-spi2-core, PyGObject's Atspi (`gir1.2-atspi-2.0`) and `gdbus`; for
 `--desktop`, `gdbus`; for `--audio`, PipeWire and WirePlumber; for
 `--gamepads`, write access to `/dev/uinput`; for `record`, ffmpeg; for
-`--clock`, libfaketime; and
+`--clock`, libfaketime; for `a11y speak`, Orca too; for `a11y contrast`
+on GTK 4.14 and later, pycairo and PangoCairo (`python3-gi-cairo`,
+`gir1.2-pango-1.0`) too; and
 bubblewrap, which `--gamepads` needs, and which [seals](sealed.md)
 more where it's there.
 
-`shotbox doctor` says which of these are here, a line each: what
-sessions need, and each of their options, `term` and `record`. A command
+`shotbox --version` says which shotbox this is. `shotbox doctor` says
+which of these are here, a line each: what
+sessions need, and each of their options, `term`, `record`, `a11y
+speak` and `a11y contrast on GTK 4` (without which GTK 4.14 and later's
+text isn't measured, and says why). A command
 missing one fails before it starts anything, in a line saying what's
 missing and how to get it, as `Session` and MCP's `start_session` do.
-`doctor` fails only if what every session needs is missing.
+`doctor` fails only if what every session needs is missing. Its last
+line says how many stale scratch dirs there are, and their size (see
+`sessions --stale`).
 
 ## shoot
 
@@ -31,7 +38,10 @@ sealed session, waits, takes the picture and stops everything.
   matches its app id instead: a Wayland window's `app_id`, or an X
   window's `WM_CLASS`, instance or class. Every `--window` and every
   `window` wait takes either; a title that really does start with `app=`
-  can be written `[a]pp=...`.
+  can be written `[a]pp=...`. A window wait that gives up says the
+  windows there are, the nearest first, with their app ids on Wayland (or
+  with `app=RE`): `gave up waiting for a window named 'Text Editor' after
+  8s; there are: "Untitled 1 - Text Editor"`, which `.*Text Editor` matches.
 - `--wait window:RE|port:N|file:PATH|ready|stable[:SECS]` waits for more
   (repeatable, in order). `ready` is `$SHOTBOX_SCRATCH/ready` existing;
   `shotbox term` writes it. `stable` is the `--window` (or the whole display)
@@ -45,13 +55,21 @@ sealed session, waits, takes the picture and stops everything.
   (`--failed FILE` for elsewhere).
 - `--twice` takes the picture in two fresh sessions, one after the other,
   and fails if they differ, saying how many pixels and the box they're in
-  (`210 pixels differ, in 12x18 at 30,212`: a blinking cursor), with the
+  (`210 pixels differ, in 12x18 at 30,212`: a clock), with the
   difference marked in red beside OUT, as `OUT-diff.png`; if they're
   alike, one is kept as OUT. A picture is only worth committing if it
   comes out the same every time, and this proves it does. `--fuzz` and
-  `--max` as `compare` takes them, for a program that dithers. It doubles
-  the time, so it's for now and then: a new picture, or before a release.
-  `term --shoot` takes it too.
+  `--max` as `compare` takes them, for a program that dithers. Something
+  blinking, a caret the session can't turn off (see
+  [Blinking carets](desktop.md#blinking-carets)), would be caught in the
+  same phase both times, each run starting the program on the same
+  timeline, so the first run is watched for 2.5 seconds after its picture,
+  and a part that switches between two looks, each held up to a second,
+  three times, fails it: `a cursor (or something) blinks at 4x16+48+16
+  every 530 ms`, the box in what's taken. A look held a second or more
+  each time isn't caught: a toggle once a second passes. It doubles the
+  time, and 2.5 seconds more, so it's for now and then: a new picture,
+  or before a release. `term --shoot` takes it too.
 
 ## run, wait, capture and record
 
@@ -147,7 +165,10 @@ is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
 there's no window manager to do that for a window that comes up after
 another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
 display directly, or on Wayland sway's virtual keyboard and pointer, so
-they need nothing installed.
+they need nothing installed. On Wayland the keyboard is the session's,
+made as it starts and shared by every command until it stops, so
+programs always have one, as on a desktop: GTK says where the focus is,
+and draws the caret of a field with the focus, between commands too.
 
 ## Holding keys and buttons
 
@@ -156,13 +177,14 @@ how long they're down. `shotbox key --hold SECS CHORD...` presses the
 chords together, keeps them down that long, and lets go, last first;
 `shotbox click X Y --hold SECS` does that with a button. To hold one while
 doing something else, run it in the background: `shotbox key --hold 2 w &
-shotbox click 300 200 --hold 1`. On X11, `--down` presses and leaves it
-down, across commands, until the same command with `--up`; on Wayland a
-virtual keyboard's keys go up when the command ends, so `--down` is refused
-there, saying to use `--hold` (a hold killed outright, which can't let go,
-is cleared with `--up`). A chord already held isn't pressed again, or let
-go by pressing it, and keys pressed or typed while one is held leave its
-keys down. As
+shotbox click 300 200 --hold 1`. `--down` presses and leaves it down,
+across commands, until the same command with `--up` (X11's server keeps
+it down, and on Wayland the session's keyboard); a Wayland virtual
+pointer's buttons go up when the command ends, so `click --down` is
+refused there, saying to use `--hold`. A hold killed outright, which
+can't let go, is cleared with `--up`. A chord already held isn't pressed
+again, or let go by pressing it, and keys pressed or typed while one
+is held leave its keys down. As
 on a real keyboard, a shifted symbol held
 with other keys shifts them too, and a key held past the repeat delay
 (about half a second) repeats.
@@ -260,7 +282,9 @@ band a pixel wide is seen if it's bright (a channel moving 60 or more of
 - A flash: A, B, A, from a picture that held still, to one color where
   it differs (a frame drawn black), a shape of it, a band, a line, an
   icon, as scattered strokes of text drawn once aren't, and back; each
-  said. A line no more than two pixels wide, apart from what's either
+  said. A is seen to hold longer than `--brief` before and after, within
+  the watch: a change at its start or end, A cut short, isn't one. A line
+  no more than two pixels wide, apart from what's either
   side of it, gone for a picture to the color of one side isn't one, nor
   is something moving through, which turns the tiles beside it that
   held still the same way, briefly, with its colors, within `--brief`,
@@ -284,8 +308,14 @@ sweeping past, text scrolling past (as many of its looks as not in the
 picture before or after, up or down, pixel for pixel), or a frozen frame
 that isn't one color between live ones. Text scrolled by fractions of a
 pixel, as GTK 4's or kinetic scrolling or a browser at a fractional
-scale may, is drawn anew each picture, and where its rows repeat can be
-called flicker. `--ignore G` leaves out a box that flickers on
+scale may, is drawn anew each picture, never the same pixels moved, so
+a flicker's look is also matched as a video encoder does, against the
+picture before or after moved up or down by up to a tile, to half a
+pixel: a shift that leaves half or less of what differs in place is
+scrolling, asked of about eight of its pictures. Not across, as stripes
+swapping are each other moved across. Text scrolled smoothly by more
+than a tile a picture, or across, can still be called flicker where
+its rows repeat. `--ignore G` leaves out a box that flickers on
 purpose. Pictures are kept as they're taken and looked at after, a tile
 again only where it changed: a busy screen, every picture different, is
 pictured more slowly, kept at about 150 MB a second of watching, and
@@ -319,7 +349,7 @@ brief may be missed, and something moving through taken for a flash.
 way, but with no display: for what draws nothing, a headless browser or a
 test suite, which should reach neither your desktop nor your speakers. It
 takes the session options that aren't about a display: `--env`, `--pass`,
-`--seed`, `--keep`, `--desktop`, `--system-bus`, `--audio`, `--net`,
+`--seed`, `--keep`, `--desktop`, `--machine-bus`, `--audio`, `--net`,
 `--identity`, `--clock`, `--tz` and `--no-sandbox`.
 
 ## start, spawn, stop and sessions
@@ -342,6 +372,24 @@ shotbox --session ed a11y click "Open"
 shotbox --session ed capture open.png
 shotbox stop ed
 ```
+
+Each session's scratch dir, `$TMPDIR/shotbox-XXXXXXXX`, goes when it
+stops. If what ran it is killed outright (SIGKILL), a process of its own
+stops what's left of the session, letting a recording finish its file
+first if it can within 5 seconds (a long GIF may not), and removes the dir, but for one kept with `--keep`. If that's
+killed too, as when a whole process tree is, the dir is left. **`shotbox
+sessions --stale`** lists what's stale, with each dir's size and the
+command, pid and time that made it: your own scratch dirs in `$TMPDIR`
+whose maker has gone (a dir from an older shotbox, which doesn't say, when
+nothing has it in its environment), and lasting sessions that no
+`--session` command or `spawn` has used for a day. **`shotbox sessions
+--clean`** removes the stale dirs, and stops what's left running of their
+sessions. It leaves an older shotbox's dirs, which may be ones it kept
+with `--keep`, unless given `--unmarked` too; and it lists idle lasting
+sessions but doesn't stop them, which is `shotbox stop NAME`'s to do.
+Neither touches a dir kept with `--keep`, a session that's alive, or a
+dir made in another pid namespace (a container's, say), whose maker's
+life this one can't see.
 
 ## term
 
@@ -425,7 +473,9 @@ shotbox listen soak.wav
 
 ## a11y and wait announce
 
-In a session with `--a11y`: [Accessibility](accessibility.md#commands).
+In a session with `--a11y`: [Accessibility](accessibility.md#commands),
+and for `a11y speak`, what Orca says as the focus moves, [What a screen
+reader says](accessibility.md#what-a-screen-reader-says).
 
 ## pad
 
@@ -442,7 +492,11 @@ Sessions for an agent, over MCP: [mcp.md](mcp.md).
 variables; `--seed DIR` to start the home as a copy of a directory (a
 config, a profile, sample files);
 `--desktop` for real GSettings and the system's D-Bus services, which a
-desktop shell needs; `--system-bus` for a stand-in system bus; `--keep` to
+desktop shell needs; `--machine-bus` for the machine's system bus and
+printers instead of a stand-in bus and none, for a program that needs
+their services (a desktop's settings show its Wi-Fi networks, Bluetooth
+devices, user accounts and printers then: check pictures before sharing
+them); `--keep` to
 keep the scratch dir and say where it is; `--wayland` and `--xwayland`
 for a [Wayland](wayland.md) session; `--a11y` for an
 [accessibility bus](accessibility.md); `--audio` for a PipeWire of the
@@ -464,7 +518,9 @@ that needs a setuid helper, or for every session `SHOTBOX_SANDBOX=off` in the en
   text scaling does: GTK 3 and 4 on X11 and Xwayland, GTK 4 on Wayland.
 
 Each is off unless asked for, so pictures without them don't change.
-Reduced motion needs no preset: GTK's animations are always off.
+GTK's animations are always off, so there's no reduced-motion preset;
+that also means a program can't be tested for honoring reduced motion
+([differences from a desktop](desktop.md#animations)).
 
 ## Resource use
 

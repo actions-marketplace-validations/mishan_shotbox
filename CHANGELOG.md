@@ -1,5 +1,342 @@
 # Changelog
 
+## 0.9.0 — 2026-10-19
+
+GTK 4.14 and later's text measured for contrast again, found where it's
+drawn rather than where GTK says, at its color even when thin, in a
+theme's fonts, and with a reason for what isn't; `--passes` and JSON
+that keeps notes apart from failures. Sessions sealed from the
+machine's system bus and printers by default. `a11y speak` for what
+Orca says; announcements of alerts as they appear; one keyboard for a
+Wayland session, so the focus is always there to read; blinking carets
+and smoothly scrolled text no longer taken for flicker.
+
+### Changes to check when upgrading
+
+- **`a11y contrast --json` keeps what wasn't measured apart**: it's an
+  object, not a list: `problems`, each node with its `problem`, and
+  `notes`, each with its `note` and `why`, for what wasn't measured and
+  doesn't fail. They came in one list, told apart by `fails`, so a
+  script counting entries counted the notes as failures. No `fails` key
+  now. `Screen.contrast()` gives the same dict, its lists of nodes, and
+  has no `notes` argument: the notes are always there. `a11y lint
+  --json` is as it was.
+- **A session has a stand-in system bus and no printers**, unless
+  `--machine-bus` (`Session(machine_bus=True)`), which replaces
+  `--system-bus` (`system_bus=True`), now refused. Programs reached the
+  machine's system bus and CUPS, so GNOME Settings under `--desktop`
+  showed its Wi-Fi networks, and a print dialog its printers. Under
+  bubblewrap, the machine's bus and CUPS sockets aren't there either;
+  CUPS on localhost:631 still answers a program that asks there, unless
+  `--net loopback`. A program that needs the machine's services
+  (NetworkManager, logind, polkit, CUPS) wants `--machine-bus`: check
+  pictures taken with it before sharing them. MCP's sessions have the
+  stand-in.
+
+### Added
+
+- `a11y contrast --passes` says what passes too, after what fails, a line
+  each with its ratio and colors (`PATH: text passes at 10.84:1, #2e2e32
+  on #e6e6e7 (at least 4.5)`), and for GTK 4's text, how far from where
+  GTK says its text is it was found: to compare one version with
+  another, or check where text was found, without setting each ratio to
+  30. `--json` lists
+  them as `passes`, each with its `contrast`; `Screen.contrast(passes=True)`
+  and MCP's `check_contrast` with `passes` have them too.
+- `shotbox a11y speak [--keys KEY...]`: what a screen reader says, from
+  a real Orca started in the session for it, with a home of its own
+  there and no speech or braille output. It presses Tab until the
+  focus comes round (stopping before a text view, which would take it as
+  typing), or the keys given, and prints what Orca said as it started,
+  then a line a press: the node with the focus, then what Orca said
+  (`button "Save" [focusable, focused]  says "Save button"`), or `says
+  nothing`. `Screen.speak()`
+  in Python, and MCP's `get_speech`. Needs Orca, which `shotbox doctor`
+  lists; checked with Orca 46.1, 48.0, 50.3 and 51.1. The Action's
+  `speak: true` installs Orca, and what `a11y: true` does.
+- Announcements (`wait announce`, `announcements`, MCP's
+  `list_announcements` and `wait_for` announcement) take in what Orca
+  says as it appears, and not only GTK 4's announcements and live
+  regions: an alert, notification or info bar shown, or first given the
+  focus, with its name and its labels' (`assertive: Warning Delete
+  notes.md? It can't be undone.`), as GTK 3's message dialogs and
+  `GtkInfoBar`, Qt's `QMessageBox` and libadwaita's `AdwAlertDialog`
+  (from libadwaita 1.6) are; and the focus renamed (`polite: Copied`), but not a name much
+  like the last (a countdown), as Orca leaves out. A GTK 3, Qt or
+  libadwaita program that says an error this way is heard.
+
+### Changed
+
+- On Wayland, a session has one keyboard, made as it starts and shared
+  by every command until it stops, not one a command, so programs
+  always have one, as on a desktop and on X11: GTK 4 and GTK 3 say
+  where the focus is between commands (the tree, MCP's `wait_for`
+  focus), libadwaita's alert dialog is heard as the focus goes in, and
+  a field with the focus draws its caret in pictures. `key --down`
+  works there too, and a key a hold killed outright left down stays
+  down until `--up`, as on X11; `click --down` is still refused. `a11y
+  tabwalk` and `a11y speak` no longer press Shift first.
+- `shotbox a11y tabwalk` (and `Screen.tab_walk()`, MCP's
+  `check_focus_order`) reads the tree after each press only as far as
+  the node with the focus, not all of it: 50 presses through a GTK 4
+  list of 300 rows take 5 seconds, not 90, and through a GTK 3 one of
+  400, a second, not 11. Every read of the tree asks each node for its
+  role once, not three times, and one that isn't showing for nothing
+  more than its states: `a11y tree`, `lint` and `contrast` make a
+  quarter fewer calls on the accessibility bus, and under half as many
+  in a list mostly scrolled out of view. What they find is as before.
+- `a11y contrast` measures GTK 4 before 4.14 (Debian 12's 4.8, Ubuntu
+  22.04's 4.6), which says where a widget's content is, inside its
+  border and padding, and says it right; not its edges (`--edges`),
+  which are outside that, nor what's in a popover, or on a stack's page
+  no longer shown, a line each. Such a window passed with
+  nothing measured before (nothing in it was walked); now what fails,
+  fails. docs/accessibility.md, "GTK 4's positions".
+- `a11y contrast` measures the text of GTK 4.14 and later, which it left
+  out, where it finds it: it draws the node's name in the font GTK says
+  and looks for it where GTK's wrong box can be (a stack's place, which
+  GTK counts twice, taken off; up to 4.14.5 inside the box, from 4.14.6
+  as far right and down as its containers' padding and borders can
+  have moved it), and takes it only where it matches and nothing else
+  there does, nor another node's text (or placeholder), drawn there to
+  compare, and from 4.14.6 where GTK lays it out as wide as found
+  (text not all ASCII isn't measured there). A
+  failure says how far from where GTK says its text is it was found,
+  which is how far GTK has it wrong, or where GTK doesn't say, from its
+  box's corner (gnome-calculator's "=", 3.76:1, 14,19 px). Text not
+  found (over two lines, a name that isn't
+  drawn), not looked for within 30 seconds, images, icons and edges are
+  still not measured, a line each.
+  Such a window exited 2, nothing measured, and `Screen.contrast()` and
+  MCP's `check_contrast` failed on it; now they pass or fail on its
+  text. Needs pycairo and PangoCairo (`python3-gi-cairo`,
+  `gir1.2-pango-1.0`), which the Action's `a11y: true` installs and
+  `shotbox doctor` checks for.
+  docs/accessibility.md, "GTK 4's positions".
+- `a11y contrast` finds more of GTK 4.14 and later's text, and faster:
+  each size and hinting of a node's name is matched at every place in
+  its room at once, exactly, not first by a few of its pixels at each,
+  and rooms up to 600 by 400 pixels (a sidebar's) are looked in, not 600
+  by 200. Under a theme with a grid drawn behind everything and a large
+  heading, a sampler had 29 of 36 labels measured in 21 seconds, not 5
+  in 34 with the rest out of time; gnome-calculator takes 1.2 seconds,
+  not 2. A match elsewhere in the room for the best-matching shape,
+  which keeps text from being taken, is always seen, and comparing
+  other nodes' text keeps to the 30 seconds too.
+- `a11y contrast` doesn't look for GTK 4.14 and later's text all outside
+  its window or a scrolled window it's in (a row scrolled out of view,
+  which GTK calls showing; not in a popover, which can be drawn outside
+  both), and says so: `text not measured: not shown (scrolled out of
+  view, or hidden)`, not that it wasn't found. Nor, from 4.22.3, a
+  single letter, which GTK gives no width. The line for text not looked
+  for says why (a single letter, over more than one line, not all
+  ASCII), as its why does. On 4.16 and later, text drawn a quarter of a
+  pixel off the rows (a line set by its baseline) is found: a theme's
+  sampler's description, which matched 0.967, matches 0.995.
+- Chromium's pages (Google Chrome's, Playwright's Chromium's) are read
+  in an `--a11y` session without `--force-renderer-accessibility`:
+  `shotbox a11y` asks a browser window for its attributes, as Orca does,
+  which has Chromium build the page's tree for the rest of the
+  browser's life, and waits for it, up to `--timeout` for a big page
+  (one whose tree isn't built by then is noted, or fails with
+  `--window`). A window with no page (a crashed
+  tab, or a browser started with
+  `--disable-platform-accessibility-integration`) is noted on stderr;
+  the one `--window` asks for, with nothing in its tree, fails saying
+  so and what turns it on, from `a11y tree` and the other commands and
+  MCP's `get_accessible_tree`, rather than give the window alone.
+  Electron's windows are asked too, but not waited for. The Node
+  package's `accessible` no longer has the switch.
+- Playwright finds its browsers in a session without
+  `PLAYWRIGHT_BROWSERS_PATH` given: the session sets it to yours
+  (`~/.cache/ms-playwright`, or what it is outside), not the scratch
+  home's empty cache; not with `--identity`, whose sessions don't have
+  your name. docs/sealed.md.
+
+### Fixed
+
+- `a11y contrast` crashed on GTK 4.14 and later text whose CSS weight
+  isn't one Pango names (`font-weight: 450`), measuring nothing. Its
+  text is looked for at the nearest named weight.
+- `a11y contrast` measured thin GTK 4 text lighter than its color, and
+  failed it: a stem thinner than a pixel covers none whole, so a "1" in
+  `#b0b0b0` on `#353535` (5.66:1) measured 3.94:1, and DejaVu Sans's
+  "l" at 9px is as thin on GTK 4.14 as on 4.24. Text found where it's
+  drawn, whose glyphs cover fewer than three pixels whole, is now
+  measured at the color a pixel they covered whole would be, from how
+  much of each they cover, where the shape found accounts for every
+  pixel (no shadow, a size it's drawn at); other text, as before. That
+  measures a small "." or "," too, rather than calling it too small,
+  and a "." on a theme's grid, whose lines counted as its pixels, is
+  too small to measure, not failed at its antialiased edge.
+- On Wayland, a modifier held down alone (`key --down shift`, or `key
+  --hold 2 shift &`) didn't shift the keys pressed or typed meanwhile, nor
+  a click: `shift` was pressed without its modifier bit. Now it does, as
+  on X11.
+- Announcements: an alert dialog that comes up with its program, the
+  focus in it, could go unheard, the program saying where the focus is
+  before what's there could be asked about; a window that comes up is
+  now looked in for it.
+- GTK 4 before 4.10.3: the tree, lint, `click` and the walks take
+  what's in a window, not the window alone (GTK said only its windows
+  were showing); before 4.10, a node GTK names by its class
+  (`GtkButton`) has no name, so lint finds an icon button with none.
+  Before 4.14, a window that draws its own frame (on X11 with no
+  compositor) has its nodes placed, inside its border, not `null`.
+- `a11y contrast` on a window bigger than the screen (Chromium's, at
+  its own size) crashed on a node past the screen's edge; now that's
+  not measured, a line saying it's outside the screen, and `click`,
+  `scroll` and `tabwalk --visible` leave it out too, saying so. Text
+  the edge cuts off (right-aligned, past it) is noted as partly
+  outside the screen, not failed as "not seen".
+- A width or height below zero or over 32767 is taken as bounds not
+  known (`null`): GTK 4 sends an unset size for a widget it hasn't
+  realized (a notebook's page never shown), which the tree and
+  contrast took as a real size. GTK 3's -1 by -1, for what it doesn't
+  draw, is `null` too, and still not linted, nor a failure in contrast.
+  docs/accessibility.md, "Where a node is".
+- `shoot --twice` (and `term --shoot --twice`) passed a picture with a
+  blinking caret in it, both runs catching it in the same phase. Now
+  the first run is watched for 2.5 seconds after its picture, and
+  something blinking fails it, said with where and how often (`a cursor
+  (or something) blinks at 4x16+48+16 every 530 ms`); it takes that much
+  longer. A look held a second or more isn't caught. And fewer carets
+  blink in a session: GTK 3's on Wayland, read from GSettings, and Qt
+  6.5's or later on X11 and Xwayland, read from XSETTINGS, which a
+  session now serves (but under `--desktop`, which leaves that to the
+  desktop), are off with GTK's. Qt 5's, and Qt 6's before 6.5, have no
+  setting to turn off. docs/desktop.md, "Blinking carets".
+- GTK 3 on Wayland animated (a spinner spun), reading
+  `enable-animations` from GSettings over `settings.ini`. A session's
+  GSettings are now a keyfile in its scratch home, not memory, saying
+  that and the caret's blink are off, over the system's defaults (its
+  vendor's overrides included); what a program sets there is seen by
+  the session's other programs too, and goes with the session.
+- `flicker` doesn't call smoothly scrolled text flicker. Text scrolled
+  by fractions of a pixel (GTK 4's or kinetic scrolling, a browser at a
+  fractional scale) is never the same pixels moved, so where its lines
+  came round to the same rows every other picture, a tile flipped
+  between two looks that the check for scrolling, which wanted an exact
+  copy, didn't take for it. A flicker's look is now also matched, as a
+  video encoder does, against the picture before or after moved up or
+  down by up to a tile, to half a pixel; a shift that leaves half or
+  less of what differs in place is scrolling. Not across: stripes
+  swapping are each other moved across, and still flicker. It's asked
+  of about eight of a flicker's pictures; the exact copy, of all.
+- `flicker` doesn't find a flash at the start or end of watching: a
+  change whose look before or after the watch cut short, as a square
+  moving off a tile in its first picture, or an edge sweeping past in
+  its last, was taken for one (`flash: 24x16+176+48, #e47878 for 30 ms
+  in #ffffff, at 0.005s`), the motion beside it unseen. A flash's look
+  before and after must hold longer than `--brief`, as it always did
+  in the middle of a watch.
+
+## 0.8.0 — 2026-10-18
+
+MCP tools named for what they do (verb_noun: renamed, see below), with
+descriptions that say when to use each; MCP revisions 2025-11-25 and
+2026-07-28; pictures sized for the model looking at them, bounded
+answers, and a program's text marked as its own. Waiting for a spawned
+program's window by its name, window waits that say what's there, and
+sessions killed outright cleaned up, with `sessions --stale` and
+`--clean` for what was left before.
+
+### Changes to check when upgrading
+
+- **An unknown MCP tool is a protocol error**: a tools/call of a tool
+  shotbox doesn't have is a JSON-RPC error, -32602, as the spec has it,
+  not an `isError` answer.
+- **MCP's tools are named verb_noun**, so an agent can guess what each
+  does from its name. A client's permission list that names them
+  (Claude Code's `mcp__shotbox__click`, say) needs the new names; a call
+  by an old one is refused, naming the new one. Their arguments and
+  answers are as before.
+
+  | Was | Now |
+  |---|---|
+  | `spawn` | `spawn_program` |
+  | `program_output` | `get_program_output` |
+  | `accessible_tree` | `get_accessible_tree` |
+  | `screenshot` | `take_screenshot` |
+  | `record` | `record_video` |
+  | `click` | `click_element` |
+  | `scroll` | `scroll_wheel` |
+  | `gamepad` | `use_gamepad` |
+  | `lint` | `check_accessible_names` |
+  | `contrast` | `check_contrast` |
+  | `tab_walk` | `check_focus_order` |
+  | `announcements` | `list_announcements` |
+  | `sound` | `record_audio` |
+
+  `start_session`, `stop_session`, `press_keys`, `type_text` and
+  `wait_for` keep theirs. The commands (`shotbox click`, `a11y lint`...)
+  are as they were.
+- **MCP marks a program's text**: `get_program_output`'s lines, the line
+  `wait_for` line and `record_video`'s `until_line` end on, and
+  `list_announcements` come a line each after `| `, and the instructions
+  say such lines, and quoted names and titles, are the programs', not
+  the person's. A client reading
+  `wait_for` line's answer as the bare line needs to take the `| ` off.
+
+### Added
+
+- `shotbox --version`: which shotbox this is.
+- `shotbox sessions --stale` lists scratch dirs whose sessions have gone,
+  with each one's size and the command, pid and time that made it, which
+  a `shotbox.json` in it now says, and lasting sessions unused for a day;
+  `shotbox sessions --clean` removes those dirs, with what's left running
+  of their sessions (an older shotbox's, which say nothing, only with
+  `--unmarked`). `shotbox doctor` says how many there are, and their
+  size.
+- MCP's `wait_for` a window takes the name a program was spawned by, and
+  waits for a window of that program's, whatever its title, on X11 and
+  Wayland, over one titled the name (`^name$` still waits for that),
+  which is taken if the program has none of its own, as a daemon's
+  window is; `spawn_program`'s answer says so.
+- MCP revisions 2025-11-25 and 2026-07-28, with `server/discover`.
+- MCP's `take_screenshot` and `record_video` say a picture's size, and
+  shrink one past what Claude sees unscaled (a 1568 px long edge or 1568
+  patches of 28 px: 1920x1080 to 1456x819), saying the scale, so an x,y
+  read off it can be mapped back for `click_element`. A burst's and a
+  clip's sheet lays its pictures out as many to a row as shrinks them
+  least, two 1920x1080 screens to a row, not always four.
+- MCP's `start_session`, without the system's PyGObject in sight (plain
+  `pipx install`, uvx), starts anyway and says which tools won't work
+  and how to fix it, as it says what it couldn't seal.
+
+### Changed
+
+- A session killed outright (SIGKILL) no longer leaves its scratch dir
+  in `$TMPDIR`, nor its X server, bus and programs running, nor those of
+  a session started in it: a watchdog process of its own stops them,
+  letting a recording finish its file
+  within 5 seconds, and removes the dir (not one kept
+  with `--keep`), as `shotbox mcp`'s does for its sessions, which it now
+  stops with SIGTERM too, before SIGKILL 5 seconds on.
+- MCP's answers are bounded: `start_session`'s screen is at most
+  7680x4320; `get_accessible_tree`, the checks and `list_announcements`
+  stop at 500 lines, saying how many more and to narrow it with window;
+  and a program's line, or a tree line, stops at 500 characters.
+- docs/mcp.md says that `wait_for` line reads any text file under the
+  allow file's directory, so it belongs in its own or the project's, not
+  your home, and that allowing a terminal, browser or file manager hands
+  the agent arbitrary commands through `type_text`.
+- A command that needs PyGObject, run from uvx or `uv tool install`,
+  whose environments can't see the system's, says to install with
+  `pipx install --system-site-packages shotbox`, not to make the
+  virtualenv with `--system-site-packages`, which uv's tools can't.
+- MCP's tool descriptions say when to use each tool and which to use
+  instead, what its answer holds, and its defaults: `get_program_output`
+  reads a program that has exited, `list_announcements` keeps what was
+  said, oldest first, and `check_contrast` raises the window it measures.
+- MCP's `check_focus_order`, when nothing has the focus to start from,
+  says to click the window with `click_element`, not to run
+  `shotbox focus`, which an agent can't.
+- A window wait that gives up (`wait window`, `Screen.wait_window`, a
+  `--window` that waits, MCP's `wait_for`) lists the windows there are,
+  the nearest first, with their app ids on Wayland, as a click by name
+  lists the nearest names; so does a `--window` with no such window.
+
 ## 0.7.1 — 2026-10-17
 
 MCP tool definitions an agent or a directory can read in full: every

@@ -3,6 +3,15 @@
 # the Node helpers. Needs what shotbox needs: Xvfb, xauth, dbus-daemon,
 # ImageMagick, and PyGObject with VTE for the terminal.
 set -eu
+# SHOTBOX_PART=NAME runs only what follows each "#: part NAME", besides
+# what's before the first part and after "#: end": CI runs each part at
+# once, on runners of their own.
+if [ -n "${SHOTBOX_PART-}" ]; then
+  p=$SHOTBOX_PART; unset SHOTBOX_PART
+  grep -qx "#: part $p" "$0" || { echo "no part $p in $0" >&2; exit 2; }
+  exec sh -c "$(awk -v p="$p" '/^#: part / { parted = 1; on = $3 == p; next }
+    /^#: end$/ { on = 1; next } !parted || on' "$0")" "$0"
+fi
 here=$(cd "$(dirname "$0")" && pwd)
 sb=$here/../bin/shotbox
 tmp=$(mktemp -d)
@@ -10,7 +19,12 @@ trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
+atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
+  && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; }
+app=$here/a11y_app.py
 
+#: part core
 # One version: the Python package's, the Node package's and its lockfile's,
 # the MCP registry's entry, and the changelog's newest release.
 root=$here/..
@@ -19,8 +33,12 @@ js=$(node -p "require('$root/package.json').version")
 lock=$(node -p "require('$root/package-lock.json').version")
 log=$(grep -m1 -o '^## [0-9][0-9.]*' "$root/CHANGELOG.md" | cut -c4-)
 mcp=$(python3 -c "import json; s = json.load(open('$root/server.json')); print(*{s['version'], *(p['version'] for p in s['packages'])})")
+cli=$("$sb" --version)
+# The Action's uses: lines in the docs name the release they'd get.
+action=$(grep -ho 'mishan/shotbox@v[0-9][0-9.]*' "$root/README.md" "$root"/docs/*.md | sort -u | cut -d@ -f2 | tr '\n' ' ')
 [ "$py" = "$js" ] && [ "$js" = "$lock" ] && [ "$lock" = "$log" ] && [ "$log" = "$mcp" ] \
-  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp"
+  && [ "$cli" = "shotbox $py" ] && [ "$action" = "v$py " ] \
+  && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp, --version $cli, Action docs $action"
 
 # The session: none of ours gets in, and it cleans up after itself.
 out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 SSH_AUTH_SOCK=/nope SECRET=x \
@@ -56,6 +74,12 @@ set +e; TMPDIR=$tmp/empty "$tmp/venv/bin/python" "$sb" run --a11y -- true 2> "$t
 at_once $st "^shotbox: needs PyGObject and AT-SPI from the system, which this virtualenv can't see: make it with --system-site-packages\$" \
   && ok "--a11y, with no PyGObject in sight: a virtualenv that can see it, before the session starts" \
   || fail "--a11y with no PyGObject ($st): $(cat "$tmp/err")"
+# uv's tool environments can't be made to see it: pipx's can.
+python3 -m venv --without-pip "$tmp/uv/tools/shotbox"
+set +e; TMPDIR=$tmp/empty "$tmp/uv/tools/shotbox/bin/python" "$sb" run --a11y -- true 2> "$tmp/err"; st=$?; set -e
+at_once $st "^shotbox: needs PyGObject and AT-SPI from the system, which uv's tool environments can't see; install with: pipx install --system-site-packages shotbox\$" \
+  && ok "--a11y from uv's tool environment, with no PyGObject in sight: pipx, which can see it" \
+  || fail "--a11y from uv with no PyGObject ($st): $(cat "$tmp/err")"
 set +e; "$venv/bin/python" "$sb" doctor > "$tmp/out"; st=$?; set -e
 [ $st = 0 ] && grep -q "^ok    sessions$" "$tmp/out" && grep -q "^no    term: needs PyGObject and VTE $reinstall\$" "$tmp/out" \
   && ok "doctor: what's here, and what isn't" || fail "doctor ($st): $(cat "$tmp/out")"
@@ -79,6 +103,32 @@ if bwrap --dev-bind / / true 2>/dev/null && [ -n "$(sh -c "$look")" ]; then
     [ $st != 0 ] && grep -q "programs in the session don't see" "$tmp/err" \
       && ok "a program run from where it's hidden, refused" || fail "hidden cwd: $st $(cat "$tmp/err")"
   fi
+fi
+# The machine's system bus and printers only with --machine-bus: by default
+# a bus of the session's own, with nothing on it but itself, no scheduler,
+# and under bubblewrap none of the machine's sockets for them.
+names='gdbus call --system --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+  --method org.freedesktop.DBus.ListNames | tr -d "[]() '"'"'" | tr , "\n" | grep "^[^:]"'
+theirs=$(sh -c "$names" 2>/dev/null | grep -vxm1 org.freedesktop.DBus || true)
+if [ -n "$theirs" ]; then
+  in=$("$sb" run -- sh -c "$names"); out=$("$sb" run --machine-bus -- sh -c "$names")
+  [ "$in" = org.freedesktop.DBus ] && echo "$out" | grep -qx "$theirs" \
+    && ok "a system bus of its own, and the machine's ($theirs) with --machine-bus" \
+    || fail "system bus names inside: [$in]; with --machine-bus, no $theirs in [$out]"
+fi
+if command -v lpstat >/dev/null && [ "$(lpstat -r)" = "scheduler is running" ]; then
+  in=$("$sb" run -- sh -c 'lpstat -r; lpstat -e'); out=$("$sb" run --machine-bus -- lpstat -r)
+  [ "$in" = "scheduler is not running" ] && [ "$out" = "scheduler is running" ] \
+    && ok "no printers, and the machine's with --machine-bus" \
+    || fail "printers inside: [$in]; with --machine-bus: [$out]"
+fi
+socks=$(ls -d /run/dbus/system_bus_socket /run/cups/cups.sock 2>/dev/null || true)
+if [ -n "$socks" ] && bwrap --dev-bind / / true 2>/dev/null; then
+  listed='ls -d "$@" 2>/dev/null; true'
+  in=$("$sb" run -- sh -c "$listed" sh $socks); out=$("$sb" run --machine-bus -- sh -c "$listed" sh $socks)
+  [ -z "$in" ] && [ "$out" = "$socks" ] \
+    && ok "none of the machine's bus and printer sockets inside, but with --machine-bus" \
+    || fail "sockets inside: [$in]; with --machine-bus: [$out] of [$socks]"
 fi
 # --net loopback: one network for all the session's programs, a server one
 # starts reached from another and seen by a wait from outside, with only
@@ -204,6 +254,79 @@ kill -0 $other 2>/dev/null && [ ! -e "$d/$kept.json" ] \
   && ok "stop: a session that's gone, forgotten, and its pid left alone" \
   || fail "stop: killed $other, someone else's"
 kill $other 2>/dev/null || true
+# Killed outright, a run's watchdog stops what's left of its session and
+# removes its scratch dir: a session's started in it too, and a recording
+# is finished first; with --keep, the dir stays. Killed with it, as a whole
+# process tree can be, the dir is left for `sessions --stale` to find and
+# `--clean` to remove, with what's left running, and a live session's, a
+# kept one's and, without --unmarked, an older shotbox's are left be.
+st=$tmp/st; mkdir "$st"
+up() { i=0; while [ ! -s "$1" ] && [ $i -lt 200 ]; do sleep 0.1; i=$((i + 1)); done; cat "$1"; }
+left() {
+  for p in $(pgrep -u "$(id -u)" .); do
+    { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -qx "SHOTBOX_SCRATCH=$1" && echo "$p"
+  done
+  true
+}
+scratch_to='echo "$SHOTBOX_SCRATCH" > "$1"; exec sleep 600'
+until_none() { i=0; while [ -n "$(left "$1")" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; }
+TMPDIR=$st "$sb" run -- sh -c "$scratch_to" sh "$tmp/killed" & run=$!
+d1=$(up "$tmp/killed")
+TMPDIR=$st "$sb" run -- "$sb" run -- sh -c "$scratch_to" sh "$tmp/inner" & outer=$!
+inner=$(up "$tmp/inner")
+TMPDIR=$st "$sb" run --keep -- sh -c "$scratch_to" sh "$tmp/kept" > /dev/null & keeping=$!
+dk=$(up "$tmp/kept")
+kill -9 $run $outer $keeping; wait $run $outer $keeping 2>/dev/null || true
+for d in "$d1" "$inner" "$dk"; do until_none "$d"; done
+i=0; while [ -e "$d1" ] || [ -e "$inner" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+for d in "$d1" "$inner"; do
+  what=$([ "$d" = "$d1" ] && echo "its scratch dir" || echo "a session's started in it")
+  [ -n "$d" ] && [ ! -e "$d" ] && [ -z "$(left "$d")" ] \
+    && ok "a run killed outright: its watchdog removes $what, and what ran" \
+    || fail "a run killed outright left $d: $(left "$d")"
+done
+[ -n "$dk" ] && [ -d "$dk/home" ] && [ -z "$(left "$dk")" ] \
+  && ok "a run with --keep killed outright: what ran stops, the dir stays" \
+  || fail "--keep killed outright: $dk, $(left "$dk")"
+if command -v ffmpeg >/dev/null; then
+  TMPDIR=$st "$sb" run -- sh -c 'echo "$SHOTBOX_SCRATCH" > "$1"; exec "$2" record "$3" --seconds 20' \
+    sh "$tmp/rec" "$sb" "$tmp/cut.mp4" > /dev/null & run=$!
+  dr=$(up "$tmp/rec"); sleep 3; kill -9 $run; wait $run 2>/dev/null || true
+  until_none "$dr"
+  case $(ffprobe -v error -show_entries format=duration -of csv=p=0 "$tmp/cut.mp4" 2>&1) in
+    [1-9]*) ok "a run killed outright while it records: the clip is finished" ;;
+    *) fail "a run killed while it records: $(ffprobe -v error "$tmp/cut.mp4" 2>&1)" ;;
+  esac
+fi
+TMPDIR=$st "$sb" run -- sh -c "$scratch_to" sh "$tmp/killed2" & run=$!
+d2=$(up "$tmp/killed2"); watch=$(pgrep -u "$(id -u)" -fx ".* mcp --watch $d2")
+kill -9 $run $watch; wait $run 2>/dev/null || true
+TMPDIR=$st "$sb" run -- sh -c "$scratch_to" sh "$tmp/live" & live=$!
+d3=$(up "$tmp/live")
+TMPDIR=$st "$sb" sessions --stale > "$tmp/stale"
+TMPDIR=$st "$sb" doctor > "$tmp/doctor1" || true
+TMPDIR=$st "$sb" sessions --clean > "$tmp/clean"
+TMPDIR=$st "$sb" doctor > "$tmp/doctor2" || true
+[ "$(cut -d' ' -f1 "$tmp/stale")" = "$d2" ] && grep -q "  shotbox run -- sh -c .*, pid $run, " "$tmp/stale" \
+  && ok "sessions --stale: a run killed with its watchdog, what made it, and not a live one" \
+  || fail "sessions --stale: $(cat "$tmp/stale")"
+[ ! -e "$d2" ] && [ -z "$(left "$d2")" ] && grep -q "^removed $d2 " "$tmp/clean" \
+  && [ -e "$d3" ] && kill -0 $live && [ -e "$dk" ] \
+  && ok "sessions --clean: it goes, with what it left running; a live and a kept one stay" \
+  || fail "sessions --clean: $(cat "$tmp/clean"); left $(left "$d2")"
+grep -q "^no    scratch dirs: 1 stale in $st, [0-9.]* [kM]B (" "$tmp/doctor1" \
+  && grep -qx "ok    scratch dirs: none stale in $st" "$tmp/doctor2" \
+  && ok "doctor: stale scratch dirs, and their size" \
+  || fail "doctor: $(grep 'scratch dirs' "$tmp/doctor1" "$tmp/doctor2")"
+kill $live; wait $live 2>/dev/null || true
+old=$st/shotbox-0lder123; mkdir "$old"; touch -d '1 hour ago' "$old"
+TMPDIR=$st "$sb" sessions --stale > "$tmp/stale"
+TMPDIR=$st "$sb" sessions --clean > "$tmp/clean"
+TMPDIR=$st "$sb" sessions --clean --unmarked > "$tmp/clean2"
+grep -qx "$old  0 kB  made by an older shotbox" "$tmp/stale" && grep -q "^left $old " "$tmp/clean" \
+  && grep -q "^removed $old " "$tmp/clean2" && [ ! -e "$old" ] \
+  && ok "sessions: an older shotbox's dir, listed, and removed only with --unmarked" \
+  || fail "sessions, an unmarked dir: $(cat "$tmp/stale" "$tmp/clean" "$tmp/clean2")"
 # What a --desktop session's bus activates gets the session's environment,
 # and its own service files, not the caller's.
 mkdir -p "$tmp/seed/.local/share/dbus-1/services"
@@ -215,7 +338,6 @@ printf '[D-BUS Service]\nName=org.shotbox.Probe\nExec=/bin/sh -c '"'"'echo "$HOM
   && ok "--desktop: what the bus activates is inside the session" \
   || fail "--desktop: activated with: $(cat "$tmp/activated" 2>/dev/null)"
 # Audio: PipeWire with a null sink, or skip, unless SHOTBOX_AUDIO=required.
-audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 if audio; then
   python3 -c "import wave; w = wave.open('$tmp/beep.wav', 'wb'); w.setnchannels(1)
 w.setsampwidth(2); w.setframerate(48000); w.writeframes(bytes(9600)); w.close()"
@@ -380,6 +502,61 @@ st=$?; set -e
 [ $st = 1 ] && grep -q "pixels differ, in [0-9]*x[0-9]* at [0-9]*,[0-9]*; see .*clock-diff.png" "$tmp/err" \
   && [ -s "$tmp/clock-diff.png" ] && [ ! -e "$tmp/clock.png" ] \
   && ok "term --shoot --twice: a clock differs, and where" || fail "--twice, a clock: $st $(cat "$tmp/err")"
+# --twice and carets, each given the keyboard before the picture: GTK's
+# doesn't blink in a session, and passes; one drawn on a timer of its own,
+# every 530 ms, blinks, said with where and how often, and so does Qt 5's,
+# or Qt 6's before 6.5, which nothing a session sets reaches; a later Qt
+# 6's doesn't.
+cat > "$tmp/qt.py" <<'EOF'
+import importlib, sys
+qt = importlib.import_module(sys.argv[1] + ".QtWidgets")
+app = qt.QApplication(sys.argv)
+edit = qt.QLineEdit()
+edit.setWindowTitle("qt")
+edit.show()
+app.exec()
+EOF
+caret() {
+  w=$1; shift
+  set +e; "$sb" shoot "$tmp/caret-$w.png" --twice --window "$w" --wait ready -- sh -c "$* &
+    '$sb' wait window '$w' >/dev/null && '$sb' focus '$w' && touch \"\$SHOTBOX_SCRATCH/ready\"; wait" \
+    > /dev/null 2> "$tmp/err"; st=$?; set -e
+}
+blinks="but a cursor (or something) blinks at [0-9]*x[0-9]*[+][0-9]*[+][0-9]* every [3-6][0-9][0-9] ms"
+caret t1 "'$here/window.py' t1 '$tmp/typed'"
+[ $st = 0 ] && ok "--twice: GTK's caret doesn't blink" || fail "--twice, GTK's caret: $st $(cat "$tmp/err")"
+caret drawn "'$here/window.py' drawn caret 530"
+[ $st = 1 ] && grep -q "$blinks" "$tmp/err" && grep -q " at [0-9]*x[0-9]*[+]48[+]" "$tmp/err" \
+  && [ ! -e "$tmp/caret-drawn.png" ] && ok "--twice: a caret blinking on its own timer, said" \
+  || fail "--twice, a drawn caret: $st $(cat "$tmp/err")"
+for qt in PyQt5 PyQt6; do
+  if ! python3 -c "import $qt.QtWidgets" 2>/dev/null; then echo "skip  --twice, $qt's caret: no $qt"; continue; fi
+  caret qt "python3 '$tmp/qt.py' $qt"
+  v=$(python3 -c "from $qt.QtCore import QT_VERSION_STR; print(QT_VERSION_STR)")
+  case $v in 5.*|6.[0-4].*) want=1 ;; *) want=0 ;; esac
+  case $want$st in
+    11) grep -q "$blinks" "$tmp/err" && ok "--twice: Qt $v's caret blinks, said" || fail "--twice, Qt $v: $(cat "$tmp/err")" ;;
+    00) ok "--twice: Qt $v's caret doesn't blink" ;;
+    *) fail "--twice, Qt $v's caret: $st $(cat "$tmp/err")" ;;
+  esac
+done
+# GSettings: the system's defaults, its vendor's overrides included, but
+# for the caret's blink and animations, off; a seed's keyfile, linked
+# out, never written.
+dump="gsettings list-recursively org.gnome.desktop.interface | sort"
+if command -v gsettings >/dev/null && GSETTINGS_BACKEND=memory sh -c "$dump" 2>/dev/null | grep -q .; then
+  mkdir -p "$tmp/gs/.config/glib-2.0/settings"
+  printf "[org/gnome/desktop/interface]\nfont-name='Mine 9'\n" > "$tmp/gs.keyfile"
+  cp "$tmp/gs.keyfile" "$tmp/gs.orig"
+  ln -s "$tmp/gs.keyfile" "$tmp/gs/.config/glib-2.0/settings/keyfile"
+  GSETTINGS_BACKEND=memory LC_ALL=C.UTF-8 sh -c "$dump" \
+    | sed -E 's/^(org.gnome.desktop.interface (cursor-blink|enable-animations)) true$/\1 false/' \
+    | sort > "$tmp/gs.want"
+  "$sb" run --seed "$tmp/gs" -- sh -c "$dump" > "$tmp/gs.got"
+  cmp -s "$tmp/gs.want" "$tmp/gs.got" && cmp -s "$tmp/gs.keyfile" "$tmp/gs.orig" \
+    && ok "GSettings: the system's defaults, but for the caret's blink and animations" \
+    || fail "GSettings: $(diff "$tmp/gs.want" "$tmp/gs.got"; diff "$tmp/gs.orig" "$tmp/gs.keyfile")"
+fi
 
 # Stable: waits out a burst of output, and gives up on output that never stops.
 "$sb" run -- sh -c "
@@ -464,6 +641,7 @@ st=$?; set -e
   && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
   && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
 
+#: part input
 # flicker: a square switching green and black every 30 ms flickers, at
 # that; one that blinks every half second, as a caret does, doesn't; one
 # black for 40 ms, once a second, flashed; one black between frames of a
@@ -472,11 +650,13 @@ st=$?; set -e
 # flickers, said in the band's own colors, and so does a strip whose black
 # is a dark gray with noise in it, one with something passing through most
 # of its tile, one beside a scene moving on all along, and one over plain
-# gray beside a square changing, and two grays 6% apart; an X flashing
+# gray beside a square changing, two grays 6% apart, and stripes
+# swapping, each the other moved across, not scrolling; an X flashing
 # white flashes; and a still window, a moving square, slowly or through
 # a tile in a picture or stepping past tiles to a sliver of it at the
-# edge, text scrolling past, close or spaced, a listing's lines, or pages
-# of them between blanks, a line's steps crawling, an edge between two
+# edge, text scrolling past, close, by halves of a pixel, or spaced, a
+# listing's lines, or pages of them between blanks, a line's steps
+# crawling, an edge between two
 # faces 8% apart sweeping past, two poles alike crossing, a line missing
 # for a picture or a step of it a row lower, and a terminal's page drawn
 # anew, its caret gone with it, none; and a panel with a word in it flashing
@@ -495,22 +675,24 @@ sheets() {
   done < "$tmp/sheets"
 }
 flickered=""
-for c in "flip 30 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms, #000000 and #009900" "flip 500 0" \
-         "flash 40 1 ^flash: 200x120+0+0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
-         "move - 0" "scroll - 0" "spaced - 0" "strip - 1 ^flicker: 200x120+0+0, .* ms, #00.* and #00" \
-         "scene - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
-         "band 3 1 ^flicker: 16x120+176+0, .* every [1-5][0-9] ms, .*#000000" \
-         "band 1 1 ^flicker: 16x120+176+0, " "noisy - 1 ^flicker: 200x120+0+0, .* every [1-5][0-9] ms" \
+for c in "flip 30 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms, (#000000 and #009900|#009900 and #000000)" "flip 500 0" \
+         "flash 40 1 ^flash: 200x120[+]0[+]0, #000000 for [3-6][0-9] ms in #009900" "still - 0" \
+         "move - 0" "scroll - 0" "smooth - 0" "spaced - 0" "strip - 1 ^flicker: 200x120[+]0[+]0, .* ms, #00.* and #00" \
+         "scene - 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms" \
+         "band 3 1 ^flicker: 16x120[+]176[+]0, .* every [1-5][0-9] ms, .*#000000" \
+         "band 1 1 ^flicker: 16x120[+]176[+]0, " "noisy - 1 ^flicker: 200x120[+]0[+]0, .* every [1-5][0-9] ms" \
          "fast - 0" "panel - 1 ^flash: .*, #ffffff for [2-6][0-9] ms in " "text - 0" "pages - 0" \
-         "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120+176+0, " "skip - 0" \
-         "edge - 1 ^flicker: 16x120+176+0, " "gray - 1 ^flicker: 200x120+0+0, " "poles - 0" \
-         "busy - 1 ^flicker: 16x120+176+0, " "icon - 1 ^flash: 16x16+64+48, #ffffff" \
+         "line - 0" "gradient - 0" "passer - 1 ^flicker: 16x120[+]176[+]0, " "skip - 0" \
+         "grating - 1 ^flicker: 16x120[+]0[+]0, .* every [1-5][0-9] ms" \
+         "edge - 1 ^flicker: 16x120[+]176[+]0, " "gray - 1 ^flicker: 200x120[+]0[+]0, " "poles - 0" \
+         "busy - 1 ^flicker: 16x120[+]176[+]0, " "icon - 1 ^flash: 16x16[+]64[+]48, #ffffff" \
          "dropout - 0" "redraw - 0" "stair - 0"; do
-  set -- $c
+  set -f; set -- $c; set +f
+  pat=; [ $# -le 3 ] || pat=${c#"$1 $2 $3 "}
   save="--save '$tmp/fl-$1-$2'"; [ $1 != gray ] || save=
   set +e; out=$("$sb" run -- sh -c "'$here/window.py' fl $1 $2 & '$sb' wait window fl >/dev/null &&
     '$sb' flicker --window fl --seconds 1.6 $save"); st=$?; set -e
-  [ $st = "$3" ] && { [ -z "${4-}" ] || echo "$out" | grep -q "$4"; } && sheets "$tmp/fl-$1-$2" "$out" \
+  [ $st = "$3" ] && { [ -z "$pat" ] || echo "$out" | grep -Eq "$pat"; } && sheets "$tmp/fl-$1-$2" "$out" \
     && { [ "$1" != flash ] || [ "$(convert "$tmp"/fl-flash-40/*.png -crop 1x+1+0 -depth 8 txt:- \
                                    | grep -c '#7F7F7F')" = 6 ]; } \
     || flickered="$flickered $1 $2 ($st: $out)"
@@ -564,13 +746,20 @@ chords "$tmp/chords.log" && ok "shift in a chord: the shifted symbol, and back-t
 got=$(held "$tmp/held.log")
 [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/held.log")" -ge 35 ] \
   && ok "key and click --hold: held together, let go last first" || fail "hold: $got"
-# --down and --up: a key left down between two commands, X11's server keeps it.
-: > "$tmp/down.log"
-"$sb" run -- sh -c "'$here/held.py' held '$tmp/down.log' &
-  '$sb' wait window held && '$sb' wait stable --window held &&
-  '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
-  sleep 0.3" && awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' \
-  "$tmp/down.log" && ok "key --down, then --up: held between commands" || fail "--down, --up"
+# down LOG [SESSION OPTIONS]: --down and --up, a key left down between two
+# commands: X11's server keeps it, and on Wayland the session's keyboard;
+# and Shift left down alone shifts the next command's key.
+down() {
+  log=$1; shift
+  : > "$log"
+  "$sb" run "$@" -- sh -c "'$here/held.py' held '$log' &
+    '$sb' wait window held && '$sb' wait stable --window held &&
+    '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
+    '$sb' key --down shift && '$sb' key a && '$sb' key --up shift && sleep 0.3" &&
+    awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
+    grep -q '^press A ' "$log"
+}
+down "$tmp/down.log" && ok "key --down, then --up: held between commands, Shift alone too" || fail "--down, --up: $(tr '\n' ' ' < "$tmp/down.log")"
 # Two held chords sharing Ctrl: letting go of one leaves Ctrl down for the
 # other, and one is let go however it's spelled. A chord it can't press is said before anything goes down, a hold
 # that isn't one is refused, and a hold stopped midway lets go.
@@ -627,9 +816,9 @@ printf 'wait window nope --timeout 0.3 &\n10 park\n' > "$tmp/play-behind"
   && [ "$(cat "$tmp/entry.log")" = 'hello#${WORD}' ] \
   && grep -qx "shotbox: $tmp/play-unset:2: \${NOPE} isn't set" "$tmp/play.err" \
   && grep -q "^shotbox: $tmp/play-fails:2: gave up waiting .*; the screen then: $tmp/play-failed.png$" "$tmp/play.err" \
-  && grep -qx "shotbox: $tmp/play-behind:1: gave up waiting for a window named 'nope' after 0.3s" "$tmp/play.err" \
+  && grep -qx "shotbox: $tmp/play-behind:1: gave up waiting for a window named 'nope' after 0.3s; there are: \"entry\"" "$tmp/play.err" \
   && [ -s "$tmp/play-failed.png" ] && [ "$(sort -n "$tmp/play.ms" | tail -1)" -lt 3000 ] \
-  && ok "play: a script typed in, \${NAME} set; checked first; a step failing, by its line, stops what's behind it, or behind, the script" \
+  && ok "play: a script typed in, \${NAME} set; checked first; a step failing, by its line, stops what's behind it, or behind, the script, saying the windows there are" \
   || fail "play: $(cat "$tmp/entry.log" "$tmp/play.err" "$tmp/play.ms" 2>/dev/null)"
 # Its clock, in a lasting session, the script from stdin: a key at 1 s,
 # the next 0.5 s after it; a wait (for a key pressed behind it at 2.5 s)
@@ -665,12 +854,11 @@ cat "$tmp/focus.log"
 fails=$((fails + $(grep -c '^FAIL' "$tmp/focus.log" || true)))
 [ $st = 0 ] || grep -q "^FAIL" "$tmp/focus.log" || fail "focus_test.py: status $st"
 
+#: part a11y
 # Accessibility: a session's own AT-SPI bus, the tree, lint, the Tab
 # order and announcements, against a libadwaita window. They need GTK 4,
 # libadwaita and at-spi2-core, or they skip, unless SHOTBOX_A11Y=required.
-app=$here/a11y_app.py
-if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
-    && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; then
+if atspi; then
   # Its sessions' scratch dirs under one of ours, to tell what they leave
   # running from the desktop's own accessibility bus: the launcher, its
   # bus and the registry have the session's runtime dir, not in their
@@ -769,19 +957,51 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     '$sb' a11y click Corner --window corner >/dev/null && sleep 0.5" \
     && [ "$(cat "$tmp/corner" 2>/dev/null)" = clicked ] \
     && ok "a11y: click finds a GTK 3 button in its window's corner" || fail "a11y: click, GTK 3 corner"
-  # GTK 4 says where its widgets are wrong: they're not measured, and
-  # with nothing measured, that's exit 2, and why. Told to trust it (a
-  # GTK whose bounds are right), it finds faint text and its colors, but
-  # not a disabled button's label.
+  # GTK 4 says where its widgets are wrong: their text is measured where
+  # it's found drawn near there, at its colors, and what isn't found (a
+  # label over two lines, labels drawn letter-spaced or in upper case
+  # over an entry holding or showing their text, which isn't taken for
+  # theirs), or
+  # isn't text, is said not to be, and why. --passes says what passes too,
+  # and --json keeps what isn't measured apart from what fails.
+  # Told to trust it (a GTK whose bounds are right), it finds faint text
+  # and its colors, but not a disabled button's label.
   set +e
-  "$sb" run --a11y -- sh -c "'$app' faint & '$sb' a11y contrast --window a11y-test" \
+  "$sb" run --a11y -- sh -c "'$app' faint lines decoys &
+    '$sb' a11y contrast --passes --window a11y-test; s=\$?
+    '$sb' a11y contrast --passes --json --window a11y-test > '$tmp/contrast.json' && exit \$s" \
     > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 2 ] && grep -q '/label\[[0-9]*\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-    && ! grep -qv ': [a-z]* not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
-    && grep -q '^shotbox: nothing measured: [0-9]* not measured\. GTK 4\.[0-9.]* reports where its widgets are' "$tmp/err" \
-    && ok "a11y: contrast leaves GTK 4 unmeasured, saying why: nothing measured, exit 2" \
-    || { fail "a11y: contrast, GTK 4 unmeasured ($st)"; cat "$tmp/contrast" "$tmp/err"; }
+  [ $st = 1 ] && [ "$(grep -v ' not measured: GTK 4 reports its position wrong' "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
+    && grep -q ': text passes at [0-9]*\.[0-9][0-9]:1, #[0-9a-f]\{6\} on #[0-9a-f]\{6\} (at least 4\.5)' "$tmp/contrast" \
+    && python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
+assert [p['problem'][:8] for p in j['problems']] == ['text 2.5'], j['problems']
+assert j['notes'] and all(' not measured: ' in n['note'] and n['why'] for n in j['notes'])
+assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in j['passes'])" "$tmp/contrast.json" \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
+    && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast" \
+    && grep -q 'check box\[[0-9]*\]/label\[[0-9]*\]: text passes at .*; found [0-9],[0-9] px from ' "$tmp/contrast" \
+    && [ "$(grep -c '/panel\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast")" = 4 ] \
+    && grep -q "GTK 4\.[0-9.]* reports where its widgets are wrong, so text is measured where it's found" "$tmp/err" \
+    && ok "a11y: contrast measures GTK 4's text where it's found, at its colors, a full-width label's near where GTK says, but not text it can't find or tell from another's; --passes and --json say what passes, and keep notes apart" \
+    || { fail "a11y: contrast, GTK 4 text found ($st)"; cat "$tmp/contrast" "$tmp/contrast.json" "$tmp/err"; }
+  # A theme's font (a seeded gtk.css), which GTK says, over a grid, so
+  # nothing is all one lightness, in a window so big that from 4.14.6
+  # each label is looked for in more than 600 by 200 pixels.
+  mkdir -p "$tmp/theme/.config/gtk-4.0"
+  printf '%s\n' 'label { font-family: monospace; font-weight: bold; font-size: 15px; }' \
+    'window { min-width: 640px; min-height: 600px; background-image:' \
+    '  repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px),' \
+    '  repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px); }' \
+    > "$tmp/theme/.config/gtk-4.0/gtk.css"
+  set +e
+  "$sb" run --a11y --seed "$tmp/theme" -- sh -c "'$app' faint &
+    '$sb' a11y contrast --window a11y-test" > "$tmp/contrast" 2>/dev/null
+  st=$?; set -e
+  [ $st = 1 ] && ! grep -q 'no time left' "$tmp/contrast" \
+    && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
+    && ok "a11y: contrast finds GTK 4's text in a theme's font, over a grid, in a big window" \
+    || { fail "a11y: contrast, GTK 4 themed ($st)"; cat "$tmp/contrast"; }
   set +e
   "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' faint &
     '$sb' a11y contrast --window a11y-test" > "$tmp/contrast"
@@ -813,6 +1033,18 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
       2>/dev/null | grep -q '/label\[0\]: text too small to measure' \
     && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text, large text, a dot, which passes alone" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
+  # A window wider than the screen: what's past the screen's edge isn't
+  # measured or clicked, and says so; nor is a label whose text is past it.
+  "$sb" run --a11y --screen 800x600 -- sh -c "'$here/window.py' wide wide &
+    '$sb' a11y contrast --edges 1 --window wide && ! '$sb' a11y click There --window wide &&
+    '$sb' a11y tabwalk --visible --window wide" > "$tmp/contrast" 2>&1 \
+    && grep -q '/label\[0\]: text not measured: partly outside the screen$' "$tmp/contrast" \
+    && grep -q '[/ ]button\[1\]: text not measured: outside the screen$' "$tmp/contrast" \
+    && grep -q '[/ ]button\[1\]: edge not measured: outside the screen$' "$tmp/contrast" \
+    && grep -q '"There" \[focusable\] is outside the screen$' "$tmp/contrast" \
+    && grep -q '"There" \[focusable, focused\]  <- focus not measured: outside the screen$' "$tmp/contrast" \
+    && ok "a11y: contrast, click and tabwalk --visible leave out what's past the screen's edge" \
+    || { fail "a11y: past the screen's edge"; cat "$tmp/contrast"; }
   # GTK 4.16 and later: thin text, spaced by a fraction of a pixel, drawn
   # at its color, which GTK's automatic font rendering doesn't; and a
   # seeded home that asks for that has it.
@@ -829,6 +1061,90 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
       && ok "a11y: contrast, GTK 4: thin text at its color, but where a seeded home asks for automatic" \
       || { fail "a11y: contrast, GTK 4 thin text"; grep 'label\[7\]' "$tmp/contrast" "$tmp/contrast-auto"; }
   fi
+  # Text found from 4.14: stems thinner than a pixel, which cover none
+  # whole on any GTK 4 release, measure at their color, from how much of
+  # each pixel they cover, and bold text as its third pixel; light and
+  # dark, passing and failing. Not where the shape found doesn't account
+  # for every pixel: a size between those shapes are drawn at, or a
+  # shadow, which would measure darker than the color (#777777, 4.48:1,
+  # as 4.60 and 5.17). A "." and a ",", too few pixels to have a core of
+  # their color, at their color too. And a weight CSS gives that Pango
+  # doesn't name (450) is looked for, not a crash. A case a line: the
+  # label; what's said.
+  if [ "$minor" -ge 14 ]; then
+    glyphs="Ill|DejaVu Sans|9|400|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff
+lIl|DejaVu Sans|9|400|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
+IlI|DejaVu Sans|9|400|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+llI|DejaVu Sans|9|400|#5a5a5a|#353535; 1\.7[5-8]:1, #5[9a]5[9a]5[9a] on #353535
+Hello|DejaVu Sans|20|700|#767676|#ffffff; passes at 4\.54:1, #767676 on #ffffff
+World|DejaVu Sans|20|700|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+Hold|DejaVu Sans|20|700|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
+Help|DejaVu Sans|20|700|#5a5a5a|#353535; 1\.77:1, #5a5a5a on #353535
+Network|Cantarell|9.5|400|#777777|#ffffff; [1-4]\.[0-9]*:1, #[0-9a-f]* on #ffffff
+Settings|Cantarell|9.5|400|#777777|#ffffff|0 1px rgba(0,0,0,0.1); [1-4]\.[0-9]*:1, #[0-9a-f]* on #ffffff
+.|DejaVu Sans|13|400|#333333|#ffffff; passes at 12\.63:1, #333333 on #ffffff
+,|DejaVu Sans|13|400|#aaaaaa|#ffffff; 2\.32:1, #aaaaaa on #ffffff
+Book|DejaVu Sans|13|450|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff"
+    labels=$(echo "$glyphs" | sed "s/; .*//; s/.*/'&'/" | tr '\n' ' ')
+    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' glyphs $labels & '$sb' wait window gtk4-glyphs \
+      >/dev/null && sleep 1 && '$sb' a11y contrast --passes --window gtk4-glyphs" > "$tmp/contrast" || true
+    i=0 wrong=""
+    while IFS=';' read -r label said; do
+      grep -q "/label\[$i\]: text$said (" "$tmp/contrast" || wrong="$wrong '$label'"
+      i=$((i + 1))
+    done <<EOF
+$glyphs
+EOF
+    [ -z "$wrong" ] && ok "a11y: contrast, GTK 4: thin stems at their color, but not past what the shape accounts for; bold text as before" \
+      || { fail "a11y: contrast, GTK 4 thin and bold text:$wrong"; cat "$tmp/contrast"; }
+  fi
+  # From 4.14, text that isn't looked for says why: rows scrolled out of
+  # view, which GTK calls showing, above the list but in the window, and
+  # below the window; and from 4.22.3 a single letter, which GTK gives no
+  # width.
+  micro=$(python3 -c "import ctypes; print(ctypes.CDLL('libgtk-4.so.1').gtk_get_micro_version())")
+  while IFS='|' read -r least args lines want; do
+    [ $((minor * 100 + micro)) -ge "$least" ] || continue
+    "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --window a11y-test" \
+      < /dev/null > "$tmp/contrast" 2>&1 || true
+    [ "$(grep -c "$want" "$tmp/contrast")" = "$lines" ] \
+      && ok "a11y: contrast, GTK 4: says why it didn't look for text: $args" \
+      || { fail "a11y: contrast, GTK 4, why not: $args"; cat "$tmp/contrast"; }
+  done <<'CASES'
+1400|long down|2|/label\[\(2\|199\)\]: text not measured: not shown (scrolled out of view, or hidden)$
+2203|letter|1|: text not measured: GTK 4 reports its position wrong (a single letter: GTK gives it no width)$
+CASES
+  # Before 4.14, GTK 4 says where a widget's content is: measured there,
+  # faint labels in frames, one GTK can't pick, one under an overlay's
+  # clear child and one on a stack's shown page too. Not measured, and
+  # said: a stack's page no longer shown, which it still says is where it
+  # was, a popover's label, which it places in its window, and a button's
+  # edge, outside its content. From 4.14, the same labels are found, the
+  # stack's though GTK counts its place in the stack twice (drawn a level
+  # lighter, unhinted, on 4.16 and later), and the popover's isn't, drawn
+  # outside the window.
+  set +e
+  "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' & '$sb' wait window gtk4-old >/dev/null &&
+    sleep 1 && '$sb' a11y contrast --edges 3 --window gtk4-old" > "$tmp/contrast" 2>/dev/null
+  st=$?; set -e
+  if [ "$minor" -lt 14 ]; then
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.99:1, #b0b0b0 on ' "$tmp/contrast")" = 4 ] \
+      && grep -q '/filler\[2\]/label\[0\]: text 1\.99:1' "$tmp/contrast" \
+      && grep -q '/panel\[3\]/panel\[0\]/label\[0\]: text not measured: GTK says another node is at its middle$' "$tmp/contrast" \
+      && grep -q '/filler\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && grep -q '/push button\[4\]: edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && [ "$(wc -l < "$tmp/contrast")" = 8 ] \
+      && ok "a11y: contrast, GTK 4 before 4.14: in a widget's content; not a stack's page gone, a popover or an edge, said" \
+      || { fail "a11y: contrast, GTK 4 before 4.14 ($st)"; cat "$tmp/contrast"; }
+  else
+    [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast")" = 4 ] \
+      && grep -q '\[3\]/panel\[[01]\]/label\[0\]: text 1\.9' "$tmp/contrast" \
+      && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 2 ] \
+      && [ "$(wc -l < "$tmp/contrast")" = 7 ] \
+      && ok "a11y: contrast, GTK 4 from 4.14: text where it's found, a stack's too; not a popover or an edge, said" \
+      || { fail "a11y: contrast, GTK 4 from 4.14 ($st)"; cat "$tmp/contrast"; }
+  fi
   # The window's own buttons, out of the Tab order, left out by name.
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \
     --ignore 'button \"(Minimize|Maximize|Close)\"'" > "$tmp/walk" \
@@ -837,12 +1153,18 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     && [ "$(tail -1 "$tmp/walk")" = "round again after 6" ] \
     && ok "a11y: tabwalk goes round and back" || { fail "a11y: tabwalk"; cat "$tmp/walk"; }
   # Scrolled windows, lists and notebooks take the focus with no name of
-  # their own, and say what's in them; Tab passes into their rows.
+  # their own, and say what's in them; Tab passes into their rows. The
+  # page never shown is a widget GTK hasn't realized, whose size it sends
+  # unset, a different one each run.
   "$sb" run --a11y -- sh -c "'$app' lists & '$sb' a11y lint --window a11y-test &&
+    '$sb' a11y tree --json --window a11y-test > '$tmp/tree' &&
     '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && grep -q '^round again after' "$tmp/walk" \
-    && ok "a11y: lists, scrolled, in a notebook: lint passes, tabwalk goes round" \
-    || { fail "a11y: lists"; cat "$tmp/walk"; }
+    && python3 -c "import json, sys; t = json.load(open(sys.argv[1]))
+sys.exit(not any(n['name'] == 'Page 2' for n in t)
+         or any(not 0 <= s <= 32767 for n in t if n['bounds'] for s in n['bounds'][2:]))" "$tmp/tree" \
+    && ok "a11y: lists, scrolled, in a notebook: lint passes, tabwalk goes round, no size past what a node can have" \
+    || { fail "a11y: lists"; cat "$tmp/walk" "$tmp/tree"; }
   "$sb" run --a11y -- sh -c "'$app' one & '$sb' a11y tabwalk --window a11y-test" > "$tmp/walk" \
     && [ "$(tail -1 "$tmp/walk")" = "round again after 1" ] \
     && ok "a11y: tabwalk, with one thing to take the focus, is round in one" \
@@ -880,6 +1202,45 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     && [ ! -s "$tmp/typed" ] \
     && ok "a11y: tabwalk finds a focus trap: a text view nothing gets out of, in a dialog too" \
     || { fail "a11y: trap ($st, $st2)"; cat "$tmp/walk" "$tmp/dialog" "$tmp/typed"; }
+  # An Orca whose Python leaves out PYTHONPATH or site would run as it
+  # is, out loud: it isn't started.
+  mkdir -p "$tmp/isolated"
+  for flags in -I -Es; do
+    printf '#!/usr/bin/python3 %s\nopen("%s/ran", "w")\n' "$flags" "$tmp" > "$tmp/isolated/orca"
+    chmod +x "$tmp/isolated/orca"
+    set +e; "$sb" run --a11y -- sh -c "PATH='$tmp/isolated':\$PATH '$sb' a11y speak" 2> "$tmp/err"; st=$?; set -e
+    [ $st != 0 ] && grep -q "won't start Orca: its interpreter, /usr/bin/python3 $flags, ignores" "$tmp/err" \
+      && [ ! -e "$tmp/ran" ] && ok "a11y: speak refuses an Orca run with $flags, which would leave out its stubs" \
+      || fail "a11y: speak with $flags ($st): $(cat "$tmp/err")"
+  done
+  # What a real Orca says: as it starts, and at each stop, a button by its
+  # name and role, one with no name by its role alone, a field by its
+  # mnemonic label, a label over two lines; named so a desktop's Orca
+  # doesn't take it for another; in a window slow to move the focus, each
+  # stop still said; and nothing typed into a text view, which takes Tab.
+  # As releases say it: a period at the end before Orca 51, and "push
+  # button" before at-spi2-core 2.54.
+  if command -v orca >/dev/null; then
+    "$sb" run --a11y -- sh -c "'$app' form lines & '$sb' a11y speak --window a11y-test > '$tmp/speak' & s=\$!
+      until grep -qs 'SPEECH OUTPUT' \$SHOTBOX_SCRATCH/orca-*/debug.out; do sleep 0.1; done
+      for p in \$(pgrep -f -- \"--debug-file \$SHOTBOX_SCRATCH\"); do cat /proc/\$p/comm; done
+      wait \$s" > "$tmp/named"
+    "$sb" run --a11y -- sh -c "'$app' slow & '$sb' a11y speak --window a11y-test" > "$tmp/slow"
+    "$sb" run --a11y -- sh -c "'$app' notes > '$tmp/typed' & '$sb' a11y speak --window a11y-test" \
+      > "$tmp/notes"
+    grep -qx '(start) \(push \)\{0,1\}button "Save" \[focusable, focused\]  says .*"Save \(push \)\{0,1\}button\.\{0,1\}"' "$tmp/speak" \
+      && grep -qx '\(push \)\{0,1\}button "" \[focusable, focused\]  says "\(push \)\{0,1\}button\.\{0,1\}"' "$tmp/speak" \
+      && grep -q '^text "Name:" .*  says "Name: text' "$tmp/speak" \
+      && grep -q '  says "Line one\\nLine two \(push \)\{0,1\}button\.\{0,1\}"$' "$tmp/speak" \
+      && [ "$(cat "$tmp/named")" = shotbox-orca ] \
+      && [ "$(grep -c '  says "[^"]*button' "$tmp/slow")" -ge 3 ] && ! grep -q "didn't move" "$tmp/slow" \
+      && grep -q '^stopped before Tab in a text view' "$tmp/notes" && [ ! -s "$tmp/typed" ] \
+      && ok "a11y: speak: what Orca says, of buttons named and not, a mnemonic, two lines; slow, and not in a text view" \
+      || { fail "a11y: speak"; cat "$tmp/speak" "$tmp/named" "$tmp/slow" "$tmp/notes" "$tmp/typed"; }
+  else
+    [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
+      || echo "skip  a11y: speak: no Orca"
+  fi
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
@@ -888,6 +1249,48 @@ if python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("At
     && [ "$(cat "$tmp/said")" = "$(printf 'polite: Saved to notes.md\npolite: Saved to notes.md')" ] \
     && ok "a11y: announcements, logged, and each waited for once" \
     || { fail "a11y: announcements"; cat "$tmp/said"; }
+  # What Orca says as it comes: GTK 3's info bar and message dialog, the
+  # dialog again once the focus has left it and come back, the focus
+  # renamed but not counting down; libadwaita's alert dialog, which says
+  # what was just announced, and again, but not its toast's alert; and a
+  # Qt message box.
+  "$sb" run --announce-log "$tmp/said" -- sh -c "'$here/window.py' alerts alert &
+    '$sb' wait window alerts >/dev/null && '$sb' focus alerts && '$sb' key space &&
+    '$sb' wait announce '^Error Name is taken$' --timeout 10 && '$sb' wait announce '^Checked$' --timeout 10 &&
+    '$sb' key Tab space && sleep 1.5 &&
+    '$sb' key Tab space && '$sb' wait announce 'notes\.md\? It can.t be undone\.$' --timeout 10 &&
+    '$sb' focus Delete && sleep 0.5 && '$sb' focus alerts && '$sb' focus Delete &&
+    '$sb' wait announce 'notes\.md' --timeout 10" \
+    && [ "$(cat "$tmp/said")" = "$(printf '%s\n' 'assertive: Error Name is taken' 'polite: Checked' \
+         "assertive: Warning Delete notes.md? It can't be undone." \
+         "assertive: Warning Delete notes.md? It can't be undone.")" ] \
+    && ok "a11y: announcements: GTK 3's info bar and message dialog, again, the focus renamed, not counting down" \
+    || { fail "a11y: announcements, GTK 3"; cat "$tmp/said"; }
+  # libadwaita before 1.6 (Ubuntu 24.04's 1.5) makes an alert dialog a
+  # dialog with no name, and a toast a panel it doesn't announce: Orca 46
+  # says "dialog", and none of them is heard.
+  if python3 -c 'import gi, sys; gi.require_version("Adw", "1")
+from gi.repository import Adw; sys.exit(Adw.get_minor_version() < 6)'; then
+    asked="'$sb' wait announce '^Name is taken\$' --timeout 10" toast="'$sb' wait announce toast --timeout 10"
+    heard="$(printf '%s\n' 'polite: Error: Name is taken, pick another' 'assertive: Name is taken' \
+             'assertive: Name is taken' 'polite: A toast appeared: Saved to notes.md')"
+  else
+    asked="sleep 1" toast="sleep 1" heard='polite: Error: Name is taken, pick another'
+  fi
+  "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' alert & '$sb' wait window a11y-test >/dev/null &&
+    '$sb' wait announce '^Error' --timeout 10 && $asked && '$sb' key Escape && $asked &&
+    '$sb' key Escape && sleep 0.5 && '$sb' key space && $toast && '$sb' key Tab && sleep 1" 2>/dev/null \
+    && [ "$(cat "$tmp/said")" = "$heard" ] \
+    && ok "a11y: announcements: libadwaita's alert dialog, as the focus goes in, each time; its toast once" \
+    || { fail "a11y: announcements, libadwaita"; cat "$tmp/said"; }
+  if python3 -c 'import PyQt5.QtWidgets' 2>/dev/null; then
+    "$sb" run --announce-log "$tmp/said" -- sh -c "'$here/qt_window.py' & '$sb' wait window qt-alert >/dev/null &&
+      '$sb' a11y click Delete >/dev/null && '$sb' wait announce 'notes\.md' --timeout 10" 2>/dev/null \
+      && [ "$(cat "$tmp/said")" = 'assertive: Warning Delete notes.md?' ] \
+      && ok "a11y: announcements: a Qt message box" || { fail "a11y: announcements, Qt"; cat "$tmp/said"; }
+  else
+    echo "skip  a11y: announcements, Qt: no PyQt5"
+  fi
   set +e; "$sb" run -- "$sb" a11y tree 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q -- "--a11y" "$tmp/err" && ok "a11y: without --a11y, no tree, and says why" \
     || fail "a11y: no bus: $st"
@@ -941,6 +1344,7 @@ else
     || echo "skip  a11y: no GTK 4, libadwaita or at-spi2-core"
 fi
 
+#: part input
 # Wayland: a headless sway, and Xwayland in it. They need sway, grim and
 # Xwayland, or they skip, unless SHOTBOX_WAYLAND=required.
 win=$here/window.py
@@ -1002,8 +1406,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   set +e
   "$sb" shoot "$tmp/w4.png" --wayland --window never --timeout 2 -- "$win" wl-test 2> "$tmp/err"
   st=$?; set -e
-  [ $st != 0 ] && [ -s "$tmp/w4-failed.png" ] && ok "wayland: a failed wait leaves a picture" \
-    || fail "wayland: no -failed.png ($st)"
+  [ $st != 0 ] && [ -s "$tmp/w4-failed.png" ] && grep -q '; there are: "wl-test" (app id window.py);' "$tmp/err" \
+    && ok "wayland: a failed wait leaves a picture, and says the windows there are" \
+    || fail "wayland: no -failed.png, or no windows said ($st): $(cat "$tmp/err")"
   if xwayland; then
     "$sb" run --xwayland -- sh -c "[ -n \"\$DISPLAY\" ] && GDK_BACKEND=x11 '$win' wl-x11 &
       '$sb' wait window wl-x11 && '$sb' wait stable --window wl-x11 &&
@@ -1028,9 +1433,25 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     sh -c 'echo hi; echo there' >/dev/null \
     && ok "wayland: term --shoot, cropped ($(identify -format %wx%h "$tmp/w6.png"))" \
     || fail "wayland: term --shoot"
-  # Input: the same as X11's, then a new keyboard for every key, none of
-  # which may lose its first (wtype lost one in a spike; shotbox never
-  # has), then an X client.
+  # GTK 3 on Wayland reads its caret's blink and its animations from
+  # GSettings, over settings.ini: an entry's caret, given the keyboard,
+  # blinks with a seeded settings.ini that turns it on, and not without; a
+  # spinner holds still.
+  mkdir -p "$tmp/blinky/.config/gtk-3.0"
+  printf '[Settings]\ngtk-cursor-blink = true\n' > "$tmp/blinky/.config/gtk-3.0/settings.ini"
+  wl_blink() {
+    set +e; "$sb" run --wayland "$@" -- sh -c "'$win' wb '$tmp/wb' & '$sb' wait window wb >/dev/null &&
+      '$sb' focus wb &&
+      '$sb' flicker --window wb --seconds 2.5 --brief 1000 --times 3 --tile 4" > "$tmp/out" 2>&1
+    echo $?; set -e
+  }
+  steady=$(wl_blink); blinky=$(wl_blink --seed "$tmp/blinky")
+  [ "$steady $blinky" = "0 1" ] && ok "wayland: GTK 3's caret doesn't blink, but for a seed's settings" \
+    || fail "wayland: GTK 3's caret: $steady $blinky $(cat "$tmp/out")"
+  "$sb" run --wayland -- sh -c "'$win' sp spinner & '$sb' wait window sp >/dev/null &&
+    '$sb' wait --timeout 3 --window sp stable 1" >/dev/null 2>&1 \
+    && ok "wayland: GTK 3's spinner holds still" || fail "wayland: GTK 3's spinner moves"
+  # Input: the same as X11's, then an X client.
   "$sb" run --wayland -- sh -c "
     '$sb' term --size 40x6 --log '$tmp/wl-in.log' -- sh -c cat & t=\$!
     '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term &&
@@ -1044,9 +1465,11 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   got=$(held "$tmp/wl-held.log" --wayland)
   [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/wl-held.log")" -ge 35 ] \
     && ok "wayland: key and click --hold" || fail "wayland: hold: $got"
-  set +e; "$sb" run --wayland -- "$sb" key --down w 2> "$tmp/err"; st=$?; set -e
+  down "$tmp/wl-down.log" --wayland && ok "wayland: key --down, then --up: held between commands, Shift alone too" \
+    || fail "wayland: --down, --up: $(tr '\n' ' ' < "$tmp/wl-down.log")"
+  set +e; "$sb" run --wayland -- "$sb" click 1 1 --down 2> "$tmp/err"; st=$?; set -e
   [ $st != 0 ] && grep -q "use --hold" "$tmp/err" \
-    && ok "wayland: key --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
+    && ok "wayland: click --down, which can't last, refused saying why" || fail "wayland: --down ($st)"
   # Shift+W held by one command: keys pressed, typed or held by others are
   # shifted too, and pressing W again doesn't let it go. And a hold killed
   # outright, which can't let go, is cleared with --up.
@@ -1059,16 +1482,9 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     '$sb' key --up e && '$sb' key --hold 0.1 e && sleep 0.3"
   grep -q "press A" "$tmp/wl-mods.log" && grep -q "press B" "$tmp/wl-mods.log" \
     && grep -q "press C" "$tmp/wl-mods.log" && [ "$(grep -c "release [Ww]" "$tmp/wl-mods.log")" = 1 ] \
-    && [ "$(grep -c "press e" "$tmp/wl-mods.log")" = 2 ] \
+    && [ "$(grep -c "release e" "$tmp/wl-mods.log")" = 2 ] \
     && ok "wayland: a chord held by one command shifts another's and stays down; a killed hold is let go with --up" \
     || fail "wayland: held across commands: $(tr '\n' ' ' < "$tmp/wl-mods.log")"
-  "$sb" run --wayland -- sh -c "
-    '$sb' term --size 40x6 --log '$tmp/wl-keys.log' -- sh -c cat & t=\$!
-    '$sb' wait window shotbox-term && '$sb' wait stable --window shotbox-term &&
-    for c in a b c d e f g h i j k l m n o p q r s t; do '$sb' type \$c; done
-    '$sb' key Return; sleep 0.5; kill \$t 2>/dev/null"
-  tr -d '\r' < "$tmp/wl-keys.log" | grep -aqx abcdefghijklmnopqrst \
-    && ok "wayland: twenty keyboards, no first key lost" || fail "wayland: a key went missing"
   if xwayland; then
     "$sb" run --xwayland -- sh -c "
       GDK_BACKEND=x11 '$sb' term --size 40x6 --log '$tmp/xw-in.log' -- sh -c cat & t=\$!
@@ -1080,7 +1496,7 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
   else
     xwayland_skip "xwayland: input"
   fi
-  if [ -n "${a11y-}" ]; then
+  if atspi; then
     set +e
     "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y lint --window app=org.shotbox.A11yTest
       st=\$?; '$sb' click 100 140 --window a11y-test &&
@@ -1092,15 +1508,36 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
       '$sb' wait announce 'notes\.md' --timeout 10" \
       && ok "wayland: a11y: click by name" || fail "wayland: a11y: click"
-    # GTK 4 says where the focus is only once a key's been pressed.
+    # The focus, read by a command of its own after another's key, and with
+    # no key ever pressed, in GTK 4 and GTK 3: they say where it is only
+    # while there's a keyboard, and the session's lasts.
+    "$sb" run --wayland --a11y -- sh -c "'$app' & '$sb' wait window a11y-test >/dev/null &&
+      '$sb' key Tab && sleep 0.5 && '$sb' a11y tree --window a11y-test > '$tmp/wl-f4'
+      '$win' g3 '$tmp/g3' & '$sb' wait window g3 >/dev/null && sleep 0.5 &&
+      '$sb' a11y tree --window g3 > '$tmp/wl-f3'" \
+      && grep -q 'focusable, focused' "$tmp/wl-f4" && grep -q 'text .*focusable, focused' "$tmp/wl-f3" \
+      && ok "wayland: a11y: the focus, GTK 4's and GTK 3's, read between commands" \
+      || { fail "wayland: a11y: the focus between commands"; cat "$tmp/wl-f4" "$tmp/wl-f3"; }
+    # So libadwaita's alert dialog is heard as the focus goes in, as the
+    # program starts and again once answered (1.6 on: see part a11y).
+    if python3 -c 'import gi, sys; gi.require_version("Adw", "1")
+from gi.repository import Adw; sys.exit(Adw.get_minor_version() < 6)'; then
+      "$sb" run --wayland --announce-log "$tmp/wl-said" -- sh -c "'$app' alert &
+        '$sb' wait window a11y-test >/dev/null && '$sb' wait announce '^Name is taken\$' --timeout 10 &&
+        '$sb' key Escape && '$sb' wait announce '^Name is taken\$' --timeout 10" 2>/dev/null \
+        && ok "wayland: a11y: libadwaita's alert dialog, as the focus goes in" \
+        || { fail "wayland: a11y: libadwaita's alert dialog"; cat "$tmp/wl-said"; }
+    else
+      echo "skip  wayland: a11y: libadwaita's alert dialog: libadwaita before 1.6"
+    fi
     "$sb" run --wayland --a11y -- sh -c "'$app' notes > '$tmp/wl-typed' & '$sb' wait window a11y-test >/dev/null &&
       '$sb' a11y tabwalk --window a11y-test" > "$tmp/wl-walk" \
       && grep -q '^round again after' "$tmp/wl-walk" && [ ! -s "$tmp/wl-typed" ] \
       && ok "wayland: a11y: tabwalk, from a text view, typing nothing" \
       || { fail "wayland: a11y: tabwalk"; cat "$tmp/wl-walk" "$tmp/wl-typed"; }
   fi
-  pgrep -f "$wl/shotbox-.*/sway.conf" >/dev/null && fail "wayland: sway left running" \
-    || ok "wayland: sway stops with the session"
+  pgrep -f "$wl/shotbox-.*/(sway\.conf|keyboard\.sock)" >/dev/null && fail "wayland: sway or its keyboard left running" \
+    || ok "wayland: sway and its keyboard stop with the session"
   [ -z "$(ours_xwayland)" ] \
     && ok "xwayland: Xwayland stops with the session" || fail "xwayland: Xwayland left running"
   unset TMPDIR
@@ -1109,6 +1546,7 @@ else
     || echo "skip  wayland: no sway or grim"
 fi
 
+#: part core
 # Compare.
 "$sb" compare "$tmp/a.png" "$tmp/b.png" >/dev/null && ok "compare: the same" || fail "compare same"
 convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
@@ -1139,6 +1577,7 @@ set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
   && awk '{ sub("s", "", $2); if ($2 < (NR - 1) * 0.1 - 0.001) bad = 1 } END { exit bad || NR != 5 }' "$tmp/burst.txt" \
   && ok "capture --burst: numbered, spaced, and a sheet" || fail "burst: $(cat "$tmp/burst.txt")"
 
+#: part record
 # Recording: a window for two seconds as an MP4; the screen as a WebM at
 # 10 frames a second; a crop as a GIF, its odd sides evened; and one with
 # no length, stopped by kill, finished properly. On X11, and on Wayland,
@@ -1357,6 +1796,7 @@ else
   echo "skip  record: no ffmpeg"
 fi
 
+#: part core
 # Gamepads: only the session's in its /dev/input, read as a game reads
 # them; what's left down stays down between commands; and gone with the
 # session. Needs write access to /dev/uinput and bubblewrap, or it skips.
@@ -1398,7 +1838,7 @@ import os, subprocess, sys, time
 sys.path.insert(0, {sys.argv[1]!r})
 subprocess.Popen([sys.executable, "-c", "import sys; sys.path.insert(0, {sys.argv[1]!r}); "
                   "from shotbox.pad import serve; serve(*sys.argv[1:])",
-                  "{d}/pads.sock", "1", "{d}/ready", str(os.getpid())])
+                  "{d}/pads.sock", "{d}/ready", "1", str(os.getpid())])
 time.sleep(60)"""])
 end = time.monotonic() + 10
 while not os.path.exists(f"{d}/ready") and time.monotonic() < end:
@@ -1453,7 +1893,7 @@ for m in (b\"[]\", b\"[\" * 99999, json.dumps(dict(op=\"stick\", which=\"left\",
     { '$sb' pad press b --hold 30 & k=\$!; sleep 0.5; kill \$k; wait \$k; sleep 0.3; } &&
     '$sb' pad press lb --down && '$sb' pad press lb --hold 0.1 && '$sb' pad press lb a &&
     '$sb' pad press lb --up &&
-    { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
+    { '$sb' pad press y --hold 30 & k=\$!; sleep 0.5; kill -KILL \$k; wait \$k 2>/dev/null; '$sb' pad press y --up; echo upmark >> '$tmp/pad2.log'; } &&
     { '$sb' pad press rs --hold 1 & h=\$!; sleep 0.3; '$sb' pad neutral && '$sb' pad press rs --hold 2 & h2=\$!;
       wait \$h; sleep 0.3; echo mark >> '$tmp/pad2.log'; wait \$h2; } &&
     { '$sb' pad stick left 1 0 --hold 1 & h=\$!; '$sb' pad trigger right 1 --hold 1 & h2=\$!; sleep 0.3;
@@ -1617,5 +2057,6 @@ elif ! grep -q '^ℹ fail [1-9]' "$tmp/browser.log"; then
   ok "browser helpers"
 fi
 
+#: end
 echo
 [ $fails = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

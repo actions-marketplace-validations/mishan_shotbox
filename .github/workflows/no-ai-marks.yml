@@ -1,0 +1,25 @@
+# AI's help is welcome; its attribution trailers, footers, branch prefixes
+# and hidden watermarks aren't. Checked in commits, the pull request's
+# title and description, its branch, and the lines it adds.
+
+name: no-ai-marks
+
+on:
+  pull_request:
+    # edited, so a description changed after opening is checked too.
+    types: [opened, edited, reopened, synchronize]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  no-ai-marks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: mishan/no-ai-marks@v0

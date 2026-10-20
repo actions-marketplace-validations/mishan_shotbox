@@ -4,7 +4,7 @@
 made with Linux's uinput, so a game reads them as it reads a pad plugged
 in: SDL names them "Xbox 360 Controller", and older games find them as
 `/dev/input/jsN` too. Every program the session spawns (with `run`,
-`shoot`, `term`, `spawn` and MCP's `spawn`) runs under bubblewrap with a
+`shoot`, `term`, `spawn` and MCP's `spawn_program`) runs under bubblewrap with a
 `/dev/input` of its own, holding only these. The machine's raw HID devices
 (`/dev/hidraw*`, `/dev/usb/hiddev*`, `/dev/uhid`) and `/dev/uinput` are a
 file no one can open inside, and `/dev/bus/usb` is empty, so no controller

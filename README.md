@@ -5,6 +5,7 @@
 [![PyPI](https://img.shields.io/pypi/v/shotbox)](https://pypi.org/project/shotbox/)
 [![npm](https://img.shields.io/npm/v/shotbox)](https://www.npmjs.com/package/shotbox)
 [![CI](https://github.com/mishan/shotbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mishan/shotbox/actions/workflows/ci.yml)
+[![Glama](https://glama.ai/mcp/servers/mishan/shotbox/badges/score.svg)](https://glama.ai/mcp/servers/mishan/shotbox)
 
 <img align="right" width="112" alt="" src="https://raw.githubusercontent.com/mishan/shotbox/main/docs/logo.png">
 
@@ -101,11 +102,12 @@ all want the same things, and every project was growing its own copy:
   file written, text on a terminal's screen, or the picture holding still.
   No `sleep 6` and hope.
 - **Deterministic.** X11 on Xvfb, GTK's software renderer, `LANG=C.UTF-8`,
-  `TZ=UTC`, a cursor that doesn't blink (GTK's text caret included, and GTK's
+  `TZ=UTC`, text carets that don't blink (GTK's, Qt 6.5's, browsers'; and GTK's
   animations off), GTK 4's text drawn at its color, as its manual font
   rendering does, not fainter by however much a GTK release's automatic
   one draws it ([more](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md#contrast)), and PNGs with no
-  timestamps in them.
+  timestamps in them. It's the same every time, not the same as a desktop:
+  [differences from a desktop](https://github.com/mishan/shotbox/blob/main/docs/desktop.md).
 - **Cleaned up.** Every program runs in its own process group, and the group
   is killed on the way out: signalling a wrapper script alone leaves its
   children running.
@@ -116,8 +118,8 @@ On Debian, with what every command and option can use:
 
 ```
 sudo apt install xvfb xauth dbus-daemon imagemagick x11-utils python3-gi gir1.2-vte-2.91 \
-  at-spi2-core gir1.2-atspi-2.0 libglib2.0-bin pipewire wireplumber ffmpeg bubblewrap \
-  libfaketime
+  at-spi2-core gir1.2-atspi-2.0 python3-gi-cairo gir1.2-pango-1.0 libglib2.0-bin pipewire \
+  wireplumber ffmpeg bubblewrap libfaketime
 pipx install --system-site-packages shotbox
 ```
 
@@ -138,9 +140,10 @@ feature needs asked for by name (all off unless set), and lets
 bubblewrap make its sandbox, which Ubuntu's AppArmor holds back:
 
 ```yaml
-- uses: mishan/shotbox@v0.6.0
+- uses: mishan/shotbox@v0.9.0
   with:
     a11y: true        # --a11y and `shotbox a11y`
+    speak: true       # `shotbox a11y speak`: Orca, and what a11y installs
     term: true        # `shotbox term`
     # wayland, audio, record, gamepads and clock too
 - run: shotbox shoot app.png --window 'My App' -- ./my-app
@@ -197,16 +200,18 @@ that sets out to:
 
 - Its environment is rebuilt from an allowlist; `HOME` and every XDG
   directory are a scratch dir.
-- Its display and session bus, and with `--a11y` and `--audio` its
-  accessibility bus and sound server, are its own; the sound server plays
-  to nowhere.
+- Its display, session bus and system bus, and with `--a11y` and
+  `--audio` its accessibility bus and sound server, are its own; the
+  sound server plays to nowhere. It has no printers (but CUPS on
+  localhost:631, unless `--net loopback`). `--machine-bus` gives it the
+  machine's system bus and printers.
 - Where bubblewrap can make a sandbox (it says when it can't), nothing
   reaches the machine's sound devices or your desktop's Wayland,
   PulseAudio, PipeWire and bus sockets.
 - Your network is reachable unless `--net loopback`, your user and host
   name show unless `--identity`, and the real time unless `--clock`.
-- Not sealed: the files outside the scratch home, your X server, other
-  processes, and the machine's system bus.
+- Not sealed: the files outside the scratch home, your X server, and
+  other processes.
 
 All of it, and what each option covers and doesn't:
 [docs/sealed.md](https://github.com/mishan/shotbox/blob/main/docs/sealed.md).
@@ -246,11 +251,15 @@ sway, how it fits, and what differs from X11:
 - [MCP](https://github.com/mishan/shotbox/blob/main/docs/mcp.md): the tools an agent gets, and how they're built
 - [Accessibility](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md)
 - [Wayland](https://github.com/mishan/shotbox/blob/main/docs/wayland.md)
+- [Differences from a desktop](https://github.com/mishan/shotbox/blob/main/docs/desktop.md): drawing, window manager, animations, language, scale, input, measurements
 - [Gamepads](https://github.com/mishan/shotbox/blob/main/docs/gamepads.md)
 - [Python](https://github.com/mishan/shotbox/blob/main/docs/python.md): `shotbox.Session` and `here()`, for a script
   that drives the display itself
 - [Node](https://github.com/mishan/shotbox/blob/main/docs/node.md): helpers for browser checks with Playwright
 - [Contributing](https://github.com/mishan/shotbox/blob/main/CONTRIBUTING.md): the tests
+- [Code of conduct](https://github.com/mishan/shotbox/blob/main/CODE_OF_CONDUCT.md),
+  [security](https://github.com/mishan/shotbox/blob/main/SECURITY.md) and
+  [accessibility](https://github.com/mishan/shotbox/blob/main/ACCESSIBILITY.md)
 - [Releasing](https://github.com/mishan/shotbox/blob/main/docs/releasing.md)
 - [Changelog](https://github.com/mishan/shotbox/blob/main/CHANGELOG.md)
 
