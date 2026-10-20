@@ -1347,17 +1347,33 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         kinds = (area and area[2] > 0 and area[3] > 0 and attrs is not None
                  and drawing(n.name, attrs))
         area = kinds and (area[0], area[1], area[0] + area[2], area[1] + area[3])
-        got = kinds and picture.find_text(pic, kinds, area, until)
-        shape = got and kinds[got[6][0]][got[6][1]]
-        if got and got[0] < MATCH and gtk4_release(n) >= (4, 16):
-            # GTK 4.16 and later place text at fractions of a pixel, so a
-            # line set by its baseline can fall between rows.
-            k, i = got[6]
-            phased = [drawing(n.name, attrs, dy)[k][i] for dy in (-0.25, 0.25, 0.5)]
-            again = picture.find_text(pic, [phased], area, until)
+
+        def find(area, under=None):
+            got = picture.find_text(pic, kinds, area, until, under)
+            shape = got and kinds[got[6][0]][got[6][1]]
+            if got and got[0] < MATCH and gtk4_release(n) >= (4, 16):
+                # GTK 4.16 and later place text at fractions of a pixel, so a
+                # line set by its baseline can fall between rows.
+                k, i = got[6]
+                phased = [drawing(n.name, attrs, dy)[k][i] for dy in (-0.25, 0.25, 0.5)]
+                again = picture.find_text(pic, [phased], area, until, under)
+                if again and again[0] > got[0]:
+                    shape = phased[again[6][1]]
+                    got = again[:5] + (max(got[5], again[5]),) + got[6:]
+            return got, shape
+        got, shape = find(area) if kinds else (None, None)
+        under = None
+        if got and got[0] < MATCH:
+            # Faint text can be so little of what varies where it is that a
+            # grid's lines drawn through it are much of the rest: looked
+            # for again just round there, less them. What else matches,
+            # here or anywhere, is the more of with them and without.
+            x, y, w, h = got[1:5]
+            under = picture.backdrop(pic, (x, y, x + w, y + h))
+            again, drawn = find((max(area[0], x - 1), max(area[1], y - 3),
+                                 min(area[2], x + w + 1), min(area[3], y + h + 3)), under)
             if again and again[0] > got[0]:
-                shape = phased[again[6][1]]
-                got = again[:5] + (max(got[5], again[5]),) + got[6:]
+                got, shape = again[:5] + (max(got[5], again[5]),) + again[6:], drawn
         if not got or got[0] < MATCH or got[5] >= MATCH_ELSEWHERE or not as_wide(n, got[6]):
             return None
         box = [got[1] + 2, got[2], got[3] - 4, got[4]]
@@ -1371,7 +1387,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 if time.monotonic() > until:
                     raise TimeoutError
                 other = drawing(t, font(o) or attrs)
-                if (picture.match_over(pic, other, box, until) >= MATCH_ELSEWHERE if other
+                if (max(picture.match_over(pic, other, box, until, u) for u in {None, under})
+                        >= MATCH_ELSEWHERE if other
                         else n.name.lower() in t.lower()):
                     return None
         at = laid(n) or (0, 0)

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `a11y contrast` left faint GTK 4.14 and later text over a theme's
+  grid unmeasured, which doesn't fail, while text of the same color
+  elsewhere failed: the fainter the text, the more of what varies where
+  it's drawn are the grid's lines (8% of it under `#3a3446` text on
+  `#0f0d14`), and the less it matched its shape. Where the best match
+  falls short, it's worked out again there with the lines through the
+  text's box taken off: those labels are found, and fail at 1.61:1.
+
 ## 0.9.0 — 2026-10-19
 
 GTK 4.14 and later's text measured for contrast again, found where it's

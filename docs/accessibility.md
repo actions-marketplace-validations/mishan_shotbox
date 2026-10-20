@@ -514,8 +514,20 @@ place in the room, and on 4.16 and later, if none reaches 0.98, for
 the best of them a quarter of a pixel up, or a quarter or half down:
 those place text at fractions of a pixel, so a line set by its baseline
 can fall between rows), and not where anything else in that room
-matches 0.8 or more (the same text twice). Other text can match nearly
-as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
+matches 0.8 or more (the same text twice). Faint text is little of
+what varies where it's drawn, and a pattern behind it, the same with
+the text and without, can be much of the rest: a theme's grid of
+#1e1929 lines every 24 pixels on #0f0d14 is 8% of the variance under
+#3a3446 text (1.61:1), which takes its best match to 0.92 to 0.96. So
+where the best match falls short of 0.98, it's worked out again just
+round there with what's behind taken off: in the text's box, a line
+through it, the color its column is for 3 pixels both above and below
+the box, or else its row both left and right, unless that's the color
+most of what's round the box is. That takes those labels to 0.989 and
+0.994, and text over no pattern is as it was. What else matches, in
+the room or over what's found, is the more of with the pattern and
+without, so nothing more is taken for another text. Other text can
+match nearly as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
 "Button" 0.96, a letter-spaced or upper-case label over an entry
 holding its text 0.96. So every other node whose own room takes in
 what's found, disabled, left out or not, is drawn there too, by its

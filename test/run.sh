@@ -1114,6 +1114,27 @@ EOF
 1400|long down|2|/label\[\(2\|199\)\]: text not measured: not shown (scrolled out of view, or hidden)$
 2203|letter|1|: text not measured: GTK 4 reports its position wrong (a single letter: GTK gives it no width)$
 CASES
+  # From 4.14, faint text over a theme's grid (a seeded gtk.css), whose
+  # lines vary as much as the text does: found, and failing. A case a
+  # line: its color, the exit status, what's said.
+  if [ "$minor" -ge 14 ]; then
+    while IFS='|' read -r look status want; do
+      mkdir -p "$tmp/dim/.config/gtk-4.0"
+      printf '%s\n' 'window { background-color: #0f0d14; background-image:' \
+        '  repeating-linear-gradient(90deg, #1e1929, #1e1929 1px, transparent 1px, transparent 24px),' \
+        '  repeating-linear-gradient(0deg, #1e1929, #1e1929 1px, transparent 1px, transparent 24px); }' \
+        "label.faint { $look }" > "$tmp/dim/.config/gtk-4.0/gtk.css"
+      set +e
+      "$sb" run --a11y --dark --seed "$tmp/dim" -- sh -c "'$app' faint &
+        '$sb' a11y contrast --window a11y-test" < /dev/null > "$tmp/contrast" 2>/dev/null
+      st=$?; set -e
+      [ $st = "$status" ] && grep -q "/label\[7\]: text $want" "$tmp/contrast" \
+        && ok "a11y: contrast, GTK 4, faint over a grid: $look" \
+        || { fail "a11y: contrast, GTK 4, faint over a grid: $look ($st)"; cat "$tmp/contrast"; }
+    done <<'CASES'
+color: #3a3446;|1|1\.6[01]:1, #3a3446 on #0f0d14 (at least 4\.5); found -\?[0-9]*,
+CASES
+  fi
   # Before 4.14, GTK 4 says where a widget's content is: measured there,
   # faint labels in frames, one GTK can't pick, one under an overlay's
   # clear child and one on a stack's shown page too. Not measured, and
