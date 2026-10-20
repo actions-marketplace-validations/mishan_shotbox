@@ -1032,7 +1032,7 @@ def at_node(name, role, window, timeout, act):
 
 
 def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=(),
-             large=3.0):
+             large=3.0, strict=False):
     """What's drawn with too little contrast, as (node, what), measured on a
     picture of the screen, `window` raised, in each node's bounds: text, and
     a button, link, tab or menu item, which may draw text or an icon and
@@ -1046,8 +1046,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     can be read, and so is GTK 4's text not found where nothing has the
     contrast it needs. But for those ignored() leaves out. (problems, what
     passes, what wasn't measured but doesn't fail, as (node, what): text too small
-    to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS; why GTK
-    4's weren't, a line each; how many were measured)."""
+    to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS, or with
+    `strict` only what's scrolled out of view, the rest being problems
+    too; why GTK 4's weren't, a line each; how many were measured)."""
     skip = ignored(ignore)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -1600,9 +1601,13 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             else:
                 problems.append((n, f"edge {colors}"))
     notes = [(n, what) for n, what in notes if not skip(n, what)]
-    return ([(n, what) for n, what in problems if not skip(n, what)],
-            [(n, what) for n, what in passes if not skip(n, what)], notes,
-            [w for w in whys if any(n.get("_why") == w for n, _ in notes)], count)
+    # What's scrolled out of view isn't there to measure, as GTK 3's and
+    # browsers' rows aren't, which aren't said at all.
+    failing = [(n, what) for n, what in notes if strict and n.path not in hidden]
+    problems = [(n, what) for n, what in problems if not skip(n, what)] + failing
+    notes = [note for note in notes if note not in failing]
+    return (problems, [(n, what) for n, what in passes if not skip(n, what)], notes,
+            [w for w in whys if any(n.get("_why") == w for n, _ in problems + notes)], count)
 
 
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
@@ -2042,6 +2047,8 @@ def main(argv):
     ct.add_argument("--ignore", **ignore)
     ct.add_argument("--passes", action="store_true",
                     help="also what passes, with its ratio, after what fails")
+    ct.add_argument("--strict", action="store_true",
+                    help="what isn't measured fails too")
     for s in (t, lt, w, c, sc, ct):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
@@ -2077,16 +2084,19 @@ def main(argv):
             problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
         else:
             problems, passes, notes, whys, count = contrast(
-                a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large)
+                a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large, a.strict)
             passes = passes if a.passes else []
         # Said apart from the lines, on stderr, so stdout is PATH: WHAT.
-        nothing = not problems and not count and whys
+        # Under --strict what wasn't measured is among the problems.
+        nothing = not count and whys and (a.strict or not problems)
         said = " ".join([f"{len(notes)} not measured"
-                         + ("." if nothing else ", which doesn't fail.")] + whys) if notes else ""
+                         + ("." if nothing else ", which doesn't fail.")] * bool(notes) + whys)
         if a.json and a.what == "lint":
             print(json.dumps([dict(public(n), problem=what, fails=True) for n, what in problems]))
         elif a.json:
-            print(json.dumps({"problems": [dict(public(n), problem=what) for n, what in problems],
+            print(json.dumps({"problems": [dict(public(n), problem=what,
+                                                **({"why": n._why} if "_why" in n else {}))
+                                           for n, what in problems],
                               **({"passes": [dict(public(n), contrast=what) for n, what in passes]}
                                  if a.passes else {}),
                               "notes": [dict(public(n), note=what,

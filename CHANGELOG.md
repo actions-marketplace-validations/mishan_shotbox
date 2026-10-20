@@ -13,6 +13,14 @@
   › Sound's "No Output Devices" (3.23:1). Leave them out with `--ignore`
   if they're not yours.
 
+### Added
+
+- `a11y contrast --strict` fails on what it couldn't measure, too: for
+  CI that wants every node measured, or ignored with `--ignore`. Those
+  lines are failures, under `problems` in `--json`, each with its `why`
+  if it has one; `Screen.contrast(strict=True)` and MCP's
+  `check_contrast` with `strict` have it too.
+
 ### Fixed
 
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's

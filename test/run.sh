@@ -1119,10 +1119,11 @@ CASES
   # From 4.14, faint text over a theme's grid (a seeded gtk.css), whose
   # lines vary as much as the text does: found, and failing. Spaced, not
   # found, but nothing where it can be has the contrast text needs, which
-  # fails too; readable and spaced, not found, which doesn't. A case a
-  # line: its color, the exit status, what's said.
+  # fails too; readable and spaced, not found, which doesn't, but for
+  # --strict. A case a line: its color, the options, the exit status,
+  # what's said.
   if [ "$minor" -ge 14 ]; then
-    while IFS='|' read -r look status want; do
+    while IFS='|' read -r look args status want; do
       mkdir -p "$tmp/dim/.config/gtk-4.0"
       printf '%s\n' 'window { background-color: #0f0d14; background-image:' \
         '  repeating-linear-gradient(90deg, #1e1929, #1e1929 1px, transparent 1px, transparent 24px),' \
@@ -1130,21 +1131,31 @@ CASES
         "label.faint { $look }" > "$tmp/dim/.config/gtk-4.0/gtk.css"
       set +e
       "$sb" run --a11y --dark --seed "$tmp/dim" -- sh -c "'$app' faint &
-        '$sb' a11y contrast --window a11y-test" < /dev/null > "$tmp/contrast" 2>/dev/null
+        '$sb' a11y contrast $args --window a11y-test" < /dev/null > "$tmp/contrast" 2>/dev/null
       st=$?; set -e
       [ $st = "$status" ] && grep -q "/label\[7\]: text $want" "$tmp/contrast" \
-        && ok "a11y: contrast, GTK 4, faint over a grid: $look" \
-        || { fail "a11y: contrast, GTK 4, faint over a grid: $look ($st)"; cat "$tmp/contrast"; }
+        && ok "a11y: contrast, GTK 4, faint over a grid: $look $args" \
+        || { fail "a11y: contrast, GTK 4, faint over a grid: $look $args ($st)"; cat "$tmp/contrast"; }
     done <<'CASES'
-color: #3a3446;|1|1\.6[01]:1, #3a3446 on #0f0d14 (at least 4\.5); found -\?[0-9]*,
-color: #3a3446; letter-spacing: 3px;|1|not found, but nothing where it can be has the contrast it needs: at most 1\.[0-9]*:1 (at least 4\.5)$
-color: #ebe6f0; letter-spacing: 3px;|0|not measured: GTK 4 reports its position wrong$
+color: #3a3446;||1|1\.6[01]:1, #3a3446 on #0f0d14 (at least 4\.5); found -\?[0-9]*,
+color: #3a3446; letter-spacing: 3px;||1|not found, but nothing where it can be has the contrast it needs: at most 1\.[0-9]*:1 (at least 4\.5)$
+color: #ebe6f0; letter-spacing: 3px;||0|not measured: GTK 4 reports its position wrong$
+color: #ebe6f0; letter-spacing: 3px;|--strict|1|not measured: GTK 4 reports its position wrong$
 CASES
     # Nor does a carousel's page not shown, its label outside the window.
     "$sb" run --a11y -- sh -c "'$app' carousel & '$sb' wait window a11y-test >/dev/null &&
       sleep 1 && '$sb' a11y contrast --window a11y-test" < /dev/null > "$tmp/contrast" 2>/dev/null \
       && ok "a11y: contrast, GTK 4: a carousel's page not shown doesn't fail" \
       || { fail "a11y: contrast, GTK 4, carousel"; cat "$tmp/contrast"; }
+    # --strict fails what isn't measured, but rows scrolled out of view
+    # stay notes, as GTK 3 and browsers say nothing of theirs.
+    "$sb" run --a11y -- sh -c "'$app' long down & '$sb' a11y contrast --strict --json --window a11y-test" \
+      < /dev/null > "$tmp/contrast.json" 2>/dev/null
+    python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
+assert j['problems'] and not any('not shown' in p['problem'] for p in j['problems']), j
+assert j['notes'] and all('not shown' in n['note'] for n in j['notes']), j" "$tmp/contrast.json" \
+      && ok "a11y: contrast --strict fails what isn't measured, not rows scrolled out of view" \
+      || { fail "a11y: contrast --strict, scrolled"; cat "$tmp/contrast.json"; }
   fi
   # Before 4.14, GTK 4 says where a widget's content is: measured there,
   # faint labels in frames, one GTK can't pick, one under an overlay's
