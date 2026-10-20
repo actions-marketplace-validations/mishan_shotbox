@@ -331,16 +331,18 @@ def backdrop(pic, box):
     """What's behind text found in `box` (x0, y0, x1, y1), the same with it
     and without it, as a function of x and y giving its lightness
     (Lightness'): in the box, a line through it, as a grid draws, the
-    color its column is for 3 pixels both above and below the box, or
-    failing that, its row both left and right, where that isn't the color
-    most of what's round the box is; elsewhere, that color."""
+    color its column is for 2 of the 3 pixels both above and below the box
+    (another line can cross it there), or failing that, its row both left
+    and right, where that isn't the color most of what's round the box
+    is; elsewhere, that color."""
     x0, y0, x1, y1 = box
     rect = (x0, y0, x1 - x0, y1 - y0)
     most = (pic.colors(rect, y1 - y0) - pic.colors(rect)).most_common(1)[0][0]
 
     def line(one, other):
-        both = set(one) | set(other)
-        return both.pop() if len(both) == 1 else None
+        sides = [c.most_common(1)[0] for c in (one, other) if c]
+        colors = {c for c, _ in sides}
+        return colors.pop() if len(colors) == 1 and all(n >= 2 for _, n in sides) else None
     cols = [line(pic.colors((x, y0 - 3, 1, 3)), pic.colors((x, y1, 1, 3))) for x in range(x0, x1)]
     rows = [line(pic.colors((x0 - 3, y, 3, 1)), pic.colors((x1, y, 3, 1))) for y in range(y0, y1)]
     lit = {c: c[0] * 2 + c[1] * 5 + c[2] for c in cols + rows + [most] if c}

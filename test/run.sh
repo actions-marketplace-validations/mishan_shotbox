@@ -855,6 +855,12 @@ fails=$((fails + $(grep -c '^FAIL' "$tmp/focus.log" || true)))
 [ $st = 0 ] || grep -q "^FAIL" "$tmp/focus.log" || fail "focus_test.py: status $st"
 
 #: part a11y
+# a11y contrast's search for GTK 4's text, on made-up pictures.
+set +e; python3 "$here/text_test.py" > "$tmp/text.log" 2>&1; st=$?; set -e
+cat "$tmp/text.log"
+fails=$((fails + $(grep -c '^FAIL' "$tmp/text.log" || true)))
+[ $st = 0 ] || grep -q "^FAIL" "$tmp/text.log" || fail "text_test.py: status $st"
+
 # Accessibility: a session's own AT-SPI bus, the tree, lint, the Tab
 # order and announcements, against a libadwaita window. They need GTK 4,
 # libadwaita and at-spi2-core, or they skip, unless SHOTBOX_A11Y=required.

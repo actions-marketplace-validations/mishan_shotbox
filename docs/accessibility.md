@@ -530,10 +530,12 @@ the text and without, can be much of the rest: a theme's grid of
 #3a3446 text (1.61:1), which takes its best match to 0.92 to 0.96. So
 where the best match falls short of 0.98, it's worked out again just
 round there with what's behind taken off: in the text's box, a line
-through it, the color its column is for 3 pixels both above and below
-the box, or else its row both left and right, unless that's the color
-most of what's round the box is. That takes those labels to 0.989 and
-0.994, and text over no pattern is as it was. What else matches, in
+through it, the color its column is for 2 of the 3 pixels both above
+and below the box (another line can cross it there), or else its row
+both left and right, unless that's the color most of what's round the
+box is. That takes those labels to 0.989 and 0.994, and a button's
+label over the grid through its fill, 0.972, to 0.994; text over no
+pattern is as it was. What else matches, in
 the room or over what's found, is the more of with the pattern and
 without, so nothing more is taken for another text. Other text can
 match nearly as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
