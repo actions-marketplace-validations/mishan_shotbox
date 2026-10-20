@@ -1200,7 +1200,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 rel[n.path] = None
         return rel[n.path]
 
-    areas, fonts, drawings, lays = {}, {}, {}, {}
+    areas, fonts, drawings, lays, refused = {}, {}, {}, {}, {}
 
     def room(n):
         """Where `n`'s text can be on GTK 4.14 and later, which says where
@@ -1376,7 +1376,21 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                                  min(area[2], x + w + 1), min(area[3], y + h + 3)), under)
             if again and again[0] > got[0]:
                 got, shape = again[:5] + (max(got[5], again[5]),) + again[6:], drawn
-        if not got or got[0] < MATCH or got[5] >= MATCH_ELSEWHERE or not as_wide(n, got[6]):
+        if not got or got[0] < MATCH:
+            refused[n.path] = ("unmatched", f"no match good enough: {got[0]:.2f} at best"
+                               if got else "where it can be is too small or too big to look in")
+            return None
+        if got[5] >= MATCH_ELSEWHERE:
+            # The other place's own node, if its text holds this one's.
+            like = [t for o in nodes if not (within(o.path, n.path) or within(n.path, o.path))
+                    and room(o) and all(overlap(room(o), room(n))[2:])
+                    for t in texts_of(o) if n.name.lower() in t.lower()]
+            refused[n.path] = ("twice", "it matches elsewhere too" + (
+                f', in "{like[0]}"' if like else f", {got[5]:.2f}: the same text twice, or like it"))
+            return None
+        if not as_wide(n, got[6]):
+            refused[n.path] = ("wide", "what matches is drawn wider or narrower than GTK "
+                                       "lays it out")
             return None
         box = [got[1] + 2, got[2], got[3] - 4, got[4]]
         for o in nodes:
@@ -1392,6 +1406,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 if (max(picture.match_over(pic, other, box, until, u) for u in {None, under})
                         >= MATCH_ELSEWHERE if other
                         else n.name.lower() in t.lower()):
+                    refused[n.path] = ("other", f'another node\'s text matches there too: "{t}"')
                     return None
         at = laid(n) or (0, 0)
         return box, tuple(box[i] - n.bounds[i] - at[i] for i in (0, 1)), (got[1], got[2], shape)
@@ -1454,7 +1469,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         text = n._role in texts and k == "text" and not (cannot or inside)
         short = (" (a single letter: GTK gives it no width)" if text and lone(n) else
                  " (over more than one line)" if text and "\n" in n.name else
-                 " (not all ASCII: GTK measures its width short)" if text and unsure(n) else "")
+                 " (not all ASCII: GTK measures its width short)" if text and unsure(n) else
+                 f" ({refused[n.path][1]})" if text and n.path in refused else "")
+        case = text and n.path in refused and refused[n.path][0]
         notes.append((n, f"{k} not measured: GTK 4 reports its position wrong{short}"))
         why = (f"GTK {version} reports where what's in a popover is as if the popover were "
                "in its window, not where it's drawn; see docs/accessibility.md." if popover else
@@ -1473,11 +1490,26 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "than one line; see docs/accessibility.md."
                if n._role in texts and k == "text" and "\n" in n.name else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
-               "it's found drawn near there, by its name in its font, and this wasn't: nothing "
-               "there matched its name well enough, or something else did too (the same text "
-               "twice, or another node's), or what matched is drawn wider or narrower than GTK "
-               "lays it out (letter-spaced, upper case); see docs/accessibility.md."
-               if n._role in texts and k == "text"
+               "it's found drawn near there, by its name in its font, and nothing there matched "
+               "it well enough: text drawn otherwise than its name and font say (in another "
+               "case or size, letter-spaced, cut short) isn't found; see docs/accessibility.md."
+               if case == "unmatched" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and this matched in two "
+               "places where it can be (the same text twice, or inside a longer one), so "
+               "neither is taken; see docs/accessibility.md." if case == "twice" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and another node's text "
+               "matches what was found as well (\"check\" inside \"unchecked\"), so it isn't "
+               "taken for this one's; see docs/accessibility.md." if case == "other" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and what matched isn't as "
+               "wide as GTK lays this out, as when it's drawn letter-spaced or in another case "
+               "and something nearby draws the name as written; see docs/accessibility.md."
+               if case == "wide" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and this wasn't found "
+               "there; see docs/accessibility.md." if n._role in texts and k == "text"
                and not unsure(n) else
                f"GTK {version} reports where its widgets are wrong, and how wide text that "
                "isn't all ASCII is, so this can't be told from its name drawn by something "

@@ -1146,8 +1146,8 @@ CASES
     done <<'CASES'
 color: #3a3446;||1|1\.6[01]:1, #3a3446 on #0f0d14 (at least 4\.5); found -\?[0-9]*,
 color: #3a3446; letter-spacing: 3px;||1|not found, but nothing where it can be has the contrast it needs: the best anything there reaches is 1\.[0-9]*:1 (at least 4\.5)$
-color: #ebe6f0; letter-spacing: 3px;||0|not measured: GTK 4 reports its position wrong$
-color: #ebe6f0; letter-spacing: 3px;|--strict|1|not measured: GTK 4 reports its position wrong$
+color: #ebe6f0; letter-spacing: 3px;||0|not measured: GTK 4 reports its position wrong (no match good enough: 0\.[0-9]* at best)$
+color: #ebe6f0; letter-spacing: 3px;|--strict|1|not measured: GTK 4 reports its position wrong (no match good enough: 0\.[0-9]* at best)$
 CASES
     # Nor does a carousel's page not shown, its label outside the window.
     "$sb" run --a11y -- sh -c "'$app' carousel & '$sb' wait window a11y-test >/dev/null &&
@@ -1189,7 +1189,7 @@ assert j['notes'] and all('not shown' in n['note'] for n in j['notes']), j" "$tm
   else
     [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast")" = 4 ] \
       && grep -q '\[3\]/panel\[[01]\]/label\[0\]: text 1\.9' "$tmp/contrast" \
-      && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong$' "$tmp/contrast" \
+      && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong\( (.*)\)\?$' "$tmp/contrast" \
       && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 2 ] \
       && [ "$(wc -l < "$tmp/contrast")" = 7 ] \
       && ok "a11y: contrast, GTK 4 from 4.14: text where it's found, a stack's too; not a popover or an edge, said" \

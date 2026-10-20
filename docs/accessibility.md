@@ -602,8 +602,13 @@ would be too small to measure. Readable text anywhere it can be
 (another node's, say), or anything else with that contrast, keeps it a
 note. Text not looked for says why
 on its line too: `(a single letter: GTK gives it no width)`, `(over
-more than one line)`, `(not all ASCII: GTK measures its width short)`.
-What isn't found: text in more
+more than one line)`, `(not all ASCII: GTK measures its width short)`;
+and so does text looked for and not taken, with why (the why at the end
+says what that means): `(no match good enough: 0.44 at best)`, `(it
+matches elsewhere too, in "unchecked")` (or with how well, where no
+other node's text holds it), `(another node's text matches there too:
+"check")`, `(what matches is drawn wider or narrower than GTK lays it
+out)`. What isn't found: text in more
 than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
 or at the window's, what's drawn outside where GTK's box can be (a
