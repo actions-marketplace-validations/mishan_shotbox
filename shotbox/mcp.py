@@ -247,15 +247,15 @@ def png_size(path):
         return struct.unpack(">II", f.read(24)[16:24])
 
 
-def fit(png, full=None):
+def fit(png, full=None, grow=False):
     """Shrink the picture at `png`, in place, to what a model sees
-    unscaled; what to say of its size, and if it's shrunk from `full` (its
-    own size, or the size of the pictures a sheet was made of), the scale.
-    The client would scale it anyway, and an x,y read off it would be off
-    by as much, unsaid."""
+    unscaled, or with `grow` enlarge it to the most that is; what to say of
+    its size, and if it's scaled from `full` (its own size, or the size of the
+    pictures a sheet was made of), the scale. The client would scale it
+    anyway, and an x,y read off it would be off by as much, unsaid."""
     w, h = png_size(png)
     fw, fh = full or (w, h)
-    nw, nh = seen(w, h)
+    nw, nh = seen(w, h, grow)
     if (nw, nh) != (w, h):
         subprocess.run([*CONVERT, str(png), "-resize", f"{nw}x{nh}!", *QUIET_PNG, str(png)],
                        check=True)
@@ -264,10 +264,10 @@ def fit(png, full=None):
     return f"{nw}x{nh}, scaled by {nw / fw:.4g} from {fw}x{fh}", nw / fw
 
 
-def seen(w, h):
+def seen(w, h, grow=False):
     """The size a picture `w` by `h` is seen at unscaled: its own, or the
-    largest that fits."""
-    s = min(1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
+    largest that fits; with `grow`, the largest that fits anyway."""
+    s = min(math.inf if grow else 1, SEEN / max(w, h), PATCH * math.sqrt(SEEN / (w * h)))
     while True:
         nw, nh = max(1, round(w * s)), max(1, round(h * s))
         if math.ceil(nw / PATCH) * math.ceil(nh / PATCH) <= SEEN:
@@ -442,8 +442,17 @@ class Server:
     # --- looking -------------------------------------------------------------
 
     def take_screenshot(self, session, window=None, crop=None, park=False, vision=None,
-                        burst=None, every=None, labels=False):
+                        burst=None, every=None, labels=False, zoom=None):
         s = self.session(session)
+        if zoom is not None:
+            corners = words(zoom)
+            if not (len(corners) == 4 and all(re.fullmatch(r"\d+", c) for c in corners)):
+                raise Refused(f"zoom is [x0, y0, x1, y1], not {zoom!r}")
+            x0, y0, x1, y1 = map(int, corners)
+            if x1 <= x0 or y1 <= y0:
+                raise Refused(f"zoom's x1,y1 is right of and below its x0,y0, not {zoom!r}")
+            if crop or burst:
+                raise Refused("zoom is one picture of its own region: not with crop or burst")
         out = s.scratch / "screenshot.png"
         vision = text(vision) or None
         if vision and vision not in VISION:
@@ -470,6 +479,16 @@ class Server:
             size, n = laid_out([p for p, _ in taken], out)
             said = (f"{len(taken)} pictures of {what}, {n} to a row, left to right, "
                     f"taken at {times} seconds; {size}.")
+        elif zoom is not None:
+            s.capture(out, window=text(window), crop=f"{x1 - x0}x{y1 - y0}+{x0}+{y0}",
+                      park=flag(park), vision=vision)
+            # A region past the window's edge is cut to it.
+            x1, y1 = (a + b for a, b in zip((x0, y0), png_size(out)))
+            size, scale = fit(out, grow=True)
+            k = f"{scale or 1:.4g}"
+            said = (f"A picture of {x0},{y0} to {x1},{y1} of {what}, {size}: click_element's x,y "
+                    f"for a point at x,y on it is {x0} + x/{k}, {y0} + y/{k}"
+                    + (", with the same window." if window else "."))
         else:
             s.capture(out, window=text(window), crop=text(crop), park=flag(park), vision=vision)
             size, scale = fit(out)
@@ -479,8 +498,9 @@ class Server:
                 ": divide an x,y on it by that" + (", then add the crop's x,y," if crop else "")
                 + (" for click_element with the same window." if window else
                    " for click_element.") if scale else ".")
-            if labels:
-                said += "\n" + self.labeled(s, out, nodes, text(window), text(crop), scale or 1)
+        if labels:
+            said += "\n" + self.labeled(s, out, nodes, text(window),
+                                        text(crop) if zoom is None else f"+{x0}+{y0}", scale or 1)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
@@ -1020,12 +1040,17 @@ TOOLS = [
      "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "
      "at: the only way to see colors, layout and what's drawn. Pictures cost far more than "
      "get_accessible_tree; take the window rather than the screen, and crop when you need a "
-     "part. vision checks nothing is told apart by color alone; burst, as one image, is for "
-     "motion, an animation or a transition. labels numbers each named node's box on it, to "
-     "click by name what you see. The answer gives its size, if it was shrunk the scale, "
-     "and with labels each number's tree line.",
+     "part; zoom enlarges one to read small text. vision checks nothing is told apart by "
+     "color alone; burst, as one image, is for motion, an animation or a transition. labels "
+     "numbers each named node's box on it, to click by name what you see. The answer gives "
+     "its size, if it was scaled how an x,y on it maps to click_element's, and with labels "
+     "each number's tree line.",
      schema({"session": SESSION, "window": WINDOW,
              "crop": CROP,
+             "zoom": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                      "minItems": 4, "maxItems": 4,
+                      "description": "[x0, y0, x1, y1]: a region's corners, as click_element's "
+                      "x,y, shown as large as fits; not with crop or burst"},
              "park": {"type": "boolean", "description": "Move the pointer away first, so "
                       "nothing shows its hover"},
              "burst": {"type": "integer", "minimum": 2, "maximum": 12,

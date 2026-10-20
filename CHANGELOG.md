@@ -24,6 +24,12 @@
   its text, not its name, that matches, or `(what matches is drawn
   wider or narrower than GTK lays it out)`. All four read "wasn't found
   there alone" before.
+- MCP's `take_screenshot` has `zoom`: a region's corners, `[x0, y0, x1,
+  y1]` in `click_element`'s x,y, as Anthropic's computer-use tool takes
+  them, shown as large as fits to read small text, enlarged if it's
+  small. The answer says where a point on it is for `click_element`
+  (`100 + x/4.38, 47 + y/4.38`), rather than leaving the agent to undo
+  a crop's scale and corner itself.
 - `a11y contrast --strict` fails on what it couldn't measure, too: for
   CI that wants every node measured, or ignored with `--ignore`. Those
   lines are failures, under `problems` in `--json`, each with its `why`

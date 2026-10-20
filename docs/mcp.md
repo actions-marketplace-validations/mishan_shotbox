@@ -97,7 +97,7 @@ it arbitrary commands, typed with `type_text`.
 | `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size (up to 7680x4320), gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
 | `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
 | `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
-| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`); or a burst of them, as one image; with its size |
+| `take_screenshot` | the screen or a window, as an image, cropped or zoomed if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`); or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
 | `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
 | `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point; with `changes`, what it changed in the tree |
@@ -119,9 +119,15 @@ off a 1920x1080 screen would be off by a factor of 1.32 when given
 to `click_element`. `take_screenshot` and `record_video` shrink a picture
 past that themselves (1920x1080 to 1456x819) and say its size and the
 scale: divide an x,y by it (and add a crop's corner) for `click_element`
-with the same window, or click by name. A burst's or a clip's pictures
-are laid out as many to a row as shrinks them least: two 1920x1080
-screens to a row, 728x410 each.
+with the same window, or click by name. `zoom`, a region's corners
+`[x0, y0, x1, y1]` as `click_element` takes them (as Anthropic's
+computer-use tool has it), shows that region as large as fits, enlarged
+or shrunk, to read small text, and its answer says where a point on it
+is: `click_element`'s x,y for a point at x,y on it is `100 + x/4.38,
+47 + y/4.38`. `crop` is for a part at its own size, which costs less,
+and for a burst. A burst's or a clip's pictures are laid out as many to
+a row as shrinks them least: two 1920x1080 screens to a row, 728x410
+each.
 
 **What an action changed.** `click_element`, `scroll_wheel`,
 `press_keys` and `type_text` with `changes` read the tree before they
