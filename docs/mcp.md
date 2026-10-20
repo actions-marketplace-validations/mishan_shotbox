@@ -118,15 +118,16 @@ long edge of 1568 px, or past 1568 patches of 28x28 px, so an x,y read
 off a 1920x1080 screen would be off by a factor of 1.32 when given
 to `click_element`. `take_screenshot` and `record_video` shrink a picture
 past that themselves (1920x1080 to 1456x819) and say its size and the
-scale: divide an x,y by it (and add a crop's corner) for `click_element`
-with the same window, or click by name. `zoom`, a region's corners
-`[x0, y0, x1, y1]` as `click_element` takes them (as Anthropic's
-computer-use tool has it), shows that region as large as fits, enlarged
-or shrunk, to read small text, and its answer says where a point on it
-is: `click_element`'s x,y for a point at x,y on it is `100 + x/4.38,
-47 + y/4.38`. `crop` is for a part at its own size, which costs less,
-and for a burst. A burst's or a clip's pictures are laid out as many to
-a row as shrinks them least: two 1920x1080 screens to a row, 728x410
+scale. A screenshot's answer says where a point on it is for
+`click_element` with the same window: `x/0.7583, y/0.7583`, or for a
+part, `100 + x/0.8122, 50 + y/0.812` (each side is rounded on its own),
+with no scale or corner left to undo; or click by name. `crop` takes a part,
+shrunk only if it's past what's seen; `zoom` takes the corners
+`[x0, y0, x1, y1]` of one, in `click_element`'s x,y (a picture's, mapped
+as its answer says), and shows it as large as fits, up to 8 times, to
+read small text. A part is cut to what's taken, and one with none of it
+is refused. A burst's or a clip's pictures are laid out as many to a
+row as shrinks them least: two 1920x1080 screens to a row, 728x410
 each.
 
 **What an action changed.** `click_element`, `scroll_wheel`,

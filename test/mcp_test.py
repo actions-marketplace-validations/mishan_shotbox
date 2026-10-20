@@ -265,19 +265,26 @@ try:
     # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
     # have 1920x1080 seen, with the scale to map an x,y back by.
     said, bad, _ = tool("start_session", name="big", screen="1920x1080")
-    said, bad, content = tool("take_screenshot", session="big")
-    png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
-    check(not bad and struct.unpack(">II", png[16:24]) == (1456, 819)
-          and "1456x819, scaled by 0.7583 from 1920x1080: divide an x,y on it by that" in said,
-          f"take_screenshot: a 1920x1080 screen, shrunk to 1456x819, its scale said ({said})")
-    said, bad, _ = tool("take_screenshot", session="big", crop="1800x1000+100+50")
-    check(not bad and said.endswith("divide an x,y on it by that, then add the crop's x,y, "
-                                    "for click_element."),
-          f"take_screenshot: a crop shrunk, said how to map back with its corner ({said})")
-    said, bad, content = tool("take_screenshot", session="big", zoom="0,0,1920,1080")
-    check(not bad and said.endswith("scaled by 0.7583 from 1920x1080: click_element's x,y for a "
-                                    "point at x,y on it is 0 + x/0.7583, 0 + y/0.7583."),
-          f"take_screenshot: a zoom past what's seen, shrunk, how to map back said ({said})")
+    to = "click_element's x,y for a point at x,y on it is"
+    for args, size, want in (
+            ({}, (1456, 819), "the whole screen, 1456x819, scaled by 0.7583 from 1920x1080: "
+             f"{to} x/0.7583, y/0.7583."),
+            ({"crop": "1800x1000+100+50"}, (1462, 812), "100,50 to 1900,1050 of the whole "
+             "screen, 1462x812, scaled by 0.8122 across and 0.812 down from 1800x1000: "
+             f"{to} 100 + x/0.8122, 50 + y/0.812."),
+            ({"zoom": "0,0,1920,1080"}, (1456, 819), "0,0 to 1920,1080 of the whole screen, "
+             f"1456x819, scaled by 0.7583 from 1920x1080: {to} x/0.7583, y/0.7583."),
+            # Thin: each side rounded on its own.
+            ({"zoom": [100, 0, 110, 1080]}, (15, 1568), "100,0 to 110,1080 of the whole screen, "
+             f"15x1568, scaled by 1.5 across and 1.452 down from 10x1080: {to} 100 + x/1.5, "
+             "y/1.452."),
+            ({"zoom": [7.6, 0, 9.6, 2]}, (16, 16), "8,0 to 10,2 of the whole screen, 16x16, "
+             f"scaled by 8 from 2x2: {to} 8 + x/8, y/8.")):
+        said, bad, content = tool("take_screenshot", session="big", **args)
+        png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
+        check(not bad and said == f"A picture of {want}"
+              and struct.unpack(">II", png[16:24]) == size,
+              f"take_screenshot {args}: its size and how to map an x,y back said ({said})")
     said, bad, content = tool("take_screenshot", session="big", burst=4)
     png = base64.b64decode([c for c in content if c["type"] == "image"][0]["data"])
     check(not bad and "2 to a row" in said and struct.unpack(">II", png[16:24]) == (1456, 819)
@@ -339,39 +346,57 @@ try:
     said, bad, _ = tool("take_screenshot", session="t", vision="martian")
     check(bad and "deuteranopia" in said,
           "take_screenshot: a vision there isn't, refused saying which")
-    # Read off a zoom as an agent would: Save, the first of three buttons
-    # (Announce has the focus), found by its pixels darker than the window's
-    # left of any label, clicked where the answer says.
+    # Read off a zoom as an agent would: the buttons, darker than the window
+    # in a column left of any label, mapped back by the answer, are where an
+    # unzoomed picture has them; and Save, clicked there, gets the focus
+    # (Announce has it).
+    def darker(content, cx, rows=None):
+        pic = tmp / "pic.png"
+        pic.write_bytes(base64.b64decode([c for c in content if c["type"] == "image"][0]["data"]))
+        w, h = mcp.png_size(pic)
+        gray = subprocess.run(["convert", str(pic), "-colorspace", "gray", "-depth", "8",
+                               "gray:-"], capture_output=True, check=True).stdout
+        column = [gray[row * w + cx] for row in rows or range(h)]
+        return [m.span() for m in re.finditer("x+", "".join(".x"[max(column) - v > 8]
+                                                          for v in column))], h
     tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test", bounds=True)
     (x, y, _, _), (_, ay, aw, ah) = ([int(n) for n in re.search(
         rf'"{b}".*@(\d+),(\d+) (\d+)x(\d+)', tree).groups()] for b in ("Save", "Announce"))
-    said, bad, content = tool("take_screenshot", session="t", window="a11y-test",
-                              zoom=[x - 4, y - 4, x + aw + 4, ay + ah + 4])
-    zoomed = tmp / "zoomed.png"
-    zoomed.write_bytes(base64.b64decode([c for c in content if c["type"] == "image"][0]["data"]))
-    w, h = mcp.png_size(zoomed)
-    gray = subprocess.run(["convert", str(zoomed), "-colorspace", "gray", "-depth", "8",
-                           "gray:-"], capture_output=True, check=True).stdout
-    column = [gray[row * w + w // 16] for row in range(h)]
-    buttons = [m.span() for m in re.finditer("x+", "".join(".x"[max(column) - v > 8]
-                                                          for v in column))]
-    m = re.search(r"is (\d+) \+ x/([\d.]+), (\d+) \+ y/([\d.]+), with the same window\.$", said)
-    if not bad and m and len(buttons) == 3:
-        tool("click_element", session="t", window="a11y-test",
-             x=round(int(m[1]) + w // 16 / float(m[2])),
-             y=round(int(m[3]) + sum(buttons[0]) / 2 / float(m[4])))
-    tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test")
-    check(max(w, h) == mcp.SEEN and '"Save" [focusable, focused]' in tree,
-          f"take_screenshot: a zoom, enlarged to fit; Save read off it, clicked ({said}, "
-          f"buttons at {buttons})")
-    refused = [tool("take_screenshot", session="t", **a)[:2]
+    cx = x + 10
+    _, _, whole = tool("take_screenshot", session="t", window="a11y-test")
+    for region in ([x - 12, y - 12, x + aw + 12, ay + ah + 12],
+                   [x - 12, y - 12, 10**30, ay + ah + 12],
+                   [cx - 2, -50, cx + 2, ay + ah + 12]):
+        said, bad, content = tool("take_screenshot", session="t", window="a11y-test",
+                                  zoom=region)
+        m = re.search(r"is (?:(\d+) \+ )?x/([\d.]+), (?:(\d+) \+ )?y/([\d.]+), with the same "
+                      r"window\.$", said)
+        ox, kx, oy, ky = (float(v or 0) for v in m.groups()) if m else (0, 1, 0, 1)
+        top = max(0, region[1])
+        want = [(top + a, top + b) for a, b in darker(whole, cx, range(
+            top, min(darker(whole, cx)[1], region[3])))[0]]
+        got = [(oy + a / ky, oy + b / ky) for a, b in darker(content, round((cx - ox) * kx))[0]]
+        check(not bad and m and len(want) >= 3 and len(got) == len(want)
+              and all(abs(a - b) <= 1 for w, g in zip(want, got) for a, b in zip(w, g)),
+              f"take_screenshot: a zoom on {region}, its buttons mapped back to where they are "
+              f"({said}; {got}, not {want})")
+        if region[2] == x + aw + 12 and got:
+            tool("click_element", session="t", window="a11y-test", x=cx, y=round(sum(got[0]) / 2))
+            tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test")
+            check('"Save" [focusable, focused]' in tree, "take_screenshot: Save read off a "
+                  "zoom, clicked where the answer maps it")
+    refused = [tool("take_screenshot", session="t", window="a11y-test", **a)[:2]
                for a in (dict(zoom=[0, 0, 10]), dict(zoom=[10, 0, 5, 5]),
                          dict(zoom=[0, 0, 5, 5], crop="5x5+0+0"),
-                         dict(zoom=[0, 0, 5, 5], burst=2))]
+                         dict(zoom=[0, 0, 5, 5], burst=2), dict(zoom=[700, 500, 900, 700]),
+                         dict(crop="10x10+700+500"))]
     check(all(bad for _, bad in refused) and "[x0, y0, x1, y1]" in refused[0][0]
           and "right of and below" in refused[1][0]
-          and all("not with crop or burst" in said for said, _ in refused[2:]),
-          f"take_screenshot: a zoom that isn't 4 corners, or with crop or burst, refused ({refused})")
+          and all("not with crop or burst" in said for said, _ in refused[2:4])
+          and all("has none of the window 'a11y-test' in it, which is" in said
+                  for said, _ in refused[4:]),
+          f"take_screenshot: a zoom that isn't 4 corners, or with crop or burst, or a region with "
+          f"nothing taken in it, refused ({refused})")
     said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore="image")
     check(len(said.splitlines()) == 2
           and all(re.fullmatch(r'[a-z ]+ "" .*@\d+,\d+ \d+x\d+: [a-z ]+ with no name',

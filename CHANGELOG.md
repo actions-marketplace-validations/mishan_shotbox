@@ -25,11 +25,11 @@
   wider or narrower than GTK lays it out)`. All four read "wasn't found
   there alone" before.
 - MCP's `take_screenshot` has `zoom`: a region's corners, `[x0, y0, x1,
-  y1]` in `click_element`'s x,y, as Anthropic's computer-use tool takes
-  them, shown as large as fits to read small text, enlarged if it's
-  small. The answer says where a point on it is for `click_element`
-  (`100 + x/4.38, 47 + y/4.38`), rather than leaving the agent to undo
-  a crop's scale and corner itself.
+  y1]` in `click_element`'s x,y, much as Anthropic's computer-use tool
+  takes a zoom's, shown as large as fits (up to 8 times) to read small
+  text. Its answer, and a crop's or a shrunk picture's, says where a
+  point on it is for `click_element`: `100 + x/4.356, 39 + y/4.355`,
+  rather than leaving the agent to undo a scale and a corner itself.
 - `a11y contrast --strict` fails on what it couldn't measure, too: for
   CI that wants every node measured, or ignored with `--ignore`. Those
   lines are failures, under `problems` in `--json`, each with its `why`
@@ -57,6 +57,10 @@
   room took it in, was a note. A shorter text can't match all of a
   longer one, so where it's drawn apart too it doesn't count against it
   now; "check" itself, matching in both places, still isn't taken.
+- MCP's `take_screenshot` said one scale for a thin picture, its
+  width's, though each side is rounded on its own: a 10x4320 crop said
+  0.4 and was 0.363 down. It says both when they differ. A crop with
+  none of what's taken in it is refused, not shown as one pixel.
 - `a11y contrast` left faint GTK 4.14 and later text over a theme's
   grid unmeasured, which doesn't fail, while text of the same color
   elsewhere failed: the fainter the text, the more of what varies where
