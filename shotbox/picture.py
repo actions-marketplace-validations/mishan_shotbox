@@ -203,16 +203,19 @@ def edge_contrast(pic, box):
 
 class Lightness:
     """The lightness of each pixel of the picture from x0, y0 up to x1, y1,
-    cut to it (`lum`, row by row, `width` wide, from `x0`, `y0`), and it
-    and its square summed from the corner (`sums` and `squares`, a row and
-    a column more), so any box's are four look-ups."""
+    cut to it, less what's behind it if `under` (backdrop's) says (`lum`,
+    row by row, `width` wide, from `x0`, `y0`), and it and its square
+    summed from the corner (`sums` and `squares`, a row and a column
+    more), so any box's are four look-ups."""
 
-    def __init__(self, pic, x0, y0, x1, y1):
+    def __init__(self, pic, x0, y0, x1, y1, under=None):
         x0, y0, x1, y1 = max(0, x0), max(0, y0), min(pic.width, x1), min(pic.height, y1)
         d, lum = pic.data, []
         for y in range(y0, y1):
             i = (y * pic.width + x0) * 3
-            lum += [d[j] * 2 + d[j + 1] * 5 + d[j + 2] for j in range(i, i + (x1 - x0) * 3, 3)]
+            row = [d[j] * 2 + d[j + 1] * 5 + d[j + 2] for j in range(i, i + (x1 - x0) * 3, 3)]
+            # Less what's behind, kept above zero: matches multiplies unsigned.
+            lum += [v - under(x, y) + 8 * 255 for x, v in zip(range(x0, x1), row)] if under else row
         self.lum, self.x0, self.y0 = lum, x0, y0
         self.width = width = max(0, x1 - x0)
         self.height = height = len(lum) // width if width else 0
@@ -262,22 +265,23 @@ def matches(lit, shape, x0, y0, nx, ny):
     return out
 
 
-def find_text(pic, kinds, area, until=None):
+def find_text(pic, kinds, area, until=None, under=None):
     """Where text is drawn in `area` (x0, y0, x1, y1), as one of `kinds`
     of shapes may draw it, each shape (width, height, coverage), a byte a
     pixel, with blank columns at each side, and a kind's alike but for
     their size. A place matches as well as its pixels' lightness follows
     a shape's coverage (matches), each shape looked at at every place:
     (match, x, y, width, height, the best match of that shape at a place
-    apart from that one, and which kind and shape of it matched), its x
-    and y those of the shape, or None if `area` can't hold one, or has
+    apart from that one, which kind and shape of it matched, and where
+    that other match is, (x, y)), its x and y those of the shape, or None if `area` can't hold one, or has
     more places than PLACES to look at. Raises TimeoutError past
-    `until`, a monotonic time."""
+    `until`, a monotonic time. With `under` (backdrop's), less what's
+    behind the text."""
     x0, y0, x1, y1 = area
     # The shapes' blank sides can lie outside `area`, not past the picture.
     if (x1 - x0 + 4) * (y1 - y0) > PLACES:
         return None
-    lit = Lightness(pic, x0 - 2, y0, x1 + 2, y1)
+    lit = Lightness(pic, x0 - 2, y0, x1 + 2, y1, under)
     best, grid = None, None
     for k, kind in enumerate(kinds):
         for i, (w, h, cover) in enumerate(kind):
@@ -292,16 +296,24 @@ def find_text(pic, kinds, area, until=None):
         return None
     # The best match of a place the best one doesn't overlap.
     match, bx, by, bw, bh, k, i = best
-    apart = max(max(row[:max(0, bx - bw + 1)] + row[bx + bw:], default=0.0)
-                if by - bh < y < by + bh else max(row) for y, row in enumerate(grid))
-    return match ** 0.5, bx + lit.x0, by + lit.y0, bw, bh, apart ** 0.5, (k, i)
+    apart = (0.0, 0, 0)
+    for y, row in enumerate(grid):
+        spans = ((0, max(0, bx - bw + 1)), (bx + bw, len(row))) if by - bh < y < by + bh else (
+            (0, len(row)),)
+        for a, b in spans:
+            if a < b:
+                top = max(row[a:b])
+                if top > apart[0]:
+                    apart = (top, row.index(top, a, b), y)
+    return (match ** 0.5, bx + lit.x0, by + lit.y0, bw, bh, apart[0] ** 0.5, (k, i),
+            (apart[1] + lit.x0, apart[2] + lit.y0))
 
 
-def match_over(pic, kinds, box, until=None):
+def match_over(pic, kinds, box, until=None, under=None):
     """How well one of `kinds` of shapes (find_text's) matches what's drawn
     over `box` (x, y, width, height): placed so the text, the shape but
-    for its blank sides, is inside the box or holds it. Raises
-    TimeoutError past `until`, a monotonic time."""
+    for its blank sides, is inside the box or holds it; with `under`, as
+    find_text. Raises TimeoutError past `until`, a monotonic time."""
     bx, by, bw, bh = box
     shapes = [shape for kind in kinds for shape in kind]
     # Where each shape's corner can be: x0, y0, x1, y1, inclusive.
@@ -309,7 +321,7 @@ def match_over(pic, kinds, box, until=None):
               max(bx, bx + bw - w + 4) - 2, max(by, by + bh - h)) for w, h, _ in shapes]
     lit = Lightness(pic, min(s[0] for s in spans), min(s[1] for s in spans),
                     max(s[2] + w for s, (w, _, _) in zip(spans, shapes)),
-                    max(s[3] + h for s, (_, h, _) in zip(spans, shapes)))
+                    max(s[3] + h for s, (_, h, _) in zip(spans, shapes)), under)
     got = 0.0
     for (sx0, sy0, sx1, sy1), shape in zip(spans, shapes):
         if until and time.monotonic() > until:
@@ -321,6 +333,47 @@ def match_over(pic, kinds, box, until=None):
         if nx > 0 and ny > 0:
             got = max([got] + [max(row) for row in matches(lit, shape, x0, y0, nx, ny)])
     return got ** 0.5
+
+
+def backdrop(pic, box):
+    """What's behind text found in `box` (x0, y0, x1, y1), the same with it
+    and without it, as a function of x and y giving its lightness
+    (Lightness'): in the box, a line through it, as a grid draws, the
+    color its column is for 2 of the 3 pixels both above and below the box
+    (another line can cross it there), or failing that, its row both left
+    and right, where that isn't the color most of what's round the box
+    is; elsewhere, that color."""
+    x0, y0, x1, y1 = box
+    rect = (x0, y0, x1 - x0, y1 - y0)
+    most = (pic.colors(rect, y1 - y0) - pic.colors(rect)).most_common(1)[0][0]
+
+    def line(one, other):
+        sides = [c.most_common(1)[0] for c in (one, other) if c]
+        colors = {c for c, _ in sides}
+        return colors.pop() if len(colors) == 1 and all(n >= 2 for _, n in sides) else None
+    cols = [line(pic.colors((x, y0 - 3, 1, 3)), pic.colors((x, y1, 1, 3))) for x in range(x0, x1)]
+    rows = [line(pic.colors((x0 - 3, y, 3, 1)), pic.colors((x1, y, 3, 1))) for y in range(y0, y1)]
+    lit = {c: c[0] * 2 + c[1] * 5 + c[2] for c in cols + rows + [most] if c}
+
+    def under(x, y):
+        if not (x0 <= x < x1 and y0 <= y < y1):
+            return lit[most]
+        c, r = cols[x - x0], rows[y - y0]
+        return lit[c if c not in (None, most) else r if r not in (None, most) else most]
+    return under
+
+
+def most_contrast(pic, box, stretch=1):
+    """The most contrast text drawn in `box` (x, y, width, height) can
+    measure (text_contrast): that of the lightest each channel is there on
+    the darkest, or the darkest on the lightest, either taken `stretch`
+    times as far from the other, and a level and a half more, as
+    covered() can take a color from coverage."""
+    colors = pic.colors(box)
+    hi, lo = ([f(c[k] for c in colors) for k in range(3)] for f in (max, min))
+    lighter = [min(255, x + (y - x + 1.5) * stretch) for x, y in zip(lo, hi)]
+    darker = [max(0, y - (y - x + 1.5) * stretch) for x, y in zip(lo, hi)]
+    return max(ratio(lighter, lo), ratio(hi, darker))
 
 
 # The most places find_text looks at: as many as there are in 600 by 400

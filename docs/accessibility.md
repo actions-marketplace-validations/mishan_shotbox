@@ -27,11 +27,12 @@ Inside a session with `--a11y`:
   down and DX right (negative, up and left): a list by itself or by a
   row still in view (one scrolled out of it is refused, as `click`
   refuses it).
-- **`shotbox a11y contrast [--window RE] [--passes]`** measures the contrast of
+- **`shotbox a11y contrast [--window RE] [--passes] [--strict]`** measures the contrast of
   what each node draws against its background, and fails, a line each:
   `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`; with `--passes`,
   what passes too: `PATH: text passes at 12.23:1, #323236 on #fafafb (at
-  least 4.5)`. [Contrast](#contrast).
+  least 4.5)`; with `--strict`, what it couldn't measure fails too.
+  [Contrast](#contrast).
 - **`shotbox a11y speak [--keys KEY...] [--max 50] [--window RE]`**
   starts Orca in the session, presses Tab until the focus comes round
   (or the keys, in turn), and prints what Orca said after each press,
@@ -474,12 +475,20 @@ where GTK 4's text was found. It doesn't list an image of one color, or
 an edge with nothing round it to measure, which have no ratio. `--json`
 gives an object of lists: `problems`, each node with its `problem`;
 with `--passes`, `passes`, each with its `contrast`; and `notes`, what
-wasn't measured, each with its `note` and, for GTK 4's, its `why`. The
+wasn't measured, each with its `note` and, for GTK 4's, its `why`.
+`--strict` fails on what wasn't measured too, for CI that wants every
+node measured or ignored (`--ignore`): those lines are failures, under
+`problems` in `--json`, each with its `why` if it has one. On GTK 4.14
+and later that's every icon, window control and edge, which aren't
+measured, so leave them out with `--ignore` (`graphics not measured`,
+`edge not measured`). What's scrolled out of view, or hidden, isn't a
+failure: GTK 3 and browsers leave such rows out without a word. The
 exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a window on GTK
 4.14 or later none of whose text was found, `shotbox: nothing measured:
 ...` (text too small to measure, alone, doesn't fail). With `--json` it's 0
-with failures, which the lines say, and 2 when nothing was measured. `Screen.contrast()` raises
+with failures, which the lines say, and 2 when nothing was measured,
+with `--strict` too. `Screen.contrast()` raises
 then, and MCP's `check_contrast` says so as an error.
 
 ### GTK 4's positions
@@ -514,13 +523,31 @@ place in the room, and on 4.16 and later, if none reaches 0.98, for
 the best of them a quarter of a pixel up, or a quarter or half down:
 those place text at fractions of a pixel, so a line set by its baseline
 can fall between rows), and not where anything else in that room
-matches 0.8 or more (the same text twice). Other text can match nearly
-as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
+matches 0.8 or more (the same text twice). Faint text is little of
+what varies where it's drawn, and a pattern behind it, the same with
+the text and without, can be much of the rest: a theme's grid of
+#1e1929 lines every 24 pixels on #0f0d14 is 8% of the variance under
+#3a3446 text (1.61:1), which takes its best match to 0.92 to 0.96. So
+where the best match falls short of 0.98, it's worked out again just
+round there with what's behind taken off: in the text's box, a line
+through it, the color its column is for 2 of the 3 pixels both above
+and below the box (another line can cross it there), or else its row
+both left and right, unless that's the color most of what's round the
+box is. That takes those labels to 0.989 and 0.994, and a button's
+label over the grid through its fill, 0.972, to 0.994; text over no
+pattern is as it was. What else matches, in
+the room or over what's found, is the more of with the pattern and
+without, so nothing more is taken for another text. Other text can
+match nearly as well: "Row 1" over the start of "Row 10" up to 0.98, "on" in
 "Button" 0.96, a letter-spaced or upper-case label over an entry
 holding its text 0.96. So every other node whose own room takes in
 what's found, disabled, left out or not, is drawn there too, by its
 name (not a name it takes from its label) and, for an entry, what's in
-it or its placeholder: if any matches 0.8 or more, nothing is taken.
+it or its placeholder: if any matches 0.8 or more, nothing is taken,
+unless its text is a shorter piece of this one's, which can't match all
+of it ("check" over "unchecked"), and is drawn apart from what's found
+too, matching 0.8 or more in its own room: a hidden "Open File" isn't
+taken for "Open" and "File" drawn side by side.
 Text drawn by what has no text of its own (a drawing area, a widget
 drawing round its child) can't be, so from 4.14.6 the text GTK lays
 out must also be as wide as the name drawn as found, within a pixel
@@ -535,7 +562,9 @@ extents right ships, a line each saying why: GTK measures it short by
 however many characters, so it can't be told apart. Up to 4.14.5 GTK
 doesn't say, and the text is looked for in the label's own box alone. A label hidden under
 something opaque, but drawn in its own font, can still be taken for
-the same text drawn visibly in the room round it. The text is measured
+the same text drawn visibly in the room round it, or for labels side by
+side there that spell it out, a space apart ("Open" and "File" for a
+hidden "Open File"), where each is drawn again elsewhere too. The text is measured
 in its own box, and a failure says how far its top-left corner is from
 where GTK says the text is, which is how far GTK has it wrong (its
 containers' padding and borders, right and down, less a stack's place,
@@ -563,10 +592,33 @@ and so is what's in a popover, which can be drawn outside both.
 
 What isn't found isn't measured, a line each, `text not measured: GTK 4
 reports its position wrong`, and why once (in `--json`, each such line's
-`why`). Text not looked for says why on its line too: `(a single
-letter: GTK gives it no width)`, `(over more than one line)`, `(not all
-ASCII: GTK measures its width short)`. What isn't found: text in more
-than one font (a superscript), letter-spaced (which GTK doesn't say), a
+`why`), unless nothing where it can be could measure as text that
+passes: then it fails, `text not found, but nothing where it can be
+has the contrast it needs: the best anything there reaches is 1.65:1
+(at least 4.5)`, and why once, as for what isn't measured. That's
+the contrast of the lightest each channel is anywhere it can be on the
+darkest, more than any text there can measure, whatever its background
+(and, for text whose shapes cover no pixel whole, as far again as its
+most covered pixel is short, as its color is worked out from its
+coverage). Only with `--window`, which raises the window, since
+another can be over it; and not for text that's in a popover, can be
+past the screen's edge or a scrolled window's, is placed even partly
+outside its window or what it's in (a carousel's page not shown), or
+would be too small to measure. Readable text anywhere it can be
+(another node's, say), or anything else with that contrast, keeps it a
+note. Text not looked for says why
+on its line too: `(a single letter: GTK gives it no width)`, `(over
+more than one line)`, `(not all ASCII: GTK measures its width short)`;
+and so does text looked for and not taken, with why (the why at the end
+says what that means): `(no match good enough: 0.44 at best)`, `(it
+matches elsewhere too, in "unchecked")`, naming the node whose room
+starts nearest where the other match is, if its text holds this one's
+(else how well it matches there, and no name), `(another node's text
+matches there too: "Row 10")`, or where that's a node's text, not its
+name, its role and name as the tree has them, `the text "Display name",
+whose text is "Neon Doll"` (an entry's), `(what matches is drawn wider or narrower
+than GTK lays it out)`; and where nothing could be looked for, why:
+`(GTK says no font for it)`. What isn't found: text in more than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
 or at the window's, what's drawn outside where GTK's box can be (a
 popover's label), and text with more than 600 by 400 pixels to look in.
