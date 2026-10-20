@@ -1604,6 +1604,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     # What's scrolled out of view isn't there to measure, as GTK 3's and
     # browsers' rows aren't, which aren't said at all.
     failing = [(n, what) for n, what in notes if strict and n.path not in hidden]
+    for n, _ in failing:
+        n["_noted"] = True
     problems = [(n, what) for n, what in problems if not skip(n, what)] + failing
     notes = [note for note in notes if note not in failing]
     return (problems, [(n, what) for n, what in passes if not skip(n, what)], notes,
@@ -2087,8 +2089,9 @@ def main(argv):
                 a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large, a.strict)
             passes = passes if a.passes else []
         # Said apart from the lines, on stderr, so stdout is PATH: WHAT.
-        # Under --strict what wasn't measured is among the problems.
-        nothing = not count and whys and (a.strict or not problems)
+        # Under --strict what wasn't measured is among the problems, but
+        # a failure isn't nothing.
+        nothing = not count and whys and all("_noted" in n for n, _ in problems)
         said = " ".join([f"{len(notes)} not measured"
                          + ("." if nothing else ", which doesn't fail.")] * bool(notes) + whys)
         if a.json and a.what == "lint":

@@ -10,8 +10,9 @@
   note, which doesn't fail, however faint, so a run that passed can
   fail now. Stock libadwaita has some: an empty `AdwEntryRow`'s title
   (1.98:1), Files' preferences group description (3.21:1), and Settings
-  › Sound's "No Output Devices" (3.23:1). Leave them out with `--ignore`
-  if they're not yours.
+  › Sound's "No Output Devices" (3.23:1). So does text dimmed behind an
+  open dialog, as faint as it's drawn (Files' path bar behind its
+  preferences). Leave them out with `--ignore` if they're not yours.
 
 ### Added
 
