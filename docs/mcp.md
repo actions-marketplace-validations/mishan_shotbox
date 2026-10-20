@@ -97,11 +97,11 @@ it arbitrary commands, typed with `type_text`.
 | `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size (up to 7680x4320), gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
 | `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
 | `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
-| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it; or a burst of them, as one image; with its size |
+| `take_screenshot` | the screen or a window, as an image, cropped if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`); or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
-| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked |
-| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point |
-| `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text |
+| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
+| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point; with `changes`, what it changed in the tree |
+| `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text; with `changes`, what they changed in the tree |
 | `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
 | `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes; `check_contrast` with `passes` says what passes too, with its ratio, as `a11y contrast --passes` does, and with `strict` fails on what it couldn't measure, as `--strict` does |
@@ -123,8 +123,56 @@ with the same window, or click by name. A burst's or a clip's pictures
 are laid out as many to a row as shrinks them least: two 1920x1080
 screens to a row, 728x410 each.
 
-**Answers are bounded.** A screen is at most 7680x4320. The tree, the
-checks' answers and `list_announcements` (its latest) stop at 500 lines,
+**What an action changed.** `click_element`, `scroll_wheel`,
+`press_keys` and `type_text` with `changes` read the tree before they
+act and again once the screen has held still for half a second (as
+`wait_for` stable), and answer with what changed, and when it was read:
+a tree line a node, `+` added, `-` gone (a subtree gone whole as its
+root, `and 3 inside`), `~` renamed, described otherwise or in other
+states, with `, was` and what it was, each indented under the line above
+it that it's in, and with changes in more than one window, each window's
+after a line naming it and its place, `in frame "Untitled" (window 2,
+pid 1234):`, as two can be the same:
+
+    Clicked check box "Wrap lines" [focusable, checked] at the middle of [5, 171, 350, 28].
+    Changed in the tree, read 0.6 s after, once the screen had held still for 0.5 s:
+    ~ button "Save" [focusable], was [focusable, focused]
+    ~ check box "Wrap lines" [focusable, focused], was [focusable, checked]
+
+What changes after it's read is missed: a program that moves the focus
+a second after a key, or opens a window a second after a click, while
+the screen holds still, is "Nothing changed". `wait_for` focus or
+window waits for that. A screen that never holds still (a spinner, a
+clock) is read after 10 seconds, saying so, which every such call
+pays. It's the whole tree, every window's, since a click can open
+another. Where nodes are isn't compared, since a scroll moves them all,
+nor a field's text, which isn't in its line, so typing into one changes
+none. Nodes are paired by role and name in tree order, and those left
+by role, so a dialog that gives way to another of the same shape is its
+nodes renamed. A program that doesn't answer the tree's read (busy, or
+hung) is said, `! application "" (pid 1234) didn't answer`, and its
+windows left out, not said to be gone; if the tree can't be read again
+at all, the answer says why, after what was done. It's asked for rather
+than always said: it costs the two reads, about a second, and a page
+that changes whole could fill an answer the agent didn't need.
+
+**Numbers on a picture.** `take_screenshot` with `labels` draws each
+named node's box on it in magenta, with a number at its corner, and
+answers with the number's tree line and the box on the picture, scaled
+and cropped as the picture is: what's seen is clicked by name. Not a
+window, whose box is the picture, nor a node named as what it's in (a
+button's label). A box is cut to those of what it's in, so a row
+scrolled out of view, which a toolkit still says is showing, has none;
+numbers at one corner go side by side. Without `window`, a window
+behind another is labeled too, over the one in front. Named nodes whose
+place can't be told (two windows the same size and title) are counted,
+not labeled. The boxes are where the tree says, which on GTK 4.14 and
+later is off, and the answer says so for such a program: [GTK 4's
+positions](accessibility.md#gtk-4s-positions).
+
+**Answers are bounded.** A screen is at most 7680x4320. The tree, what
+an action changed in it, a picture's labels, the checks' answers and
+`list_announcements` (its latest) stop at 500 lines,
 saying how many more and how to narrow it, if it can be; GTK apps' whole windows
 measured 63 to 314. A line a program wrote, and a tree line, stops at
 500 characters, saying how many more.

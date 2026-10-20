@@ -29,6 +29,20 @@
   lines are failures, under `problems` in `--json`, each with its `why`
   if it has one; `Screen.contrast(strict=True)` and MCP's
   `check_contrast` with `strict` have it too.
+- MCP's `click_element`, `scroll_wheel`, `press_keys` and `type_text`
+  with `changes` say what they changed in the accessible tree once the
+  screen holds still, and when it was read: nodes added, gone, renamed
+  or in other states, a tree line each, up to 500, so an agent needn't
+  read the whole tree again. `shotbox.a11y.changes(before, after)` says
+  it of two `a11y_tree()`s.
+- `a11y tree` says a program that didn't answer (busy, or hung), on a
+  line of its own, where its windows were left out without a word; with
+  `--json`, and in `Screen.a11y_tree()`, a window has its program's
+  `pid` and `toolkit`.
+- MCP's `take_screenshot` with `labels` draws each named node's box and
+  a number on the picture, and answers with each number's tree line and
+  box, scaled and cropped as the picture is and cut to what it's in, so
+  what's seen can be clicked by name.
 
 ### Fixed
 

@@ -151,6 +151,13 @@ invalid-entry, and disabled for a node that isn't sensitive. Programs
 come in the order of their names, their windows and children in the
 order they give them, so a tree can be committed and diffed.
 
+A program that doesn't answer (busy, or hung) is a line of its own at
+the end, `application "" (pid 1234) didn't answer: busy, or hung`, and
+its windows aren't in the tree; libatspi waits about 15 seconds for it
+first. With `--json`, a window has its program's `pid` and `toolkit`
+("GTK 4.14.5"), and a program that didn't answer is a node with its
+`pid` and `quiet`.
+
 Role names are at-spi2-core's, and change between its releases: a push
 button is `push button` before 2.54 and `button` from it. The lint
 compares roles by their enum, not their names, so its rules hold either

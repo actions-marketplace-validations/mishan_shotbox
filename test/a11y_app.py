@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [lone] [slow] [alert]. Its icon-only button,
+[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [lone] [slow] [alert]
+[freeze]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -26,10 +27,12 @@ decoys are, `split` a hidden
 an icon button and a faint letter-spaced label alone, `slow`
 moves the focus a second after Tab, and `alert` says an error
 and asks in an alert dialog as it starts, again once answered, then
-holds a button that makes a toast.
+holds a button that makes a toast; `freeze`, a button that stops it
+answering for 30 seconds.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
+import time
 
 import gi
 
@@ -194,6 +197,9 @@ def activate(app):
         view = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         view.append(Gtk.Button(icon_name="edit-delete-symbolic", tooltip_text="Delete"))
         view.append(Gtk.Label(label="Spaced out", css_classes=["faint", "spaced"]))
+    if "freeze" in sys.argv:
+        view = Gtk.Button(label="Freeze")
+        view.connect("clicked", lambda b: GLib.timeout_add(100, lambda: time.sleep(30)))
     w.set_content(view)
     if "slow" in sys.argv:
         def later(c, key, code, state):
