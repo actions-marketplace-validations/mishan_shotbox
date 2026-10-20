@@ -562,7 +562,9 @@ extents right ships, a line each saying why: GTK measures it short by
 however many characters, so it can't be told apart. Up to 4.14.5 GTK
 doesn't say, and the text is looked for in the label's own box alone. A label hidden under
 something opaque, but drawn in its own font, can still be taken for
-the same text drawn visibly in the room round it. The text is measured
+the same text drawn visibly in the room round it, or for labels side by
+side there that spell it out, a space apart ("Open" and "File" for a
+hidden "Open File"), where each is drawn again elsewhere too. The text is measured
 in its own box, and a failure says how far its top-left corner is from
 where GTK says the text is, which is how far GTK has it wrong (its
 containers' padding and borders, right and down, less a stack's place,
