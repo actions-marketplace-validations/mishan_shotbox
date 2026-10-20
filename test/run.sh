@@ -991,8 +991,8 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
   mkdir -p "$tmp/theme/.config/gtk-4.0"
   printf '%s\n' 'label { font-family: monospace; font-weight: bold; font-size: 15px; }' \
     'window { min-width: 640px; min-height: 600px; background-image:' \
-    '  repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px),' \
-    '  repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px); }' \
+    '  repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.05) 1px, transparent 1px, transparent 24px),' \
+    '  repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.05) 1px, transparent 1px, transparent 24px); }' \
     > "$tmp/theme/.config/gtk-4.0/gtk.css"
   set +e
   "$sb" run --a11y --seed "$tmp/theme" -- sh -c "'$app' faint &
