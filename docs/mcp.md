@@ -166,7 +166,7 @@ that changes whole could fill an answer the agent didn't need.
 **Numbers on a picture.** `take_screenshot` with `labels` draws each
 named node's box on it in magenta, with a number at its corner, and
 answers with the number's tree line and the box on the picture, scaled
-and cropped as the picture is: what's seen is clicked by name. Not a
+and cropped or zoomed as the picture is: what's seen is clicked by name. Not a
 window, whose box is the picture, nor a node named as what it's in (a
 button's label). A box is cut to those of what it's in, so a row
 scrolled out of view, which a toolkit still says is showing, has none;

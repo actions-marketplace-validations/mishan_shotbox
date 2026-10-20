@@ -263,6 +263,17 @@ try:
           and cropped["Announce"] == (max(0, x - 50), y - 100, min(x + w, 250) - max(x, 50), h),
           f"take_screenshot: labels, a number a named node, its box drawn where the legend says, "
           f"and moved with a crop ({whole}; {cropped})")
+    zoomed, bad, content = tool("take_screenshot", session="t", window="a11y-test", labels=True,
+                                zoom=[x - 12, y - 12, x + w + 12, y + h + 12])
+    m = re.search(r"is (?:(\d+) \+ )?x/([\d.]+), (?:(\d+) \+ )?y/([\d.]+), with the same "
+                  r"window\.\n", zoomed)
+    ox, kx, oy, ky = (float(v or 0) for v in m.groups()) if m else (0, 1, 0, 1)
+    zx, zy, zw, zh = boxes(zoomed).get("Announce", (0, 0, 0, 0))
+    check(not bad and m and pixel(content, zx, zy + zh // 2) == b"\xff\x00\xff"
+          and all(abs(a - b) <= 1 for a, b in zip(
+              (ox + zx / kx, oy + zy / ky, zw / kx, zh / ky), (x, y, w, h))),
+          f"take_screenshot: labels on a zoom, a box drawn where the legend says, mapped back by "
+          f"the answer to where the tree has it ({zoomed})")
     # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
     # have 1920x1080 seen, with the scale to map an x,y back by.
     said, bad, _ = tool("start_session", name="big", screen="1920x1080")
