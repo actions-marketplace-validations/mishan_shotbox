@@ -130,7 +130,9 @@ act and again once the screen has held still for half a second (as
 a tree line a node, `+` added, `-` gone (a subtree gone whole as its
 root, `and 3 inside`), `~` renamed, described otherwise or in other
 states, with `, was` and what it was, each indented under the line above
-it that it's in:
+it that it's in, and with changes in more than one window, each window's
+after a line naming it and its place, `in frame "Untitled" (window 2,
+pid 1234):`, as two can be the same:
 
     Clicked check box "Wrap lines" [focusable, checked] at the middle of [5, 171, 350, 28].
     Changed in the tree, read 0.6 s after, once the screen had held still for 0.5 s:

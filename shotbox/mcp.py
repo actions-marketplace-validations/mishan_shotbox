@@ -324,8 +324,8 @@ def watched(act):
                 if _CANCEL.is_set():
                     raise
                 how = "though the screen hadn't held still"
-            when = f"read {time.monotonic() - acted:.1f} s after, {how}"
             found = tree_changes(before, s.a11y_tree())
+            when = f"read {time.monotonic() - acted:.1f} s after, {how}"
         except Exception as e:   # one gone wrong isn't the action undone
             if _CANCEL.is_set():
                 raise

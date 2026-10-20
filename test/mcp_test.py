@@ -160,6 +160,7 @@ def tree(*rows):
 rows = [(0, "frame", "w", []), (1, "button", "Save", ["focused"]), (1, "label", "Row 1", []),
         (1, "check box", "Wrap", ["checked"])]
 window = tree(*rows)
+unfocused = [rows[0], (1, "button", "Save", []), *rows[2:]]
 dialog = tree((1, "dialog", "Quit?", []), (2, "button", "OK", []))
 items = [(0, "frame", "w", []), (1, "list", "", []), (2, "list item", "", []),
        (3, "label", "A", []), (2, "list item", "", []), (3, "label", "B", [])]
@@ -182,6 +183,10 @@ for before, after, want, what in (
         (tree(*items), tree(*items[:2], (2, "list item", "", []), (3, "label", "New", []),
                              *items[2:]),
          ['+ list item ""', '+   label "New"'], "a row added, from its start"),
+        (window + tree(*unfocused), tree(*unfocused, *rows),
+         ['in frame "w" (window 1):', '~ button "Save", was [focused]',
+          'in frame "w" (window 2):', '~ button "Save" [focused], was []'],
+         "changes in two windows the same, each under which it is"),
         (window + hung, window + [quiet],
          ["! application \"\" (pid 7) didn't answer: busy, or hung, so its windows aren't "
           "compared"], "a program that didn't answer, not its windows gone")):

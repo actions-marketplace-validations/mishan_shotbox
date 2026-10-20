@@ -120,9 +120,10 @@ def changes(before, after):
     "- " one gone (a subtree gone whole as its root, with how many were in
     it), or "~ " one renamed, described otherwise or in other states, then
     ", was" and what it was; each under the line above it that it's in, if
-    any. Nodes are paired by depth, role, name and description, and those
-    left by depth and role, so a row added above others doesn't make them
-    all renamed; a run added or gone is slid to
+    any; with changes in more than one window, each window's after an
+    "in" line naming it. Nodes are paired by depth, role, name and
+    description, and those left by depth and role, so a row added above
+    others doesn't make them all renamed; a run added or gone is slid to
     start at its shallowest node, so a row reads as one. Where they are
     isn't compared: a scroll moves everything. A program that didn't
     answer either time is said, after "! ", and its windows left out:
@@ -203,11 +204,27 @@ def changes(before, after):
 
     pair(0, len(a), 0, len(b), lambda n: (n.depth, n.role, n.name, n.description),
          lambda p, q, r, t: pair(p, q, r, t, lambda n: (n.depth, n.role), unpaired))
-    out = []
+    # Changes in more than one window say which, above each window's: by
+    # its place too, as two can be the same.
+    window = {}
+    for t in (a, b):
+        count = 0
+        for n in t:
+            if not n.depth:
+                count += 1
+                top = f"in {n.line()} (window {count}" + (f", pid {n.pid}" if "pid" in n else "")
+            window[id(n)] = top + "):"
+    many = len({window[id(n)] for run in runs for _, n, _ in run if n.depth}) > 1
+    out, said = [], None
     for run in runs:
         above = []  # (depth, indent) of what's printed above that a node can be in
         for k, (mark, n, w) in enumerate(run):
-            if k and mark != run[k - 1][0]:
+            if many and window[id(n)] != said:
+                said = window[id(n)]
+                if n.depth:
+                    out.append(said)
+                    above = []
+            elif k and mark != run[k - 1][0]:
                 above = []
             while above and above[-1][0] >= n.depth:
                 above.pop()
@@ -2288,7 +2305,7 @@ def main(argv):
                             if not n.depth else {}))
                  for n in tree(a.window, a.timeout, bounds=a.json)]
         nodes += [Node(role="application", name="", description="", states=[],
-                       path="application", depth=0, pid=pid, quiet=True)
+                       path="application", depth=0, pid=pid, quiet=True, bounds=None)
                   for pid in sorted(QUIET) if not a.window]
         if a.json:
             print(json.dumps([dict(public(n), depth=n.depth) for n in nodes]))
