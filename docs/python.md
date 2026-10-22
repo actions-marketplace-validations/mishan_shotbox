@@ -69,7 +69,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   lands on, failing as `tabwalk` does (with `visible`, where the focus
   doesn't show; with `reach_all`, on what it never reaches; with
   `document`, only the web page's, as `--document`); `a11y_lint(window=None,
-  ignore=())`, the nodes with a `problem`; `contrast(window=None,
+  ignore=())`, the nodes with a `problem` (one in a web page with its
+  `dom` and `text`: [Web nodes](accessibility.md#web-nodes));
+  `contrast(window=None,
   text=4.5, graphics=3, edges=None, large=3, passes=False,
   strict=False)`, a dict of `problems`, the nodes with a `problem`, and
   `notes`, what wasn't measured, which doesn't fail, each with its

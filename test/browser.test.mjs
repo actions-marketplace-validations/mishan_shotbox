@@ -368,19 +368,21 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, below, contrast, behind, walk, around, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, below, contrast, ignored, behind, walk, around, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
     assert.match(tree, /button "Below"/);
     assert.equal(clicked, 'yes');
     assert.match(below, /after 0\.5s: (push )?button "Below" \[focusable\] matches, but isn't showing$/m);
-    assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff/);
+    assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff.*  <- p "Faint words" in div#intro$/m);
     /* Large text, 18pt or 14pt bold, passes at 3.45:1. */
     assert.equal(contrast.trim().split('\n').length, 1);
+    assert.deepEqual(ignored, { status: 0, out: '' });
     assert.deepEqual(behind['a11y-modal'].problems, []);
-    assert.deepEqual(behind['a11y-modal'].behind.map((n) => [n.name, n.behind]),
-                     [['Faint words', 'text behind a modal dialog "Settings"']]);
+    assert.deepEqual(behind['a11y-modal'].behind.map((n) => [n.name, n.behind, n.dom, n.text]),
+                     [['Faint words', 'text behind a modal dialog "Settings"', { tag: 'p' },
+                       'Faint words']]);
     assert.deepEqual(behind['a11y-unshown'].behind, []);
     assert.deepEqual(behind['a11y-unshown'].problems.map((n) => n.name), ['Faint words']);
     assert.deepEqual([walk.end, walk.focus.map((n) => n.name), walk.unreached.map((n) => n.name)],

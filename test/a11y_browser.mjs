@@ -9,10 +9,11 @@
  * `accessible`, on the session's accessibility bus, its page's tree read,
  * its live regions heard before that, a button clicked by its name, a
  * node waited for by its name, one scrolled out of view not, a
- * faint paragraph's contrast measured, and one behind an aria-modal
- * dialog said apart, but not behind one off the screen or of no size, its
- * page's Tab order walked without the browser's own controls, a
- * browser that builds no page's tree for a reader told apart from an
+ * faint paragraph's contrast measured, said with its DOM tag, text and
+ * id, and ignored by them, and one behind an aria-modal dialog said
+ * apart, but not behind one off the screen or of no size, its page's
+ * Tab order walked without the browser's own controls, a browser that
+ * builds no page's tree for a reader told apart from an
  * empty one, a big page read whole, and a crashed tab noted. Prints what
  * it found as JSON.
  */
@@ -35,7 +36,7 @@ try
 
     await page.setContent(`<title>a11y-browser</title>
         <button onclick="this.dataset.clicked = 'yes'">Save</button>
-        <p style="color: #999">Faint words</p>
+        <div id="intro"><p style="color: #999">Faint words</p></div>
         <p style="color: #8a8a8a; font-size: 18pt">Large words</p>
         <p style="color: #8a8a8a; font-size: 14pt; font-weight: bold">Bold words</p>
         <div role="status" id="polite"></div>
@@ -81,6 +82,8 @@ try
     const clicked = await page.evaluate(() => document.querySelector('button').dataset.clicked);
     const contrast = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-browser.*'],
                                { encoding: 'utf8' }).stdout;
+    const ignored = spawnSync(shotbox, ['a11y', 'contrast', '--ignore', 'div#intro',
+                                        '--window', 'a11y-browser.*'], { encoding: 'utf8' });
 
     /* Behind an aria-modal dialog, on its dimmed backdrop: said apart;
        not behind one translated off the screen, or of no size. */
@@ -161,6 +164,7 @@ try
         clicked,
         below,
         contrast,
+        ignored: { status: ignored.status, out: ignored.stdout },
         behind,
         walk,
         around,

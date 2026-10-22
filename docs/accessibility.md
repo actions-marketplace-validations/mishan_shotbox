@@ -240,6 +240,29 @@ place of its path (`button "": button with no name`): an unnamed node
 that won't be fixed yet, or a toolkit's own (libadwaita's tab bar
 scroller), so the rest can be held to in CI.
 
+### Web nodes
+
+A path into a web page, `.../document web[3]/section[0]/section[2]/static[0]`,
+is hard to map back to its source, so a lint or contrast line on a node
+in one also says where it is in the page's DOM, after `  <- `, as
+Chromium and Firefox give it (their `tag`, `id` and `class` object
+attributes): the element's tag, and its id if it has one, then the
+node's text, cut at 40 characters, then, if the element has no id, the
+nearest element round it that has one:
+
+```
+PATH: button with no name  <- button#icon
+PATH: text 2.84:1, #999999 on #ffffff (at least 4.5)  <- p "Faint words" in div#intro
+```
+
+A text node isn't an element: its element's tag is said. Classes are
+left out of the line, where they can run long. With `--json`, such a
+node has `dom`, its element's `tag`, `id` and `class` where it has them,
+and `in`, those of the nearest with an id, `{"tag": "p", "in": {"tag":
+"div", "id": "intro", "class": "card"}}`, and `text`, cut as the
+line's is. `--ignore` is matched against the line with them too:
+`--ignore 'div#intro'`, `--ignore '#icon'`.
+
 ## Walking the Tab order
 
 `tabwalk` notes where the focus is, presses the key (over XTEST, or
@@ -540,7 +563,9 @@ where GTK 4's text was found. It doesn't list an image of one color, or
 an edge with nothing round it to measure, which have no ratio. `--json`
 gives an object of lists: `problems`, each node with its `problem`;
 with `--passes`, `passes`, each with its `contrast`; and `notes`, what
-wasn't measured, each with its `note` and, for GTK 4's, its `why`.
+wasn't measured, each with its `note` and, for GTK 4's, its `why`; a
+node in a web page with its `dom` and `text`, as lint's
+([Web nodes](#web-nodes)).
 `--strict` fails on what wasn't measured too, for CI that wants every
 node measured or ignored (`--ignore`): those lines are failures, under
 `problems` in `--json`, each with its `why` if it has one. On GTK 4.14
