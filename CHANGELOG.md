@@ -27,6 +27,14 @@
   matches. They were the screen's, so a node's bounds given to a click
   in the window were off by where the window is. An agent that added
   the window's place back no longer should.
+- **The Python API's bounds, given a window, are the window's**, as MCP's
+  are: from its top left corner, as `click(x, y, window=)`'s x,y,
+  `scroll`'s and `capture`'s `crop` with it are, in `a11y_tree`, `find`,
+  `focused`, `wait_focus`, `a11y_lint`, `contrast`, the node `click_node`
+  and `scroll_node` give back, and the nodes they list when more than one
+  matches. They were the screen's, so a node's bounds given to a click
+  in the window were off by where the window is. Without a window
+  they're the screen's, as `a11y --json`'s still are.
 
 ### Added
 

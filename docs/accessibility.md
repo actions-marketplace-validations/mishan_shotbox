@@ -173,8 +173,8 @@ is on the screen: `[x, y, width, height]`. Toolkits give a node's
 extents in its window's coordinates, GTK 4 having no others (its screen
 coordinates are all 0), so shotbox puts them on the screen by the
 display's window that is the accessible frame's size, and name. (MCP's
-tools, given a window, give bounds from its corner instead, as their x,y
-with one are.) Where
+tools and the Python API, given a window, give bounds from its corner
+instead, as their x,y with one are.) Where
 it can't tell, a node's bounds are `null`, and clicking it says so:
 
 - Chromium on Wayland counts its shadow into its accessible frame and

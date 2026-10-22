@@ -137,6 +137,14 @@ def a11y():
             check(False, "a11y: wait_announce() takes each announcement once")
         except shotbox.SessionError:
             check(True, "a11y: wait_announce() takes each announcement once")
+        # Off the screen's corner, where the window's x,y and the screen's differ.
+        s.run(["xdotool", "search", "--name", "^a11y-test$", "windowmove", "--sync", "230", "170"])
+        x, y, w, h = next(n for n in s.find(name="File name", window="a11y-test")
+                          if "focusable" in n.states).bounds
+        s.click(x + w // 2, y + h // 2, window="a11y-test")
+        check(s.wait_focus("File name", timeout=5)
+              and s.a11y_tree("a11y-test")[0].bounds[:2] == [0, 0],
+              "a11y: with a window, bounds are in its x,y, as click() takes them")
     with shotbox.Session(size=(640, 480), a11y=True) as s:
         s.spawn([str(APP), "trap"])
         try:

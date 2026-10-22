@@ -775,13 +775,41 @@ class Screen:
             self.fail(err.strip().removeprefix("shotbox: ") or f"shotbox a11y {args[0]} failed")
         return json.loads(out)
 
+    def _windowed(self, nodes, window, at=None):
+        """`nodes` with their bounds in `window`'s x,y (its corner `at` on the
+        screen, if that's been looked up), as click, scroll and capture take
+        an x,y with it, so they're given to them as they are."""
+        from .a11y import Node
+        if not window or not any(n.get("bounds") for n in nodes):
+            return nodes
+        wx, wy = at or self.window(window)[4:6]
+        return [Node({**n, "bounds": [n.bounds[0] - wx, n.bounds[1] - wy, *n.bounds[2:]]})
+                if n.get("bounds") else n for n in nodes]
+
+    def _by_name(self, window, timeout, act):
+        """The node `act(timeout)` clicks or scrolls over, in `window`'s x,y, as
+        are those listed when more than one matches. The window is waited for
+        first, so nothing fails once it's acted."""
+        began = time.monotonic()
+        at = window and self.wait_window(window, timeout)[4:6]
+        try:
+            n = act(max(0, timeout - (time.monotonic() - began)))
+        except SessionError as e:
+            if not at or not re.match(r"\d+ nodes match", str(e)):
+                raise
+            raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
+                                      lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
+                                      str(e), flags=re.M)) from None
+        return self._windowed([n], window, at)[0]
+
     def a11y_tree(self, window=None):
         """Every node a screen reader sees, depth first: dicts (and
         attributes) of role, name, description, states, path, depth, and
-        bounds on the screen, [x, y, width, height], or None where they
-        can't be told."""
+        bounds, [x, y, width, height]: on the screen, or with `window`, in
+        that window's x,y; or None where they can't be told."""
         from .a11y import Node
-        return [Node(n) for n in self._a11y("tree", *([f"--window={window}"] if window else []))]
+        return self._windowed([Node(n) for n in self._a11y(
+            "tree", *([f"--window={window}"] if window else []))], window)
 
     def find(self, role=None, name=None, window=None):
         """The nodes with this role ("button") and named `name`: those
@@ -813,7 +841,8 @@ class Screen:
         `ignore` is found in."""
         from .a11y import Node
         args = [f"--ignore={i}" for i in ignore]
-        return [Node(n) for n in self._a11y("lint", *args, *([f"--window={window}"] if window else []))]
+        return self._windowed([Node(n) for n in self._a11y(
+            "lint", *args, *([f"--window={window}"] if window else []))], window)
 
     def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=(), large=3.0,
                  passes=False, strict=False):
@@ -837,25 +866,27 @@ class Screen:
                 *[f"--ignore={i}" for i in ignore], *(["--passes"] if passes else []),
                 *(["--strict"] if strict else []),
                 *([f"--window={window}"] if window else [])]
-        return {k: [Node(n) for n in v] for k, v in self._a11y("contrast", *args).items()}
+        return {k: self._windowed([Node(n) for n in v], window)
+                for k, v in self._a11y("contrast", *args).items()}
 
     def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
         """Click the middle of the node named `name`, exactly or else as a
         regex matched in full, and role `role` if given (the same), waiting
         up to `timeout` for it to show; that node."""
         from .a11y import Node
-        args = ["--button", str(button), "--timeout", str(timeout),
-                *([f"--role={role}"] if role else []), *(["--double"] if double else []),
-                *([f"--window={window}"] if window else []), "--", name]
-        return Node(self._a11y("click", *args, timeout=90 + timeout))
+        return self._by_name(window, timeout, lambda left: Node(self._a11y(
+            "click", "--button", str(button), "--timeout", str(left),
+            *([f"--role={role}"] if role else []), *(["--double"] if double else []),
+            *([f"--window={window}"] if window else []), "--", name, timeout=90 + left)))
 
     def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10):
         """Turn the mouse wheel over the node `click_node` would click, `dy`
         clicks down and `dx` right, as `scroll`; that node."""
         from .a11y import Node
-        args = ["--timeout", str(timeout), *([f"--role={role}"] if role else []),
-                *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx)]
-        return Node(self._a11y("scroll", *args, timeout=90 + timeout))
+        return self._by_name(window, timeout, lambda left: Node(self._a11y(
+            "scroll", "--timeout", str(left), *([f"--role={role}"] if role else []),
+            *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx),
+            timeout=90 + left)))
 
     def tab_walk(self, key="Tab", most=50, window=None, visible=False, reach_all=False,
                  ignore=()):

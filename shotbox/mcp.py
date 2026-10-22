@@ -210,34 +210,6 @@ def words(v):
 # --- the tools ------------------------------------------------------------------
 
 
-def windowed(s, nodes, window, at=None):
-    """`nodes` with their bounds in `window`'s x,y (its corner `at` on the
-    screen, if that's been looked up), as click_element, crop and zoom take
-    an x,y with it, so they're given to them as they are."""
-    if not window:
-        return nodes
-    wx, wy = at or s.window(window)[4:6]
-    return [Node({**n, "bounds": [n.bounds[0] - wx, n.bounds[1] - wy, *n.bounds[2:]]})
-            if n.get("bounds") else n for n in nodes]
-
-
-def by_name(s, window, timeout, act):
-    """The node `act(timeout)` clicks or scrolls over, in `window`'s x,y, as
-    are those listed when more than one matches. The window is waited for
-    first, so nothing fails once it's acted."""
-    began = time.monotonic()
-    at = window and s.wait_window(window, timeout)[4:6]
-    try:
-        n = act(max(0, timeout - (time.monotonic() - began)))
-    except SessionError as e:
-        if not at or not re.match(r"\d+ nodes match", str(e)):
-            raise
-        raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
-                                  lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
-                                  str(e), flags=re.M)) from None
-    return windowed(s, [n], window, at)[0]
-
-
 def problems(nodes, window=None, key="problem"):
     """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
     what's wrong (or what `key` says)."""
@@ -518,8 +490,7 @@ class Server:
         labels = flag(labels)
         if labels and burst:
             raise Refused("labels goes with one picture, not burst")
-        nodes = windowed(s, self.a11y_session(session).a11y_tree(text(window)),
-                         text(window)) if labels else None
+        nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         x0 = y0 = 0
@@ -712,9 +683,8 @@ class Server:
 
     def get_accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
-        nodes, bounds = s.a11y_tree(text(window)), flag(bounds)
-        nodes = windowed(s, nodes, text(window)) if bounds else nodes
-        return capped(["  " * n.depth + n.line(bounds) for n in nodes],
+        nodes = s.a11y_tree(text(window))
+        return capped(["  " * n.depth + n.line(flag(bounds)) for n in nodes],
                       None if window else "with window") or "(no accessible windows)"
 
     def a11y_session(self, session):
@@ -740,11 +710,9 @@ class Server:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
             timeout = number(timeout, "timeout", 0, 300)
-            a = self.a11y_session(session)
-            n = by_name(s, text(window), 10 if timeout is None else timeout,
-                        lambda left: a.click_node(
-                            str(name), role=text(role), window=text(window), button=button,
-                            double=double, timeout=left))
+            n = self.a11y_session(session).click_node(
+                str(name), role=text(role), window=text(window), button=button, double=double,
+                timeout=10 if timeout is None else timeout)
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click_element takes a node's name, or x and y")
@@ -763,11 +731,8 @@ class Server:
         turned = "Scrolled " + " and ".join(f"{abs(n)} {ways[n < 0]}" for n, ways in (
             (dy, ("down", "up")), (dx, ("right", "left"))) if n)
         if name is not None:
-            a = self.a11y_session(session)
-            n = by_name(s, text(window), 10,
-                        lambda left: a.scroll_node(
-                            str(name), dy, dx, role=text(role), window=text(window),
-                            timeout=left))
+            n = self.a11y_session(session).scroll_node(str(name), dy, dx, role=text(role),
+                                                       window=text(window))
             return f"{turned} over {n.line()}, at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("scroll_wheel takes a node's name, or x and y")
@@ -899,17 +864,15 @@ class Server:
     # --- checking ------------------------------------------------------------
 
     def check_accessible_names(self, session, window=None, ignore=None):
-        s = self.a11y_session(session)
-        return problems(windowed(s, s.a11y_lint(text(window), words(ignore)), text(window)),
+        return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)),
                         window)
 
     def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
                        edges=None, ignore=None, passes=False, strict=False):
-        s = self.a11y_session(session)
-        got = {k: windowed(s, v, text(window)) for k, v in s.contrast(
+        got = self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
-            passes=flag(passes), strict=flag(strict)).items()}
+            passes=flag(passes), strict=flag(strict))
         notes, passed = got["notes"], got.get("passes")
         whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
         return "\n".join([problems(got["problems"], window)]
