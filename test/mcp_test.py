@@ -218,6 +218,9 @@ try:
     check(bad and time.monotonic() - began < 5, "wait_for: a timeout of 0 gives up at once")
     said, bad, _ = tool("wait_for", session="t", what="window", value="a11y-test", timeout="20")
     check(not bad, f"wait_for: a window, its timeout given as text ({said})")
+    # Off the screen's corner, where the window's x,y and the screen's differ.
+    subprocess.run(["xdotool", "search", "--name", "^a11y-test$", "windowmove", "--sync",
+                    "230", "170"], env=server.sessions["t"].env, check=True)
     said, bad, _ = tool("get_accessible_tree", session="t", window="a11y-test")
     check('"Save" [focusable, focused]' in said, "get_accessible_tree: the tree, as text")
     said, bad, _ = tool("click_element", session="t", name="Announce", window="a11y-test")
@@ -372,7 +375,7 @@ try:
         return [m.span() for m in re.finditer("x+", "".join(".x"[max(column) - v > 8]
                                                           for v in column))], h
     tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test", bounds=True)
-    (x, y, _, _), (_, ay, aw, ah) = ([int(n) for n in re.search(
+    (x, y, _, _), (ax, ay, aw, ah) = ([int(n) for n in re.search(
         rf'"{b}".*@(\d+),(\d+) (\d+)x(\d+)', tree).groups()] for b in ("Save", "Announce"))
     cx = x + 10
     _, _, whole = tool("take_screenshot", session="t", window="a11y-test")
@@ -397,6 +400,11 @@ try:
             tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test")
             check('"Save" [focusable, focused]' in tree, "take_screenshot: Save read off a "
                   "zoom, clicked where the answer maps it")
+    tool("click_element", session="t", window="a11y-test", x=ax + aw // 2, y=ay + ah // 2)
+    tree, _, _ = tool("get_accessible_tree", session="t", window="a11y-test", bounds=True)
+    check('"Announce" [focusable, focused]' in tree
+          and re.search(r'^frame "a11y-test".* @0,0 ', tree, re.M),
+          f"get_accessible_tree: with window, bounds in its x,y, as click_element's ({tree})")
     refused = [tool("take_screenshot", session="t", window="a11y-test", **a)[:2]
                for a in (dict(zoom=[0, 0, 10]), dict(zoom="300x200+10+10"),
                          dict(zoom={"x": 1}), dict(zoom=[10, 0, 5, 5]),
