@@ -363,7 +363,10 @@ def place(Atspi, n, shown, origins):
     """`n`'s bounds on the screen, [x, y, width, height], or None. `origins`
     caches origin() for each toplevel."""
     if n._top not in origins:
-        origins[n._top] = origin(Atspi, n._top, shown)
+        try:
+            origins[n._top] = origin(Atspi, n._top, shown)
+        except Exception:   # a window closed since the walk
+            origins[n._top] = None
     o = origins[n._top]
     if o is None:
         return None
@@ -454,10 +457,16 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
             break
         # libatspi caches states, and hears they've changed only from
         # events, which nothing here dispatches.
-        top.clear_cache()
-        paged(Atspi, top, window, timeout)
-        role = top.get_role()
-        visit(top, role, 0, f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}")
+        try:
+            top.clear_cache()
+            paged(Atspi, top, window, timeout)
+            role = top.get_role()
+            path = f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}"
+        except SessionError:   # paged()'s, about the window asked for
+            raise
+        except Exception:   # gone while we looked: a window closing
+            continue
+        visit(top, role, 0, path)
     if bounds:
         screen, origins = Screen(), {}
         shown = screen.backend.windows(screen.env)
@@ -1095,28 +1104,31 @@ def ratio_text(r):
     return f"{math.floor(r * 100) / 100:.2f}"
 
 
-def click(name, role=None, window=None, button=1, double=False, timeout=10):
+def click(name, role=None, window=None, button=1, double=False, timeout=10, force=False):
     """Click the node `at_node` finds; that node."""
     return at_node(name, role, window, timeout,
-                   lambda s, x, y: s.click(x, y, button=button, double=double))
+                   lambda s, x, y: s.click(x, y, button=button, double=double), force)
 
 
-def scroll(name, dy, dx=0, role=None, window=None, timeout=10):
+def scroll(name, dy, dx=0, role=None, window=None, timeout=10, force=False):
     """Turn the wheel over the node `at_node` finds; that node."""
     wheel(dy, dx)
-    return at_node(name, role, window, timeout, lambda s, x, y: s.scroll(x, y, dy, dx))
+    return at_node(name, role, window, timeout, lambda s, x, y: s.scroll(x, y, dy, dx), force)
 
 
-def at_node(name, role, window, timeout, act):
+def at_node(name, role, window, timeout, act, force=False):
     """Do `act` (a Screen, x, y) at the middle of the node named `name`, and
     with role `role` if given, each as x.pattern() matches a name, waiting
-    up to `timeout` for it to show, its window raised. Nodes named exactly
+    up to `timeout` for it to show, placed in its window and on the
+    screen, and unless `force`, to be ready (see unready), its window
+    raised. Nodes named exactly
     `name` are taken over those it matches as a regex: a calculator's "."
     is its button, not any one character. A match inside another (a
     button's label) is the outer one. The node."""
     Atspi = atspi()
     (named, note), (as_role, role_note) = x.pattern(name), x.pattern(role or "")
-    showing = []
+    showing, late = [], []
+    screen = Screen()
 
     def matches():
         showing[:] = [n for _, n in walk(Atspi, window, timeout) if n._showing]
@@ -1128,42 +1140,120 @@ def at_node(name, role, window, timeout, act):
                 and not ids & {f"{t.app.bus_name if t.app else ''}{t.path}"
                                for t in related(Atspi, n._acc, "LABEL_FOR")}]
 
+    def found():
+        """The node, where it's clicked and its window's origin(), once it's ready."""
+        late.clear()
+        hits = matches()
+        if not hits:
+            return None
+        origins = {}
+        shown = screen.backend.windows(screen.env)
+        for n in hits:
+            n["bounds"] = place(Atspi, n, shown, origins)
+        if len(hits) > 1:
+            raise SessionError(f"{len(hits)} nodes match {name!r}:\n  "
+                               + "\n  ".join(n.line(bounds=True) for n in hits)
+                               + "\nNarrow it with a role or a window, or click one where it is.")
+        n = hits[0]
+        box = n.bounds
+        # A browser puts a node in its tree a moment before it places it.
+        why = None
+        if not box or box[2] <= 0 or box[3] <= 0:
+            why = "has no position yet"
+        else:
+            # Inside its window: a node scrolled out of view is still showing.
+            inside = overlap(box, origins[n._top][0])
+            px, py, w, h = overlap(inside, [0, 0, screen.xt.width, screen.xt.height])
+            if not inside[2] or not inside[3]:
+                why = "is outside its window"
+            elif not w or not h:
+                why = "is off-screen"
+            point = (px + w // 2, py + h // 2)
+        why = why or not force and unready(Atspi, screen, n, point, origins[n._top], shown)
+        if why:
+            late[:] = [n, why]
+            return None
+        return n, point, origins[n._top]
+
     what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
     try:
-        hits = wait_for(what, matches, timeout)
+        n, (px, py), at = wait_for(what, found, timeout)
     except SessionError as e:
+        if late and str(e).startswith("gave up"):
+            raise SessionError(f"gave up after {timeout:g}s: {late[0].line()} {late[1]}"
+                               ) from None
         near = not any(named(n.name) for n in showing) and difflib.get_close_matches(
             name, {n.name for n in showing if n.name}, 5)
         if not near:
             raise
         raise SessionError(f"{e}. The nearest names: "
                            + ", ".join(json.dumps(n, ensure_ascii=False) for n in near)) from None
-    screen = Screen()
-    origins = {}
-    shown = screen.backend.windows(screen.env)
-    for n in hits:
-        n["bounds"] = place(Atspi, n, shown, origins)
-    if len(hits) > 1:
-        raise SessionError(f"{len(hits)} nodes match {name!r}:\n  "
-                           + "\n  ".join(n.line(bounds=True) for n in hits)
-                           + "\nNarrow it with a role or a window, or click one where it is.")
-    n = hits[0]
-    box = n.bounds
-    if not box or box[2] <= 0 or box[3] <= 0:
-        raise SessionError(f"can't tell where {n.line()} is on the screen")
-    # Inside its window: a node scrolled out of view is still showing.
-    px, py, w, h = overlap(box, origins[n._top][0])
-    if not w or not h:
-        raise SessionError(f"{n.line()} is outside its window")
-    px, py, w, h = overlap([px, py, w, h], [0, 0, screen.xt.width, screen.xt.height])
-    if not w or not h:
-        raise SessionError(f"{n.line()} is outside the screen")
     try:
-        screen.backend.focus(screen.env, origins[n._top][2])
-        act(screen, px + w // 2, py + h // 2)
+        screen.backend.focus(screen.env, at[2])
+        act(screen, px, py)
     finally:
         screen.close()
     return n
+
+
+# How long a node's bounds are to hold before it's taken as still: a few
+# frames, so one part way through a move is seen moving.
+STILL = 0.05
+
+
+def unready(Atspi, screen, n, point, at, shown):
+    """Why `n` can't be clicked at `point` yet, or None: it isn't enabled,
+    its bounds change in STILL, or something is over it there. In GTK 4's
+    windows, what's there is what GTK would pick, which is what's drawn on
+    top: another node (an overlay, libadwaita's dialogs) covers it. GTK 3
+    answers with the first child there, whatever's drawn over it, so
+    only GTK 4 is asked. On X11, a shown window over its own, `at[2]`,
+    that's transient for it (a dialog, kept over it where there's a
+    window manager) covers it; `shown` is in X's stacking order, top
+    first. Sway raises the window it focuses over the rest."""
+    if "disabled" in n.states:
+        return "isn't enabled"
+    time.sleep(STILL)
+    if place(Atspi, n, shown, {n._top: at}) != n.bounds:
+        return "is moving"
+    top = ident(n._top)
+    if gtk4(n):
+        try:
+            got = n._top.get_accessible_at_point(point[0] - at[1][0], point[1] - at[1][1],
+                                                 Atspi.CoordType.WINDOW)
+            up, acc = [], got
+            while acc is not None and ident(acc) not in (n._id, top):
+                up.append(acc)
+                acc = acc.get_parent()
+            if up and acc is not None and ident(acc) == top and ident(got) not in ancestors(n):
+                over = next((a for a in up if a.get_name()), got)
+                return (f"is covered by {over.get_role_name()} "
+                        f"{json.dumps(over.get_name() or '', ensure_ascii=False)}")
+        except Exception:   # gone since
+            pass
+    own = at[2][0]
+    if isinstance(own, str):
+        for w in shown:
+            if w[0] == own:
+                break
+            if (0 <= point[0] - w[4] < w[2] and 0 <= point[1] - w[5] < w[3]
+                    and x.transient_for(screen.env, w[0]) == own and x.viewable(screen.env, w[0])):
+                return f"is covered by window {json.dumps(w[1], ensure_ascii=False)}"
+    return None
+
+
+def ident(acc):
+    """What tells `acc` from the rest, as a Node's `_id` does."""
+    return f"{acc.app.bus_name if acc.app else ''}{acc.path}"
+
+
+def ancestors(n):
+    """The idents of the nodes `n` is in, up to its toplevel."""
+    out, acc = set(), n._acc.get_parent()
+    while acc is not None and ident(acc) != ident(n._top):
+        out.add(ident(acc))
+        acc = acc.get_parent()
+    return out
 
 
 def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=(),
@@ -2252,8 +2342,21 @@ def record(out):
             c.get_role() == role or holds(c, role, depth + 1)
             for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())) if c)
 
+    # A program joining the bus is asked for its attributes, as Orca asks,
+    # which Chromium takes as a reader at work (see paged()): until then
+    # it says nothing of its live regions.
+    def joined(conn, sender, path, iface, member, params):
+        kind, _, _, child, _ = params.unpack()
+        if kind == "add":
+            name, root = child
+            bus.call(name, root, "org.a11y.atspi.Accessible", "GetAttributes",
+                     None, None, Gio.DBusCallFlags.NONE, -1, None, None)
+
     bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "Announcement", None, None,
                          Gio.DBusSignalFlags.NONE, said)
+    bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "ChildrenChanged",
+                         "/org/a11y/atspi/accessible/root", None,
+                         Gio.DBusSignalFlags.NONE, joined)
     Atspi = atspi()
     alerts = roles(Atspi, ("ALERT", "NOTIFICATION", "INFO_BAR"))
     tops = roles(Atspi, ("APPLICATION", "FRAME", "DOCUMENT_WEB", "DOCUMENT_FRAME"))
@@ -2314,6 +2417,9 @@ def main(argv):
     sc.add_argument("dx", type=int, nargs="?", default=0, metavar="DX",
                     help="clicks right; left if negative")
     sc.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
+    for s in (c, sc):
+        s.add_argument("--force", action="store_true",
+                       help="don't wait for it to be enabled, still and uncovered")
     ct = sub.add_parser("contrast", help="text, controls and images against their backgrounds")
     ct.add_argument("--text", type=float, default=4.5, metavar="RATIO",
                     help="text, buttons, links and tabs against their background, at least (4.5)")
@@ -2400,8 +2506,9 @@ def main(argv):
             sys.stderr.write(said + "\n")
         return 1 if problems and not a.json else 0
     if a.what in ("click", "scroll"):
-        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout) if a.what == "click"
-             else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout))
+        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout, a.force)
+             if a.what == "click" else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout,
+                                              a.force))
         print(json.dumps(public(n)) if a.json else n.line())
         return 0
     skip = ignored(a.ignore)

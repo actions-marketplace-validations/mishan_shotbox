@@ -70,6 +70,14 @@ def window_pid(env, wid):
     return int(m.group(1)) if m else None
 
 
+def transient_for(env, wid):
+    """The window `wid` is a dialog of, by its WM_TRANSIENT_FOR, or None."""
+    out = subprocess.run(["xprop", "-id", wid, "WM_TRANSIENT_FOR"], env=env,
+                         capture_output=True, text=True).stdout
+    m = re.search(r"# (0x[0-9a-f]+)", out)
+    return m and m.group(1)
+
+
 def viewable(env, wid):
     out = subprocess.run(["xwininfo", "-id", wid], env=env,
                          capture_output=True, text=True).stdout

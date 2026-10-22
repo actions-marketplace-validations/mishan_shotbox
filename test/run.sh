@@ -925,6 +925,34 @@ if atspi; then
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
     '$sb' wait announce 'notes\.md' --timeout 10" \
     && ok "a11y: click finds a button by its name, and clicks it" || fail "a11y: click"
+  # Under a dialog, disabled, moving and under a label, each is said and not
+  # clicked (--force clicks the disabled one, which does nothing), then
+  # waited for until "Ready" puts each right, and clicked.
+  "$sb" run --a11y -- sh -c "set -e; '$app' ready & '$sb' wait window Dialog >/dev/null
+    '$sb' a11y tree --window a11y-test >/dev/null
+    for b in Behind Soon Moving Covered; do
+      ! '$sb' a11y click \$b --window a11y-test --timeout 0.5 >/dev/null || exit 1; done
+    '$sb' a11y click Soon --window a11y-test --force >/dev/null
+    (sleep 1; '$sb' a11y click Ready --window a11y-test >/dev/null) & ready=\$!
+    '$sb' a11y click Soon --window a11y-test >/dev/null; wait \$ready
+    for b in Behind Moving Covered; do '$sb' a11y click \$b --window a11y-test >/dev/null; done
+    sleep 0.5" > "$tmp/ready" 2>&1 \
+    && grep -q '"Behind" \[focusable\] is covered by window "Dialog"$' "$tmp/ready" \
+    && grep -q 'gave up after 0.5s: [a-z ]*button "Soon" \[focusable, disabled\] isn.t enabled$' "$tmp/ready" \
+    && grep -q '"Moving" \[focusable\] is moving$' "$tmp/ready" \
+    && grep -q '"Covered" \[focusable\] is covered by label "Cover"$' "$tmp/ready" \
+    && [ "$(grep -v ' ' "$tmp/ready" | tr '\n' ' ')" = "Ready Soon Behind Moving Covered " ] \
+    && ok "a11y: click waits for a node enabled, still and uncovered, or says which it isn't" \
+    || { fail "a11y: click, not ready"; cat "$tmp/ready"; }
+  # A node with no position yet, its window not told from a twin, is waited
+  # for, with --force too, and said when it isn't placed in time.
+  "$sb" run --a11y -- sh -c "'$app' ready late & '$sb' wait window Dialog >/dev/null &&
+    '$sb' a11y tree --window a11y-test >/dev/null &&
+    ! '$sb' a11y click Ready --window a11y-test --timeout 0.3 >/dev/null &&
+    '$sb' a11y click Ready --window a11y-test --force >/dev/null && sleep 0.5" > "$tmp/late" 2>&1 \
+    && grep -q '"Ready" \[focusable\] has no position yet$' "$tmp/late" && grep -qx Ready "$tmp/late" \
+    && ok "a11y: click waits for a node to have a position, --force too" \
+    || { fail "a11y: click, no position yet"; cat "$tmp/late"; }
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --visible --window a11y-test" > "$tmp/walk"
   st=$?; set -e
@@ -946,7 +974,7 @@ if atspi; then
   # whose pointer is gone before its next frame.
   by_name() {
     "$sb" run --a11y "$@" -- sh -c "'$app' long & '$sb' wait window a11y-test >/dev/null &&
-      ! '$sb' a11y click 'Row 199' --window a11y-test 2>/dev/null &&
+      ! '$sb' a11y click 'Row 199' --window a11y-test --timeout 1 2>/dev/null &&
       '$sb' a11y scroll 'Row 0' 150 --window a11y-test >/dev/null &&
       '$sb' wait stable --window a11y-test && '$sb' a11y click 'Row 199' --window a11y-test >/dev/null &&
       '$sb' a11y scroll 'Row 199' -150 --window a11y-test >/dev/null &&
@@ -1045,12 +1073,12 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
   # A window wider than the screen: what's past the screen's edge isn't
   # measured or clicked, and says so; nor is a label whose text is past it.
   "$sb" run --a11y --screen 800x600 -- sh -c "'$here/window.py' wide wide &
-    '$sb' a11y contrast --edges 1 --window wide && ! '$sb' a11y click There --window wide &&
+    '$sb' a11y contrast --edges 1 --window wide && ! '$sb' a11y click There --window wide --timeout 1 &&
     '$sb' a11y tabwalk --visible --window wide" > "$tmp/contrast" 2>&1 \
     && grep -q '/label\[0\]: text not measured: partly outside the screen$' "$tmp/contrast" \
     && grep -q '[/ ]button\[1\]: text not measured: outside the screen$' "$tmp/contrast" \
     && grep -q '[/ ]button\[1\]: edge not measured: outside the screen$' "$tmp/contrast" \
-    && grep -q '"There" \[focusable\] is outside the screen$' "$tmp/contrast" \
+    && grep -q '"There" \[focusable\] is off-screen$' "$tmp/contrast" \
     && grep -q '"There" \[focusable, focused\]  <- focus not measured: outside the screen$' "$tmp/contrast" \
     && ok "a11y: contrast, click and tabwalk --visible leave out what's past the screen's edge" \
     || { fail "a11y: past the screen's edge"; cat "$tmp/contrast"; }

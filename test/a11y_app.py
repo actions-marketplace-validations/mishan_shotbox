@@ -2,7 +2,7 @@
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
 [thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [twin [hidden] [under]] [over [hidden] [drawn | named]] [lone] [slow] [alert]
-[freeze]. Its icon-only button,
+[freeze] [ready [late]]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -38,7 +38,11 @@ an icon button and a faint letter-spaced label alone, `slow`
 moves the focus a second after Tab, and `alert` says an error
 and asks in an alert dialog as it starts, again once answered, then
 holds a button that makes a toast; `freeze`, a button that stops it
-answering for 30 seconds.
+answering for 30 seconds; `ready`, buttons "Behind" under a dialog,
+"Soon" disabled, "Moving" moving and "Covered" under a label, until
+"Ready" is clicked, each printing its name when clicked; with `late`, under
+a window of the same title and size, which puts nothing in either
+anywhere, for two seconds.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -246,6 +250,31 @@ def activate(app):
     if "freeze" in sys.argv:
         view = Gtk.Button(label="Freeze")
         view.connect("clicked", lambda b: GLib.timeout_add(100, lambda: time.sleep(30)))
+    if "ready" in sys.argv:
+        w.set_default_size(320, 300)
+        view = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        clicked = {}
+        for text in ("Behind", "Soon", "Moving", "Covered", "Ready"):
+            clicked[text] = Gtk.Button(label=text)
+            clicked[text].connect("clicked", lambda b: print(b.get_label(), flush=True))
+        cover = Gtk.Overlay(child=clicked["Covered"])
+        cover.add_overlay(Gtk.Label(label="Cover"))
+        for widget in (clicked["Behind"], clicked["Soon"], clicked["Moving"], cover,
+                       clicked["Ready"]):
+            view.append(widget)
+        clicked["Soon"].set_sensitive(False)
+        moving = clicked["Moving"]
+        ticking = GLib.timeout_add(20, lambda: moving.set_margin_start(
+            (moving.get_margin_start() + 1) % 40) or True)
+        dialog = Gtk.Window(title="Dialog", transient_for=w, default_width=320,
+                            default_height=60)
+
+        def ready(b):
+            dialog.close()
+            clicked["Soon"].set_sensitive(True)
+            GLib.source_remove(ticking)
+            cover.remove_overlay(cover.get_last_child())
+        clicked["Ready"].connect("clicked", ready)
     w.set_content(view)
     if "slow" in sys.argv:
         def later(c, key, code, state):
@@ -257,6 +286,13 @@ def activate(app):
         slow.connect("key-pressed", later)
         w.add_controller(slow)
     w.present()
+    if "ready" in sys.argv:
+        dialog.present()
+    if "late" in sys.argv:
+        twin = Adw.ApplicationWindow(application=app, title="a11y-test", default_width=320,
+                                     default_height=300, content=Gtk.Label(label="twin"))
+        twin.present()
+        GLib.timeout_add(2000, lambda: twin.close() and False)
     if "dialog" in sys.argv:
         # Escape, a way out of a text view elsewhere, closes a dialog.
         inside = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

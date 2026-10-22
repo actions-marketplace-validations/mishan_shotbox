@@ -99,8 +99,8 @@ it arbitrary commands, typed with `type_text`.
 | `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
 | `take_screenshot` | the screen or a window, as an image, cropped or zoomed if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`); or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
-| `click_element` | by a node's name (and role), or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
-| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), or at a point; with `changes`, what it changed in the tree |
+| `click_element` | by a node's name (and role), once it's enabled, still and uncovered unless `force`, or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
+| `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), waited for as `click_element`'s is, or at a point; with `changes`, what it changed in the tree |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text; with `changes`, what they changed in the tree |
 | `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
 | `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
@@ -293,7 +293,8 @@ Most calls take a second or two. Those that can run long:
 - `record_video`, up to 60 seconds and then a few for its frames;
 - `check_focus_order`, a few seconds a press, up to 200 presses;
 - `get_speech`, a few seconds for Orca to start, and a second a press;
-- `click_element` by name, up to its `timeout`, while the node doesn't show.
+- `click_element` by name, up to its `timeout`, while the node doesn't show or isn't
+  ready to click.
 
 Many clients give up on a call after about 60 seconds, and cancel it.
 Some count from the last progress (the TypeScript SDK's

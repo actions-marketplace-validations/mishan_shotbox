@@ -42,6 +42,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
                  f"freeze = {here / 'a11y_app.py'} freeze\n"
+                 f"ready = {here / 'a11y_app.py'} ready\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -548,7 +549,7 @@ try:
     tool("start_session", name="l")
     tool("spawn_program", session="l", program="long")
     tool("wait_for", session="l", what="window", value="a11y-test", timeout="20")
-    before, before_bad, _ = tool("click_element", session="l", name="Row 25")
+    before, before_bad, _ = tool("click_element", session="l", name="Row 25", timeout=1)
     said, bad, _ = tool("scroll_wheel", session="l", name="Row 0", dy=10)
     tool("wait_for", session="l", what="stable", window="a11y-test")
     after, after_bad, _ = tool("click_element", session="l", name="Row 25")
@@ -681,6 +682,18 @@ try:
     check(bad and said.startswith("wait_for waits for window") and "not 'sleep'" in said,
           f"wait_for: a choice there isn't, said before what it lacks ({said})")
     tool("stop_session", session="n")
+    tool("start_session", name="r")
+    tool("spawn_program", session="r", program="ready")
+    tool("wait_for", session="r", what="window", value="a11y-test", timeout=20)
+    said = [tool("click_element", session="r", name="Soon", window="a11y-test", timeout=1)[:2],
+            tool("click_element", session="r", name="Soon", force=True)[:2],
+            tool("scroll_wheel", session="r", name="Soon", dy=1, force=True)[:2]]
+    check(said[0][1] and re.match(r'gave up after 1s: [a-z ]*button "Soon" \[focusable, disabled\] '
+                                  r'isn\'t enabled$', said[0][0])
+          and not said[1][1] and not said[2][1],
+          f"click_element: a disabled button waited for and said, and with force clicked, as "
+          f"scroll_wheel's is ({said})")
+    tool("stop_session", session="r")
     tool("start_session", name="u", a11y=False, usage=True)
     said, bad, _ = tool("stop_session", session="u")
     check(not bad and "used, over" in said and "peak memory" in said,

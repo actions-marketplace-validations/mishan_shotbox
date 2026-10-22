@@ -50,7 +50,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   screen there first, and says where.
 - Accessibility, in a session with `a11y=True`: `a11y_tree(window=None)`,
   the nodes (dicts, and attributes: `role`, `name`, `description`,
-  `states`, `path`, `depth`, and `bounds` on the screen; a window's
+  `states`, `path`, `depth`, and `bounds`: on the screen, or given a
+  `window`, here and in the nodes below, from its corner, as `click` and
+  `scroll` take an x,y with it; a window's
   with its program's `pid` and `toolkit`, and a program that didn't
   answer as a node with its `pid` and `quiet`); `find(role=None,
   name=None, window=None)`, `name` as `click_node` takes it (exactly,
@@ -67,8 +69,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `problems`, but for what's scrolled out of view; and with `passes`,
   `passes`, what passes, each with its `contrast`, the ratio as `a11y
   contrast --passes` says it;
-  `click_node(name, role=None, window=None)` and
-  `scroll_node(name, dy, dx=0, role=None, window=None)`;
+  `click_node(name, role=None, window=None, force=False)` and
+  `scroll_node(name, dy, dx=0, role=None, window=None, force=False)`,
+  waiting as `a11y click` does, unless `force`;
   `shotbox.a11y.changes(before, after)`, what changed from one
   `a11y_tree()` to another, as MCP's actions with `changes` say it;
   `speak(keys=None, window=None, most=50)`, what Orca says as `a11y

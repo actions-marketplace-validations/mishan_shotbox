@@ -4,6 +4,21 @@
 
 ### Changes to check when upgrading
 
+- **A click or scroll by name waits until the node is placed, enabled,
+  still and uncovered**, and fails, saying which it isn't, when its
+  timeout runs out: `gave up after 10s: button "Save" [focusable,
+  disabled] isn't enabled`, `... has no position yet`, `... is
+  off-screen`, `... is outside its window` (each failed at once before,
+  the first as "can't tell where", which a browser's node just added
+  was), `... is moving`, `... is covered by label "Cover"` (in a GTK 4
+  window), `... is covered by window "Dialog"` (a dialog of its window,
+  on X11). That's `a11y click` and `a11y scroll`, Python's `click_node`
+  and `scroll_node`, and MCP's `click_element` and `scroll_wheel`. A
+  click on a disabled button passed, doing nothing, and one under a
+  dialog or mid-move went elsewhere; to click anyway, as a check that a
+  disabled control does nothing, pass `--force` (`force=True`, MCP's
+  `force`), which still waits for it to be placed. A ready node costs
+  the click about 50 ms, to see it's still.
 - **`a11y contrast --window` fails GTK 4's text it doesn't find, where
   nothing there could pass**: `text not found, but nothing where it can
   be has the contrast it needs: the best anything there reaches is
@@ -27,6 +42,14 @@
   matches. They were the screen's, so a node's bounds given to a click
   in the window were off by where the window is. An agent that added
   the window's place back no longer should.
+- **The Python API's bounds, given a window, are the window's**, as MCP's
+  are: from its top left corner, as `click(x, y, window=)`'s x,y,
+  `scroll`'s and `capture`'s `crop` with it are, in `a11y_tree`, `find`,
+  `focused`, `wait_focus`, `a11y_lint`, `contrast`, the node `click_node`
+  and `scroll_node` give back, and the nodes they list when more than one
+  matches. They were the screen's, so a node's bounds given to a click
+  in the window were off by where the window is. Without a window
+  they're the screen's, as `a11y --json`'s still are.
 
 ### Added
 
@@ -65,6 +88,11 @@
 
 ### Fixed
 
+- A read of the accessible tree (`a11y tree`, `lint`, a click by name
+  and the rest) failed with `Object does not exist at path …` when a
+  window closed while it was read. A window gone is left out, as a node
+  gone already was; one gone before its bounds are read leaves its
+  nodes' bounds `null`, as a node gone then had.
 - `a11y contrast` didn't take GTK 4's text where another node's shorter
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a
@@ -94,6 +122,12 @@
   was 29.97 (2 seconds lasting 2.002), a WebM a frame or two short, and
   a GIF's frames timed wrong (1 second lasting 1.2). It's at `--fps`
   now, as on Wayland.
+- `wait announce` heard nothing of a headed Chromium's live regions
+  until `a11y tree` or another command had read its tree, which is what
+  has Chromium take a screen reader to be at work. The recorder asks
+  each program that joins the session's bus for its attributes, as Orca
+  does, so in an `--a11y` session a browser's accessibility is on from
+  the start, which slows its pages a little.
 
 ## 0.9.0 — 2026-10-19
 
