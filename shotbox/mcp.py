@@ -879,7 +879,7 @@ class Server:
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
             passes=flag(passes), strict=flag(strict))
-        notes, passed = got["notes"], got.get("passes")
+        notes, passed, behind = got["notes"], got.get("passes"), got["behind"]
         whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
         return "\n".join([problems(got["problems"], window)]
                          + ([f"{len(passed)} pass:", problems(passed, window, "contrast")]
@@ -887,6 +887,9 @@ class Server:
                          + ([f"{len(notes)} not measured, which doesn't fail:",
                              problems(notes, window, "note")]
                             if notes else [])
+                         + ([f"{len(behind)} behind a modal dialog, which doesn't fail:",
+                             problems(behind, window, "behind")]
+                            if behind else [])
                          + whys)
 
     def check_focus_order(self, session, key="Tab", window=None, visible=False, most=50,
@@ -1245,7 +1248,9 @@ TOOLS = [
      "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; with "
      "passes, then each that passes, the same; then what it couldn't measure, which doesn't "
      "fail unless strict (too small, off the screen, or GTK 4.14+'s, whose positions are "
-     "wrong: of that, only text is measured, where it's found near them), and why. A window "
+     "wrong: of that, only text is measured, where it's found near them), then what's behind "
+     "a modal dialog, not measured, which doesn't fail even with strict (check it with the "
+     "dialog closed), and why. A window "
      "where nothing can be measured is an error, not a pass. Switches, sliders, check boxes, "
      "disabled nodes and what's scrolled out of view are skipped. For missing names, use "
      "check_accessible_names.",

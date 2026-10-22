@@ -895,7 +895,9 @@ class Screen:
         what's round it; and `notes`, what wasn't measured and doesn't
         fail, each with its `note`: too small to, or GTK 4's, with `why`;
         with `strict`, only what's scrolled out of view, the rest being
-        `problems` too. With `passes`, `passes` too, what was measured
+        `problems` too; and `behind`, what's behind a modal dialog, not
+        measured, which doesn't fail even with `strict`, each with its
+        `behind`. With `passes`, `passes` too, what was measured
         and passes, each with its ratio as `contrast`. But not those whose "PATH: WHAT" line, or
         "LINE: WHAT" with its tree line, one of the regexes in `ignore` is
         found in. Measured on a picture of the screen, `window` raised.

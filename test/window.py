@@ -5,7 +5,7 @@ TITLE caret MS, or TITLE spinner, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
-edge, gray, busy, icon, dropout, beep, fields, alert or wide. With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide. With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -21,7 +21,8 @@ notebook with its tabs hidden. With alert, a Check button that shows an
 error in an info bar and is renamed Checked, a Resend button that counts
 down to 1s, and a Delete button that asks in a message dialog, its window
 titled Delete. With dot,
-a "." and nothing else. With wide, a window 1000 pixels wide, a label
+a "." and nothing else. With popover, a faint label and a modal popover
+open below it. With wide, a window 1000 pixels wide, a label
 as wide, its text at the right, and below it a button at each end."""
 
 import sys
@@ -67,6 +68,16 @@ elif sys.argv[2:] == ["wide"]:
     rows.add(box)
     w.set_size_request(1000, 120)
     w.add(rows)
+elif sys.argv[2:] == ["popover"]:
+    css = Gtk.CssProvider()
+    css.load_from_data(b"label { color: #a0a0a0; }")
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    faint = Gtk.Label(label="Faint words")
+    pop = Gtk.Popover(relative_to=faint, modal=True, position=Gtk.PositionType.BOTTOM)
+    pop.add(Gtk.Button(label="Inside", visible=True))
+    GLib.timeout_add(300, lambda: pop.popup() and False)
+    w.add(faint)
 elif sys.argv[2:] == ["dot"]:
     w.add(Gtk.Label(label="."))
 elif sys.argv[2:] == ["fields"]:

@@ -8,9 +8,11 @@
  * Inside `shotbox run --a11y` (browser.test.mjs): Chromium, launched with
  * `accessible`, on the session's accessibility bus, its page's tree read,
  * its live regions heard before that, a button clicked by its name, a
- * faint paragraph's contrast measured, a browser that builds no page's
- * tree for a reader told apart from an empty one, a big page read whole,
- * and a crashed tab noted. Prints what it found as JSON.
+ * faint paragraph's contrast measured, and one behind an aria-modal
+ * dialog said apart, but not behind one off the screen or of no size, a
+ * browser that builds no page's tree for a reader told apart from an
+ * empty one, a big page read whole, and a crashed tab noted. Prints what
+ * it found as JSON.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -75,6 +77,37 @@ try
     const contrast = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-browser.*'],
                                { encoding: 'utf8' }).stdout;
 
+    /* Behind an aria-modal dialog, on its dimmed backdrop: said apart;
+       not behind one translated off the screen, or of no size. */
+    const dialog = (style) => `<div role="dialog" aria-modal="true" aria-label="Settings"
+        style="position: fixed; top: 100px; left: 100px; background: #fff; ${style}">
+        <p>Inside words</p></div>`;
+    const modals = {
+        'a11y-modal': `<div style="position: fixed; inset: 0; background: rgb(0 0 0 / 50%)"></div>
+            ${dialog('padding: 20px')}`,
+        'a11y-unshown': dialog('transform: translateX(-3000px)') +
+            dialog('width: 0; height: 0; overflow: hidden'),
+    };
+    const behind = {};
+
+    for (const [title, html] of Object.entries(modals))
+    {
+        const modal = await browser.newPage();
+
+        await modal.setContent(`<title>${title}</title>
+            <p style="color: #999">Faint words</p>${html}`);
+
+        for (let i = 0; i < 50 && !run('a11y', 'tree', '--window', `${title}.*`)
+            .includes('"Inside words"'); i++)
+        {
+            await modal.waitForTimeout(200);
+        }
+
+        behind[title] = JSON.parse(spawnSync(shotbox, ['a11y', 'contrast', '--json', '--window',
+                                                       `${title}.*`], { encoding: 'utf8' }).stdout);
+        await modal.close();
+    }
+
     /* One that won't build its page's tree for a reader. */
     const blind = await chromium.launch({ ...accessible,
         args: [...accessible.args, '--disable-platform-accessibility-integration'] });
@@ -109,6 +142,7 @@ try
         tree,
         clicked,
         contrast,
+        behind,
         said: fs.readFileSync(process.env.SHOTBOX_ANNOUNCEMENTS, 'utf8'),
         hint,
         whole,

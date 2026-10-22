@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, contrast, live regions, no page, a big page, a crashed tab',
+test('Chromium on an --a11y session: its tree, a click by name, contrast, behind a modal too, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -368,7 +368,7 @@ test('Chromium on an --a11y session: its tree, a click by name, contrast, live r
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, contrast, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, contrast, behind, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -377,6 +377,11 @@ test('Chromium on an --a11y session: its tree, a click by name, contrast, live r
     assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff/);
     /* Large text, 18pt or 14pt bold, passes at 3.45:1. */
     assert.equal(contrast.trim().split('\n').length, 1);
+    assert.deepEqual(behind['a11y-modal'].problems, []);
+    assert.deepEqual(behind['a11y-modal'].behind.map((n) => [n.name, n.behind]),
+                     [['Faint words', 'text behind a modal dialog "Settings"']]);
+    assert.deepEqual(behind['a11y-unshown'].behind, []);
+    assert.deepEqual(behind['a11y-unshown'].problems.map((n) => n.name), ['Faint words']);
     assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
                        'polite: Done\n');
     assert.match(hint, /"a11y-unread.*": no page in the browser's accessible tree \(a crashed tab, .*--force-renderer-accessibility/);

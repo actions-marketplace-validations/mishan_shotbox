@@ -1073,6 +1073,32 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
     && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5)$' "$tmp/contrast" \
     && ok "a11y: contrast finds faint text, and its colors, but not a disabled button's" \
     || { fail "a11y: contrast, faint ($st)"; cat "$tmp/contrast"; }
+  # Behind a modal dialog, libadwaita's in its window or a modal window,
+  # the faint text is said apart, and doesn't fail, even with --strict;
+  # not beside an error label (an alert), a box with a dialog's role or a
+  # popover with one, under a GTK 3 modal popover, or over an alert
+  # (a status page under a toast, a label under an overlay), nor for an
+  # alert in a layer-like box: after a banner folded away, on a view
+  # stack's second page (GTK lists it twice), or laid over the rest.
+  # libadwaita 1.5 names its dialog nothing, and shows no title for this
+  # one, so it's said by the first name in it, its text view's.
+  for over in "$app faint dialog;a11y-test;dialog \"(Reply|Notes)\"" \
+              "$app faint modal;a11y-test;dialog \"Over\"" \
+              "$app faint warned;a11y-test;" "$app faint inline;a11y-test;" \
+              "$app faint popped;a11y-test;" "$app toasted;a11y-test;" \
+              "$app overlaid;a11y-test;" "$app faint warned folded;a11y-test;" \
+              "$app faint warned paged;a11y-test;" "$app faint laid;a11y-test;" \
+              "$here/window.py popover popover;popover;"; do
+    cmd=${over%%;*} win=${over#*;} want=${over##*;}
+    "$sb" run --a11y -- sh -c "$cmd & '$sb' a11y contrast --strict --json --window ${win%%;*}" \
+      > "$tmp/contrast.json" \
+      && python3 -c "import json, re, sys; j = json.load(open(sys.argv[1])); want = sys.argv[2]
+faint = [n['behind'] for n in j['behind'] if n['name'] == 'Faint words']
+assert (len(faint) == 1 and re.fullmatch('text behind a modal ' + want, faint[0])
+        and not j['problems'] if want else not j['behind']), j" "$tmp/contrast.json" "$want" \
+      && ok "a11y: contrast says what's behind a modal dialog apart, and fails what isn't (${cmd##*/})" \
+      || { fail "a11y: contrast, behind a modal dialog (${cmd##*/})"; cat "$tmp/contrast.json"; }
+  done
   set +e
   "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' &
     '$sb' a11y contrast --edges 3 --window a11y-test" > "$tmp/contrast"
