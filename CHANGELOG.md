@@ -79,6 +79,9 @@
   the nearest names and texts, or that nothing comes near.
   `Screen.wait_node(re, window=None)` and MCP's `wait_for` node have
   it too.
+- A recipe, in docs/recipes.md: a web app in Firefox, served on the
+  session's own network, in a profile made in the session, its window
+  sized to the screen, pictured once the page says it's drawn.
 - `compare` and `wait match` and `change` take `--ignore WxH+X+Y`
   (repeatable), as `flicker` does, to leave out a box that changes on
   its own, a clock or a cursor, as openQA's exclude areas and
