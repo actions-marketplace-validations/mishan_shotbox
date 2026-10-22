@@ -451,6 +451,9 @@ try:
                       ignore=['button "(Minimize|Maximize|Close)"'])
     check("focus not shown" in said and said.endswith("round again after 6\nfocus not shown on 1"),
           "check_focus_order: the order, and where the focus doesn't show")
+    said, bad, _ = tool("check_focus_order", session="t", window="a11y-test", document=True)
+    check(bad and "no web document" in said,
+          f"check_focus_order: document, in a window with none, refused ({said!r})")
     if shutil.which("orca"):
         said, bad, _ = tool("get_speech", session="t", window="a11y-test")
         check(not bad and re.search(r'^(push )?button "Save" .*  says "Save (push )?button\.?"$', said, re.M),

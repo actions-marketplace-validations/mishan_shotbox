@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, live regions, no page, a big page, a crashed tab',
+test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -368,7 +368,7 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, below, contrast, behind, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, below, contrast, behind, walk, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -383,6 +383,8 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
                      [['Faint words', 'text behind a modal dialog "Settings"']]);
     assert.deepEqual(behind['a11y-unshown'].behind, []);
     assert.deepEqual(behind['a11y-unshown'].problems.map((n) => n.name), ['Faint words']);
+    assert.deepEqual([walk.end, walk.focus.map((n) => n.name), walk.unreached.map((n) => n.name)],
+                     ['cycle', ['Two', 'One'], ['Off']]);
     assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
                        'polite: Done\n');
     assert.match(hint, /"a11y-unread.*": no page in the browser's accessible tree \(a crashed tab, .*--force-renderer-accessibility/);

@@ -945,7 +945,7 @@ class Screen:
             timeout=90 + left)))
 
     def tab_walk(self, key="Tab", most=50, window=None, visible=False, reach_all=False,
-                 ignore=()):
+                 ignore=(), document=False):
         """Press `key` until the focus lands somewhere it has been: the node
         it lands on after each press, the last being that one. Fails, as
         `shotbox a11y tabwalk` says, unless it comes round: on a trap (but
@@ -955,10 +955,11 @@ class Screen:
         doesn't show on a node it lands on; with `reach_all`, on a control
         it never reaches, but those whose "PATH: not reached by KEY", or
         with its tree line for the path, one of the regexes in `ignore` is
-        found in."""
+        found in. With `document`, only what's in the window's web page,
+        as `tabwalk --document` has it."""
         from .a11y import Node, unseen, walk_end
         args = ["tabwalk", f"--key={key}", "--max", str(most), *(["--visible"] if visible else []),
-                *[f"--ignore={i}" for i in ignore]]
+                *(["--document"] if document else []), *[f"--ignore={i}" for i in ignore]]
         got = self._a11y(*args, *([f"--window={window}"] if window else []),
                          timeout=90 + most * 5)
         seen = [Node(n) for n in got["focus"]]
