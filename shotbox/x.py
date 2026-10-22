@@ -294,7 +294,9 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
         cmd += ["-c:a", "pcm_s16le"]
     else:
         cmd += ["-t", f"{seconds:g}"] if seconds is not None else []
-        cmd += ["-r", str(fps)] if wayland else []
+        # Left to itself, ffmpeg guesses the rate from when frames came:
+        # on a busy machine, 29.97 for 30, and a WebM a frame short.
+        cmd += ["-r", str(fps)]
         cmd += VIDEO[".webm" if kind == ".webm" else ".mp4"]
         if sound:
             # Begun at the picture's first frame: silence before the sound's

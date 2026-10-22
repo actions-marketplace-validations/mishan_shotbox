@@ -89,6 +89,11 @@
   an entry holding it, or a label over one, was a note however faint.
   Where no other node could have drawn it there, it's measured, and
   only a failure is reported; if it would pass, it's still a note.
+- `record` on X11 went by a frame rate ffmpeg guessed from when the
+  frames came, not `--fps`: on a busy machine a 30 frames a second MP4
+  was 29.97 (2 seconds lasting 2.002), a WebM a frame or two short, and
+  a GIF's frames timed wrong (1 second lasting 1.2). It's at `--fps`
+  now, as on Wayland.
 
 ## 0.9.0 — 2026-10-19
 
