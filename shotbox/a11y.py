@@ -551,15 +551,22 @@ def roles(Atspi, names):
     return {int(getattr(Atspi.Role, r)) for r in names if hasattr(Atspi.Role, r)}
 
 
-def ignored(ignore):
+def ignored(ignore, web=False):
     """A test of a problem, (node, what), for the regexes in `ignore`: one
-    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT"."""
+    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT", and
+    with `web`, in either with the DOM ending its line has (placed())."""
     try:
         found = [re.compile(i) for i in ignore]
     except re.error as e:
         raise SessionError(f"ignore takes regexes, and {e.pattern!r} isn't one: {e}") from None
-    return lambda n, what: any(r.search(f"{n.path}: {what}") or r.search(f"{n.line()}: {what}")
-                               for r in found)
+    Atspi = web and found and atspi()
+
+    def skip(n, what):
+        if Atspi:
+            dom(Atspi, n)
+        return any(r.search(f"{head}: {what}{end}") for r in found
+                   for head in (n.path, n.line()) for end in {"", placed(n)})
+    return skip
 
 
 def lint(Atspi, nodes, ignore=()):
@@ -568,7 +575,7 @@ def lint(Atspi, nodes, ignore=()):
     control is part of it: the control's name is what gets said. Anything
     with a name inside it is said by what's in it, and a container with
     something focusable inside passes the focus on to it."""
-    skip = ignored(ignore)
+    skip = ignored(ignore, web=True)
     controls = roles(Atspi, CONTROLS)
     containers = roles(Atspi, CONTAINERS)
     by_path = {n.path: n for n in nodes}
@@ -1426,7 +1433,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     what), which doesn't fail even with `strict`: shut off till it's
     closed, and dimmed on purpose or covered by it; why GTK 4's weren't,
     a line each; how many were measured)."""
-    skip = ignored(ignore)
+    skip = ignored(ignore, web=True)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
     screen = Screen()
@@ -2335,6 +2342,47 @@ def public(n):
     return {k: v for k, v in n.items() if not k.startswith("_")}
 
 
+def dom(Atspi, n):
+    """Note on `n`, if it's a node in a web page, where it is in its DOM,
+    as Chromium's and Firefox's object attributes say, once: "dom", the
+    tag, id and class of the element it is or is in (a text node has
+    none), and "in", the same of the nearest one round that with an id,
+    if it has none; and "text", its own, cut at 40 characters."""
+    if "/document web[" not in n.path or "_placed" in n:
+        return
+    n["_placed"] = True
+    el, acc = None, n._acc
+    try:
+        while acc is not None and acc.get_role() != Atspi.Role.DOCUMENT_WEB:
+            got = acc.get_attributes() or {}
+            if got.get("tag"):
+                this = {k: got[k] for k in ("tag", "id", "class") if got.get(k)}
+                el = el or this
+                if "id" in this:
+                    if this is not el:
+                        el["in"] = this
+                    break
+            acc = acc.get_parent()
+    except Exception:   # gone while we looked
+        pass
+    text = (n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
+    n.update({**({"dom": el} if el else {}),
+              **({"text": text[:40] + "…" * (len(text) > 40)} if text else {})})
+
+
+def placed(n, named=False):
+    """Where dom() puts `n`, said short, after "  <- ": `p "Faint words" in
+    section#intro`; its text but where it's its name and `named`."""
+    def css(el):
+        return el["tag"] + (f"#{el['id']}" if "id" in el else "")
+    el, text = n.get("dom"), n.get("text")
+    text = text if text and not (named and n.name) else None
+    said = ([css(el)] if el else []) + ([json.dumps(text, ensure_ascii=False)] if text else [])
+    if el and "in" in el:
+        said.append(f"in {css(el['in'])}")
+    return "  <- " + " ".join(said) if said else ""
+
+
 def record(out):
     """Write what programs announce on the session's accessibility bus to
     `out`, a line each, "polite: Saved", as they say it. GTK 4.14's
@@ -2652,6 +2700,9 @@ def main(argv):
         # Under --strict what wasn't measured is among the problems, but
         # a failure isn't nothing.
         nothing = not count and whys and all(isinstance(p, Noted) for p in problems)
+        Atspi = atspi()
+        for n, _ in problems + passes + notes + behind:
+            dom(Atspi, n)
         said = " ".join([f"{len(notes)} not measured"
                          + ("." if nothing else ", which doesn't fail.")] * bool(notes)
                         + [f"{len(behind)} behind a modal dialog, which doesn't fail."]
@@ -2670,7 +2721,7 @@ def main(argv):
                               "behind": [dict(public(n), behind=what) for n, what in behind]}))
         else:
             for n, what in problems + passes + notes + behind:
-                print(f"{n.path}: {what}")
+                print(f"{n.path}: {what}{placed(n)}")
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")
             return 2

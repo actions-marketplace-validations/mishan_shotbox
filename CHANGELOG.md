@@ -4,6 +4,17 @@
 
 ### Changes to check when upgrading
 
+- **`a11y lint` and `a11y contrast` lines on a web page's node end in
+  where it is in the page's DOM**, the element's tag and id, its text
+  and the nearest id round it, as Chromium and Firefox give them:
+  `PATH: text 2.84:1, #999999 on #ffffff (at least 4.5)  <- p "Faint
+  words" in div#intro`. A path alone, `.../document
+  web[3]/section[0]/section[2]/static[0]`, was hard to find in the
+  source. `--json`, Python's `a11y_lint()` and `contrast()` give each
+  such node `dom` (with its element's `class` too) and `text`, and MCP's
+  `check_accessible_names` and `check_contrast` lines end the same way.
+  `--ignore` matches the ending too: `--ignore 'div#intro'`. A script
+  that reads the lines as `PATH: WHAT` gets the end in WHAT.
 - **A click or scroll by name waits until the node is placed, enabled,
   still and uncovered**, and fails, saying which it isn't, when its
   timeout runs out: `gave up after 10s: button "Save" [focusable,

@@ -47,7 +47,7 @@ import time
 from pathlib import Path
 
 from . import __version__, kept, sound, usage
-from .a11y import Node, walk_lines
+from .a11y import Node, placed, walk_lines
 from .a11y import changes as tree_changes
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
@@ -213,7 +213,7 @@ def words(v):
 def problems(nodes, window=None, key="problem"):
     """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
     what's wrong (or what `key` says)."""
-    return capped([f"{n.line(bounds=True)}: {n[key]}" for n in nodes],
+    return capped([f"{n.line(bounds=True)}: {n[key]}{placed(n, named=True)}" for n in nodes],
                   "with ignore" if window else "with window or ignore") or "No problems."
 
 
