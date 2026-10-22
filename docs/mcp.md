@@ -103,7 +103,7 @@ it arbitrary commands, typed with `type_text`.
 | `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), waited for as `click_element`'s is, or at a point; with `changes`, what it changed in the tree |
 | `press_keys`, `type_text` | chords, held together a while or left down if asked, and ASCII text; with `changes`, what they changed in the tree |
 | `use_gamepad` | buttons, sticks and triggers on a virtual Xbox 360 pad, in a session started with `gamepads` |
-| `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change, or a line in a log, in the `--allow` file's directory |
+| `wait_for` | a window, stillness, an announcement, the focus, looking like a picture, a change (each but for the boxes `ignore` leaves out: a clock, a cursor), or a line in a log, in the `--allow` file's directory |
 | `check_accessible_names`, `check_contrast`, `check_focus_order` | the checks `shotbox a11y` makes; `check_contrast` with `passes` says what passes too, with its ratio, as `a11y contrast --passes` does, and with `strict` fails on what it couldn't measure, as `--strict` does |
 | `get_speech` | what Orca, a real screen reader started for the call, says after each press of Tab or of the keys given, with the focused node's tree line: [What a screen reader says](accessibility.md#what-a-screen-reader-says) |
 | `list_announcements` | what's been announced to a screen reader |

@@ -53,6 +53,13 @@
 
 ### Added
 
+- `compare` and `wait match` and `change` take `--ignore WxH+X+Y`
+  (repeatable), as `flicker` does, to leave out a box that changes on
+  its own, a clock or a cursor, as openQA's exclude areas and
+  Playwright's `mask` do, rather than a `--fuzz` loose enough to hide
+  real changes. `compare`'s diff shows it magenta, and with directories
+  `NAME=WxH+X+Y` is for one picture. `Screen.wait_match(ignore=...)`,
+  `wait_change` and MCP's `wait_for` have it too.
 - `a11y contrast` says on its line why GTK 4's text it looked for wasn't
   taken, and its why says what that means: `(no match good enough: 0.44
   at best)`, `(it matches elsewhere too, in "unchecked")`, `(another

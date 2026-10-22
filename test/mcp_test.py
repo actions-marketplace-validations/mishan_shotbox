@@ -219,6 +219,8 @@ try:
     check(bad and time.monotonic() - began < 5, "wait_for: a timeout of 0 gives up at once")
     said, bad, _ = tool("wait_for", session="t", what="window", value="a11y-test", timeout="20")
     check(not bad, f"wait_for: a window, its timeout given as text ({said})")
+    said, bad, _ = tool("wait_for", session="t", what="change", ignore=["10x10"], timeout=1)
+    check(bad and "WIDTHxHEIGHT" in said, f"wait_for: an ignore that's no box, refused ({said})")
     # Off the screen's corner, where the window's x,y and the screen's differ.
     subprocess.run(["xdotool", "search", "--name", "^a11y-test$", "windowmove", "--sync",
                     "230", "170"], env=server.sessions["t"].env, check=True)

@@ -83,10 +83,11 @@ G]` waits until it looks like a picture, for a screen with no other sign
 it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 [--crop G]` until it looks different from the first picture the wait takes
 (a window still drawing is a picture too: `wait stable` first); each
-counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`), and prints how
-long it took. `shotbox wait line RE FILE` waits for a line matching RE (found
-anywhere in it) to be written to FILE, and prints it: for a program that logs
-what happens, a line an event, where a sleep would go by the wall's clock
+counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`, `--ignore
+G` in the picture taken), and prints how long it took. `shotbox wait line RE
+FILE` waits for a line matching RE (found anywhere in it) to be written to
+FILE, and prints it: for a program that logs what happens, a line an event,
+where a sleep would go by the wall's clock
 and a game's can stop. Lines written before the wait starts don't count
 (`--from-start` for those too), nor one not yet ended; a file not there yet
 is waited for, and one rotated or written again from the top is read from
@@ -428,16 +429,21 @@ ready -- shotbox term ...`.
 **`shotbox compare A.png B.png [--diff D.png] [--fuzz 1%] [--max N]`**
 counts the pixels that differ, and says the box they're in, and fails if
 more than `--max` (0) do. With a committed picture, that's a visual
-regression test.
+regression test. `--ignore WxH+X+Y` (repeatable) leaves out a box, as
+`flicker`'s does, that changes from run to run, a clock or a cursor, as
+openQA's exclude areas and Playwright's `mask` do, rather than a `--fuzz`
+loose enough to hide real changes; the diff shows it filled magenta.
 
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
 each, and fails if any differs, is missing, or changed size. `--diff DIR`
-writes `NAME-diff.png` there for each that fails. `--fuzz` and `--max`
-take `NAME=VALUE` for one picture, beside a plain VALUE for the rest:
+writes `NAME-diff.png` there for each that fails. `--fuzz`, `--max` and
+`--ignore` take `NAME=VALUE` for one picture, beside a plain VALUE for the
+rest (each `--ignore` adds a box):
 
 ```
-shotbox compare data/screenshots fresh --fuzz 0.5% --fuzz video=5% --diff fresh
+shotbox compare data/screenshots fresh --fuzz 0.5% --fuzz video=5% \
+  --ignore panel=80x24+1200+0 --diff fresh
 ```
 
 ## vision

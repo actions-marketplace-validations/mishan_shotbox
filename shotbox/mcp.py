@@ -823,7 +823,7 @@ class Server:
         return path
 
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
-                 fuzz=None, most=None, file=None, from_start=False):
+                 fuzz=None, most=None, file=None, from_start=False, ignore=None):
         s = self.session(session)
         if what not in WAITS:
             raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
@@ -836,9 +836,9 @@ class Server:
             most = int(number(most, "most", 0) or 0)
             if what == "match":
                 at = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
-                                  timeout)
+                                  timeout, words(ignore))
                 return f"It matches {value}, after {at:.3f} s."
-            at = s.wait_change(text(window), text(crop), fuzz, most, timeout)
+            at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore))
             return f"It changed, after {at:.3f} s."
         if value is None and what != "stable":
             raise Refused(f"wait_for {what} needs a value: what to wait for")
@@ -1217,6 +1217,9 @@ TOOLS = [
                       "description": "match, change: percent a pixel may differ by (0)"},
              "most": {"type": "integer", "minimum": 0,
                       "description": "match, change: pixels past fuzz allowed (0)"},
+             "ignore": {"type": "array", "items": {"type": "string"},
+                        "description": "match, change: boxes of the picture to leave out, "
+                        "as a clock or a cursor, each WIDTHxHEIGHT+X+Y"},
              "file": {"type": "string", "description": "line's, by its path from the allow "
                       "file's directory"},
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},

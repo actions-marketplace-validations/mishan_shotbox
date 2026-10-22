@@ -21,8 +21,11 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `(id, name, w, h, x, y)`),
   `wait_port(n)`, `wait_file(path)`, `wait_ready()`,
   `wait_line(re, path, from_start=False)` (returns the line),
-  `wait_stable(secs=0.5, window=None)`, and `until(what, test)` for a test
-  of your own; each takes `timeout` (30).
+  `wait_stable(secs=0.5, window=None)`, `wait_match(ref, window=None,
+  crop=None, fuzz="0%", most=0, ignore=())` and `wait_change(...)` (as
+  `shotbox wait match` and `change`, `ignore` a list of `WxH+X+Y`
+  boxes), and `until(what, test)` for a test of your own; each takes
+  `timeout` (30).
 - Input: `key(*chords, hold=None, state=None)`, `type(text)`, `click(x, y,
   window=None, button=1, double=False, hold=None, state=None)`, `move`,
   `scroll(x, y, dy, dx=0, window=None)` (wheel clicks down and right),

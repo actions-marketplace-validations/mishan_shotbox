@@ -650,22 +650,50 @@ def rgb(path):
     return w, h, data
 
 
-def differ(a, b, fuzz=0.0, most=0):
-    """How many pixels of two RGB buffers of one size differ, as compare
-    counts them, where any channel differs by more than `fuzz` percent;
-    up to `most` + 1, where it stops counting. Runs that are the same are
-    passed over whole, so a picture that's mostly so is quick."""
-    limit, n, run = fuzz / 100 * 255, 0, 3 * 512
-    for start in range(0, len(a), run):
-        end = start + run
-        if a[start:end] == b[start:end]:
-            continue
-        for i in range(start, min(end, len(a)), 3):
-            if (abs(a[i] - b[i]) > limit or abs(a[i + 1] - b[i + 1]) > limit
-                    or abs(a[i + 2] - b[i + 2]) > limit):
-                n += 1
-                if n > most:
-                    return n
+def box_of(geometry):
+    """A WIDTHxHEIGHT+X+Y box, at least 1x1, as (width, height, x, y); None
+    if it isn't one."""
+    m = re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", geometry)
+    got = m and tuple(int(n) for n in m.groups())
+    return got if got and got[0] and got[1] else None
+
+
+def kept(width, height, ignore=()):
+    """Each row of a picture `width` by `height`, as the spans (x0, x1) of
+    it that the boxes in `ignore`, (width, height, x, y), leave."""
+    rows = []
+    for y in range(height):
+        row, at = [], 0
+        for x0, x1 in sorted((min(width, bx), min(width, bx + bw))
+                             for bw, bh, bx, by in ignore if by <= y < by + bh):
+            if x0 > at:
+                row.append((at, x0))
+            at = max(at, x1)
+        rows.append(row + [(at, width)] if at < width else row)
+    return rows
+
+
+def differ(a, b, fuzz=0.0, most=0, rows=None):
+    """How many pixels of two pictures of one size, (width, height, RGB
+    bytes), differ, as compare counts them, where any channel differs by
+    more than `fuzz` percent; only in the spans of `rows` (kept's) if
+    given; up to `most` + 1, where it stops counting. Runs that are the
+    same are passed over whole, so a picture that's mostly so is quick."""
+    w, h, a = a
+    b = b[2]
+    limit, n, run = fuzz / 100 * 255, 0, 512
+    for y, spans in enumerate(rows or [[(0, w)]] * h):
+        for x0, x1 in spans:
+            for start in range((y * w + x0) * 3, (y * w + x1) * 3, run * 3):
+                end = min(start + run * 3, (y * w + x1) * 3)
+                if a[start:end] == b[start:end]:
+                    continue
+                for i in range(start, end, 3):
+                    if (abs(a[i] - b[i]) > limit or abs(a[i + 1] - b[i + 1]) > limit
+                            or abs(a[i + 2] - b[i + 2]) > limit):
+                        n += 1
+                        if n > most:
+                            return n
     return n
 
 
@@ -737,13 +765,18 @@ def size_of(path):
     return out.strip()
 
 
-def compare(a, b, diff=None, fuzz="0%", box=False):
+def compare(a, b, diff=None, fuzz="0%", box=False, ignore=()):
     """How many pixels differ between two images (0 means the same): pixels
-    where any channel differs by more than `fuzz`. With `diff`, also writes
-    an image with the differences marked in red. With `box`, the count and
-    the box they're in, (width, height, x, y), or None."""
+    where any channel differs by more than `fuzz`, but for those in the
+    boxes in `ignore`, (width, height, x, y). With `diff`, also writes
+    an image with the differences marked in red, and what's ignored
+    magenta. With `box`, the count and the box they're in, (width,
+    height, x, y), or None."""
     if size_of(a) != size_of(b):
         raise ValueError(f"not the same size: {size_of(a)} and {size_of(b)}")
+    # Each box filled in each picture alike, so nothing in it differs.
+    boxes = [arg for bw, bh, bx, by in ignore
+             for arg in ("-draw", f"rectangle {bx},{by} {bx + bw - 1},{by + bh - 1}")]
     # The per-pixel difference, its largest channel, then on or off. Counted
     # by hand: compare's own AE metric weighs pixels differently from one
     # ImageMagick release to the next.
@@ -751,7 +784,7 @@ def compare(a, b, diff=None, fuzz="0%", box=False):
         # sRGB: ImageMagick reads a gray PNG, as it writes any picture with
         # no color in it, as one channel, and would count only that.
         [*CONVERT, str(a), str(b), "-colorspace", "sRGB", "-alpha", "off",
-         "-compose", "difference",
+         "-fill", "black", *boxes, "-compose", "difference",
          "-composite", "-separate", "-evaluate-sequence", "max",
          # A black border so the box (%@, what -trim would keep) is found
          # around what differs even when a corner does; -quiet, since with
@@ -760,8 +793,14 @@ def compare(a, b, diff=None, fuzz="0%", box=False):
          "-format", "%[fx:round(mean*w*h)] %@", "info:"],
         capture_output=True, text=True, check=True).stdout.split()
     if diff:
-        subprocess.run(["compare", "-fuzz", fuzz, "-define", "png:exclude-chunks=date,time",
-                        str(a), str(b), str(diff)], capture_output=True)
+        png = ["-define", "png:exclude-chunks=date,time"]
+        shown = subprocess.run(["compare", "-fuzz", fuzz, *png, str(a), str(b),
+                                # PNG: ImageMagick 6's MIFF of it is gray.
+                                "png:-" if boxes else str(diff)], capture_output=True).stdout
+        if boxes:
+            # Magenta, as Playwright's mask is.
+            subprocess.run([*CONVERT, "png:-", "-fill", "#ff00ff", *boxes, *png, str(diff)],
+                           input=shown, capture_output=True)
     n = int(out[0])
     w, h, x, y = map(int, re.split("[x+]", out[1]))
     return (n, (w, h, x - 1, y - 1) if n else None) if box else n

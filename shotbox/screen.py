@@ -281,25 +281,29 @@ class Screen:
         in, a toast going away."""
         self.until(*self.test("stable", seconds, window), timeout)
 
-    def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30):
+    def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30,
+                   ignore=()):
         """Wait until the display, or the window named `window`, cropped
         (WxH+X+Y), looks like the picture `ref`: `most` pixels or fewer
-        differ by more than `fuzz`, as `shotbox compare` counts. For a screen with
-        no other sign it's up: a boot, a login screen. The seconds it took."""
+        differ by more than `fuzz`, as `shotbox compare` counts, but for
+        those in the boxes (WxH+X+Y, in the picture) in `ignore`. For a
+        screen with no other sign it's up: a boot, a login screen. The
+        seconds it took."""
         # png: so a name like msl:FILE is a file, not ImageMagick's coder.
         try:
             x.size_of(f"png:{ref}")
         except subprocess.CalledProcessError:
             self.fail(f"can't read {ref} as a PNG")
-        return self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout)
+        return self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout, ignore)
 
-    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30):
+    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30, ignore=()):
         """Wait until the display, or the window named `window`, cropped,
         looks different from the first picture the wait takes: more than
-        `most` pixels differ by more than `fuzz`. The seconds it took."""
-        return self._wait_looks(None, None, window, crop, fuzz, most, timeout)
+        `most` pixels differ by more than `fuzz`, but for those in
+        `ignore`, as wait_match's. The seconds it took."""
+        return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)
 
-    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout):
+    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore):
         """wait_match against `ref` (`name` to say), or with None,
         wait_change: the seconds from the start of the wait to the picture
         it passed on."""
@@ -311,6 +315,10 @@ class Screen:
             self.fail(f"fuzz is a percentage, 0% to 100%, not {fuzz!r}")
         if most < 0:
             self.fail(f"the pixels that may differ are 0 or more, not {most}")
+        skip = [x.box_of(g) for g in ignore]
+        if None in skip:
+            self.fail("what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not "
+                      f"{ignore[skip.index(None)]}")
         match = ref is not None
         fd, now = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
         os.close(fd)
@@ -330,7 +338,7 @@ class Screen:
                 return None
             return x.rgb(now)
 
-        start, at, sizes, small = time.monotonic(), None, None, None
+        start, at, sizes, small, rows = time.monotonic(), None, None, None, None
         ref = x.rgb(ref) if match else None
         fuzz = float(fuzz[:-1])
         # The display's size doesn't change: a crop off it never fits. A
@@ -342,7 +350,7 @@ class Screen:
                 self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
 
         def looks():
-            nonlocal ref, at, sizes, small
+            nonlocal ref, at, sizes, small, rows
             w = None
             if window:
                 w = self.backend.find_window(self.env, window)
@@ -359,7 +367,8 @@ class Screen:
                 ref = got
                 return False
             if got[:2] == ref[:2]:
-                n = x.differ(ref[2], got[2], fuzz, most)
+                rows = rows or skip and x.kept(*ref[:2], skip)
+                n = x.differ(ref, got, fuzz, most, rows)
             else:
                 n, sizes = None, ("{}x{}".format(*ref[:2]), "{}x{}".format(*got[:2]))
             if (n is not None and n <= most) == match:

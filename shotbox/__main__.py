@@ -536,6 +536,9 @@ def cmd_wait(argv):
     p.add_argument("--max", type=int, metavar="N",
                    help="for match and change: pixels that may differ and still count "
                         "as the same (0)")
+    p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
+                   help="for match and change: leave out this box: a clock, a cursor "
+                        "(repeatable)")
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
@@ -552,8 +555,8 @@ def cmd_wait(argv):
     if a.kind == "change" and a.arg:
         p.error("change takes no ARG: it waits for a change from how it looks now")
     looks = a.kind in ("match", "change")
-    if not looks and (a.crop or a.fuzz is not None or a.max is not None):
-        p.error("--crop, --fuzz and --max go with match and change")
+    if not looks and (a.crop or a.fuzz is not None or a.max is not None or a.ignore):
+        p.error("--crop, --fuzz, --max and --ignore go with match and change")
     screen = inside(display=a.kind not in ("port", "file", "ready", "line"))
     screen.failed = a.failed or screen.failed
     if a.kind == "line":
@@ -563,8 +566,7 @@ def cmd_wait(argv):
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
         return 0
     how = dict(window=a.window, crop=a.crop, fuzz="0%" if a.fuzz is None else a.fuzz,
-               most=a.max or 0,
-               timeout=a.timeout)
+               most=a.max or 0, timeout=a.timeout, ignore=a.ignore)
     at = screen.wait_match(a.arg, **how) if a.kind == "match" else screen.wait_change(**how)
     print(f"{at:.3f}s")
     return 0
@@ -1209,9 +1211,20 @@ def cmd_compare(argv):
                         "picture (repeatable)")
     p.add_argument("--max", action="append", default=[], metavar="[NAME=]N",
                    help="pixels allowed to differ (0); NAME=N for one picture (repeatable)")
+    p.add_argument("--ignore", action="append", default=[], metavar="[NAME=]WxH+X+Y",
+                   help="leave out this box: a clock, a cursor; NAME=WxH+X+Y for one "
+                        "picture (repeatable)")
     a = p.parse_args(argv)
+    for g in a.ignore:
+        if not x.box_of(g.split("=", 1)[-1]):
+            p.error(f"--ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not {g}")
+
     def fuzz(name):
         return per_name(a.fuzz, name, "0%")
+
+    def ignore(name):
+        return [x.box_of(v.split("=", 1)[-1]) for v in a.ignore
+                if "=" not in v or v.split("=", 1)[0] == name]
 
     def most(name):
         return int(per_name(a.max, name, 0))
@@ -1227,7 +1240,8 @@ def cmd_compare(argv):
             sys.stderr.write(f"shotbox: no {' or '.join(missing)}\n")
             return 2
         try:
-            n, box = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None), box=True)
+            n, box = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None), box=True,
+                               ignore=ignore(None))
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
@@ -1251,14 +1265,14 @@ def cmd_compare(argv):
             continue
         diff = Path(a.diff) / f"{name}-diff.png" if a.diff else None
         try:
-            n, box = x.compare(ref, new, fuzz=fuzz(name), box=True)
+            n, box = x.compare(ref, new, fuzz=fuzz(name), box=True, ignore=ignore(name))
         except ValueError as e:
             print(f"{name}: {e}")
             bad.append(name)
             continue
         if n > most(name):
             if diff:
-                x.compare(ref, new, diff=diff, fuzz=fuzz(name))
+                x.compare(ref, new, diff=diff, fuzz=fuzz(name), ignore=ignore(name))
             print(f"{name}: {differing(n, box)}" + (f"; see {diff}" if diff else ""))
             bad.append(name)
         else:
