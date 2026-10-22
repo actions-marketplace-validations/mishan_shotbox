@@ -4,6 +4,21 @@
 
 ### Changes to check when upgrading
 
+- **A click or scroll by name waits until the node is placed, enabled,
+  still and uncovered**, and fails, saying which it isn't, when its
+  timeout runs out: `gave up after 10s: button "Save" [focusable,
+  disabled] isn't enabled`, `... has no position yet`, `... is
+  off-screen`, `... is outside its window` (each failed at once before,
+  the first as "can't tell where", which a browser's node just added
+  was), `... is moving`, `... is covered by label "Cover"` (in a GTK 4
+  window), `... is covered by window "Dialog"` (a dialog of its window,
+  on X11). That's `a11y click` and `a11y scroll`, Python's `click_node`
+  and `scroll_node`, and MCP's `click_element` and `scroll_wheel`. A
+  click on a disabled button passed, doing nothing, and one under a
+  dialog or mid-move went elsewhere; to click anyway, as a check that a
+  disabled control does nothing, pass `--force` (`force=True`, MCP's
+  `force`), which still waits for it to be placed. A ready node costs
+  the click about 50 ms, to see it's still.
 - **`a11y contrast --window` fails GTK 4's text it doesn't find, where
   nothing there could pass**: `text not found, but nothing where it can
   be has the contrast it needs: the best anything there reaches is

@@ -795,11 +795,13 @@ class Screen:
         try:
             n = act(max(0, timeout - (time.monotonic() - began)))
         except SessionError as e:
-            if not at or not re.match(r"\d+ nodes match", str(e)):
-                raise
+            # The time it gave up after is the caller's, not what was left of it.
+            said = re.sub(r"^(gave up .*?after )[\d.e-]+s", lambda m: f"{m[1]}{timeout:g}s", str(e))
+            if not at or not re.match(r"\d+ nodes match", said):
+                raise SessionError(said) from None
             raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
                                       lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
-                                      str(e), flags=re.M)) from None
+                                      said, flags=re.M)) from None
         return self._windowed([n], window, at)[0]
 
     def a11y_tree(self, window=None):
@@ -869,22 +871,26 @@ class Screen:
         return {k: self._windowed([Node(n) for n in v], window)
                 for k, v in self._a11y("contrast", *args).items()}
 
-    def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
+    def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10,
+                   force=False):
         """Click the middle of the node named `name`, exactly or else as a
         regex matched in full, and role `role` if given (the same), waiting
-        up to `timeout` for it to show; that node."""
+        up to `timeout` for it to show, and unless `force`, to be enabled,
+        still and uncovered; that node."""
         from .a11y import Node
         return self._by_name(window, timeout, lambda left: Node(self._a11y(
             "click", "--button", str(button), "--timeout", str(left),
             *([f"--role={role}"] if role else []), *(["--double"] if double else []),
+            *(["--force"] if force else []),
             *([f"--window={window}"] if window else []), "--", name, timeout=90 + left)))
 
-    def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10):
+    def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10, force=False):
         """Turn the mouse wheel over the node `click_node` would click, `dy`
         clicks down and `dx` right, as `scroll`; that node."""
         from .a11y import Node
         return self._by_name(window, timeout, lambda left: Node(self._a11y(
             "scroll", "--timeout", str(left), *([f"--role={role}"] if role else []),
+            *(["--force"] if force else []),
             *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx),
             timeout=90 + left)))
 

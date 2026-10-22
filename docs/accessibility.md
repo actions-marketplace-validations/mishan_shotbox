@@ -19,10 +19,11 @@ Inside a session with `--a11y`:
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
   trap: [Walking the Tab order](#walking-the-tab-order).
-- **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
+- **`shotbox a11y click NAME [--role RE] [--window RE] [--force]`** clicks the
   node named NAME, exactly or as a regex matched in full: a button by
-  its label rather than where it is. [Clicking by name](#clicking-by-name).
-- **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE]`** turns
+  its label rather than where it is, once it's enabled, still and
+  uncovered. [Clicking by name](#clicking-by-name).
+- **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE] [--force]`** turns
   the mouse wheel over that node, found as `click` finds it, DY clicks
   down and DX right (negative, up and left): a list by itself or by a
   row still in view (one scrolled out of it is refused, as `click`
@@ -352,12 +353,44 @@ whose field it names, which matches too (the field takes the focus);
 fails if more than one is left, saying which, as tree lines with where
 each is; raises the `--window`; and clicks the middle of its bounds,
 cut to its window's (a node scrolled out of view is still "showing";
-one wholly outside its window, or the screen, is refused), over XTEST
-or sway's virtual pointer, as `shotbox click` does. A real
+one wholly outside its window, or the screen, is waited for, as below),
+over XTEST or sway's virtual pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would. `scroll NAME DY [DX]` finds the node the same way and turns the
 wheel at the same place, as `shotbox scroll` does.
+
+Before it clicks, it waits, within the same `--timeout`, until the node
+is ready, as Playwright's actionability checks do, and when the time's
+up fails saying which it isn't, rather than clicking where nothing
+happens: `gave up after 10s: button "Save" [focusable, disabled] isn't
+enabled`, `... is moving`, `... is covered by dialog "Preferences"`. It's
+ready when it's:
+
+- **placed**: it has bounds, some of them in its window and on the
+  screen: `... has no position yet` (a browser puts a node in its tree
+  a moment before it places it), `... is outside its window` (scrolled
+  out of view), `... is off-screen` (a kiosk browser's own bar, above
+  the screen's top);
+- **enabled**: sensitive, not greyed out;
+- **still**: its bounds the same twice, 50 ms apart, so it isn't
+  clicked part way through a move (a list still laying out, a row
+  sliding in). That wait is what a click by name costs, when it's ready:
+  about 50 ms;
+- **uncovered**: in a GTK 4 window, the node GTK says is at the point
+  it clicks is it, inside it, or what it's in, not a node drawn over it
+  (an overlay, a libadwaita dialog, which is in its window). GTK 4
+  answers with what it would hand a click, the topmost; GTK 3 answers
+  with the first child there, whatever's drawn over it, so only GTK 4
+  is asked. On X11, no window of its own
+  dialogs (one transient for its window, which a window manager keeps
+  over it) is shown over that point. A click raises the window first,
+  which with no window manager puts it over anything else; on Wayland
+  sway does the same.
+
+`--force` clicks without waiting for the rest, but still for the node
+to show and be placed, since without a place there's nothing to click:
+to check that a disabled button does nothing, say.
 
 A name is taken as it is, and failing that as a regex matched in full:
 nodes named exactly NAME are picked over those it matches as a regex, so
