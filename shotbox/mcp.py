@@ -210,6 +210,34 @@ def words(v):
 # --- the tools ------------------------------------------------------------------
 
 
+def windowed(s, nodes, window, at=None):
+    """`nodes` with their bounds in `window`'s x,y (its corner `at` on the
+    screen, if that's been looked up), as click_element, crop and zoom take
+    an x,y with it, so they're given to them as they are."""
+    if not window:
+        return nodes
+    wx, wy = at or s.window(window)[4:6]
+    return [Node({**n, "bounds": [n.bounds[0] - wx, n.bounds[1] - wy, *n.bounds[2:]]})
+            if n.get("bounds") else n for n in nodes]
+
+
+def by_name(s, window, timeout, act):
+    """The node `act(timeout)` clicks or scrolls over, in `window`'s x,y, as
+    are those listed when more than one matches. The window is waited for
+    first, so nothing fails once it's acted."""
+    began = time.monotonic()
+    at = window and s.wait_window(window, timeout)[4:6]
+    try:
+        n = act(max(0, timeout - (time.monotonic() - began)))
+    except SessionError as e:
+        if not at or not re.match(r"\d+ nodes match", str(e)):
+            raise
+        raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
+                                  lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
+                                  str(e), flags=re.M)) from None
+    return windowed(s, [n], window, at)[0]
+
+
 def problems(nodes, window=None, key="problem"):
     """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
     what's wrong (or what `key` says)."""
@@ -490,7 +518,8 @@ class Server:
         labels = flag(labels)
         if labels and burst:
             raise Refused("labels goes with one picture, not burst")
-        nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
+        nodes = windowed(s, self.a11y_session(session).a11y_tree(text(window)),
+                         text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         x0 = y0 = 0
@@ -519,20 +548,20 @@ class Server:
                 ": " + mapped(x0, y0, scale) + (", with the same window." if window else ".")
                 if scale or x0 or y0 else ".")
         if labels:
-            said += "\n" + self.labeled(s, out, nodes, text(window), (x0, y0), scale)
+            said += "\n" + self.labeled(out, nodes, (x0, y0), scale)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
 
-    def labeled(self, s, png, nodes, window, corner, scale):
+    def labeled(self, png, nodes, corner, scale):
         """Draw on the picture at `png` each named node's box and a number,
         and say which node each number is, its box on the picture. Not a
         window's, which is the picture, nor one named as what it's in (a
         button's label). A box is cut to those of what it's in, so a row
         scrolled out of view, which GTK says is showing, has none. The picture
-        is of what's taken from `corner`, scaled as fit says (`scale`)."""
-        ox, oy = s.window(window)[4:6] if window else (0, 0)
-        ox, oy = ox + corner[0], oy + corner[1]
+        is of what's taken from `corner`, in the nodes' x,y, scaled as fit
+        says (`scale`)."""
+        ox, oy = corner
         kx, ky = map(float, scale or (1, 1))
         pw, ph = png_size(png)
         above, inside, legend, draw, unplaced, corners = {}, {}, [], [], 0, {}
@@ -683,8 +712,9 @@ class Server:
 
     def get_accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
-        nodes = s.a11y_tree(text(window))
-        return capped(["  " * n.depth + n.line(flag(bounds)) for n in nodes],
+        nodes, bounds = s.a11y_tree(text(window)), flag(bounds)
+        nodes = windowed(s, nodes, text(window)) if bounds else nodes
+        return capped(["  " * n.depth + n.line(bounds) for n in nodes],
                       None if window else "with window") or "(no accessible windows)"
 
     def a11y_session(self, session):
@@ -710,9 +740,11 @@ class Server:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
             timeout = number(timeout, "timeout", 0, 300)
-            n = self.a11y_session(session).click_node(
-                str(name), role=text(role), window=text(window), button=button, double=double,
-                timeout=10 if timeout is None else timeout)
+            a = self.a11y_session(session)
+            n = by_name(s, text(window), 10 if timeout is None else timeout,
+                        lambda left: a.click_node(
+                            str(name), role=text(role), window=text(window), button=button,
+                            double=double, timeout=left))
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click_element takes a node's name, or x and y")
@@ -731,8 +763,11 @@ class Server:
         turned = "Scrolled " + " and ".join(f"{abs(n)} {ways[n < 0]}" for n, ways in (
             (dy, ("down", "up")), (dx, ("right", "left"))) if n)
         if name is not None:
-            n = self.a11y_session(session).scroll_node(str(name), dy, dx, role=text(role),
-                                                       window=text(window))
+            a = self.a11y_session(session)
+            n = by_name(s, text(window), 10,
+                        lambda left: a.scroll_node(
+                            str(name), dy, dx, role=text(role), window=text(window),
+                            timeout=left))
             return f"{turned} over {n.line()}, at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("scroll_wheel takes a node's name, or x and y")
@@ -864,15 +899,17 @@ class Server:
     # --- checking ------------------------------------------------------------
 
     def check_accessible_names(self, session, window=None, ignore=None):
-        return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)),
+        s = self.a11y_session(session)
+        return problems(windowed(s, s.a11y_lint(text(window), words(ignore)), text(window)),
                         window)
 
     def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
                        edges=None, ignore=None, passes=False, strict=False):
-        got = self.a11y_session(session).contrast(
+        s = self.a11y_session(session)
+        got = {k: windowed(s, v, text(window)) for k, v in s.contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
-            passes=flag(passes), strict=flag(strict))
+            passes=flag(passes), strict=flag(strict)).items()}
         notes, passed = got["notes"], got.get("passes")
         whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
         return "\n".join([problems(got["problems"], window)]
@@ -982,8 +1019,8 @@ WINDOW = {"type": "string", "description":
 NAME = {"type": "string", "description": "A node's name, as get_accessible_tree gives it: "
         "exactly, or a regex matched in full"}
 ROLE = {"type": "string", "description": "Narrows name: exactly, or a regex"}
-X = {"type": "integer", "description": "Pixels from the left"}
-Y = {"type": "integer", "description": "Pixels from the top"}
+X = {"type": "integer", "description": "Pixels from the left: of the window, with window"}
+Y = {"type": "integer", "description": "Pixels from the top: of the window, with window"}
 IGNORE = {"type": "array", "items": {"type": "string"},
           "description": "Regexes for lines that can't be fixed yet"}
 PROGRAM = {"type": "string", "description": "Its name in the allow list"}
@@ -1056,7 +1093,8 @@ TOOLS = [
      "A node with an empty name (\"\") is one a screen reader can say nothing for. Use "
      "take_screenshot for how it looks.",
      schema({"session": SESSION, "window": WINDOW,
-             "bounds": {"type": "boolean", "description": "Add @x,y WIDTHxHEIGHT to each line"}},
+             "bounds": {"type": "boolean", "description": "Add @x,y WIDTHxHEIGHT to each line, in "
+                        "click_element's x,y"}},
             ["session"])),
     ("take_screenshot",
      "Take a picture of the screen, or of one window, RETURNED AS AN IMAGE for you to look "

@@ -109,6 +109,13 @@ it arbitrary commands, typed with `type_text`.
 | `list_announcements` | what's been announced to a screen reader |
 | `record_audio` | in a session started with `audio`, record what plays between `start` and `stop`, and say how loud it was and where it dropped out, as `shotbox listen` does |
 
+**An x,y with a window is the window's.** Given `window`,
+`click_element`'s and `scroll_wheel`'s x,y, `crop`, `zoom`, and the
+bounds `get_accessible_tree`, `check_accessible_names`, `check_contrast`
+and a click by name answer with, and list when two nodes match, are
+all from the window's top left corner, so a node's bounds go to
+`click_element` as they are; without one, they're the screen's.
+
 Each description says what the tool is for, what to read in its answer,
 and what to use instead when it's the wrong one: an agent knows a tool
 by nothing else.
