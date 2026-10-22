@@ -33,6 +33,7 @@ Inside a session with `--a11y`:
   `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`; with `--passes`,
   what passes too: `PATH: text passes at 12.23:1, #323236 on #fafafb (at
   least 4.5)`; with `--strict`, what it couldn't measure fails too.
+  What's behind a modal dialog is said apart, and doesn't fail.
   [Contrast](#contrast).
 - **`shotbox a11y speak [--keys KEY...] [--max 50] [--window RE]`**
   starts Orca in the session, presses Tab until the focus comes round
@@ -527,8 +528,38 @@ node measured or ignored (`--ignore`): those lines are failures, under
 and later that's every icon, window control and edge, which aren't
 measured, so leave them out with `--ignore` (`graphics not measured`,
 `edge not measured`). What's scrolled out of view, or hidden, isn't a
-failure: GTK 3 and browsers leave such rows out without a word. The
-exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
+failure: GTK 3 and browsers leave such rows out without a word.
+
+While a modal dialog is open, what's behind it isn't measured: it's
+shut off till the dialog closes, and dimmed on purpose or covered, so
+its ratio says nothing of how it reads with the dialog closed, where
+it's checked. It's said last, `PATH: text behind a modal dialog
+"Settings"`, and under `behind` in `--json`, each with its `behind`,
+and doesn't fail, with `--strict` either. A modal dialog is one that
+says it is: a dialog or alert, on the screen and of some size, in a
+window (aria-modal's, which shuts off the rest of its page), and a
+modal window, which shuts off its program's other windows; and
+libadwaita's, drawn in its window, which always are and don't say so:
+a GTK 4 dialog or alert that is itself a layer over the window's
+content (as big as it, after something as big, showing and not the
+same node listed twice), as libadwaita 1.10 draws them and 1.5 its
+alert dialog, or a dialog three levels down in one, as 1.5 draws the
+rest; only what comes before it in the tree, drawn under it, is
+behind. An alert anywhere else (an error label, a toast, a status
+page) isn't one, nor is a box or popover given a dialog's role. A
+modal window's program's other windows are all behind it, whether it
+covers them or not, and on X11 they aren't dimmed: GTK shuts them all
+off, and doesn't say which is its parent. A modal popover dims
+nothing, and doesn't count. Nor does an overlay that isn't modal,
+opaque or see-through: what's under it can still take the focus, so
+text there that can't be read fails. libadwaita's modal bottom sheet
+doesn't say it's there, and what's under it is measured, and fails as
+dimmed; a program's own see-through layer over its whole window, given
+a dialog's or alert's role, can't be told from libadwaita's, and
+counts. libadwaita 1.5 names its dialogs nothing, so one is said by
+the first name in it: its title, if it shows one.
+
+The exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a window on GTK
 4.14 or later none of whose text was found, `shotbox: nothing measured:
 ...` (text too small to measure, alone, doesn't fail). With `--json` it's 0

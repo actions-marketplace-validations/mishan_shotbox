@@ -1256,6 +1256,96 @@ def ancestors(n):
     return out
 
 
+def modals(Atspi, nodes):
+    """Each of `nodes` behind a modal dialog, by its path, and that dialog,
+    a Node. A modal window shuts off every other window of its program,
+    covered or not (GTK's don't say which is their parent); a modal dialog
+    or alert in a window, on the screen (aria-modal's, which shuts off its
+    page alone), everything else there, but not a modal popover, which
+    dims nothing. libadwaita's dialogs, drawn in their window, are always
+    modal and don't say so: a GTK 4 dialog or alert there is one in the
+    shapes libadwaita draws them in (layered()), and only what's before
+    it, drawn under it, is behind. An alert anywhere else (an error
+    label, a toast, a status page) isn't one, nor is a box or popover
+    given a dialog's role. Of dialogs over dialogs, the last, outermost,
+    is in front."""
+    def inside(path, outer):
+        return path == outer or path.startswith(outer + "/")
+
+    tops = {ident(n._top): n.path for n in nodes if n._acc == n._top}
+    content = {}
+    for n in nodes:
+        if n._acc != n._top and n.path.rsplit("/", 1)[0] == tops.get(ident(n._top)):
+            content.setdefault(ident(n._top), n.bounds)
+    paths = {n.path: n for n in nodes}
+    siblings = {}
+    for n in nodes:
+        up, step = n.path.rsplit("/", 1) if "/" in n.path else ("", n.path)
+        at = re.search(r"\[(\d+)\]$", step)
+        if at:
+            siblings[up, int(at[1])] = n
+
+    def layer(o):
+        """Whether `o` is a layer over its window's content: as big as it,
+        and after something as big, showing and another object (not a
+        stack's page GTK lists twice, nor a banner folded away)."""
+        size = (content.get(ident(o._top)) or [])[2:] if o else None
+        if not size or not o.bounds or o.bounds[2:] != size:
+            return False
+        up, step = o.path.rsplit("/", 1)
+        at = int(re.search(r"\[(\d+)\]$", step)[1])
+        before = at and siblings.get((up, at - 1))
+        return bool(before and before._showing and before.bounds
+                    and before.bounds[2:] == size and before._id != o._id)
+
+    def layered(n):
+        """Whether `n` is libadwaita's dialog: a layer itself (1.10's, and
+        1.5's alert dialog), or 1.5's sheet, three down from its layer."""
+        return layer(n) or (n._role == Atspi.Role.DIALOG
+                            and n.path.endswith("/panel[0]/panel[0]/dialog[1]")
+                            and layer(paths.get(n.path.rsplit("/", 3)[0])))
+
+    dialogs = roles(Atspi, ("DIALOG", "ALERT"))
+    fronts = {}
+    for i, n in enumerate(nodes):
+        if (n._acc == n._top or n._role not in dialogs or not n._showing or not n.bounds
+                or not all(n.bounds[2:])):
+            continue
+        under = "modal" not in n.states and gtk4(n) and layered(n)
+        if "modal" not in n.states and not under:
+            continue
+        scope = next((o.path for o in reversed(nodes[:i]) if o._role == Atspi.Role.DOCUMENT_WEB
+                      and inside(n.path, o.path)), tops.get(ident(n._top)))
+        if scope not in fronts or not inside(n.path, fronts[scope][0].path):
+            # libadwaita 1.5 names its dialog's node nothing: said by the first
+            # name in it, which is its title if it shows one.
+            name = n.name or next((o.name for o in nodes[i:] if inside(o.path, n.path)
+                                   and o.name), "")
+            fronts[scope] = Node(n, name=name), i if under else len(nodes)
+    behind = {n.path: m for i, n in enumerate(nodes) for scope, (m, last) in fronts.items()
+              if i < last and inside(n.path, scope) and not inside(n.path, m.path)
+              and not inside(m.path, n.path)}
+    apps = {}
+    for n in nodes:
+        if n._top.app:
+            apps.setdefault(n._top.app.bus_name, n._top.get_application())
+    for bus, app in apps.items():
+        front = None
+        try:
+            for t in (app.get_child_at_index(j) for j in range(max(app.get_child_count(), 0))):
+                states = t and t.get_state_set()
+                if states and states.contains(Atspi.StateType.MODAL) and states.contains(
+                        Atspi.StateType.SHOWING):
+                    role = t.get_role()
+                    front = node(Atspi, t, states, role,
+                                 f"{role_name(Atspi, t, role)} {json.dumps(t.get_name() or '')}")
+        except Exception:   # gone while we looked: a window closing
+            continue
+        behind.update({n.path: front for n in nodes if front and n._top.app
+                       and n._top.app.bus_name == bus and ident(n._top) != front._id})
+    return behind
+
+
 def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=(),
              large=3.0, strict=False):
     """What's drawn with too little contrast, as (node, what), measured on a
@@ -1273,7 +1363,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     passes, what wasn't measured but doesn't fail, as (node, what): text too small
     to, what's outside the screen, and GTK 4's, see GTK4_BOUNDS, or with
     `strict` only what's scrolled out of view, the rest being problems
-    too; why GTK 4's weren't, a line each; how many were measured)."""
+    too; what's behind a modal dialog (modals()), not measured, as (node,
+    what), which doesn't fail even with `strict`: shut off till it's
+    closed, and dimmed on purpose or covered by it; why GTK 4's weren't,
+    a line each; how many were measured)."""
     skip = ignored(ignore)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -1284,6 +1377,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     finally:
         screen.close()
     nodes = [n for _, n in walk(Atspi, window, timeout, bounds=True)]
+    fronts = modals(Atspi, nodes)
     pic = picture.Picture(*screen.backend.pixels(screen.env))
     texts, controls = roles(Atspi, TEXTS), roles(Atspi, CONTROLS)
     named = roles(Atspi, ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION"))
@@ -1410,7 +1504,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return False
 
     measured = [n for n in nodes if kind(n)]
-    problems, passes, notes, whys, count = [], [], [], [], 0
+    problems, passes, notes, behind, whys, count = [], [], [], [], [], 0
     trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
     kids, rel = {}, {}
     for n in nodes:
@@ -1755,7 +1849,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     until = time.monotonic() + SEARCH
     for n in measured:
         if (n._role in texts and n._role not in controls and gtk4_release(n) >= (4, 14)
-                and not trusted and leaf(n)):
+                and not trusted and leaf(n) and n.path not in fronts):
             cannot = cannot or pango_cairo()
             if not cannot and out_of_view(n):
                 hidden.add(n.path)
@@ -1765,6 +1859,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 found[n.path] = seek(n, until)
             except TimeoutError:
                 late.add(n.path)
+
+    def covered(n, k):
+        """Whether `n` is behind a modal dialog: said apart if so."""
+        m = fronts.get(n.path)
+        if m:
+            name = json.dumps(m.name, ensure_ascii=False)
+            behind.append((n, f"{k} behind a modal dialog {name}"))
+        return bool(m)
 
     def wrong(n, k):
         """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
@@ -1844,6 +1946,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         # draws an icon: a graphic, held to graphics' ratio.
         if n._role in controls and gtk4(n):
             k = "graphics"
+        if covered(n, k):
+            continue
         seen = found.get(n.path)
         if n.path in hidden:
             notes.append((n, f"{k} not measured: not shown (scrolled out of view, or hidden)"))
@@ -1939,7 +2043,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         for n in nodes:
             if not (n._showing and not disabled(n) and (
                     n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))
-                    ) or gtk3_switch(Atspi, n) or wrong(n, "edge"):
+                    ) or gtk3_switch(Atspi, n) or covered(n, "edge") or wrong(n, "edge"):
                 continue
             box = shown(n)
             if box and not pic.clip(box):
@@ -1966,6 +2070,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     problems = [(n, what) for n, what in problems if not skip(n, what)] + failing
     notes = [note for note in notes if note not in failing]
     return (problems, [(n, what) for n, what in passes if not skip(n, what)], notes,
+            [(n, what) for n, what in behind if not skip(n, what)],
             [w for w in whys if any(n.get("_why") == w for n, _ in problems + notes)], count)
 
 
@@ -2472,11 +2577,11 @@ def main(argv):
                 print("  " * n.depth + n.line())
         return 0
     if a.what in ("lint", "contrast"):
-        passes, notes, whys, count = [], [], [], 1
+        passes, notes, behind, whys, count = [], [], [], [], 1
         if a.what == "lint":
             problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
         else:
-            problems, passes, notes, whys, count = contrast(
+            problems, passes, notes, behind, whys, count = contrast(
                 a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large, a.strict)
             passes = passes if a.passes else []
         # Said apart from the lines, on stderr, so stdout is PATH: WHAT.
@@ -2484,7 +2589,9 @@ def main(argv):
         # a failure isn't nothing.
         nothing = not count and whys and all(isinstance(p, Noted) for p in problems)
         said = " ".join([f"{len(notes)} not measured"
-                         + ("." if nothing else ", which doesn't fail.")] * bool(notes) + whys)
+                         + ("." if nothing else ", which doesn't fail.")] * bool(notes)
+                        + [f"{len(behind)} behind a modal dialog, which doesn't fail."]
+                        * bool(behind) + whys)
         if a.json and a.what == "lint":
             print(json.dumps([dict(public(n), problem=what, fails=True) for n, what in problems]))
         elif a.json:
@@ -2495,9 +2602,10 @@ def main(argv):
                                  if a.passes else {}),
                               "notes": [dict(public(n), note=what,
                                              **({"why": n._why} if "_why" in n else {}))
-                                        for n, what in notes]}))
+                                        for n, what in notes],
+                              "behind": [dict(public(n), behind=what) for n, what in behind]}))
         else:
-            for n, what in problems + passes + notes:
+            for n, what in problems + passes + notes + behind:
                 print(f"{n.path}: {what}")
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")

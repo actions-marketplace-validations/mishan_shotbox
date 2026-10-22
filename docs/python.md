@@ -71,9 +71,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   strict=False)`, a dict of `problems`, the nodes with a `problem`, and
   `notes`, what wasn't measured, which doesn't fail, each with its
   `note` (GTK 4's with its `why`), or with `strict` fails, among the
-  `problems`, but for what's scrolled out of view; and with `passes`,
-  `passes`, what passes, each with its `contrast`, the ratio as `a11y
-  contrast --passes` says it;
+  `problems`, but for what's scrolled out of view; `behind`, what's
+  behind a modal dialog, which doesn't fail, each with its `behind`;
+  and with `passes`, `passes`, what passes, each with its `contrast`,
+  the ratio as `a11y contrast --passes` says it;
   `click_node(name, role=None, window=None, force=False)` and
   `scroll_node(name, dy, dx=0, role=None, window=None, force=False)`,
   waiting as `a11y click` does, unless `force`;

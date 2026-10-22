@@ -31,9 +31,22 @@
   note, which doesn't fail, however faint, so a run that passed can
   fail now. Stock libadwaita has some: an empty `AdwEntryRow`'s title
   (1.98:1), Files' preferences group description (3.21:1), and Settings
-  › Sound's "No Output Devices" (3.23:1). So does text dimmed behind an
-  open dialog, as faint as it's drawn (Files' path bar behind its
-  preferences). Leave them out with `--ignore` if they're not yours.
+  › Sound's "No Output Devices" (3.23:1). Leave them out with
+  `--ignore` if they're not yours. Text dimmed behind an open dialog
+  doesn't fail: see the next.
+- **`a11y contrast` says what's behind a modal dialog apart, and
+  doesn't fail it**, with `--strict` either: `PATH: text behind a modal
+  dialog "Settings"`, after what wasn't measured, and under `behind` in
+  `--json`, `Screen.contrast()` and MCP's `check_contrast`. That's
+  what's outside an aria-modal dialog in its page (one on the screen),
+  a modal window's program's other windows, covered or not, and what's
+  under a libadwaita dialog in its window, which is always modal; not
+  what's under a modal popover. It was measured where the dialog dims
+  or covers it, and failed (an aria-modal dialog's backdrop took a
+  `#999` paragraph to 2.14:1) or passed on what covered it (a
+  libadwaita dialog's own text), so a run that failed can pass now,
+  and its lines are new on stdout. Check what's behind with the dialog
+  closed.
 - **MCP's `take_screenshot` says where a point on a picture is for
   `click_element` as a sum, `100 + x/0.8122, 50 + y/0.812`**, in place
   of "divide an x,y on it by that, then add the crop's x,y": a client
