@@ -532,9 +532,17 @@ place in the room, and on 4.16 and later, if none reaches 0.98, for
 the best of them a quarter of a pixel up, or a quarter or half down:
 those place text at fractions of a pixel, so a line set by its baseline
 can fall between rows), and not where anything else in that room
-matches 0.8 or more (the same text twice). Faint text is little of
-what varies where it's drawn, and a pattern behind it, the same with
-the text and without, can be much of the rest: a theme's grid of
+matches 0.8 or more (the same text twice), unless no other node could
+have drawn one of the two, and another with this same text could the
+other: a node draws its text once, so the first is this one's, and it's
+looked for again just there, to fail only (see below). A node could
+have drawn a place if its room holds it and its text (a label's own as
+well as its name) holds that text, or, whatever its text, it has
+nothing in it and isn't a label (an entry, a text view, a drawing area,
+an image): a label is taken to draw only its text, and a container
+nothing but what's in it. Faint text is little of what varies where
+it's drawn, and a pattern behind it, the same with the text and
+without, can be much of the rest: a theme's grid of
 #1e1929 lines every 24 pixels on #0f0d14 is 8% of the variance under
 #3a3446 text (1.61:1), which takes its best match to 0.92 to 0.96. So
 where the best match falls short of 0.98, it's worked out again just
@@ -556,7 +564,18 @@ it or its placeholder: if any matches 0.8 or more, nothing is taken,
 unless its text is a shorter piece of this one's, which can't match all
 of it ("check" over "unchecked"), and is drawn apart from what's found
 too, matching 0.8 or more in its own room: a hidden "Open File" isn't
-taken for "Open" and "File" drawn side by side.
+taken for "Open" and "File" drawn side by side. Nor does text holding
+this one's count where it matches 0.8 or more in its own room apart
+from what's found, at a place no other node could have drawn (as
+above): an entry holding "Neon Doll", whose room takes in a combo row
+below with "Neon Doll" selected. Which text is a node's is told by
+which nodes could have drawn it, not by its being inside the node's
+box: GTK has boxes too far up and left, and one in a box padded above
+can be over what's laid on that box's top. What isn't in the tree (a
+label with the role presentation), or a container that draws text
+round what's in it, can't be counted, so text told apart like this,
+either way, is taken only if it fails; if it would pass, it's a note,
+as it was.
 Text drawn by what has no text of its own (a drawing area, a widget
 drawing round its child) can't be, so from 4.14.6 the text GTK lays
 out must also be as wide as the name drawn as found, within a pixel
