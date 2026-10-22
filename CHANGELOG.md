@@ -88,6 +88,11 @@
 
 ### Fixed
 
+- A read of the accessible tree (`a11y tree`, `lint`, a click by name
+  and the rest) failed with `Object does not exist at path …` when a
+  window closed while it was read. A window gone is left out, as a node
+  gone already was; one gone before its bounds are read leaves its
+  nodes' bounds `null`, as a node gone then had.
 - `a11y contrast` didn't take GTK 4's text where another node's shorter
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a

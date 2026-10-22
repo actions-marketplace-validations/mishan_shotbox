@@ -363,7 +363,10 @@ def place(Atspi, n, shown, origins):
     """`n`'s bounds on the screen, [x, y, width, height], or None. `origins`
     caches origin() for each toplevel."""
     if n._top not in origins:
-        origins[n._top] = origin(Atspi, n._top, shown)
+        try:
+            origins[n._top] = origin(Atspi, n._top, shown)
+        except Exception:   # a window closed since the walk
+            origins[n._top] = None
     o = origins[n._top]
     if o is None:
         return None
@@ -454,10 +457,16 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
             break
         # libatspi caches states, and hears they've changed only from
         # events, which nothing here dispatches.
-        top.clear_cache()
-        paged(Atspi, top, window, timeout)
-        role = top.get_role()
-        visit(top, role, 0, f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}")
+        try:
+            top.clear_cache()
+            paged(Atspi, top, window, timeout)
+            role = top.get_role()
+            path = f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}"
+        except SessionError:   # paged()'s, about the window asked for
+            raise
+        except Exception:   # gone while we looked: a window closing
+            continue
+        visit(top, role, 0, path)
     if bounds:
         screen, origins = Screen(), {}
         shown = screen.backend.windows(screen.env)
