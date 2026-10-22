@@ -15,7 +15,7 @@ Inside a session with `--a11y`:
   reader would say: [Reading the tree](#reading-the-tree).
 - **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
   for what has no name to say: [Lint](#lint).
-- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--window RE]`**
+- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--document] [--window RE]`**
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
   trap: [Walking the Tab order](#walking-the-tab-order).
@@ -289,7 +289,8 @@ trap.
 
 Then it lists what Tab never reached: each showing, sensitive control
 (those lint holds to a name) or field it never landed on, nor on
-anything round it or in it (but a container's, as a window's frame),
+anything round it or in it (but a container's, as a window's frame,
+or a web page's document, which Chromium's Tab lands on),
 nor on another of its group beside it (a tab or radio button, one of
 which takes a stop, the rest arrows'), but for a menu bar's (F10's),
 `not reached by Tab: button "Play"`; and each table or list with an
@@ -304,6 +305,18 @@ every stock GTK window. `--ignore RE` leaves out each one, as lint's
 does, whose `PATH: not reached by Tab`, or `NODE: not reached by Tab`
 with its tree line, the regex is found in: `--ignore 'button
 "(Minimize|Maximize|Close)"'`.
+
+In a browser's window, Tab goes through the browser's own controls
+too (the address bar and the buttons by it), and the tab strip's and
+Back's are listed as not reached. `--document` lists only what's in
+the window's web page (in its `document web`, iframes' included), in
+Chromium and Firefox alike: the walk goes through the browser's
+controls as before, and their presses count towards `--max`, but they
+aren't listed, nor said as not reached, nor held to by `--visible` and
+`--reach-all`, and the count on the last line is of the page's stops.
+Chromium's Tab lands on the document itself as it comes in from the
+browser's controls; that isn't one of the page's stops. A window with no web document in it is refused, exit 1: `no web document
+to walk: the window isn't a browser's`.
 
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each

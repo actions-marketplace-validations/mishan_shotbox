@@ -898,11 +898,12 @@ class Server:
                          + whys)
 
     def check_focus_order(self, session, key="Tab", window=None, visible=False, most=50,
-                          ignore=None):
+                          ignore=None, document=False):
         s = self.a11y_session(session)
         most = int(number(most, "most", 1, 200) or 50)
         args = ["tabwalk", f"--key={key or 'Tab'}", "--max", str(most),
                 *(["--visible"] if flag(visible) else []),
+                *(["--document"] if flag(document) else []),
                 *[f"--ignore={i}" for i in words(ignore)],
                 *([f"--window={window}"] if window else [])]
         got = s._a11y(*args, timeout=90 + most * 5)
@@ -1287,7 +1288,10 @@ TOOLS = [
              "most": {"type": "integer", "minimum": 1, "maximum": 200,
                       "description": "Presses at most (50)"},
              "ignore": {**IGNORE, "description": "Regexes for unreached controls to leave "
-                        "out"}}, ["session"])),
+                        "out"},
+             "document": {"type": "boolean", "description": "Only what's in a browser "
+                          "window's web page: Tab still goes through the browser's own "
+                          "controls, but they aren't listed"}}, ["session"])),
     ("get_speech",
      "Hear what Orca, a real screen reader, says as the focus moves: it starts Orca in the "
      "session, presses Tab until the focus comes round (or keys, in turn), and answers a "

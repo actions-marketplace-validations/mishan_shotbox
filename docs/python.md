@@ -65,9 +65,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   window=None)`, the node `wait node` waits for, with its `text` where
   that's what matched;
   `tab_walk(key="Tab", most=50, window=None, visible=False,
-  reach_all=False, ignore=())`, the nodes the focus lands on, failing as
-  `tabwalk` does (with `visible`, where the focus doesn't show; with
-  `reach_all`, on what it never reaches); `a11y_lint(window=None,
+  reach_all=False, ignore=(), document=False)`, the nodes the focus
+  lands on, failing as `tabwalk` does (with `visible`, where the focus
+  doesn't show; with `reach_all`, on what it never reaches; with
+  `document`, only the web page's, as `--document`); `a11y_lint(window=None,
   ignore=())`, the nodes with a `problem`; `contrast(window=None,
   text=4.5, graphics=3, edges=None, large=3, passes=False,
   strict=False)`, a dict of `problems`, the nodes with a `problem`, and

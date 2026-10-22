@@ -632,7 +632,8 @@ def undrawn(Atspi, n):
 ESCAPES = ("ctrl+Tab", "shift+Tab", "Escape", "F6")
 
 
-def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=False):
+def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=False,
+             document=False):
     """Press `key` up to `most` times and note where the focus lands each
     time. (nodes, how it ended, what it never reached, the text view it
     began in or None): "cycle" once it lands somewhere it has been
@@ -652,7 +653,10 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     first thing outside it that takes it (AT-SPI's grab_focus, which GTK 4
     doesn't do), so the rest of the window is walked before the trap. With
     `visible`, each node says how much of the screen round it changed as it
-    took the focus (see shown())."""
+    took the focus (see shown()). With `document`, the nodes, what it never
+    reached and the text view are only those in the window's web documents,
+    though the walk goes through the browser's own controls too; a window
+    with none is refused."""
     Atspi = atspi()
     screen = Screen()
 
@@ -670,6 +674,15 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             time.sleep(0.05)
 
     toplevels(Atspi, window, timeout)
+    docs = document and [n.path + "/" for _, n in walk(Atspi, window, timeout)
+                         if n._role == Atspi.Role.DOCUMENT_WEB]
+    if document and not docs:
+        screen.close()
+        raise SessionError("no web document to walk: the window isn't a browser's")
+
+    def mine(n):
+        return not document or n.path.startswith(tuple(docs))
+
     start = press(None, None)
     if start is None:
         screen.close()
@@ -747,8 +760,10 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     finally:
         screen.close()
     # Said only where the walk left it; else it's the trap.
-    began = began if began and (began.get("left_by") or began.get("walked_from")) else None
-    return seen, how, unreached(Atspi, window, [n for n in (start, *seen) if n]), began
+    began = began if began and mine(began) and (began.get("left_by")
+                                                 or began.get("walked_from")) else None
+    missed = unreached(Atspi, window, [n for n in (start, *seen) if n and mine(n)])
+    return [n for n in seen if mine(n)], how, [n for n in missed if mine(n)], began
 
 
 def writing(Atspi, n):
@@ -833,11 +848,12 @@ def unreached(Atspi, window, seen):
     """The showing, sensitive controls and fields the focus never landed
     on, nor on anything round them, nor in them but for a container's,
     nor on another of their group beside them (a tab, a radio button),
-    but for a menu bar's (F10's); and each table or list with an item
+    but for a menu bar's (F10's), nor in a web document it landed on
+    (Chromium's Tab does, coming in from the toolbar); and each table or list with an item
     that takes the focus, the focus never in it."""
     controls, grouped = roles(Atspi, CONTROLS), roles(Atspi, GROUPED)
     containers, items, lists = roles(Atspi, CONTAINERS), roles(Atspi, ITEMS), roles(Atspi, LISTS)
-    menu_bar = roles(Atspi, ("MENU_BAR",))
+    menu_bar, docs = roles(Atspi, ("MENU_BAR",)), roles(Atspi, ("DOCUMENT_WEB",))
     nodes = [n for _, n in walk(Atspi, window)]
     by_path = {n.path: n for n in nodes}
     ids = {n._id for n in seen}
@@ -850,7 +866,7 @@ def unreached(Atspi, window, seen):
                 yield by_path[path]
 
     def near(n, o):
-        return ((n.path.startswith(o.path + "/") and o._role not in containers)
+        return ((n.path.startswith(o.path + "/") and o._role not in containers | docs)
                 or o.path.startswith(n.path + "/")
                 or (n._role in grouped and n._role == o._role
                     and n.path.rsplit("/", 1)[0] == o.path.rsplit("/", 1)[0]))
@@ -2549,6 +2565,9 @@ def main(argv):
                    help="fail where a showing, sensitive control is never reached; "
                         "without it, they're said, as arrows or shortcuts may reach them")
     w.add_argument("--ignore", **ignore)
+    w.add_argument("--document", action="store_true",
+                   help="only what's in the window's web page: the walk goes through the "
+                        "browser's own controls, but doesn't list them")
     w.add_argument("--visible", action="store_true",
                    help="fail where the focus doesn't show: too little of the screen "
                         "round a node changed as it took it")
@@ -2670,7 +2689,7 @@ def main(argv):
         return 0
     skip = ignored(a.ignore)
     seen, how, missed, began = tab_walk(a.key, a.max, a.window, timeout=a.timeout,
-                                        visible=a.visible)
+                                        visible=a.visible, document=a.document)
     missed = [n for n in missed if not skip(n, f"not reached by {a.key}")]
     if a.json:
         print(json.dumps({"focus": [public(n) for n in seen], "end": how,

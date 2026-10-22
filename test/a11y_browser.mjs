@@ -10,7 +10,8 @@
  * its live regions heard before that, a button clicked by its name, a
  * node waited for by its name, one scrolled out of view not, a
  * faint paragraph's contrast measured, and one behind an aria-modal
- * dialog said apart, but not behind one off the screen or of no size, a
+ * dialog said apart, but not behind one off the screen or of no size, its
+ * page's Tab order walked without the browser's own controls, a
  * browser that builds no page's tree for a reader told apart from an
  * empty one, a big page read whole, and a crashed tab noted. Prints what
  * it found as JSON.
@@ -112,6 +113,19 @@ try
         await modal.close();
     }
 
+    /* The page's Tab order: through the browser's controls, but only
+       the page's said; and without --document, the page's button Tab
+       skips said too, though Tab lands on the document it's in. */
+    const tabbed = await browser.newPage();
+
+    await tabbed.setContent(`<title>a11y-tabdoc</title><button>One</button>
+        <a href="#two">Two</a><button tabindex="-1">Off</button>`);
+    await tabbed.focus('button');
+    const walk = JSON.parse(run('a11y', 'tabwalk', '--document', '--json',
+                                '--window', 'a11y-tabdoc.*'));
+    const around = JSON.parse(run('a11y', 'tabwalk', '--json', '--window', 'a11y-tabdoc.*'));
+    await tabbed.close();
+
     /* One that won't build its page's tree for a reader. */
     const blind = await chromium.launch({ ...accessible,
         args: [...accessible.args, '--disable-platform-accessibility-integration'] });
@@ -148,6 +162,8 @@ try
         below,
         contrast,
         behind,
+        walk,
+        around,
         said: fs.readFileSync(process.env.SHOTBOX_ANNOUNCEMENTS, 'utf8'),
         hint,
         whole,
