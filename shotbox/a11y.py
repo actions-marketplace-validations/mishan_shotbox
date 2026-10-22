@@ -1196,6 +1196,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     nodes = [n for _, n in walk(Atspi, window, timeout, bounds=True)]
     pic = picture.Picture(*screen.backend.pixels(screen.env))
     texts, controls = roles(Atspi, TEXTS), roles(Atspi, CONTROLS)
+    named = roles(Atspi, ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION"))
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
                                roles(Atspi, EDGED))
     parents = {n.path: n for n in nodes}
@@ -1335,7 +1336,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 rel[n.path] = None
         return rel[n.path]
 
-    areas, fonts, drawings, lays, refused = {}, {}, {}, {}, {}
+    areas, fonts, drawings, lays, refused, aparts, doubt = {}, {}, {}, {}, {}, {}, {}
 
     def room(n):
         """Where `n`'s text can be on GTK 4.14 and later, which says where
@@ -1407,12 +1408,13 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     def texts_of(o):
         """What `o` may draw: its name, unless it's a label's it's named by,
-        and what's in it, if it's edited."""
+        and what's in it, if it's edited or a label, whose name can be set
+        to other than what it draws."""
         got = []
         if o.name and not any(t.get_name() == o.name
                               for t in related(Atspi, o._acc, "LABELLED_BY")):
             got.append(o.name)
-        if "editable" in o.states:
+        if "editable" in o.states or o._role in named:
             try:
                 got.append(Atspi.Text.get_text(o._acc, 0, -1) or "")
             except Exception:   # no text, or gone since the walk
@@ -1421,7 +1423,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             got.append((o._acc.get_attributes() or {}).get("placeholder-text", ""))
         except Exception:   # gone since the walk
             pass
-        return [t for t in got if t]
+        return list(dict.fromkeys(t for t in got if t))
 
     def as_wide(n, shape):
         """Whether the text GTK lays out for `n` is as wide as its name drawn
@@ -1473,14 +1475,15 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         however many, and nearly any width would do."""
         return gtk4_release(n) >= (4, 14, 6) and not n.name.isascii()
 
-    def seek(n, until):
+    def seek(n, until, near=None):
         """Where `n`'s text is drawn, for GTK 4.14 and later: (its box, how
         far its corner is from where GTK says its text is, or up to 4.14.5,
         which doesn't say, its box, and where and as what shape it's drawn,
         for picture.text_contrast), or None if it isn't found, alone, where
-        it can be (room), or another node's text there could be what's
-        found."""
-        area, attrs = room(n) and overlap(room(n), [0, 0, pic.width, pic.height]), font(n)
+        it can be (room, or `near`, part of it), or another node's text
+        there could be what's found."""
+        where, attrs = near or room(n), font(n)
+        area = where and overlap(where, [0, 0, pic.width, pic.height])
         kinds = (area and area[2] > 0 and area[3] > 0 and attrs is not None
                  and drawing(n.name, attrs))
         seen_area = area and area[2] > 0 and area[3] > 0
@@ -1526,17 +1529,29 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                                else "it can't be drawn to look for")
             return None
         if got[5] >= MATCH_ELSEWHERE:
-            # The node whose room holds the other place, if its text holds
-            # this one's: of those, the one whose room starts nearest it, as
-            # GTK places each further left and up than it is.
-            mid = [got[7][0] + got[3] // 2, got[7][1] + got[4] // 2, 1, 1]
-            like = [called(nodes[i], t) for _, i, t in sorted(
-                ((room(o)[1], room(o)[0]), i, t) for i, o in enumerate(nodes)
-                if not (within(o.path, n.path) or within(n.path, o.path))
-                and room(o) and overlap(room(o), mid) == mid
-                for t in texts_of(o) if n.name.lower() in t.lower())[::-1]]
-            refused[n.path] = ("twice", "it matches elsewhere too" + (
-                f", in {like[0]}" if like else f", {got[5]:.2f}: the same text twice, or like it"))
+            places = [got[1:3], got[7]]
+            boxes = [[x + 2, y, got[3] - 4, got[4]] for x, y in places]
+            others = [drawers(b, n.name, n) for b in boxes]
+            like = others[1]
+            why = ("twice", "it matches elsewhere too" + (
+                f", in {called(*like[0])}" if like
+                else f", {got[5]:.2f}: the same text twice, or like it"))
+            # A node draws its text once, so where no other node could have
+            # drawn one place (drawers, blank too) and another with the same
+            # text could the other, this one's is the first, looked for
+            # again just there, but taken only if it fails (doubt). Text
+            # inside a longer one ("check" in "unchecked") is left as
+            # matching twice.
+            for i in (0, 1):
+                if not near and not drawers(boxes[i], n.name, n, blank=True) and any(
+                        s.lower() == n.name.lower() for _, s in others[1 - i]):
+                    x, y = places[i]
+                    doubt[n.path] = why
+                    seen = seek(n, until, overlap([x - 1, y - 3, got[3] + 2, got[4] + 6], where))
+                    if not seen:
+                        refused[n.path] = why
+                    return seen
+            refused[n.path] = why
             return None
         if not as_wide(n, got[6]):
             refused[n.path] = ("wide", "what matches is drawn wider or narrower than GTK "
@@ -1556,28 +1571,57 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 # A shorter text inside this one can't match all of it, if
                 # it's drawn where it is too.
                 if (other and t.lower() != n.name.lower() and t.lower() in n.name.lower()
-                        and drawn_apart(o, other, box, until)):
+                        and drawn_apart(o, t, other, box, until)):
                     continue
                 if (max(picture.match_over(pic, other, box, until, u) for u in {None, under})
                         >= MATCH_ELSEWHERE if other
                         else n.name.lower() in t.lower()):
-                    refused[n.path] = ("other", f"another node's text matches there too: {called(o, t)}")
+                    why = ("other", f"another node's text matches there too: {called(o, t)}")
+                    # Nor does text holding this one's drawn apart where no
+                    # other node could have, but then it's taken only if it
+                    # fails (doubt).
+                    if (other and n.name.lower() in t.lower()
+                            and drawn_apart(o, t, other, box, until, alone=True)):
+                        doubt.setdefault(n.path, why)
+                        continue
+                    refused[n.path] = why
                     return None
         at = laid(n) or (0, 0)
         return box, tuple(box[i] - n.bounds[i] - at[i] for i in (0, 1)), (got[1], got[2], shape)
 
-    def drawn_apart(o, kinds, box, until):
-        """Whether `o`'s text, drawn as `kinds`, matches MATCH_ELSEWHERE or
-        more where `o`'s can be (room), at a place apart from `box`."""
-        area = room(o) and overlap(room(o), [0, 0, pic.width, pic.height])
-        got = area and all(area[2:]) and picture.find_text(
-            pic, kinds, (area[0], area[1], area[0] + area[2], area[1] + area[3]), until)
+    def drawers(box, t, of, blank=False):
+        """The nodes but `of`, and what it's in or holds, whose room holds
+        the middle of `box` and whose text holds `t`, (node, that text): the
+        one whose room starts nearest it first, as GTK places each further
+        left and up than it is. With `blank`, any with nothing in it that
+        isn't a label too, whatever its text (a drawing area, an image, a
+        text view), which can draw anything: a label draws its name."""
+        mid = [box[0] + box[2] // 2, box[1] + box[3] // 2, 1, 1]
+        return [(nodes[i], s) for _, i, s in sorted(
+            ((room(o)[1], room(o)[0]), i, s) for i, o in enumerate(nodes)
+            if not (within(o.path, of.path) or within(of.path, o.path))
+            and room(o) and overlap(room(o), mid) == mid
+            for s in texts_of(o) + ([""] if blank and o.path not in kids
+                                    and o._role not in named else [])
+            if not s or t.lower() in s.lower())[::-1]]
+
+    def drawn_apart(o, t, kinds, box, until, alone=False):
+        """Whether `o`'s text `t`, drawn as `kinds`, matches MATCH_ELSEWHERE
+        or more where `o`'s can be (room), at a place apart from `box`; with
+        `alone`, one no other node could have drawn (drawers)."""
+        key = o.path, id(kinds)   # drawing() keeps each kinds
+        if key not in aparts:
+            area = room(o) and overlap(room(o), [0, 0, pic.width, pic.height])
+            aparts[key] = area and all(area[2:]) and picture.find_text(
+                pic, kinds, (area[0], area[1], area[0] + area[2], area[1] + area[3]), until)
+        got = aparts[key]
         if not got:
             return False
         for match, (x, y) in ((got[0], got[1:3]), (got[5], got[7])):
-            if all(overlap([x + 2, y, got[3] - 4, got[4]], box)[2:]):
+            there = [x + 2, y, got[3] - 4, got[4]]
+            if all(overlap(there, box)[2:]):
                 continue
-            return match >= MATCH_ELSEWHERE
+            return match >= MATCH_ELSEWHERE and not (alone and drawers(there, t, o, blank=True))
         return False
 
     def called(o, t):
@@ -1725,6 +1769,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         big = k == "text" and large_text(Atspi, n)
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
+        if seen and n.path in doubt:
+            # Told apart from another's text by which nodes could have drawn
+            # it, which can't count one left out of the tree: taken only to
+            # fail, else as if not found.
+            got = picture.text_contrast(pic, overlap(seen[0], [0, 0, pic.width, pic.height]),
+                                        seen[2])
+            if not got or got[0] >= least:
+                seen, refused[n.path] = None, doubt[n.path]
         # Only in a window raised: another can be over it, its text faint.
         dim = window and n.path in found and not seen and faint(n, least)
         if dim:

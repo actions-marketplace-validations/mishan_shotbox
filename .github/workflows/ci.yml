@@ -22,6 +22,9 @@ jobs:
   # so the ones that time what's on the screen aren't crowded by the rest.
   test:
     runs-on: ubuntu-latest
+    # A hung session would hold the runner for GitHub's six hours; record,
+    # the slowest, has taken 27 minutes on busy runners.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -95,6 +98,7 @@ jobs:
   # nothing of shotbox's on it, each feature it installs for, sandboxed.
   action:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: ./
@@ -128,6 +132,7 @@ jobs:
   # speak brings what a11y does: Orca starts from what the Action installed.
   action-speak:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: ./
@@ -145,6 +150,7 @@ jobs:
   # rather than a checkout), and the npm tarball in a fresh project.
   package:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 

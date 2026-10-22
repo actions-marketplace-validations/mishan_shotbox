@@ -1177,6 +1177,23 @@ CASES
         && ! grep -q '/panel\[7\]/label\[0\]: text passes' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: the other match's own node named; text not taken for pieces of it drawn only there" \
         || { fail "a11y: contrast, GTK 4, Recheck and Open File"; cat "$tmp/contrast"; }
+      # A faint "Twin" over an entry holding "Twin", or under it, each
+      # in the other's room, the entry's text where nothing else can draw
+      # it: found where it's drawn, and failing. Nothing else is measured:
+      # not a hidden "Twin" over the label, nor, where GTK says what's in
+      # a box padded above is over what's laid on its top (over), a label
+      # there or a hidden one, with a label, a drawing area or a label
+      # named otherwise on top.
+      for args in twin "twin under" "twin hidden" over "over hidden" "over hidden drawn" \
+          "over drawn" "over named"; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --passes --window a11y-test" \
+          < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      grep -q '/panel\[7\]/panel\[0\]/label\[0\]: text 2\.[0-9]*:1, #a0a0a0 on .*; found 0,0 px' "$tmp/contrast" \
+        && grep -q '/panel\[7\]/panel\[1\]/label\[0\]: text 2\.[0-9]*:1, #a0a0a0 on .*; found 0,0 px' "$tmp/contrast" \
+        && [ "$(grep -c '/panel\[7\]/.*: text \(passes\|[0-9]\)' "$tmp/contrast")" = 2 ] \
+        && ok "a11y: contrast, GTK 4: text matching where only another node's text can be is found where it's drawn; not a hidden twin, nor where GTK's box is over it" \
+        || { fail "a11y: contrast, GTK 4, Twin"; cat "$tmp/contrast"; }
     fi
     # --strict: a window where nothing's measured but what fails, exit 1
     # with the failure, not 2, "nothing measured".
@@ -1701,25 +1718,33 @@ PY
   # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
   records() {
     opt=$1 pre=$2 say=$3
-    "$sb" run $opt -- sh -c "'$here/window.py' rec & '$sb' wait window rec && '$sb' capture '$tmp/$pre-win.png' --window rec &&
+    # Each check that fails is said, with what it got; the session's steps
+    # traced, so a step that failed is the last one there.
+    why=; no() { why="$why; $*"; }
+    "$sb" run $opt -- sh -xc "'$here/window.py' rec & '$sb' wait window rec && '$sb' capture '$tmp/$pre-win.png' --window rec &&
       '$sb' record '$tmp/$pre.mp4' --window rec --seconds 2 && '$sb' record '$tmp/$pre.webm' --fps 10 --seconds 1 &&
       '$sb' record '$tmp/$pre.gif' --window rec --crop 101x51+10+10 --seconds 1 &&
       { '$sb' record '$tmp/$pre-k.mp4' --window rec & r=\$!; sleep 1.5; kill \$r; wait \$r; } &&
       ! '$sb' record '$tmp/$pre.avi' --seconds 1 2> '$tmp/err' && ! '$sb' record '$tmp/${pre}0.mp4' --seconds 0 2>> '$tmp/err' &&
       ! '$sb' record '$tmp/${pre}s.mp4' --sound --seconds 1 2>> '$tmp/err' &&
       ! '$sb' record '$tmp/${pre}s.gif' --sound --seconds 1 2>> '$tmp/err' &&
-      ! '$sb' record '$tmp/${pre}s.mp4' --strict --seconds 1 2>> '$tmp/err'" > /dev/null \
-      && [ "$(probe "$tmp/$pre.mp4")" = "h264,200,120 2.000000 " ] && [ "$(frames "$tmp/$pre.mp4")" -ge 50 ] \
-      && ffmpeg -loglevel error -y -ss 1 -i "$tmp/$pre.mp4" -frames:v 1 "$tmp/$pre-frame.png" \
-      && "$sb" compare "$tmp/$pre-win.png" "$tmp/$pre-frame.png" --fuzz 20% > /dev/null \
-      && [ "$(probe "$tmp/$pre.webm")" = "vp9,1280,800 1.000000 " ] && [ "$(frames "$tmp/$pre.webm")" = 10 ] \
-      && [ "$(probe "$tmp/$pre.gif")" = "gif,100,50 1.000000 " ] \
-      && probe "$tmp/$pre-k.mp4" | grep -q "^h264,200,120 " && [ "$(frames "$tmp/$pre-k.mp4")" -ge 15 ] \
-      && grep -q "mp4, .webm, .gif or .wav" "$tmp/err" && grep -q "more than 0" "$tmp/err" && [ ! -e "$tmp/${pre}0.mp4" ] \
-      && grep -q "start the session with --audio" "$tmp/err" && grep -q "with sound is an .mp4 or .webm" "$tmp/err" \
-      && grep -q "go with --sound" "$tmp/err" \
-      && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
-      || fail "$say: $(probe "$tmp/$pre.mp4"); $(probe "$tmp/$pre.webm"); $(probe "$tmp/$pre.gif"); $(probe "$tmp/$pre-k.mp4")"
+      ! '$sb' record '$tmp/${pre}s.mp4' --strict --seconds 1 2>> '$tmp/err'" > "$tmp/$pre-steps" 2>&1 \
+      || no "a step failed ($?)"
+    p=$(probe "$tmp/$pre.mp4"); [ "$p" = "h264,200,120 2.000000 " ] || no "MP4 $p"
+    n=$(frames "$tmp/$pre.mp4") || :; [ "$n" -ge 50 ] 2>/dev/null || no "MP4 $n frames, not 50 or more"
+    c=$(ffmpeg -loglevel error -y -ss 1 -i "$tmp/$pre.mp4" -frames:v 1 "$tmp/$pre-frame.png" 2>&1 &&
+      "$sb" compare "$tmp/$pre-win.png" "$tmp/$pre-frame.png" --fuzz 20% 2>&1) \
+      || no "MP4's frame at 1 s, not the window's picture: $c"
+    p=$(probe "$tmp/$pre.webm"); [ "$p" = "vp9,1280,800 1.000000 " ] || no "WebM $p"
+    n=$(frames "$tmp/$pre.webm") || :; [ "$n" = 10 ] || no "WebM $n frames, not 10"
+    p=$(probe "$tmp/$pre.gif"); [ "$p" = "gif,100,50 1.000000 " ] || no "GIF $p"
+    p=$(probe "$tmp/$pre-k.mp4"); case $p in "h264,200,120 "*) ;; *) no "killed MP4 $p" ;; esac
+    n=$(frames "$tmp/$pre-k.mp4") || :; [ "$n" -ge 15 ] 2>/dev/null || no "killed MP4 $n frames, not 15 or more"
+    [ ! -e "$tmp/${pre}0.mp4" ] || no "a 0 s recording made"
+    for e in "mp4, .webm, .gif or .wav" "more than 0" "start the session with --audio" \
+      "with sound is an .mp4 or .webm" "go with --sound"; do grep -qs "$e" "$tmp/err" || no "not said: $e"; done
+    [ -z "$why" ] && ok "$say: a window as it looks, the screen, a crop, as MP4, WebM and GIF; stopped by kill, finished" \
+      || { fail "$say: ${why#; }"; cat "$tmp/$pre-steps" "$tmp/err"; }
     # --until-line: ended by a line written 1.5 s in, and --tail after it,
     # not by the one already there; with no line, by --seconds. Each said.
     echo run_end 0 > "$tmp/$pre-ev"
