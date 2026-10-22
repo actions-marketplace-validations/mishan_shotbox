@@ -83,10 +83,15 @@ G]` waits until it looks like a picture, for a screen with no other sign
 it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 [--crop G]` until it looks different from the first picture the wait takes
 (a window still drawing is a picture too: `wait stable` first); each
-counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`), and prints how
-long it took. `shotbox wait line RE FILE` waits for a line matching RE (found
-anywhere in it) to be written to FILE, and prints it: for a program that logs
-what happens, a line an event, where a sleep would go by the wall's clock
+counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`, `--ignore
+G` in the picture taken), and prints how long it took. `wait match --crop G
+--margin PX` looks for the picture up to PX pixels from the crop's place each
+way, as openQA's needles are searched for, for one that moves a little from
+run to run (a canvas, a game), and prints where it matched best too: `0.412s
+at 103,58`, its top left corner, measured as the crop's is. `shotbox wait
+line RE FILE` waits for a line matching RE (found anywhere in it) to be
+written to FILE, and prints it: for a program that logs what happens, a line
+an event, where a sleep would go by the wall's clock
 and a game's can stop. Lines written before the wait starts don't count
 (`--from-start` for those too), nor one not yet ended; a file not there yet
 is waited for, and one rotated or written again from the top is read from
@@ -428,16 +433,28 @@ ready -- shotbox term ...`.
 **`shotbox compare A.png B.png [--diff D.png] [--fuzz 1%] [--max N]`**
 counts the pixels that differ, and says the box they're in, and fails if
 more than `--max` (0) do. With a committed picture, that's a visual
-regression test.
+regression test. `--ignore WxH+X+Y` (repeatable) leaves out a box, as
+`flicker`'s does, that changes from run to run, a clock or a cursor, as
+openQA's exclude areas and Playwright's `mask` do, rather than a `--fuzz`
+loose enough to hide real changes; the diff shows it filled magenta.
+`--margin PX` compares B where it matches A best, up to PX pixels off each
+way, and says how far it moved (`0 pixels differ, moved 2,-1`), passing or
+failing; a band PX wide round the edge, where what moved in or out was, is
+left out, at every place alike. It costs about 0.1 s more on a 1280x800
+picture, and up to 2 s for one that fails with more than a hundredth of it
+differing at 16 pixels each way; past a hundredth a place isn't counted
+further, and where none is under that, it's B where it was.
 
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
 each, and fails if any differs, is missing, or changed size. `--diff DIR`
-writes `NAME-diff.png` there for each that fails. `--fuzz` and `--max`
-take `NAME=VALUE` for one picture, beside a plain VALUE for the rest:
+writes `NAME-diff.png` there for each that fails. `--fuzz`, `--max`,
+`--ignore` and `--margin` take `NAME=VALUE` for one picture, beside a plain
+VALUE for the rest (each `--ignore` adds a box):
 
 ```
-shotbox compare data/screenshots fresh --fuzz 0.5% --fuzz video=5% --diff fresh
+shotbox compare data/screenshots fresh --fuzz 0.5% --fuzz video=5% \
+  --ignore panel=80x24+1200+0 --diff fresh
 ```
 
 ## vision

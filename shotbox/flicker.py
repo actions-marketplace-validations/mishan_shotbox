@@ -98,7 +98,8 @@ def alike(a, b, fuzz):
     in fifty differing by more than twice `fuzz` percent, which noise in a
     black that isn't clean is within. Text scrolling past differs by more,
     in its strokes."""
-    return differ(a, b, 2 * fuzz, len(a) // 150) <= len(a) // 150
+    most = len(a) // 150
+    return differ((len(a) // 3, 1, a), (len(b) // 3, 1, b), 2 * fuzz, most) <= most
 
 
 def moved(here, picture, width, x, y, wide, reach, fuzz):

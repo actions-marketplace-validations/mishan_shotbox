@@ -62,6 +62,14 @@ def pointer(on, **session):
         s.capture(d / "parked.png", window="shotbox-button", park=True)
         check(x.compare(d / "rest.png", d / "parked.png") == 0,
               f"{on}: capture(park=True) takes it as if never hovered")
+        subprocess.run(["convert", d / "parked.png", "-crop", "60x30+70+45", "+repage",
+                        d / "part.png"], check=True)
+        # Where it matched: 0,0 without a crop, the crop's corner, or where a margin found it.
+        for ref, how, at in (("parked", {}, (0, 0)), ("part", {"crop": "60x30+70+45"}, (70, 45)),
+                             ("part", {"crop": "60x30+73+43", "margin": 3}, (70, 45))):
+            m = s.wait_match(d / f"{ref}.png", window="shotbox-button", timeout=5, **how)
+            check(m.seconds >= 0 and (m.x, m.y) == at,
+                  f"{on}: wait_match {how}: a Match, at {at} ({m})")
         (d / "script").write_text("click ${X} ${Y} --window shotbox-button\n+0.5 park --settle 0\n")
         s.play(d / "script", vars={"X": w[2] // 2, "Y": w[3] // 2})
         check((d / "clicks").read_text() == "clicked\n" * 2,

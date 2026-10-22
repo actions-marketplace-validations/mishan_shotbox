@@ -590,13 +590,13 @@ st2=$?
 "$sb" run -- sh -c "'$here/window.py' t1 &
   '$sb' wait change --window t1 --crop 300x10+0+0 --timeout 1" 2> "$tmp/err3"
 st3=$?
-bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--fuzz 150%' '--max -1' '--crop 10x10' '--crop 10x10+5000+0'; do
+bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--fuzz 150%' '--max -1' '--crop 10x10' '--crop 10x10+5000+0' '--ignore 0x5+0+0'; do
   '$sb' wait change \$o --timeout 1 2>&1 && echo took; done")
 set -e
 [ $st != 0 ] && grep -q "window 't1' to match" "$tmp/err" && ! grep -q "picture taken" "$tmp/err" \
   && [ $st2 != 0 ] && grep -q "app1.png is 200x120, the picture taken 10x10" "$tmp/err2" \
   && [ $st3 != 0 ] && grep -q "the crop isn't inside the window, 200x120" "$tmp/err3" \
-  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 5 ] \
+  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 6 ] \
   && ok "match gives up on a picture it doesn't look like, saying sizes that differ; bad options refused" \
   || fail "match miss: $st $(cat "$tmp/err") $st2 $(cat "$tmp/err2") $st3 $(cat "$tmp/err3") $bad"
 "$sb" run -- sh -c "
@@ -606,6 +606,32 @@ set -e
   '$sb' wait change --window shotbox-term" > "$tmp/out" \
   && awk '{ exit !($1 + 0 >= 0.5) }' "$tmp/out" && ok "change waits for the screen to change, and says when" \
   || fail "change: $(cat "$tmp/out")"
+# --ignore: a patch on the picture the window lacks, matched once each
+# pixel of it is left out, by one box or two, or one past the edge.
+convert "$tmp/app1.png" -fill red -draw 'rectangle 5,5 14,14' "$tmp/patched.png"
+"$sb" run -- sh -c "'$here/window.py' t1 & '$sb' wait window t1 >/dev/null
+  for e in 'yes --ignore 10x10+5+5' 'yes --ignore 6x10+5+5 --ignore 4x10+11+5' \
+           'yes --ignore 300x300+0+0' 'no --ignore 9x10+5+5'; do
+    set -- \$e; want=\$1; shift
+    '$sb' wait match '$tmp/patched.png' --window t1 --timeout 1 \"\$@\" >/dev/null 2>&1 && got=yes || got=no
+    [ \$got = \$want ] || echo \"\$e: \$got\"
+  done" > "$tmp/out" 2>&1 && [ ! -s "$tmp/out" ] \
+  && ok "match leaves out what --ignore says" || fail "match --ignore: $(cat "$tmp/out")"
+# --margin: a part of the window, looked for that far from the crop's
+# place, at the window's edge too; with a patch on it left out.
+convert "$tmp/app1.png" -crop 60x40+20+30 +repage "$tmp/part.png"
+convert "$tmp/part.png" -fill red -draw 'point 5,5' "$tmp/part-patched.png"
+"$sb" run -- sh -c "'$here/window.py' t1 & '$sb' wait window t1 >/dev/null
+  for e in 'at 20,30:part 60x40+20+30 3' 'at 20,30:part 60x40+23+28 3' 'no:part 60x40+23+28 2' \
+           'at 20,30:part 60x40+0+0 30' 'no:part-patched 60x40+21+31 1' \
+           'at 20,30:part-patched 60x40+21+31 1 --ignore 1x1+5+5'; do
+    want=\${e%%:*}; set -- \${e#*:}; ref=\$1 crop=\$2 margin=\$3; shift 3
+    got=\$('$sb' wait match '$tmp/'\$ref.png --window t1 --timeout 1 --crop \$crop --margin \$margin \"\$@\" 2>/dev/null) \\
+      && got=\${got#* } || got=no
+    [ \"\$got\" = \"\$want\" ] || echo \"\$e: \$got\"
+  done" > "$tmp/out" 2>&1 && [ ! -s "$tmp/out" ] \
+  && ok "match finds a picture up to --margin from its place, and says where" \
+  || fail "match --margin: $(cat "$tmp/out")"
 
 # line: one written after the wait starts, not one begun before, and only
 # once it ends; from the top with --from-start; in a file that comes later,
@@ -1681,6 +1707,42 @@ convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
 set +e; n=$("$sb" compare "$tmp/a.png" "$tmp/d.png" --diff "$tmp/diff.png"); st=$?; set -e
 [ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ -s "$tmp/diff.png" ] \
   && ok "compare: one pixel off, found, and where" || fail "compare: $st $n"
+convert -size 1300x800 xc:red "$tmp/red.png"; convert -size 1300x800 xc:blue "$tmp/blue.png"
+set +e; n=$("$sb" compare "$tmp/red.png" "$tmp/blue.png" 2>&1); st=$?; set -e
+[ $st = 1 ] && [ "$n" = "1040000 pixels differ, in 1300x800 at 0,0" ] \
+  && ok "compare: a million pixels off, counted exactly" || fail "compare a million: $st $n"
+# --ignore: two pixels off, either left out, both, a NAME's for another
+# picture, or one that's no box.
+convert "$tmp/d.png" -fill red -draw 'point 3,2' "$tmp/d2.png"
+out=$(for e in '1:1 pixels differ, in 1x1 at 3,2:--ignore 1x1+0+0' \
+               '1:1 pixels differ, in 1x1 at 0,0:--ignore 2x2+2+1' \
+               '0:0 pixels differ:--ignore 1x1+0+0 --ignore 1x1+3+2' \
+               '0:0 pixels differ:--ignore 5x3+0+0' \
+               '1:2 pixels differ, in 4x3 at 0,0:--ignore other=5x3+0+0' \
+               '2::--ignore 0x1+0+0'; do
+  want=${e%%:*}; rest=${e#*:}; said=${rest%%:*}
+  set +e; got=$("$sb" compare "$tmp/a.png" "$tmp/d2.png" ${rest#*:} 2>/dev/null); st=$?; set -e
+  [ "$st:$got" = "$want:$said" ] || echo "${rest#*:}: $st $got"
+done)
+[ -z "$out" ] && ok "compare: --ignore leaves boxes out" || fail "compare --ignore: $out"
+# --margin: the picture moved 2 right and 1 up, found within 2 or more,
+# not 1; with a pixel changed, failing where it matches best; a box left
+# out goes with the first picture.
+convert "$tmp/a.png" -roll +2-1 "$tmp/moved.png"
+convert "$tmp/moved.png" -fill red -draw 'point 12,9' "$tmp/moved2.png"
+out=$(for e in '0:moved:0 pixels differ, moved 2,-1:--margin 2' '0:moved:0 pixels differ, moved 2,-1:--margin 5' \
+               '1:moved::--margin 1' '1:moved2:1 pixels differ, in 1x1 at 10,10, moved 2,-1:--margin 2' \
+               '0:moved2:0 pixels differ, moved 2,-1:--margin 2 --ignore 1x1+10+10' '2:moved::--margin x'; do
+  want=${e%%:*}; rest=${e#*:}; b=${rest%%:*}; rest=${rest#*:}; said=${rest%%:*}
+  set +e; got=$("$sb" compare "$tmp/a.png" "$tmp/$b.png" ${rest#*:} 2>/dev/null); st=$?; set -e
+  [ "$st" = "$want" ] && { [ -z "$said" ] || [ "$got" = "$said" ]; } || echo "$b ${rest#*:}: $st $got"
+done)
+[ -z "$out" ] && ok "compare: --margin finds where the picture moved" || fail "compare --margin: $out"
+"$sb" compare "$tmp/a.png" "$tmp/d2.png" --diff "$tmp/diff2.png" >/dev/null || :
+"$sb" compare "$tmp/a.png" "$tmp/d2.png" --ignore 1x1+0+0 --diff "$tmp/xdiff.png" >/dev/null || :
+set +e; n=$("$sb" compare "$tmp/diff2.png" "$tmp/xdiff.png"); set -e
+[ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ "$(convert "$tmp/xdiff.png" -format '%[hex:p{0,0}]' info:)" = FF00FF ] \
+  && ok "compare: the diff shows what's left out, magenta" || fail "compare: diff: $n"
 
 mkdir -p "$tmp/ref" "$tmp/new"
 cp "$tmp/a.png" "$tmp/ref/same.png"; cp "$tmp/a.png" "$tmp/new/same.png"
