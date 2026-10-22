@@ -488,7 +488,7 @@ shotbox run --audio -- sh -c 'shotbox record soak.wav --seconds 60 & ./app; wait
 shotbox listen soak.wav
 ```
 
-## a11y and wait announce
+## a11y, wait announce and wait node
 
 In a session with `--a11y`: [Accessibility](accessibility.md#commands),
 and for `a11y speak`, what Orca says as the focus moves, [What a screen

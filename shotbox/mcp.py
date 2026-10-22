@@ -864,6 +864,11 @@ class Server:
             n = self.a11y_session(session).wait_focus(str(value), timeout=timeout,
                                                       window=text(window))
             return f"The focus is on {n.line()}."
+        if what == "node":
+            n = self.a11y_session(session).wait_node(str(value), text(window), timeout)
+            return (f"It's there: {n.line()}"
+                    + (f", its text {json.dumps(n.text, ensure_ascii=False)}." if "text" in n
+                       else "."))
         return "The line:\n" + fenced([s.wait_line(str(value), self.log(file), flag(from_start),
                                                    timeout, within=Path(self.home).resolve())])
 
@@ -1001,7 +1006,7 @@ PROGRAM = {"type": "string", "description": "Its name in the allow list"}
 CHANGES = {"type": "boolean", "description": "Also say what this changed in the accessible "
            "tree once the screen holds still (not a field's text, nor where things are): "
            "tree lines, + added, - gone, ~ changed"}
-WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
+WAITS = ("window", "stable", "announcement", "focus", "node", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
 # to read in its answer, and what to do instead when it's the wrong one.
@@ -1206,6 +1211,9 @@ TOOLS = [
      "once. "
      "focus: the name of the node with the keyboard focus, as click_element takes one; "
      "answers with its tree line. "
+     "node: a regex in the name or text of a node showing in the accessible tree, as a "
+     "status line saying a page is drawn, where the screen holding still says nothing; "
+     "answers with its tree line, and its text if that matched. "
      "match: a PNG's path, from the allow file's directory, that the screen (or window, "
      "cropped to crop) should look like; answers how long it took. "
      "change: any change from how it looked when the wait began; answers how long it took. "

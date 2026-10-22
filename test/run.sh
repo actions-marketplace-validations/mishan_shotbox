@@ -951,6 +951,17 @@ if atspi; then
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
     '$sb' wait announce 'notes\.md' --timeout 10" \
     && ok "a11y: click finds a button by its name, and clicks it" || fail "a11y: click"
+  # A label shown three seconds in is waited for; before it is, a wait
+  # gives up saying nothing comes near, or what does. A text view by its
+  # text, not its name.
+  "$sb" run --a11y -- sh -c "'$app' notes drawing & '$sb' wait window a11y-test >/dev/null &&
+    ! '$sb' wait node Drawn --timeout 0.5 && ! '$sb' wait node Saev --window a11y-test --timeout 0.5 &&
+    '$sb' wait node '^notes\$' --window a11y-test && '$sb' wait node 'Drawn.*tiles\$' --timeout 10" \
+    > "$tmp/node" 2>&1 \
+    && grep -qx "shotbox: gave up waiting for a node matching 'Drawn' after 0.5s: nothing in the tree comes near it" "$tmp/node" \
+    && grep -qx "shotbox: gave up waiting for a node matching 'Saev' after 0.5s. The nearest: \"Save\"" "$tmp/node" \
+    && ok "a11y: wait node waits for a node to show, by its name or text, or says what's near" \
+    || { fail "a11y: wait node"; cat "$tmp/node"; }
   # Under a dialog, disabled, moving and under a label, each is said and not
   # clicked (--force clicks the disabled one, which does nothing), then
   # waited for until "Ready" puts each right, and clicked.

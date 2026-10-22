@@ -7,7 +7,7 @@
     shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
-    shotbox wait window|port|file|ready|stable|announce|match|change [ARG]
+    shotbox wait window|port|file|ready|stable|announce|node|match|change [ARG]
     shotbox wait line RE FILE                       (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox record OUT.mp4|OUT.wav [--seconds S]    (inside a session) take a video, or the sound
@@ -509,17 +509,20 @@ def cmd_wait(argv):
                                 description="Inside `shotbox run`: wait for a window, "
                                             "a port, a file, the ready file, the "
                                             "screen to stop changing, an "
-                                            "announcement, the screen to look like a "
+                                            "announcement, a node in the accessible "
+                                            "tree, the screen to look like a "
                                             "picture, or to change, or a line in a "
                                             "file. match and change say how long they "
                                             "took; line prints the line.")
     p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
-                                    "match", "change", "line"))
+                                    "node", "match", "change", "line"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
                         "stable, how long it must hold still (0.5); for announce, "
-                        "a regex found in what was said (needs --a11y); for match, "
+                        "a regex found in what was said (needs --a11y); for node, a "
+                        "regex found in a showing node's name or text (needs --a11y); "
+                        "for match, "
                         "the picture (a PNG) to look like; for line, a regex found in "
                         "the line")
     p.add_argument("file", nargs="?", help="for line, the file it's written to")
@@ -527,8 +530,8 @@ def cmd_wait(argv):
                    help="for line: from the top of the file, not from the end it has "
                         "when the wait starts")
     p.add_argument("--window", metavar="RE",
-                   help="for stable, match and change: watch this window rather than "
-                        "the display")
+                   help="for stable, node, match and change: watch this window rather "
+                        "than the display")
     p.add_argument("--crop", metavar="WxH+X+Y",
                    help="for match and change: watch just this part of it")
     p.add_argument("--fuzz", metavar="PCT",
@@ -566,6 +569,9 @@ def cmd_wait(argv):
     screen.failed = a.failed or screen.failed
     if a.kind == "line":
         print(screen.wait_line(a.arg, a.file, a.from_start, a.timeout))
+        return 0
+    if a.kind == "node":
+        screen.wait_node(a.arg, a.window, a.timeout)
         return 0
     if not looks:
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)

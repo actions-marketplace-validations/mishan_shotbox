@@ -875,6 +875,15 @@ class Screen:
             return n if n and named(n.name) else None
         return self.until(f"the focus on {name!r}{note}", there, timeout)
 
+    def wait_node(self, pattern, window=None, timeout=30):
+        """Wait for a showing node with `pattern`, a regex, found in its name
+        or text: a status line saying a page is drawn, say. That node, with
+        its text as `text` where that's what matched."""
+        from .a11y import Node
+        return Node(self._a11y("node", "--timeout", str(timeout),
+                               *([f"--window={window}"] if window else []), "--", pattern,
+                               timeout=90 + timeout))
+
     def a11y_lint(self, window=None, ignore=()):
         """The nodes a screen reader would have no name to say for, each
         with what's wrong as `problem`; but those whose "PATH: PROBLEM"

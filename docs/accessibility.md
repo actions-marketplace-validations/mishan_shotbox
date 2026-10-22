@@ -45,6 +45,12 @@ Inside a session with `--a11y`:
   live region (`aria-live`, `role="status"`), an alert or info bar
   appearing (GTK 3's message dialogs, Qt's `QMessageBox`, libadwaita's
   `AdwAlertDialog`), or the focus renamed. [Announcements](#announcements).
+- **`shotbox wait node RE [--window RE]`** waits for a node showing in
+  the tree whose name or text RE is found in: a status line a program
+  sets once it's done, where the screen holding still says nothing (a
+  WebGL canvas waiting on its server). Giving up, it says what came
+  nearest: a match that isn't showing (scrolled out of view), or the
+  nearest names and texts, or that nothing comes near.
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &

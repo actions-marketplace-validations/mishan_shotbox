@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, contrast, behind a modal too, live regions, no page, a big page, a crashed tab',
+test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -368,12 +368,13 @@ test('Chromium on an --a11y session: its tree, a click by name, contrast, behind
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, contrast, behind, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, below, contrast, behind, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
     assert.match(tree, /button "Below"/);
     assert.equal(clicked, 'yes');
+    assert.match(below, /after 0\.5s: (push )?button "Below" \[focusable\] matches, but isn't showing$/m);
     assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff/);
     /* Large text, 18pt or 14pt bold, passes at 3.45:1. */
     assert.equal(contrast.trim().split('\n').length, 1);

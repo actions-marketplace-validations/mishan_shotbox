@@ -11,7 +11,8 @@ reader sees it, for a session started with --a11y.
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
 refuses to run without it: otherwise libatspi would go looking for the
-desktop's. `record` is the session's announcement recorder.
+desktop's. `record` is the session's announcement recorder; `node` is what
+`shotbox wait node` runs.
 """
 
 import argparse
@@ -1194,6 +1195,48 @@ def at_node(name, role, window, timeout, act, force=False):
     finally:
         screen.close()
     return n
+
+
+def wait_node(pattern, window=None, timeout=10):
+    """Wait for a showing node with `pattern`, a regex, found in its name
+    or text; that node, with its text as `text` where that's what
+    matched. Giving up, say what came nearest: a match that isn't
+    showing, else the nearest names and texts, or that there were none."""
+    Atspi = atspi()
+    try:
+        found = re.compile(pattern)
+    except re.error as e:
+        raise SessionError(f"{pattern!r} isn't a regex: {e}") from None
+    seen = []
+
+    def matches(n):
+        if found.search(n.name):
+            return True
+        # A page's text: U+FFFC stands in it for each element in it.
+        n["_text"] = (contents(Atspi, n) or "").replace("\ufffc", "")
+        if found.search(n._text):
+            n["text"] = n._text
+            return True
+        return False
+
+    def there():
+        seen[:] = [n for _, n in walk(Atspi, window, timeout)]
+        return next((n for n in seen if n._showing and matches(n)), None)
+
+    what = f"a node matching {pattern!r}"
+    try:
+        return wait_for(what, there, timeout)
+    except SessionError as e:
+        if not str(e).startswith(f"gave up waiting for {what}"):
+            raise
+        hidden = next((n for n in seen if not n._showing and matches(n)), None)
+        if hidden:
+            raise SessionError(f"{e}: {hidden.line()} matches, but isn't showing") from None
+        near = difflib.get_close_matches(pattern, {t for n in seen
+                                                   for t in (n.name, n.get("_text")) if t}, 5)
+        raise SessionError(f"{e}. The nearest: " + ", ".join(
+            json.dumps(t, ensure_ascii=False) for t in near) if near
+            else f"{e}: nothing in the tree comes near it") from None
 
 
 # How long a node's bounds are to hold before it's taken as still: a few
@@ -2522,6 +2565,8 @@ def main(argv):
     sc.add_argument("dx", type=int, nargs="?", default=0, metavar="DX",
                     help="clicks right; left if negative")
     sc.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
+    nd = sub.add_parser("node")
+    nd.add_argument("pattern")
     for s in (c, sc):
         s.add_argument("--force", action="store_true",
                        help="don't wait for it to be enabled, still and uncovered")
@@ -2540,7 +2585,7 @@ def main(argv):
                     help="also what passes, with its ratio, after what fails")
     ct.add_argument("--strict", action="store_true",
                     help="what isn't measured fails too")
-    for s in (t, lt, w, c, sc, ct):
+    for s in (t, lt, w, c, sc, ct, nd):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
@@ -2548,7 +2593,7 @@ def main(argv):
                             "one picked), waiting for it")
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
                        help="how long to wait for the --window (10), or the node")
-    for s in (t, lt, w, c, sc, ct):
+    for s in (t, lt, w, c, sc, ct, nd):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
     rec = sub.add_parser("record")
@@ -2617,6 +2662,10 @@ def main(argv):
         n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout, a.force)
              if a.what == "click" else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout,
                                               a.force))
+        print(json.dumps(public(n)) if a.json else n.line())
+        return 0
+    if a.what == "node":
+        n = wait_node(a.pattern, a.window, a.timeout)
         print(json.dumps(public(n)) if a.json else n.line())
         return 0
     skip = ignored(a.ignore)

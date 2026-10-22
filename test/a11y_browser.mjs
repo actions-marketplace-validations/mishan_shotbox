@@ -8,6 +8,7 @@
  * Inside `shotbox run --a11y` (browser.test.mjs): Chromium, launched with
  * `accessible`, on the session's accessibility bus, its page's tree read,
  * its live regions heard before that, a button clicked by its name, a
+ * node waited for by its name, one scrolled out of view not, a
  * faint paragraph's contrast measured, and one behind an aria-modal
  * dialog said apart, but not behind one off the screen or of no size, a
  * browser that builds no page's tree for a reader told apart from an
@@ -73,6 +74,9 @@ try
     }
 
     run('a11y', 'click', 'Save', '--window', 'a11y-browser.*');
+    run('wait', 'node', '^Done$', '--window', 'a11y-browser.*', '--timeout', '10');
+    const below = spawnSync(shotbox, ['wait', 'node', '^Below$', '--timeout', '0.5'],
+                            { encoding: 'utf8' }).stderr;
     const clicked = await page.evaluate(() => document.querySelector('button').dataset.clicked);
     const contrast = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-browser.*'],
                                { encoding: 'utf8' }).stdout;
@@ -141,6 +145,7 @@ try
     process.stdout.write(JSON.stringify({
         tree,
         clicked,
+        below,
         contrast,
         behind,
         said: fs.readFileSync(process.env.SHOTBOX_ANNOUNCEMENTS, 'utf8'),
