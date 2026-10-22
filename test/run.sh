@@ -1707,6 +1707,10 @@ convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
 set +e; n=$("$sb" compare "$tmp/a.png" "$tmp/d.png" --diff "$tmp/diff.png"); st=$?; set -e
 [ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ -s "$tmp/diff.png" ] \
   && ok "compare: one pixel off, found, and where" || fail "compare: $st $n"
+convert -size 1300x800 xc:red "$tmp/red.png"; convert -size 1300x800 xc:blue "$tmp/blue.png"
+set +e; n=$("$sb" compare "$tmp/red.png" "$tmp/blue.png" 2>&1); st=$?; set -e
+[ $st = 1 ] && [ "$n" = "1040000 pixels differ, in 1300x800 at 0,0" ] \
+  && ok "compare: a million pixels off, counted exactly" || fail "compare a million: $st $n"
 # --ignore: two pixels off, either left out, both, a NAME's for another
 # picture, or one that's no box.
 convert "$tmp/d.png" -fill red -draw 'point 3,2' "$tmp/d2.png"

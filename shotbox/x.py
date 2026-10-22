@@ -849,7 +849,8 @@ def compare(a, b, diff=None, fuzz="0%", box=False, ignore=(), margin=0, at=(0, 0
          # around what differs even when a corner does; -quiet, since with
          # nothing in the box it warns.
          "-threshold", fuzz, "-bordercolor", "black", "-border", "1", "-quiet",
-         "-format", "%[fx:round(mean*w*h)] %@", "info:"],
+         # -precision: else a million or more is said rounded, 1.04e+06.
+         "-precision", "16", "-format", "%[fx:round(mean*w*h)] %@", "info:"],
         input=shifted, capture_output=True, check=True).stdout.decode().split()
     if diff:
         png = ["-define", "png:exclude-chunks=date,time"]

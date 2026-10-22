@@ -114,6 +114,9 @@
   window closed while it was read. A window gone is left out, as a node
   gone already was; one gone before its bounds are read leaves its
   nodes' bounds `null`, as a node gone then had.
+- `compare` failed on two pictures with a million or more pixels
+  differing, unable to read ImageMagick's count, `1.04e+06`; it counts
+  them exactly now.
 - `a11y contrast` didn't take GTK 4's text where another node's shorter
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a
