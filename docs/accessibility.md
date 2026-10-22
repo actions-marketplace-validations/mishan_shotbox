@@ -90,15 +90,18 @@ otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
 yes, which the session sets. That puts its windows on the bus, and no
 more: it builds the rest of its tree, a page's too, only once it takes a
 screen reader to be at work, which it does when a node's attributes are
-asked for, as Orca asks. `shotbox a11y` asks a browser window's, the
-first time a command reads it, and waits for its page, so no
+asked for, as Orca asks. The announcement recorder (see below)
+asks each program's as it joins the session's bus, and `shotbox a11y`
+asks a browser window's, the first time a command reads it, and waits
+for its page, so no
 `--force-renderer-accessibility` is needed: up to 2 seconds for the
 page's document, then up to `--timeout` for its tree to be built (the
 document is an empty stand-in till then; a page of thousands of
 controls takes seconds). A page whose tree isn't built in time is noted
 on stderr, and the window `--window` asks for fails. That turns on
 Chromium's accessibility (its basic and extended-properties modes) for
-the whole browser, for as long as it runs, which slows its pages a
+the whole browser, from the start in an `--a11y` session, for as long
+as it runs, which slows its pages a
 little: a measure of a page's performance in the same session counts
 that in. It's a little less than the switch turns on (no screen-reader
 mode); the trees came out the same in testing. A window with no page
@@ -809,7 +812,9 @@ A browser's live regions are recorded too: Chromium sends
 (`polite` or `assertive`) among the node's attributes. Unlike an
 announcement, it sends the event only once a listener has registered
 for it, which the recorder does, every program's text insertions then
-coming to it. What's recorded is the text inserted: a region whose text
+coming to it, and only once it takes a screen reader to be at work,
+which the recorder has it do as it joins the bus, so nothing need read
+its tree first. What's recorded is the text inserted: a region whose text
 is replaced sends all of the new text, and an element put in one sends
 its own. Text outside a live region, and a busy region's, isn't
 recorded. GTK has no live regions.

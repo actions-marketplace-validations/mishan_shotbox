@@ -7,11 +7,10 @@
 /*
  * Inside `shotbox run --a11y` (browser.test.mjs): Chromium, launched with
  * `accessible`, on the session's accessibility bus, its page's tree read,
- * a button clicked by its name, a faint paragraph's contrast measured,
- * its live regions heard, a browser that builds no page's tree for a
- * reader told apart from an empty one, a big page read whole, and a
- * crashed tab noted. Prints
- * what it found as JSON.
+ * its live regions heard before that, a button clicked by its name, a
+ * faint paragraph's contrast measured, a browser that builds no page's
+ * tree for a reader told apart from an empty one, a big page read whole,
+ * and a crashed tab noted. Prints what it found as JSON.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -40,22 +39,9 @@ try
         <div id="quiet"></div>
         <button style="margin-top: 3000px">Below</button>`);
 
-    /* The page's part of the tree comes a moment after the window's. */
-    let tree = '';
-
-    for (let i = 0; i < 50 && !tree.includes('"Save"'); i++)
-    {
-        await page.waitForTimeout(200);
-        tree = run('a11y', 'tree', '--window', 'a11y-browser.*');
-    }
-
-    run('a11y', 'click', 'Save', '--window', 'a11y-browser.*');
-    const clicked = await page.evaluate(() => document.querySelector('button').dataset.clicked);
-    const contrast = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-browser.*'],
-                               { encoding: 'utf8' }).stdout;
-
-    /* The one not live goes first: had it been heard, it would be in the
-       file before the waits below are done. */
+    /* Heard before anything has read the tree. The one not live goes
+       first: had it been heard, it would be in the file before the waits
+       below are done. */
     const set = (id, text) => page.evaluate(([i, t]) =>
     {
         document.getElementById(i).textContent = t;
@@ -74,6 +60,20 @@ try
         document.getElementById('polite').innerHTML = '<p>Done</p>';
     });
     run('wait', 'announce', 'Done', '--timeout', '10');
+
+    /* The page's part of the tree comes a moment after the window's. */
+    let tree = '';
+
+    for (let i = 0; i < 50 && !tree.includes('"Save"'); i++)
+    {
+        await page.waitForTimeout(200);
+        tree = run('a11y', 'tree', '--window', 'a11y-browser.*');
+    }
+
+    run('a11y', 'click', 'Save', '--window', 'a11y-browser.*');
+    const clicked = await page.evaluate(() => document.querySelector('button').dataset.clicked);
+    const contrast = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-browser.*'],
+                               { encoding: 'utf8' }).stdout;
 
     /* One that won't build its page's tree for a reader. */
     const blind = await chromium.launch({ ...accessible,

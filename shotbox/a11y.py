@@ -2252,8 +2252,21 @@ def record(out):
             c.get_role() == role or holds(c, role, depth + 1)
             for c in (acc.get_child_at_index(i) for i in range(acc.get_child_count())) if c)
 
+    # A program joining the bus is asked for its attributes, as Orca asks,
+    # which Chromium takes as a reader at work (see paged()): until then
+    # it says nothing of its live regions.
+    def joined(conn, sender, path, iface, member, params):
+        kind, _, _, child, _ = params.unpack()
+        if kind == "add":
+            name, root = child
+            bus.call(name, root, "org.a11y.atspi.Accessible", "GetAttributes",
+                     None, None, Gio.DBusCallFlags.NONE, -1, None, None)
+
     bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "Announcement", None, None,
                          Gio.DBusSignalFlags.NONE, said)
+    bus.signal_subscribe(None, "org.a11y.atspi.Event.Object", "ChildrenChanged",
+                         "/org/a11y/atspi/accessible/root", None,
+                         Gio.DBusSignalFlags.NONE, joined)
     Atspi = atspi()
     alerts = roles(Atspi, ("ALERT", "NOTIFICATION", "INFO_BAR"))
     tops = roles(Atspi, ("APPLICATION", "FRAME", "DOCUMENT_WEB", "DOCUMENT_FRAME"))

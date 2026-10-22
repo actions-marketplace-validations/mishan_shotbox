@@ -94,6 +94,12 @@
   was 29.97 (2 seconds lasting 2.002), a WebM a frame or two short, and
   a GIF's frames timed wrong (1 second lasting 1.2). It's at `--fps`
   now, as on Wayland.
+- `wait announce` heard nothing of a headed Chromium's live regions
+  until `a11y tree` or another command had read its tree, which is what
+  has Chromium take a screen reader to be at work. The recorder asks
+  each program that joins the session's bus for its attributes, as Orca
+  does, so in an `--a11y` session a browser's accessibility is on from
+  the start, which slows its pages a little.
 
 ## 0.9.0 — 2026-10-19
 
