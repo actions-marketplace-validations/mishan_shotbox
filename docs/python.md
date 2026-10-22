@@ -61,7 +61,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   with its program's `pid` and `toolkit`, and a program that didn't
   answer as a node with its `pid` and `quiet`); `find(role=None,
   name=None, window=None)`, `name` as `click_node` takes it (exactly,
-  else a regex); `focused()`; `wait_focus(re)`;
+  else a regex); `focused()`; `wait_focus(re)`; `wait_node(re,
+  window=None)`, the node `wait node` waits for, with its `text` where
+  that's what matched;
   `tab_walk(key="Tab", most=50, window=None, visible=False,
   reach_all=False, ignore=())`, the nodes the focus lands on, failing as
   `tabwalk` does (with `visible`, where the focus doesn't show; with

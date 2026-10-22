@@ -135,6 +135,8 @@ def a11y():
         s.key("Tab", "Tab")
         check(s.wait_focus("Announce", timeout=5).role.endswith("button"),
               "a11y: wait_focus()")
+        check(s.wait_node("^Wrap", window="a11y-test", timeout=5).name == "Wrap lines",
+              "a11y: wait_node()")
         s.key("space")
         s.wait_announce("notes", timeout=5)
         check(s.click_node("Announce", window="a11y-test").name == "Announce",

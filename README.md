@@ -182,7 +182,7 @@ shotbox stop ed
 | [`latency`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#latency) | how fast what's drawn follows the pointer |
 | [`flicker`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#flicker) | finds a part of the screen that flickers or flashes |
 | [`pad`](https://github.com/mishan/shotbox/blob/main/docs/gamepads.md) | works a virtual gamepad |
-| [`a11y`, `wait announce`](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md#commands) | the accessible tree: read, lint, Tab order, click by name, contrast, announcements |
+| [`a11y`, `wait announce`, `wait node`](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md#commands) | the accessible tree: read, lint, Tab order, click by name, contrast, announcements, a node to show |
 | [`compare`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#compare) | counts the pixels that differ, picture by picture or directory by directory |
 | [`vision`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#vision) | a picture as colorblind eyes see it |
 | [`listen`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#listen) | a recording's level, clipping and dropouts |
@@ -224,8 +224,9 @@ session has none: GTK is told not to look. Your desktop's bus is never
 touched either way.
 
 `shotbox a11y` prints the tree, lints it for what has no name to say,
-walks the Tab order, clicks by name and measures contrast, and `shotbox
-wait announce` waits for what's announced; for GTK, Qt, AccessKit's
+walks the Tab order, clicks by name and measures contrast, `shotbox
+wait announce` waits for what's announced, and `shotbox wait node` for a
+node to show; for GTK, Qt, AccessKit's
 toolkits and Chromium. The commands, how it's put together, and what
 each check can and can't tell: [docs/accessibility.md](https://github.com/mishan/shotbox/blob/main/docs/accessibility.md).
 

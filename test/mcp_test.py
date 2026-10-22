@@ -232,6 +232,9 @@ try:
     check(not bad and "Announce" in said, "click_element: by a node's name")
     said, bad, _ = tool("wait_for", session="t", what="announcement", value="notes")
     check(not bad, "wait_for: an announcement")
+    said, bad, _ = tool("wait_for", session="t", what="node", value="^Wrap", window="a11y-test")
+    check(not bad and said.startswith("It's there: check box \"Wrap lines\""),
+          f"wait_for: a node ({said})")
     said, _, _ = tool("list_announcements", session="t")
     check(said == "| polite: Saved to notes.md", f"list_announcements, fenced ({said!r})")
     said, bad, content = tool("take_screenshot", session="t", window="a11y-test")

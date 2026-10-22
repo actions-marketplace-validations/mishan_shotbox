@@ -71,6 +71,14 @@
 
 ### Added
 
+- `wait node RE` waits for a node showing in the accessible tree whose
+  name or text RE is found in, `--window RE` for one window's: a status
+  line saying a page is drawn, where `wait stable` passes on a WebGL
+  canvas still waiting on its server, in place of polling `a11y tree |
+  grep`. Giving up, it says what came nearest: a match not showing,
+  the nearest names and texts, or that nothing comes near.
+  `Screen.wait_node(re, window=None)` and MCP's `wait_for` node have
+  it too.
 - `compare` and `wait match` and `change` take `--ignore WxH+X+Y`
   (repeatable), as `flicker` does, to leave out a box that changes on
   its own, a clock or a cursor, as openQA's exclude areas and
