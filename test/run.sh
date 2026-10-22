@@ -1177,6 +1177,23 @@ CASES
         && ! grep -q '/panel\[7\]/label\[0\]: text passes' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: the other match's own node named; text not taken for pieces of it drawn only there" \
         || { fail "a11y: contrast, GTK 4, Recheck and Open File"; cat "$tmp/contrast"; }
+      # A faint "Twin" over an entry holding "Twin", or under it, each
+      # in the other's room, the entry's text where nothing else can draw
+      # it: found where it's drawn, and failing. Nothing else is measured:
+      # not a hidden "Twin" over the label, nor, where GTK says what's in
+      # a box padded above is over what's laid on its top (over), a label
+      # there or a hidden one, with a label, a drawing area or a label
+      # named otherwise on top.
+      for args in twin "twin under" "twin hidden" over "over hidden" "over hidden drawn" \
+          "over drawn" "over named"; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --passes --window a11y-test" \
+          < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      grep -q '/panel\[7\]/panel\[0\]/label\[0\]: text 2\.[0-9]*:1, #a0a0a0 on .*; found 0,0 px' "$tmp/contrast" \
+        && grep -q '/panel\[7\]/panel\[1\]/label\[0\]: text 2\.[0-9]*:1, #a0a0a0 on .*; found 0,0 px' "$tmp/contrast" \
+        && [ "$(grep -c '/panel\[7\]/.*: text \(passes\|[0-9]\)' "$tmp/contrast")" = 2 ] \
+        && ok "a11y: contrast, GTK 4: text matching where only another node's text can be is found where it's drawn; not a hidden twin, nor where GTK's box is over it" \
+        || { fail "a11y: contrast, GTK 4, Twin"; cat "$tmp/contrast"; }
     fi
     # --strict: a window where nothing's measured but what fails, exit 1
     # with the failure, not 2, "nothing measured".

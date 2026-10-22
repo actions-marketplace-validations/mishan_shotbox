@@ -84,6 +84,11 @@
   text's box taken off: those labels are found, and fail at 1.61:1.
 - `a11y contrast` let GTK 4's text it didn't find pass quietly however
   faint (see above).
+- `a11y contrast` didn't take GTK 4's text where another node holding
+  the same text has it in its room: a combo row's selected item under
+  an entry holding it, or a label over one, was a note however faint.
+  Where no other node could have drawn it there, it's measured, and
+  only a failure is reported; if it would pass, it's still a note.
 
 ## 0.9.0 — 2026-10-19
 
