@@ -19,6 +19,11 @@
   disabled control does nothing, pass `--force` (`force=True`, MCP's
   `force`), which still waits for it to be placed. A ready node costs
   the click about 50 ms, to see it's still.
+- **`Screen.wait_match` returns a `Match(seconds, x, y)`**, not the
+  seconds as a float: x, y is where the picture matched, the crop's
+  corner (0, 0 without one), or where `margin` found it. A caller that
+  used the float takes `.seconds`. MCP's `wait_for` match says where
+  too: `It matches ref.png, after 0.412 s, at 103,58.`
 - **`a11y contrast --window` fails GTK 4's text it doesn't find, where
   nothing there could pass**: `text not found, but nothing where it can
   be has the contrast it needs: the best anything there reaches is
@@ -60,6 +65,15 @@
   real changes. `compare`'s diff shows it magenta, and with directories
   `NAME=WxH+X+Y` is for one picture. `Screen.wait_match(ignore=...)`,
   `wait_change` and MCP's `wait_for` have it too.
+- `wait match --crop G --margin PX` looks for the picture up to PX
+  pixels from the crop's place each way, as openQA searches for a
+  needle, and prints where it matched: `0.412s at 103,58`. For a
+  canvas or a game, where what's drawn moves a little from run to run
+  and there's no tree to find it by. `compare --margin PX` compares the
+  second picture where it matches the first best, but for a band PX
+  wide round the edge, and says how far it moved, whether it passes or
+  fails. `Screen.wait_match` takes `margin`; MCP's `wait_for` match
+  takes `margin` (up to 32).
 - `a11y contrast` says on its line why GTK 4's text it looked for wasn't
   taken, and its why says what that means: `(no match good enough: 0.44
   at best)`, `(it matches elsewhere too, in "unchecked")`, `(another

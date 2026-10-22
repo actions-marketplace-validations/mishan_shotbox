@@ -617,6 +617,21 @@ convert "$tmp/app1.png" -fill red -draw 'rectangle 5,5 14,14' "$tmp/patched.png"
     [ \$got = \$want ] || echo \"\$e: \$got\"
   done" > "$tmp/out" 2>&1 && [ ! -s "$tmp/out" ] \
   && ok "match leaves out what --ignore says" || fail "match --ignore: $(cat "$tmp/out")"
+# --margin: a part of the window, looked for that far from the crop's
+# place, at the window's edge too; with a patch on it left out.
+convert "$tmp/app1.png" -crop 60x40+20+30 +repage "$tmp/part.png"
+convert "$tmp/part.png" -fill red -draw 'point 5,5' "$tmp/part-patched.png"
+"$sb" run -- sh -c "'$here/window.py' t1 & '$sb' wait window t1 >/dev/null
+  for e in 'at 20,30:part 60x40+20+30 3' 'at 20,30:part 60x40+23+28 3' 'no:part 60x40+23+28 2' \
+           'at 20,30:part 60x40+0+0 30' 'no:part-patched 60x40+21+31 1' \
+           'at 20,30:part-patched 60x40+21+31 1 --ignore 1x1+5+5'; do
+    want=\${e%%:*}; set -- \${e#*:}; ref=\$1 crop=\$2 margin=\$3; shift 3
+    got=\$('$sb' wait match '$tmp/'\$ref.png --window t1 --timeout 1 --crop \$crop --margin \$margin \"\$@\" 2>/dev/null) \\
+      && got=\${got#* } || got=no
+    [ \"\$got\" = \"\$want\" ] || echo \"\$e: \$got\"
+  done" > "$tmp/out" 2>&1 && [ ! -s "$tmp/out" ] \
+  && ok "match finds a picture up to --margin from its place, and says where" \
+  || fail "match --margin: $(cat "$tmp/out")"
 
 # line: one written after the wait starts, not one begun before, and only
 # once it ends; from the top with --from-start; in a file that comes later,
@@ -1706,6 +1721,19 @@ out=$(for e in '1:1 pixels differ, in 1x1 at 3,2:--ignore 1x1+0+0' \
   [ "$st:$got" = "$want:$said" ] || echo "${rest#*:}: $st $got"
 done)
 [ -z "$out" ] && ok "compare: --ignore leaves boxes out" || fail "compare --ignore: $out"
+# --margin: the picture moved 2 right and 1 up, found within 2 or more,
+# not 1; with a pixel changed, failing where it matches best; a box left
+# out goes with the first picture.
+convert "$tmp/a.png" -roll +2-1 "$tmp/moved.png"
+convert "$tmp/moved.png" -fill red -draw 'point 12,9' "$tmp/moved2.png"
+out=$(for e in '0:moved:0 pixels differ, moved 2,-1:--margin 2' '0:moved:0 pixels differ, moved 2,-1:--margin 5' \
+               '1:moved::--margin 1' '1:moved2:1 pixels differ, in 1x1 at 10,10, moved 2,-1:--margin 2' \
+               '0:moved2:0 pixels differ, moved 2,-1:--margin 2 --ignore 1x1+10+10' '2:moved::--margin x'; do
+  want=${e%%:*}; rest=${e#*:}; b=${rest%%:*}; rest=${rest#*:}; said=${rest%%:*}
+  set +e; got=$("$sb" compare "$tmp/a.png" "$tmp/$b.png" ${rest#*:} 2>/dev/null); st=$?; set -e
+  [ "$st" = "$want" ] && { [ -z "$said" ] || [ "$got" = "$said" ]; } || echo "$b ${rest#*:}: $st $got"
+done)
+[ -z "$out" ] && ok "compare: --margin finds where the picture moved" || fail "compare --margin: $out"
 "$sb" compare "$tmp/a.png" "$tmp/d2.png" --diff "$tmp/diff2.png" >/dev/null || :
 "$sb" compare "$tmp/a.png" "$tmp/d2.png" --ignore 1x1+0+0 --diff "$tmp/xdiff.png" >/dev/null || :
 set +e; n=$("$sb" compare "$tmp/diff2.png" "$tmp/xdiff.png"); set -e

@@ -221,6 +221,8 @@ try:
     check(not bad, f"wait_for: a window, its timeout given as text ({said})")
     said, bad, _ = tool("wait_for", session="t", what="change", ignore=["10x10"], timeout=1)
     check(bad and "WIDTHxHEIGHT" in said, f"wait_for: an ignore that's no box, refused ({said})")
+    said, bad, _ = tool("wait_for", session="t", what="change", margin=2, timeout=1)
+    check(bad and "margin goes with match" in said, f"wait_for: a margin for a change, refused ({said})")
     # Off the screen's corner, where the window's x,y and the screen's differ.
     subprocess.run(["xdotool", "search", "--name", "^a11y-test$", "windowmove", "--sync",
                     "230", "170"], env=server.sessions["t"].env, check=True)
@@ -484,7 +486,7 @@ try:
     said, bad, _ = tool("wait_for", session="h", what="match", value="held.png", window="held")
     refused = [tool("wait_for", session="h", what="match", value=v)[:2]
                for v in ("/etc/passwd", "../" * 20 + "etc/hostname", "nope.png")]
-    check(not bad and "matches held.png" in said
+    check(not bad and "matches held.png" in said and said.endswith(", at 0,0.")
           and all(bad and "no file" in said for said, bad in refused),
           f"wait_for: match, a picture in the allow file's directory and nowhere else ({said})")
     (tmp / "game.log").write_text("beacon_claimed 1\n")

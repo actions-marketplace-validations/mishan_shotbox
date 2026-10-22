@@ -673,28 +673,78 @@ def kept(width, height, ignore=()):
     return rows
 
 
-def differ(a, b, fuzz=0.0, most=0, rows=None):
-    """How many pixels of two pictures of one size, (width, height, RGB
-    bytes), differ, as compare counts them, where any channel differs by
-    more than `fuzz` percent; only in the spans of `rows` (kept's) if
-    given; up to `most` + 1, where it stops counting. Runs that are the
-    same are passed over whole, so a picture that's mostly so is quick."""
-    w, h, a = a
-    b = b[2]
-    limit, n, run = fuzz / 100 * 255, 0, 512
+def differ(a, b, fuzz=0.0, most=0, rows=None, at=(0, 0)):
+    """How many pixels of a picture `a`, (width, height, RGB bytes),
+    differ from those of `b`, another, under them with a's top left
+    corner at `at` in it, as compare counts them, where any channel
+    differs by more than `fuzz` percent; only in the spans of `rows`
+    (kept's) if given; up to `most` + 1, where it stops counting. Runs
+    that are the same are passed over whole, so a picture that's mostly
+    so is quick."""
+    (w, h, a), (bw, _, b) = a, b
+    limit, n, run = fuzz / 100 * 255, 0, 512 * 3
     for y, spans in enumerate(rows or [[(0, w)]] * h):
         for x0, x1 in spans:
-            for start in range((y * w + x0) * 3, (y * w + x1) * 3, run * 3):
-                end = min(start + run * 3, (y * w + x1) * 3)
-                if a[start:end] == b[start:end]:
+            i0, j0 = (y * w + x0) * 3, ((y + at[1]) * bw + x0 + at[0]) * 3
+            for start in range(0, (x1 - x0) * 3, run):
+                end = min(start + run, (x1 - x0) * 3)
+                if a[i0 + start:i0 + end] == b[j0 + start:j0 + end]:
                     continue
-                for i in range(start, end, 3):
-                    if (abs(a[i] - b[i]) > limit or abs(a[i + 1] - b[i + 1]) > limit
-                            or abs(a[i + 2] - b[i + 2]) > limit):
+                for i, j in zip(range(i0 + start, i0 + end, 3), range(j0 + start, j0 + end, 3)):
+                    if (abs(a[i] - b[j]) > limit or abs(a[i + 1] - b[j + 1]) > limit
+                            or abs(a[i + 2] - b[j + 2]) > limit):
                         n += 1
                         if n > most:
                             return n
     return n
+
+
+def nearest(x, y, margin):
+    """The places up to `margin` pixels from x, y either way, nearest
+    first."""
+    steps = range(-margin, margin + 1)
+    return sorted(((x + dx, y + dy) for dx in steps for dy in steps),
+                  key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+
+
+def best_place(a, b, places, fuzz=0.0, most=0, rows=None):
+    """Of `places` for picture `a`'s top left corner in `b` (differ's),
+    the first where fewest of its pixels differ, if that's `most` or
+    fewer: (how many, (x, y)), else None."""
+    best = None
+    for at in places:
+        n = differ(a, b, fuzz, best[0] - 1 if best else most, rows, at)
+        if n <= (best[0] - 1 if best else most):
+            best = (n, at)
+            if not n:
+                break
+    return best
+
+
+def band(width, height, margin):
+    """The band `margin` pixels wide round the edge of a picture, as boxes."""
+    return [(width, margin, 0, 0), (width, margin, 0, height - margin),
+            (margin, height, 0, 0), (margin, height, width - margin, 0)] if margin else []
+
+
+def moved(a, b, fuzz="0%", most=0, ignore=(), margin=0):
+    """How far, up to `margin` pixels either way, picture `b` moved from
+    `a`, two images of one size: where its pixels, but for `ignore`'s
+    and the band that wide round the edge, match a's best, as many
+    differing by more than `fuzz` as `most`, or a hundredth of them,
+    or fewer; else not at all. (x, y). ValueError if they're not one
+    size, or the band leaves nothing."""
+    a, b = rgb(a), rgb(b)
+    if a[:2] != b[:2]:
+        raise ValueError("not the same size: {}x{} and {}x{}".format(*a[:2], *b[:2]))
+    if 2 * margin >= min(a[:2]):
+        raise ValueError("a margin of {} leaves nothing of {}x{}".format(margin, *a[:2]))
+    rows = kept(*a[:2], [*ignore, *band(*a[:2], margin)])
+    # Counted no further than that at each place: two pictures that are
+    # nothing alike would take seconds to count over and over.
+    found = best_place(a, b, nearest(0, 0, margin), float(fuzz[:-1]),
+                       max(most, a[0] * a[1] // 100), rows)
+    return found[1] if found else (0, 0)
 
 
 def fingerprint(env, window=None):
@@ -765,15 +815,24 @@ def size_of(path):
     return out.strip()
 
 
-def compare(a, b, diff=None, fuzz="0%", box=False, ignore=()):
+def compare(a, b, diff=None, fuzz="0%", box=False, ignore=(), margin=0, at=(0, 0)):
     """How many pixels differ between two images (0 means the same): pixels
     where any channel differs by more than `fuzz`, but for those in the
-    boxes in `ignore`, (width, height, x, y). With `diff`, also writes
-    an image with the differences marked in red, and what's ignored
-    magenta. With `box`, the count and the box they're in, (width,
-    height, x, y), or None."""
-    if size_of(a) != size_of(b):
-        raise ValueError(f"not the same size: {size_of(a)} and {size_of(b)}")
+    boxes in `ignore`, (width, height, x, y), and in a band `margin`
+    pixels wide round the edge, with b's moved by -`at` (moved's). With
+    `diff`, also writes an image with the differences marked in red, and
+    what's left out magenta. With `box`, the count and the box they're
+    in, (width, height, x, y), or None."""
+    size = size_of(a)
+    if size != size_of(b):
+        raise ValueError(f"not the same size: {size} and {size_of(b)}")
+    shifted = None
+    if at != (0, 0):
+        # Rolled round: what comes in at the edge is in the band.
+        shifted = subprocess.run([*CONVERT, str(b), "-roll", f"{-at[0]:+d}{-at[1]:+d}", "miff:-"],
+                                 capture_output=True, check=True).stdout
+        b = "miff:-"
+    ignore = [*ignore, *band(*map(int, size.split("x")), margin)]
     # Each box filled in each picture alike, so nothing in it differs.
     boxes = [arg for bw, bh, bx, by in ignore
              for arg in ("-draw", f"rectangle {bx},{by} {bx + bw - 1},{by + bh - 1}")]
@@ -791,12 +850,13 @@ def compare(a, b, diff=None, fuzz="0%", box=False, ignore=()):
          # nothing in the box it warns.
          "-threshold", fuzz, "-bordercolor", "black", "-border", "1", "-quiet",
          "-format", "%[fx:round(mean*w*h)] %@", "info:"],
-        capture_output=True, text=True, check=True).stdout.split()
+        input=shifted, capture_output=True, check=True).stdout.decode().split()
     if diff:
         png = ["-define", "png:exclude-chunks=date,time"]
         shown = subprocess.run(["compare", "-fuzz", fuzz, *png, str(a), str(b),
                                 # PNG: ImageMagick 6's MIFF of it is gray.
-                                "png:-" if boxes else str(diff)], capture_output=True).stdout
+                                "png:-" if boxes else str(diff)], input=shifted,
+                               capture_output=True).stdout
         if boxes:
             # Magenta, as Playwright's mask is.
             subprocess.run([*CONVERT, "png:-", "-fill", "#ff00ff", *boxes, *png, str(diff)],

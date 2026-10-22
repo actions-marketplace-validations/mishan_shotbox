@@ -823,7 +823,8 @@ class Server:
         return path
 
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
-                 fuzz=None, most=None, file=None, from_start=False, ignore=None):
+                 fuzz=None, most=None, file=None, from_start=False, ignore=None,
+                 margin=None):
         s = self.session(session)
         if what not in WAITS:
             raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
@@ -834,10 +835,13 @@ class Server:
         if what in ("match", "change"):
             fuzz = f"{number(fuzz, 'fuzz', 0, 100) or 0:.6f}".rstrip("0").rstrip(".") + "%"
             most = int(number(most, "most", 0) or 0)
+            margin = int(number(margin, "margin", 0, 32) or 0)
+            if margin and what != "match":
+                raise Refused("margin goes with match")
             if what == "match":
-                at = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
-                                  timeout, words(ignore))
-                return f"It matches {value}, after {at:.3f} s."
+                got = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
+                                   timeout, words(ignore), margin)
+                return f"It matches {value}, after {got.seconds:.3f} s, at {got.x},{got.y}."
             at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore))
             return f"It changed, after {at:.3f} s."
         if value is None and what != "stable":
@@ -1220,6 +1224,9 @@ TOOLS = [
              "ignore": {"type": "array", "items": {"type": "string"},
                         "description": "match, change: boxes of the picture to leave out, "
                         "as a clock or a cursor, each WIDTHxHEIGHT+X+Y"},
+             "margin": {"type": "integer", "minimum": 0, "maximum": 32,
+                        "description": "match, with crop: pixels the picture may be from "
+                        "the crop's place each way, up to 32; answers where it matched (0)"},
              "file": {"type": "string", "description": "line's, by its path from the allow "
                       "file's directory"},
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},

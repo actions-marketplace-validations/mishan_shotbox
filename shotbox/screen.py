@@ -17,6 +17,7 @@ Anything that fails raises SessionError, saying what. With `failed` set (or
 $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 """
 
+import collections
 import contextlib
 import difflib
 import fcntl
@@ -47,6 +48,9 @@ def wheel(dy, dx):
 # Set from another thread to call off every wait in the process, as shotbox
 # mcp does for a request its client has cancelled; cleared by whoever set it.
 _CANCEL = threading.Event()
+
+# What wait_match gives: the seconds it took, and where the picture matched.
+Match = collections.namedtuple("Match", "seconds x y")
 
 
 def wait_for(what, test, timeout, interval=0.1, alive=None):
@@ -282,31 +286,39 @@ class Screen:
         self.until(*self.test("stable", seconds, window), timeout)
 
     def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30,
-                   ignore=()):
+                   ignore=(), margin=0):
         """Wait until the display, or the window named `window`, cropped
         (WxH+X+Y), looks like the picture `ref`: `most` pixels or fewer
         differ by more than `fuzz`, as `shotbox compare` counts, but for
         those in the boxes (WxH+X+Y, in the picture) in `ignore`. For a
-        screen with no other sign it's up: a boot, a login screen. The
-        seconds it took."""
+        screen with no other sign it's up: a boot, a login screen. With
+        `margin`, the picture may be up to that many pixels from the crop's
+        place each way, and is found where it matches best. A Match: the
+        seconds it took, and x, y, its top left corner, as the crop's is
+        (the crop's own without a margin, 0, 0 without a crop)."""
         # png: so a name like msl:FILE is a file, not ImageMagick's coder.
         try:
             x.size_of(f"png:{ref}")
         except subprocess.CalledProcessError:
             self.fail(f"can't read {ref} as a PNG")
-        return self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout, ignore)
+        if not (isinstance(margin, int) and margin >= 0):
+            self.fail(f"a margin is a whole number of pixels, not {margin!r}")
+        if margin and not crop:
+            self.fail("a margin goes with a crop: where the picture is looked for")
+        return Match(*self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout,
+                                       ignore, margin))
 
     def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30, ignore=()):
         """Wait until the display, or the window named `window`, cropped,
         looks different from the first picture the wait takes: more than
         `most` pixels differ by more than `fuzz`, but for those in
         `ignore`, as wait_match's. The seconds it took."""
-        return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)
+        return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)[0]
 
-    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore):
+    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore, margin=0):
         """wait_match against `ref` (`name` to say), or with None,
         wait_change: the seconds from the start of the wait to the picture
-        it passed on."""
+        it passed on, and where it matched: x, y."""
         box = crop and re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
         if crop and not (box and int(box[1]) and int(box[2])):
             self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
@@ -339,6 +351,7 @@ class Screen:
             return x.rgb(now)
 
         start, at, sizes, small, rows = time.monotonic(), None, None, None, None
+        place = tuple(box[2:]) if box else (0, 0)
         ref = x.rgb(ref) if match else None
         fuzz = float(fuzz[:-1])
         # The display's size doesn't change: a crop off it never fits. A
@@ -350,7 +363,7 @@ class Screen:
                 self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
 
         def looks():
-            nonlocal ref, at, sizes, small, rows
+            nonlocal ref, at, sizes, small, rows, place
             w = None
             if window:
                 w = self.backend.find_window(self.env, window)
@@ -359,14 +372,30 @@ class Screen:
                 if box and (box[0] + box[2] > w[2] or box[1] + box[3] > w[3]):
                     small = f"{w[2]}x{w[3]}"
                     return False
+            area = box
+            if margin:
+                # Grown by the margin, cut to what's taken.
+                x0, y0 = max(0, box[2] - margin), max(0, box[3] - margin)
+                area = (min(w[2] if w else wide, box[2] + box[0] + margin) - x0,
+                        min(w[3] if w else high, box[3] + box[1] + margin) - y0, x0, y0)
             t = time.monotonic()
-            got = picture(w, box)
+            got = picture(w, area)
             if got is None:
                 return False
             if ref is None:
                 ref = got
                 return False
-            if got[:2] == ref[:2]:
+            if margin and ref[:2] == tuple(box[:2]):
+                rows = rows or skip and x.kept(*ref[:2], skip)
+                places = [(px - x0, py - y0) for px, py in x.nearest(box[2], box[3], margin)
+                          if x0 <= px <= x0 + got[0] - ref[0] and y0 <= py <= y0 + got[1] - ref[1]]
+                found = x.best_place(ref, got, places, fuzz, most, rows)
+                n = found[0] if found else most + 1
+                if found:
+                    place = (found[1][0] + x0, found[1][1] + y0)
+            elif margin:
+                n, sizes = None, ("{}x{}".format(*ref[:2]), "{}x{}".format(*box[:2]))
+            elif got[:2] == ref[:2]:
                 rows = rows or skip and x.kept(*ref[:2], skip)
                 n = x.differ(ref, got, fuzz, most, rows)
             else:
@@ -378,6 +407,7 @@ class Screen:
 
         where = f"the window {window!r}" if window else "the display"
         where += f", cropped to {crop}," if crop else ""
+        where += f" or up to {margin} pixels off it," if margin else ""
         what = f"{where} to match {name}" if match else f"{where} to change"
         try:
             wait_for(what, looks, timeout, interval=0.01)
@@ -391,7 +421,7 @@ class Screen:
             self.fail(str(e))
         finally:
             now.unlink(missing_ok=True)
-        return at
+        return at, *place
 
     def flicker(self, seconds=2.0, window=None, crop=None, tile=16, brief=0.1, times=8,
                 fuzz=6.0, ignore=(), save=None):
