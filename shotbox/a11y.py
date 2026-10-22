@@ -848,11 +848,12 @@ def unreached(Atspi, window, seen):
     """The showing, sensitive controls and fields the focus never landed
     on, nor on anything round them, nor in them but for a container's,
     nor on another of their group beside them (a tab, a radio button),
-    but for a menu bar's (F10's); and each table or list with an item
+    but for a menu bar's (F10's), nor in a web document it landed on
+    (Chromium's Tab does, coming in from the toolbar); and each table or list with an item
     that takes the focus, the focus never in it."""
     controls, grouped = roles(Atspi, CONTROLS), roles(Atspi, GROUPED)
     containers, items, lists = roles(Atspi, CONTAINERS), roles(Atspi, ITEMS), roles(Atspi, LISTS)
-    menu_bar = roles(Atspi, ("MENU_BAR",))
+    menu_bar, docs = roles(Atspi, ("MENU_BAR",)), roles(Atspi, ("DOCUMENT_WEB",))
     nodes = [n for _, n in walk(Atspi, window)]
     by_path = {n.path: n for n in nodes}
     ids = {n._id for n in seen}
@@ -865,7 +866,7 @@ def unreached(Atspi, window, seen):
                 yield by_path[path]
 
     def near(n, o):
-        return ((n.path.startswith(o.path + "/") and o._role not in containers)
+        return ((n.path.startswith(o.path + "/") and o._role not in containers | docs)
                 or o.path.startswith(n.path + "/")
                 or (n._role in grouped and n._role == o._role
                     and n.path.rsplit("/", 1)[0] == o.path.rsplit("/", 1)[0]))

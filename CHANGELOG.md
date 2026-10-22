@@ -139,6 +139,10 @@
 
 ### Fixed
 
+- `a11y tabwalk` says a web page's controls Tab never reaches in
+  Chromium: Tab lands on the page's document coming in from the
+  toolbar, and that counted as reaching all that's in it, so a button
+  with `tabindex="-1"` passed `--reach-all`.
 - A read of the accessible tree (`a11y tree`, `lint`, a click by name
   and the rest) failed with `Object does not exist at path …` when a
   window closed while it was read. A window gone is left out, as a node

@@ -368,7 +368,7 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, below, contrast, behind, walk, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, below, contrast, behind, walk, around, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -385,6 +385,7 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
     assert.deepEqual(behind['a11y-unshown'].problems.map((n) => n.name), ['Faint words']);
     assert.deepEqual([walk.end, walk.focus.map((n) => n.name), walk.unreached.map((n) => n.name)],
                      ['cycle', ['Two', 'One'], ['Off']]);
+    assert.ok(around.unreached.some((n) => n.name === 'Off'), JSON.stringify(around.unreached));
     assert.equal(said, 'polite: Saved to notes\nassertive: Connection lost\n' +
                        'polite: Done\n');
     assert.match(hint, /"a11y-unread.*": no page in the browser's accessible tree \(a crashed tab, .*--force-renderer-accessibility/);

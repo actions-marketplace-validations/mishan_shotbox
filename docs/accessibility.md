@@ -289,7 +289,8 @@ trap.
 
 Then it lists what Tab never reached: each showing, sensitive control
 (those lint holds to a name) or field it never landed on, nor on
-anything round it or in it (but a container's, as a window's frame),
+anything round it or in it (but a container's, as a window's frame,
+or a web page's document, which Chromium's Tab lands on),
 nor on another of its group beside it (a tab or radio button, one of
 which takes a stop, the rest arrows'), but for a menu bar's (F10's),
 `not reached by Tab: button "Play"`; and each table or list with an
@@ -314,9 +315,7 @@ controls as before, and their presses count towards `--max`, but they
 aren't listed, nor said as not reached, nor held to by `--visible` and
 `--reach-all`, and the count on the last line is of the page's stops.
 Chromium's Tab lands on the document itself as it comes in from the
-browser's controls; that isn't one of the page's stops, and doesn't
-count as reaching what's in it, as it does without `--document`. A
-window with no web document in it is refused, exit 1: `no web document
+browser's controls; that isn't one of the page's stops. A window with no web document in it is refused, exit 1: `no web document
 to walk: the window isn't a browser's`.
 
 With `--visible`, it also checks that the focus shows. It parks the

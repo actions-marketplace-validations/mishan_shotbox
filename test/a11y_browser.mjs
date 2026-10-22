@@ -114,7 +114,8 @@ try
     }
 
     /* The page's Tab order: through the browser's controls, but only
-       the page's said. */
+       the page's said; and without --document, the page's button Tab
+       skips said too, though Tab lands on the document it's in. */
     const tabbed = await browser.newPage();
 
     await tabbed.setContent(`<title>a11y-tabdoc</title><button>One</button>
@@ -122,6 +123,7 @@ try
     await tabbed.focus('button');
     const walk = JSON.parse(run('a11y', 'tabwalk', '--document', '--json',
                                 '--window', 'a11y-tabdoc.*'));
+    const around = JSON.parse(run('a11y', 'tabwalk', '--json', '--window', 'a11y-tabdoc.*'));
     await tabbed.close();
 
     /* One that won't build its page's tree for a reader. */
@@ -161,6 +163,7 @@ try
         contrast,
         behind,
         walk,
+        around,
         said: fs.readFileSync(process.env.SHOTBOX_ANNOUNCEMENTS, 'utf8'),
         hint,
         whole,
