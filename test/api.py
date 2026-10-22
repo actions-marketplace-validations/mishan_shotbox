@@ -62,6 +62,14 @@ def pointer(on, **session):
         s.capture(d / "parked.png", window="shotbox-button", park=True)
         check(x.compare(d / "rest.png", d / "parked.png") == 0,
               f"{on}: capture(park=True) takes it as if never hovered")
+        subprocess.run(["convert", d / "parked.png", "-crop", "60x30+70+45", "+repage",
+                        d / "part.png"], check=True)
+        # Where it matched: 0,0 without a crop, the crop's corner, or where a margin found it.
+        for ref, how, at in (("parked", {}, (0, 0)), ("part", {"crop": "60x30+70+45"}, (70, 45)),
+                             ("part", {"crop": "60x30+73+43", "margin": 3}, (70, 45))):
+            m = s.wait_match(d / f"{ref}.png", window="shotbox-button", timeout=5, **how)
+            check(m.seconds >= 0 and (m.x, m.y) == at,
+                  f"{on}: wait_match {how}: a Match, at {at} ({m})")
         (d / "script").write_text("click ${X} ${Y} --window shotbox-button\n+0.5 park --settle 0\n")
         s.play(d / "script", vars={"X": w[2] // 2, "Y": w[3] // 2})
         check((d / "clicks").read_text() == "clicked\n" * 2,
@@ -127,6 +135,8 @@ def a11y():
         s.key("Tab", "Tab")
         check(s.wait_focus("Announce", timeout=5).role.endswith("button"),
               "a11y: wait_focus()")
+        check(s.wait_node("^Wrap", window="a11y-test", timeout=5).name == "Wrap lines",
+              "a11y: wait_node()")
         s.key("space")
         s.wait_announce("notes", timeout=5)
         check(s.click_node("Announce", window="a11y-test").name == "Announce",
@@ -137,6 +147,14 @@ def a11y():
             check(False, "a11y: wait_announce() takes each announcement once")
         except shotbox.SessionError:
             check(True, "a11y: wait_announce() takes each announcement once")
+        # Off the screen's corner, where the window's x,y and the screen's differ.
+        s.run(["xdotool", "search", "--name", "^a11y-test$", "windowmove", "--sync", "230", "170"])
+        x, y, w, h = next(n for n in s.find(name="File name", window="a11y-test")
+                          if "focusable" in n.states).bounds
+        s.click(x + w // 2, y + h // 2, window="a11y-test")
+        check(s.wait_focus("File name", timeout=5)
+              and s.a11y_tree("a11y-test")[0].bounds[:2] == [0, 0],
+              "a11y: with a window, bounds are in its x,y, as click() takes them")
     with shotbox.Session(size=(640, 480), a11y=True) as s:
         s.spawn([str(APP), "trap"])
         try:

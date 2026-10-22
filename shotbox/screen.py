@@ -17,6 +17,7 @@ Anything that fails raises SessionError, saying what. With `failed` set (or
 $SHOTBOX_FAILED), a failure first leaves a picture of the screen there.
 """
 
+import collections
 import contextlib
 import difflib
 import fcntl
@@ -47,6 +48,9 @@ def wheel(dy, dx):
 # Set from another thread to call off every wait in the process, as shotbox
 # mcp does for a request its client has cancelled; cleared by whoever set it.
 _CANCEL = threading.Event()
+
+# What wait_match gives: the seconds it took, and where the picture matched.
+Match = collections.namedtuple("Match", "seconds x y")
 
 
 def wait_for(what, test, timeout, interval=0.1, alive=None):
@@ -281,28 +285,40 @@ class Screen:
         in, a toast going away."""
         self.until(*self.test("stable", seconds, window), timeout)
 
-    def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30):
+    def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30,
+                   ignore=(), margin=0):
         """Wait until the display, or the window named `window`, cropped
         (WxH+X+Y), looks like the picture `ref`: `most` pixels or fewer
-        differ by more than `fuzz`, as `shotbox compare` counts. For a screen with
-        no other sign it's up: a boot, a login screen. The seconds it took."""
+        differ by more than `fuzz`, as `shotbox compare` counts, but for
+        those in the boxes (WxH+X+Y, in the picture) in `ignore`. For a
+        screen with no other sign it's up: a boot, a login screen. With
+        `margin`, the picture may be up to that many pixels from the crop's
+        place each way, and is found where it matches best. A Match: the
+        seconds it took, and x, y, its top left corner, as the crop's is
+        (the crop's own without a margin, 0, 0 without a crop)."""
         # png: so a name like msl:FILE is a file, not ImageMagick's coder.
         try:
             x.size_of(f"png:{ref}")
         except subprocess.CalledProcessError:
             self.fail(f"can't read {ref} as a PNG")
-        return self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout)
+        if not (isinstance(margin, int) and margin >= 0):
+            self.fail(f"a margin is a whole number of pixels, not {margin!r}")
+        if margin and not crop:
+            self.fail("a margin goes with a crop: where the picture is looked for")
+        return Match(*self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout,
+                                       ignore, margin))
 
-    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30):
+    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30, ignore=()):
         """Wait until the display, or the window named `window`, cropped,
         looks different from the first picture the wait takes: more than
-        `most` pixels differ by more than `fuzz`. The seconds it took."""
-        return self._wait_looks(None, None, window, crop, fuzz, most, timeout)
+        `most` pixels differ by more than `fuzz`, but for those in
+        `ignore`, as wait_match's. The seconds it took."""
+        return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)[0]
 
-    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout):
+    def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore, margin=0):
         """wait_match against `ref` (`name` to say), or with None,
         wait_change: the seconds from the start of the wait to the picture
-        it passed on."""
+        it passed on, and where it matched: x, y."""
         box = crop and re.fullmatch(r"(\d+)x(\d+)\+(\d+)\+(\d+)", crop)
         if crop and not (box and int(box[1]) and int(box[2])):
             self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
@@ -311,6 +327,10 @@ class Screen:
             self.fail(f"fuzz is a percentage, 0% to 100%, not {fuzz!r}")
         if most < 0:
             self.fail(f"the pixels that may differ are 0 or more, not {most}")
+        skip = [x.box_of(g) for g in ignore]
+        if None in skip:
+            self.fail("what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not "
+                      f"{ignore[skip.index(None)]}")
         match = ref is not None
         fd, now = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
         os.close(fd)
@@ -330,7 +350,8 @@ class Screen:
                 return None
             return x.rgb(now)
 
-        start, at, sizes, small = time.monotonic(), None, None, None
+        start, at, sizes, small, rows = time.monotonic(), None, None, None, None
+        place = tuple(box[2:]) if box else (0, 0)
         ref = x.rgb(ref) if match else None
         fuzz = float(fuzz[:-1])
         # The display's size doesn't change: a crop off it never fits. A
@@ -342,7 +363,7 @@ class Screen:
                 self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
 
         def looks():
-            nonlocal ref, at, sizes, small
+            nonlocal ref, at, sizes, small, rows, place
             w = None
             if window:
                 w = self.backend.find_window(self.env, window)
@@ -351,15 +372,32 @@ class Screen:
                 if box and (box[0] + box[2] > w[2] or box[1] + box[3] > w[3]):
                     small = f"{w[2]}x{w[3]}"
                     return False
+            area = box
+            if margin:
+                # Grown by the margin, cut to what's taken.
+                x0, y0 = max(0, box[2] - margin), max(0, box[3] - margin)
+                area = (min(w[2] if w else wide, box[2] + box[0] + margin) - x0,
+                        min(w[3] if w else high, box[3] + box[1] + margin) - y0, x0, y0)
             t = time.monotonic()
-            got = picture(w, box)
+            got = picture(w, area)
             if got is None:
                 return False
             if ref is None:
                 ref = got
                 return False
-            if got[:2] == ref[:2]:
-                n = x.differ(ref[2], got[2], fuzz, most)
+            if margin and ref[:2] == tuple(box[:2]):
+                rows = rows or skip and x.kept(*ref[:2], skip)
+                places = [(px - x0, py - y0) for px, py in x.nearest(box[2], box[3], margin)
+                          if x0 <= px <= x0 + got[0] - ref[0] and y0 <= py <= y0 + got[1] - ref[1]]
+                found = x.best_place(ref, got, places, fuzz, most, rows)
+                n = found[0] if found else most + 1
+                if found:
+                    place = (found[1][0] + x0, found[1][1] + y0)
+            elif margin:
+                n, sizes = None, ("{}x{}".format(*ref[:2]), "{}x{}".format(*box[:2]))
+            elif got[:2] == ref[:2]:
+                rows = rows or skip and x.kept(*ref[:2], skip)
+                n = x.differ(ref, got, fuzz, most, rows)
             else:
                 n, sizes = None, ("{}x{}".format(*ref[:2]), "{}x{}".format(*got[:2]))
             if (n is not None and n <= most) == match:
@@ -369,6 +407,7 @@ class Screen:
 
         where = f"the window {window!r}" if window else "the display"
         where += f", cropped to {crop}," if crop else ""
+        where += f" or up to {margin} pixels off it," if margin else ""
         what = f"{where} to match {name}" if match else f"{where} to change"
         try:
             wait_for(what, looks, timeout, interval=0.01)
@@ -382,7 +421,7 @@ class Screen:
             self.fail(str(e))
         finally:
             now.unlink(missing_ok=True)
-        return at
+        return at, *place
 
     def flicker(self, seconds=2.0, window=None, crop=None, tile=16, brief=0.1, times=8,
                 fuzz=6.0, ignore=(), save=None):
@@ -775,13 +814,43 @@ class Screen:
             self.fail(err.strip().removeprefix("shotbox: ") or f"shotbox a11y {args[0]} failed")
         return json.loads(out)
 
+    def _windowed(self, nodes, window, at=None):
+        """`nodes` with their bounds in `window`'s x,y (its corner `at` on the
+        screen, if that's been looked up), as click, scroll and capture take
+        an x,y with it, so they're given to them as they are."""
+        from .a11y import Node
+        if not window or not any(n.get("bounds") for n in nodes):
+            return nodes
+        wx, wy = at or self.window(window)[4:6]
+        return [Node({**n, "bounds": [n.bounds[0] - wx, n.bounds[1] - wy, *n.bounds[2:]]})
+                if n.get("bounds") else n for n in nodes]
+
+    def _by_name(self, window, timeout, act):
+        """The node `act(timeout)` clicks or scrolls over, in `window`'s x,y, as
+        are those listed when more than one matches. The window is waited for
+        first, so nothing fails once it's acted."""
+        began = time.monotonic()
+        at = window and self.wait_window(window, timeout)[4:6]
+        try:
+            n = act(max(0, timeout - (time.monotonic() - began)))
+        except SessionError as e:
+            # The time it gave up after is the caller's, not what was left of it.
+            said = re.sub(r"^(gave up .*?after )[\d.e-]+s", lambda m: f"{m[1]}{timeout:g}s", str(e))
+            if not at or not re.match(r"\d+ nodes match", said):
+                raise SessionError(said) from None
+            raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
+                                      lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
+                                      said, flags=re.M)) from None
+        return self._windowed([n], window, at)[0]
+
     def a11y_tree(self, window=None):
         """Every node a screen reader sees, depth first: dicts (and
         attributes) of role, name, description, states, path, depth, and
-        bounds on the screen, [x, y, width, height], or None where they
-        can't be told."""
+        bounds, [x, y, width, height]: on the screen, or with `window`, in
+        that window's x,y; or None where they can't be told."""
         from .a11y import Node
-        return [Node(n) for n in self._a11y("tree", *([f"--window={window}"] if window else []))]
+        return self._windowed([Node(n) for n in self._a11y(
+            "tree", *([f"--window={window}"] if window else []))], window)
 
     def find(self, role=None, name=None, window=None):
         """The nodes with this role ("button") and named `name`: those
@@ -806,6 +875,15 @@ class Screen:
             return n if n and named(n.name) else None
         return self.until(f"the focus on {name!r}{note}", there, timeout)
 
+    def wait_node(self, pattern, window=None, timeout=30):
+        """Wait for a showing node with `pattern`, a regex, found in its name
+        or text: a status line saying a page is drawn, say. That node, with
+        its text as `text` where that's what matched."""
+        from .a11y import Node
+        return Node(self._a11y("node", "--timeout", str(timeout),
+                               *([f"--window={window}"] if window else []), "--", pattern,
+                               timeout=90 + timeout))
+
     def a11y_lint(self, window=None, ignore=()):
         """The nodes a screen reader would have no name to say for, each
         with what's wrong as `problem`; but those whose "PATH: PROBLEM"
@@ -813,7 +891,8 @@ class Screen:
         `ignore` is found in."""
         from .a11y import Node
         args = [f"--ignore={i}" for i in ignore]
-        return [Node(n) for n in self._a11y("lint", *args, *([f"--window={window}"] if window else []))]
+        return self._windowed([Node(n) for n in self._a11y(
+            "lint", *args, *([f"--window={window}"] if window else []))], window)
 
     def contrast(self, window=None, text=4.5, graphics=3.0, edges=None, ignore=(), large=3.0,
                  passes=False, strict=False):
@@ -825,7 +904,9 @@ class Screen:
         what's round it; and `notes`, what wasn't measured and doesn't
         fail, each with its `note`: too small to, or GTK 4's, with `why`;
         with `strict`, only what's scrolled out of view, the rest being
-        `problems` too. With `passes`, `passes` too, what was measured
+        `problems` too; and `behind`, what's behind a modal dialog, not
+        measured, which doesn't fail even with `strict`, each with its
+        `behind`. With `passes`, `passes` too, what was measured
         and passes, each with its ratio as `contrast`. But not those whose "PATH: WHAT" line, or
         "LINE: WHAT" with its tree line, one of the regexes in `ignore` is
         found in. Measured on a picture of the screen, `window` raised.
@@ -837,28 +918,34 @@ class Screen:
                 *[f"--ignore={i}" for i in ignore], *(["--passes"] if passes else []),
                 *(["--strict"] if strict else []),
                 *([f"--window={window}"] if window else [])]
-        return {k: [Node(n) for n in v] for k, v in self._a11y("contrast", *args).items()}
+        return {k: self._windowed([Node(n) for n in v], window)
+                for k, v in self._a11y("contrast", *args).items()}
 
-    def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10):
+    def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10,
+                   force=False):
         """Click the middle of the node named `name`, exactly or else as a
         regex matched in full, and role `role` if given (the same), waiting
-        up to `timeout` for it to show; that node."""
+        up to `timeout` for it to show, and unless `force`, to be enabled,
+        still and uncovered; that node."""
         from .a11y import Node
-        args = ["--button", str(button), "--timeout", str(timeout),
-                *([f"--role={role}"] if role else []), *(["--double"] if double else []),
-                *([f"--window={window}"] if window else []), "--", name]
-        return Node(self._a11y("click", *args, timeout=90 + timeout))
+        return self._by_name(window, timeout, lambda left: Node(self._a11y(
+            "click", "--button", str(button), "--timeout", str(left),
+            *([f"--role={role}"] if role else []), *(["--double"] if double else []),
+            *(["--force"] if force else []),
+            *([f"--window={window}"] if window else []), "--", name, timeout=90 + left)))
 
-    def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10):
+    def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10, force=False):
         """Turn the mouse wheel over the node `click_node` would click, `dy`
         clicks down and `dx` right, as `scroll`; that node."""
         from .a11y import Node
-        args = ["--timeout", str(timeout), *([f"--role={role}"] if role else []),
-                *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx)]
-        return Node(self._a11y("scroll", *args, timeout=90 + timeout))
+        return self._by_name(window, timeout, lambda left: Node(self._a11y(
+            "scroll", "--timeout", str(left), *([f"--role={role}"] if role else []),
+            *(["--force"] if force else []),
+            *([f"--window={window}"] if window else []), "--", name, str(dy), str(dx),
+            timeout=90 + left)))
 
     def tab_walk(self, key="Tab", most=50, window=None, visible=False, reach_all=False,
-                 ignore=()):
+                 ignore=(), document=False):
         """Press `key` until the focus lands somewhere it has been: the node
         it lands on after each press, the last being that one. Fails, as
         `shotbox a11y tabwalk` says, unless it comes round: on a trap (but
@@ -868,10 +955,11 @@ class Screen:
         doesn't show on a node it lands on; with `reach_all`, on a control
         it never reaches, but those whose "PATH: not reached by KEY", or
         with its tree line for the path, one of the regexes in `ignore` is
-        found in."""
+        found in. With `document`, only what's in the window's web page,
+        as `tabwalk --document` has it."""
         from .a11y import Node, unseen, walk_end
         args = ["tabwalk", f"--key={key}", "--max", str(most), *(["--visible"] if visible else []),
-                *[f"--ignore={i}" for i in ignore]]
+                *(["--document"] if document else []), *[f"--ignore={i}" for i in ignore]]
         got = self._a11y(*args, *([f"--window={window}"] if window else []),
                          timeout=90 + most * 5)
         seen = [Node(n) for n in got["focus"]]

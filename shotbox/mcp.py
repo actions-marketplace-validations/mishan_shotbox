@@ -47,7 +47,7 @@ import time
 from pathlib import Path
 
 from . import __version__, kept, sound, usage
-from .a11y import Node, walk_lines
+from .a11y import Node, placed, walk_lines
 from .a11y import changes as tree_changes
 from .screen import _CANCEL, SessionError, wheel
 from .session import Session, a11y_needs
@@ -210,38 +210,10 @@ def words(v):
 # --- the tools ------------------------------------------------------------------
 
 
-def windowed(s, nodes, window, at=None):
-    """`nodes` with their bounds in `window`'s x,y (its corner `at` on the
-    screen, if that's been looked up), as click_element, crop and zoom take
-    an x,y with it, so they're given to them as they are."""
-    if not window:
-        return nodes
-    wx, wy = at or s.window(window)[4:6]
-    return [Node({**n, "bounds": [n.bounds[0] - wx, n.bounds[1] - wy, *n.bounds[2:]]})
-            if n.get("bounds") else n for n in nodes]
-
-
-def by_name(s, window, timeout, act):
-    """The node `act(timeout)` clicks or scrolls over, in `window`'s x,y, as
-    are those listed when more than one matches. The window is waited for
-    first, so nothing fails once it's acted."""
-    began = time.monotonic()
-    at = window and s.wait_window(window, timeout)[4:6]
-    try:
-        n = act(max(0, timeout - (time.monotonic() - began)))
-    except SessionError as e:
-        if not at or not re.match(r"\d+ nodes match", str(e)):
-            raise
-        raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
-                                  lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
-                                  str(e), flags=re.M)) from None
-    return windowed(s, [n], window, at)[0]
-
-
 def problems(nodes, window=None, key="problem"):
     """check_accessible_names' and check_contrast's answer: a line a node, as the tree has it, and
     what's wrong (or what `key` says)."""
-    return capped([f"{n.line(bounds=True)}: {n[key]}" for n in nodes],
+    return capped([f"{n.line(bounds=True)}: {n[key]}{placed(n, named=True)}" for n in nodes],
                   "with ignore" if window else "with window or ignore") or "No problems."
 
 
@@ -518,8 +490,7 @@ class Server:
         labels = flag(labels)
         if labels and burst:
             raise Refused("labels goes with one picture, not burst")
-        nodes = windowed(s, self.a11y_session(session).a11y_tree(text(window)),
-                         text(window)) if labels else None
+        nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         x0 = y0 = 0
@@ -712,9 +683,8 @@ class Server:
 
     def get_accessible_tree(self, session, window=None, bounds=False):
         s = self.a11y_session(session)
-        nodes, bounds = s.a11y_tree(text(window)), flag(bounds)
-        nodes = windowed(s, nodes, text(window)) if bounds else nodes
-        return capped(["  " * n.depth + n.line(bounds) for n in nodes],
+        nodes = s.a11y_tree(text(window))
+        return capped(["  " * n.depth + n.line(flag(bounds)) for n in nodes],
                       None if window else "with window") or "(no accessible windows)"
 
     def a11y_session(self, session):
@@ -730,7 +700,7 @@ class Server:
 
     @watched
     def click_element(self, session, name=None, role=None, x=None, y=None, window=None,
-                      button=1, double=False, hold=None, state=None, timeout=None):
+                      button=1, double=False, hold=None, state=None, timeout=None, force=False):
         s = self.session(session)
         button, double = int(number(button, "button") or 1), flag(double)
         hold, state = held(hold, state)
@@ -740,11 +710,10 @@ class Server:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
             timeout = number(timeout, "timeout", 0, 300)
-            a = self.a11y_session(session)
-            n = by_name(s, text(window), 10 if timeout is None else timeout,
-                        lambda left: a.click_node(
-                            str(name), role=text(role), window=text(window), button=button,
-                            double=double, timeout=left))
+            n = self.a11y_session(session).click_node(
+                str(name), role=text(role), window=text(window), button=button, double=double,
+                timeout=10 if timeout is None else timeout,
+                force=flag(force))
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click_element takes a node's name, or x and y")
@@ -756,18 +725,16 @@ class Server:
 
     @watched
     def scroll_wheel(self, session, dy=None, dx=None, name=None, role=None, x=None, y=None,
-                     window=None):
+                     window=None, force=False):
         s = self.session(session)
         dy, dx = (within(v, k, -100, 100, whole=True) or 0 for v, k in ((dy, "dy"), (dx, "dx")))
         wheel(dy, dx)
         turned = "Scrolled " + " and ".join(f"{abs(n)} {ways[n < 0]}" for n, ways in (
             (dy, ("down", "up")), (dx, ("right", "left"))) if n)
         if name is not None:
-            a = self.a11y_session(session)
-            n = by_name(s, text(window), 10,
-                        lambda left: a.scroll_node(
-                            str(name), dy, dx, role=text(role), window=text(window),
-                            timeout=left))
+            n = self.a11y_session(session).scroll_node(str(name), dy, dx, role=text(role),
+                                                       window=text(window),
+                                                       force=flag(force))
             return f"{turned} over {n.line()}, at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("scroll_wheel takes a node's name, or x and y")
@@ -856,7 +823,8 @@ class Server:
         return path
 
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
-                 fuzz=None, most=None, file=None, from_start=False):
+                 fuzz=None, most=None, file=None, from_start=False, ignore=None,
+                 margin=None):
         s = self.session(session)
         if what not in WAITS:
             raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
@@ -867,11 +835,14 @@ class Server:
         if what in ("match", "change"):
             fuzz = f"{number(fuzz, 'fuzz', 0, 100) or 0:.6f}".rstrip("0").rstrip(".") + "%"
             most = int(number(most, "most", 0) or 0)
+            margin = int(number(margin, "margin", 0, 32) or 0)
+            if margin and what != "match":
+                raise Refused("margin goes with match")
             if what == "match":
-                at = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
-                                  timeout)
-                return f"It matches {value}, after {at:.3f} s."
-            at = s.wait_change(text(window), text(crop), fuzz, most, timeout)
+                got = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
+                                   timeout, words(ignore), margin)
+                return f"It matches {value}, after {got.seconds:.3f} s, at {got.x},{got.y}."
+            at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore))
             return f"It changed, after {at:.3f} s."
         if value is None and what != "stable":
             raise Refused(f"wait_for {what} needs a value: what to wait for")
@@ -893,24 +864,27 @@ class Server:
             n = self.a11y_session(session).wait_focus(str(value), timeout=timeout,
                                                       window=text(window))
             return f"The focus is on {n.line()}."
+        if what == "node":
+            n = self.a11y_session(session).wait_node(str(value), text(window), timeout)
+            return (f"It's there: {n.line()}"
+                    + (f", its text {json.dumps(n.text, ensure_ascii=False)}." if "text" in n
+                       else "."))
         return "The line:\n" + fenced([s.wait_line(str(value), self.log(file), flag(from_start),
                                                    timeout, within=Path(self.home).resolve())])
 
     # --- checking ------------------------------------------------------------
 
     def check_accessible_names(self, session, window=None, ignore=None):
-        s = self.a11y_session(session)
-        return problems(windowed(s, s.a11y_lint(text(window), words(ignore)), text(window)),
+        return problems(self.a11y_session(session).a11y_lint(text(window), words(ignore)),
                         window)
 
     def check_contrast(self, session, window=None, text_ratio=4.5, graphics=3.0,
                        edges=None, ignore=None, passes=False, strict=False):
-        s = self.a11y_session(session)
-        got = {k: windowed(s, v, text(window)) for k, v in s.contrast(
+        got = self.a11y_session(session).contrast(
             text(window), number(text_ratio, "text_ratio") or 4.5,
             number(graphics, "graphics") or 3.0, number(edges, "edges"), words(ignore),
-            passes=flag(passes), strict=flag(strict)).items()}
-        notes, passed = got["notes"], got.get("passes")
+            passes=flag(passes), strict=flag(strict))
+        notes, passed, behind = got["notes"], got.get("passes"), got["behind"]
         whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
         return "\n".join([problems(got["problems"], window)]
                          + ([f"{len(passed)} pass:", problems(passed, window, "contrast")]
@@ -918,14 +892,18 @@ class Server:
                          + ([f"{len(notes)} not measured, which doesn't fail:",
                              problems(notes, window, "note")]
                             if notes else [])
+                         + ([f"{len(behind)} behind a modal dialog, which doesn't fail:",
+                             problems(behind, window, "behind")]
+                            if behind else [])
                          + whys)
 
     def check_focus_order(self, session, key="Tab", window=None, visible=False, most=50,
-                          ignore=None):
+                          ignore=None, document=False):
         s = self.a11y_session(session)
         most = int(number(most, "most", 1, 200) or 50)
         args = ["tabwalk", f"--key={key or 'Tab'}", "--max", str(most),
                 *(["--visible"] if flag(visible) else []),
+                *(["--document"] if flag(document) else []),
                 *[f"--ignore={i}" for i in words(ignore)],
                 *([f"--window={window}"] if window else [])]
         got = s._a11y(*args, timeout=90 + most * 5)
@@ -1019,6 +997,8 @@ WINDOW = {"type": "string", "description":
 NAME = {"type": "string", "description": "A node's name, as get_accessible_tree gives it: "
         "exactly, or a regex matched in full"}
 ROLE = {"type": "string", "description": "Narrows name: exactly, or a regex"}
+FORCE = {"type": "boolean", "description": "By name, don't wait for the node to be enabled, "
+         "still and uncovered: to check a disabled one does nothing"}
 X = {"type": "integer", "description": "Pixels from the left: of the window, with window"}
 Y = {"type": "integer", "description": "Pixels from the top: of the window, with window"}
 IGNORE = {"type": "array", "items": {"type": "string"},
@@ -1027,7 +1007,7 @@ PROGRAM = {"type": "string", "description": "Its name in the allow list"}
 CHANGES = {"type": "boolean", "description": "Also say what this changed in the accessible "
            "tree once the screen holds still (not a field's text, nor where things are): "
            "tree lines, + added, - gone, ~ changed"}
-WAITS = ("window", "stable", "announcement", "focus", "match", "change", "line")
+WAITS = ("window", "stable", "announcement", "focus", "node", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
 # to read in its answer, and what to do instead when it's the wrong one.
@@ -1151,8 +1131,9 @@ TOOLS = [
     ("click_element",
      "Click an element by its accessible name, or a point by x and y, on the screen or "
      "inside a window. By name is the one to use: it waits up to timeout seconds for the "
-     "node, raises its window and clicks its middle, and the answer gives the node and its "
-     "bounds. When two nodes match it lists them, with where they are; when none does, the "
+     "node to show, be placed and enabled, hold still and be uncovered (else it says which "
+     "it isn't), raises its window and clicks its middle, and the answer gives the node and "
+     "its bounds. When two nodes match it lists them, with where they are; when none does, the "
      "nearest names. A click gives a window the keyboard, which nothing else does on X11. "
      "hold and state, by x and y, hold the button as press_keys holds keys.",
      schema({"session": SESSION, "name": NAME, "role": ROLE, "x": X, "y": Y,
@@ -1162,7 +1143,7 @@ TOOLS = [
              "hold": HOLD, "state": STATE,
              "timeout": {"type": "number", "minimum": 0, "maximum": 300,
                          "description": "By name, seconds to wait for the node (10)"},
-             "changes": CHANGES},
+             "force": FORCE, "changes": CHANGES},
             ["session"])),
     ("scroll_wheel",
      "Turn the mouse wheel over a node by its name, found as click_element finds it (waiting "
@@ -1175,7 +1156,7 @@ TOOLS = [
              "dx": {"type": "integer", "minimum": -100, "maximum": 100,
                     "description": "Clicks right; negative, left"},
              "name": NAME, "role": ROLE, "x": X, "y": Y, "window": WINDOW,
-             "changes": CHANGES},
+             "force": FORCE, "changes": CHANGES},
             ["session"])),
     ("press_keys",
      "Press keys in turn, each a chord: Tab, Return, Escape, ctrl+s, alt+shift+Tab, F6. They "
@@ -1231,6 +1212,9 @@ TOOLS = [
      "once. "
      "focus: the name of the node with the keyboard focus, as click_element takes one; "
      "answers with its tree line. "
+     "node: a regex in the name or text of a node showing in the accessible tree, as a "
+     "status line saying a page is drawn, where the screen holding still says nothing; "
+     "answers with its tree line, and its text if that matched. "
      "match: a PNG's path, from the allow file's directory, that the screen (or window, "
      "cropped to crop) should look like; answers how long it took. "
      "change: any change from how it looked when the wait began; answers how long it took. "
@@ -1249,6 +1233,12 @@ TOOLS = [
                       "description": "match, change: percent a pixel may differ by (0)"},
              "most": {"type": "integer", "minimum": 0,
                       "description": "match, change: pixels past fuzz allowed (0)"},
+             "ignore": {"type": "array", "items": {"type": "string"},
+                        "description": "match, change: boxes of the picture to leave out, "
+                        "as a clock or a cursor, each WIDTHxHEIGHT+X+Y"},
+             "margin": {"type": "integer", "minimum": 0, "maximum": 32,
+                        "description": "match, with crop: pixels the picture may be from "
+                        "the crop's place each way, up to 32; answers where it matched (0)"},
              "file": {"type": "string", "description": "line's, by its path from the allow "
                       "file's directory"},
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},
@@ -1267,7 +1257,9 @@ TOOLS = [
      "fails, a tree line with bounds, its ratio and colors, or \"No problems.\"; with "
      "passes, then each that passes, the same; then what it couldn't measure, which doesn't "
      "fail unless strict (too small, off the screen, or GTK 4.14+'s, whose positions are "
-     "wrong: of that, only text is measured, where it's found near them), and why. A window "
+     "wrong: of that, only text is measured, where it's found near them), then what's behind "
+     "a modal dialog, not measured, which doesn't fail even with strict (check it with the "
+     "dialog closed), and why. A window "
      "where nothing can be measured is an error, not a pass. Switches, sliders, check boxes, "
      "disabled nodes and what's scrolled out of view are skipped. For missing names, use "
      "check_accessible_names.",
@@ -1296,7 +1288,10 @@ TOOLS = [
              "most": {"type": "integer", "minimum": 1, "maximum": 200,
                       "description": "Presses at most (50)"},
              "ignore": {**IGNORE, "description": "Regexes for unreached controls to leave "
-                        "out"}}, ["session"])),
+                        "out"},
+             "document": {"type": "boolean", "description": "Only what's in a browser "
+                          "window's web page: Tab still goes through the browser's own "
+                          "controls, but they aren't listed"}}, ["session"])),
     ("get_speech",
      "Hear what Orca, a real screen reader, says as the focus moves: it starts Orca in the "
      "session, presses Tab until the focus comes round (or keys, in turn), and answers a "

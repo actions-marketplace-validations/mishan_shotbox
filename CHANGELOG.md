@@ -4,6 +4,37 @@
 
 ### Changes to check when upgrading
 
+- **`a11y lint` and `a11y contrast` lines on a web page's node end in
+  where it is in the page's DOM**, the element's tag and id, its text
+  and the nearest id round it, as Chromium and Firefox give them:
+  `PATH: text 2.84:1, #999999 on #ffffff (at least 4.5)  <- p "Faint
+  words" in div#intro`. A path alone, `.../document
+  web[3]/section[0]/section[2]/static[0]`, was hard to find in the
+  source. `--json`, Python's `a11y_lint()` and `contrast()` give each
+  such node `dom` (with its element's `class` too) and `text`, and MCP's
+  `check_accessible_names` and `check_contrast` lines end the same way.
+  `--ignore` matches the ending too: `--ignore 'div#intro'`. A script
+  that reads the lines as `PATH: WHAT` gets the end in WHAT.
+- **A click or scroll by name waits until the node is placed, enabled,
+  still and uncovered**, and fails, saying which it isn't, when its
+  timeout runs out: `gave up after 10s: button "Save" [focusable,
+  disabled] isn't enabled`, `... has no position yet`, `... is
+  off-screen`, `... is outside its window` (each failed at once before,
+  the first as "can't tell where", which a browser's node just added
+  was), `... is moving`, `... is covered by label "Cover"` (in a GTK 4
+  window), `... is covered by window "Dialog"` (a dialog of its window,
+  on X11). That's `a11y click` and `a11y scroll`, Python's `click_node`
+  and `scroll_node`, and MCP's `click_element` and `scroll_wheel`. A
+  click on a disabled button passed, doing nothing, and one under a
+  dialog or mid-move went elsewhere; to click anyway, as a check that a
+  disabled control does nothing, pass `--force` (`force=True`, MCP's
+  `force`), which still waits for it to be placed. A ready node costs
+  the click about 50 ms, to see it's still.
+- **`Screen.wait_match` returns a `Match(seconds, x, y)`**, not the
+  seconds as a float: x, y is where the picture matched, the crop's
+  corner (0, 0 without one), or where `margin` found it. A caller that
+  used the float takes `.seconds`. MCP's `wait_for` match says where
+  too: `It matches ref.png, after 0.412 s, at 103,58.`
 - **`a11y contrast --window` fails GTK 4's text it doesn't find, where
   nothing there could pass**: `text not found, but nothing where it can
   be has the contrast it needs: the best anything there reaches is
@@ -11,9 +42,22 @@
   note, which doesn't fail, however faint, so a run that passed can
   fail now. Stock libadwaita has some: an empty `AdwEntryRow`'s title
   (1.98:1), Files' preferences group description (3.21:1), and Settings
-  › Sound's "No Output Devices" (3.23:1). So does text dimmed behind an
-  open dialog, as faint as it's drawn (Files' path bar behind its
-  preferences). Leave them out with `--ignore` if they're not yours.
+  › Sound's "No Output Devices" (3.23:1). Leave them out with
+  `--ignore` if they're not yours. Text dimmed behind an open dialog
+  doesn't fail: see the next.
+- **`a11y contrast` says what's behind a modal dialog apart, and
+  doesn't fail it**, with `--strict` either: `PATH: text behind a modal
+  dialog "Settings"`, after what wasn't measured, and under `behind` in
+  `--json`, `Screen.contrast()` and MCP's `check_contrast`. That's
+  what's outside an aria-modal dialog in its page (one on the screen),
+  a modal window's program's other windows, covered or not, and what's
+  under a libadwaita dialog in its window, which is always modal; not
+  what's under a modal popover. It was measured where the dialog dims
+  or covers it, and failed (an aria-modal dialog's backdrop took a
+  `#999` paragraph to 2.14:1) or passed on what covered it (a
+  libadwaita dialog's own text), so a run that failed can pass now,
+  and its lines are new on stdout. Check what's behind with the dialog
+  closed.
 - **MCP's `take_screenshot` says where a point on a picture is for
   `click_element` as a sum, `100 + x/0.8122, 50 + y/0.812`**, in place
   of "divide an x,y on it by that, then add the crop's x,y": a client
@@ -27,9 +71,50 @@
   matches. They were the screen's, so a node's bounds given to a click
   in the window were off by where the window is. An agent that added
   the window's place back no longer should.
+- **The Python API's bounds, given a window, are the window's**, as MCP's
+  are: from its top left corner, as `click(x, y, window=)`'s x,y,
+  `scroll`'s and `capture`'s `crop` with it are, in `a11y_tree`, `find`,
+  `focused`, `wait_focus`, `a11y_lint`, `contrast`, the node `click_node`
+  and `scroll_node` give back, and the nodes they list when more than one
+  matches. They were the screen's, so a node's bounds given to a click
+  in the window were off by where the window is. Without a window
+  they're the screen's, as `a11y --json`'s still are.
 
 ### Added
 
+- `wait node RE` waits for a node showing in the accessible tree whose
+  name or text RE is found in, `--window RE` for one window's: a status
+  line saying a page is drawn, where `wait stable` passes on a WebGL
+  canvas still waiting on its server, in place of polling `a11y tree |
+  grep`. Giving up, it says what came nearest: a match not showing,
+  the nearest names and texts, or that nothing comes near.
+  `Screen.wait_node(re, window=None)` and MCP's `wait_for` node have
+  it too.
+- A recipe, in docs/recipes.md: a web app in Firefox, served on the
+  session's own network, in a profile made in the session, its window
+  sized to the screen, pictured once the page says it's drawn.
+- `a11y tabwalk --document` lists only what's in a browser window's web
+  page, and says only its controls Tab never reached: Tab still goes
+  through the browser's own (the address bar, Back, the tab strip),
+  which were listed as not reached on every page. A window with no web
+  document is refused. `Screen.tab_walk(document=True)` and MCP's
+  `check_focus_order` with `document` have it too.
+- `compare` and `wait match` and `change` take `--ignore WxH+X+Y`
+  (repeatable), as `flicker` does, to leave out a box that changes on
+  its own, a clock or a cursor, as openQA's exclude areas and
+  Playwright's `mask` do, rather than a `--fuzz` loose enough to hide
+  real changes. `compare`'s diff shows it magenta, and with directories
+  `NAME=WxH+X+Y` is for one picture. `Screen.wait_match(ignore=...)`,
+  `wait_change` and MCP's `wait_for` have it too.
+- `wait match --crop G --margin PX` looks for the picture up to PX
+  pixels from the crop's place each way, as openQA searches for a
+  needle, and prints where it matched: `0.412s at 103,58`. For a
+  canvas or a game, where what's drawn moves a little from run to run
+  and there's no tree to find it by. `compare --margin PX` compares the
+  second picture where it matches the first best, but for a band PX
+  wide round the edge, and says how far it moved, whether it passes or
+  fails. `Screen.wait_match` takes `margin`; MCP's `wait_for` match
+  takes `margin` (up to 32).
 - `a11y contrast` says on its line why GTK 4's text it looked for wasn't
   taken, and its why says what that means: `(no match good enough: 0.44
   at best)`, `(it matches elsewhere too, in "unchecked")`, `(another
@@ -65,6 +150,18 @@
 
 ### Fixed
 
+- `a11y tabwalk` says a web page's controls Tab never reaches in
+  Chromium: Tab lands on the page's document coming in from the
+  toolbar, and that counted as reaching all that's in it, so a button
+  with `tabindex="-1"` passed `--reach-all`.
+- A read of the accessible tree (`a11y tree`, `lint`, a click by name
+  and the rest) failed with `Object does not exist at path …` when a
+  window closed while it was read. A window gone is left out, as a node
+  gone already was; one gone before its bounds are read leaves its
+  nodes' bounds `null`, as a node gone then had.
+- `compare` failed on two pictures with a million or more pixels
+  differing, unable to read ImageMagick's count, `1.04e+06`; it counts
+  them exactly now.
 - `a11y contrast` didn't take GTK 4's text where another node's shorter
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a
@@ -94,6 +191,12 @@
   was 29.97 (2 seconds lasting 2.002), a WebM a frame or two short, and
   a GIF's frames timed wrong (1 second lasting 1.2). It's at `--fps`
   now, as on Wayland.
+- `wait announce` heard nothing of a headed Chromium's live regions
+  until `a11y tree` or another command had read its tree, which is what
+  has Chromium take a screen reader to be at work. The recorder asks
+  each program that joins the session's bus for its attributes, as Orca
+  does, so in an `--a11y` session a browser's accessibility is on from
+  the start, which slows its pages a little.
 
 ## 0.9.0 — 2026-10-19
 

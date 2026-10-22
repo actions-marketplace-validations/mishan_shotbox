@@ -158,6 +158,58 @@ And to see it as someone with other color vision does:
 `shotbox shoot calc-gray.png --vision gray --window Calculator --
 gnome-calculator`.
 
+## A web app in Firefox
+
+A page served from the session, in a Firefox of its own, pictured once
+it says it's drawn. `site/` holds the app; its page sets a status line,
+`<p role="status">`, to `Drawn` once it is:
+
+```sh
+#!/bin/sh -e
+# web.sh: shotbox run --net loopback --a11y --screen 1600x1000 -- ./web.sh
+python3 -m http.server 8000 --bind 127.0.0.1 --directory site 2>/dev/null &
+shotbox wait port 8000
+profile=$(mktemp -d)
+firefox --kiosk --new-instance --profile "$profile" --width 1600 --height 1000 \
+  http://127.0.0.1:8000/ 2>/dev/null &
+shotbox wait window '.*Mozilla Firefox'
+shotbox wait node '^Drawn$' --window '.*Mozilla Firefox' --timeout 60
+shotbox capture app.png
+```
+
+`--net loopback` gives the session a network of its own: the server
+and the browser reach each other on `127.0.0.1`, and nothing else does.
+`wait port` looks for the server there. The profile is made inside the
+session, so it's fresh each run: one made outside isn't there, and
+Firefox opens a "Profile Missing" dialog in place of the page. To
+spawn it into a lasting session from outside, make the profile in the
+command:
+
+```
+shotbox spawn --session web -- sh -c 'p=$(mktemp -d)
+  exec firefox --kiosk --new-instance --profile "$p" --width 1600 --height 1000 URL'
+```
+
+With no window manager, `--kiosk` doesn't fill the screen: the window
+is 1280x900, the rest of a 1600x1000 screen black. `--width` and
+`--height` set to `--screen`'s size have it fill it.
+
+`wait stable` passes once the screen holds still, which a page can do
+while it's still loading: a WebGL canvas waiting seconds on its server.
+What says it's done is the page, so wait for the page to say it. `wait
+node` waits for a node in the accessible tree whose name or text
+matches, here the status line's text; `wait announce '^Drawn$'` does
+too, since a `role="status"` region is a live one, whose text is
+announced as it changes. Either needs `--a11y`.
+
+A page that takes long to draw a frame takes input late, or not at
+all: with software GL at about a second a frame, the first drag was
+dropped each time, and the same key pressed again moved the view by
+different amounts, while `wait stable` passed on the frozen screen.
+Drive what it shows from its state where it can be (the URL's hash,
+say) rather than by input, or wait for it to say it's drawn before
+sending more. Run with Firefox 158.
+
 ## A game smoke test
 
 Start it, press start, walk, jump, and check it got each and played

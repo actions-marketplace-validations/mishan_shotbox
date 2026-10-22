@@ -7,7 +7,7 @@
     shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
-    shotbox wait window|port|file|ready|stable|announce|match|change [ARG]
+    shotbox wait window|port|file|ready|stable|announce|node|match|change [ARG]
     shotbox wait line RE FILE                       (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox record OUT.mp4|OUT.wav [--seconds S]    (inside a session) take a video, or the sound
@@ -509,17 +509,20 @@ def cmd_wait(argv):
                                 description="Inside `shotbox run`: wait for a window, "
                                             "a port, a file, the ready file, the "
                                             "screen to stop changing, an "
-                                            "announcement, the screen to look like a "
+                                            "announcement, a node in the accessible "
+                                            "tree, the screen to look like a "
                                             "picture, or to change, or a line in a "
                                             "file. match and change say how long they "
                                             "took; line prints the line.")
     p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
-                                    "match", "change", "line"))
+                                    "node", "match", "change", "line"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
                         "stable, how long it must hold still (0.5); for announce, "
-                        "a regex found in what was said (needs --a11y); for match, "
+                        "a regex found in what was said (needs --a11y); for node, a "
+                        "regex found in a showing node's name or text (needs --a11y); "
+                        "for match, "
                         "the picture (a PNG) to look like; for line, a regex found in "
                         "the line")
     p.add_argument("file", nargs="?", help="for line, the file it's written to")
@@ -527,8 +530,8 @@ def cmd_wait(argv):
                    help="for line: from the top of the file, not from the end it has "
                         "when the wait starts")
     p.add_argument("--window", metavar="RE",
-                   help="for stable, match and change: watch this window rather than "
-                        "the display")
+                   help="for stable, node, match and change: watch this window rather "
+                        "than the display")
     p.add_argument("--crop", metavar="WxH+X+Y",
                    help="for match and change: watch just this part of it")
     p.add_argument("--fuzz", metavar="PCT",
@@ -536,6 +539,12 @@ def cmd_wait(argv):
     p.add_argument("--max", type=int, metavar="N",
                    help="for match and change: pixels that may differ and still count "
                         "as the same (0)")
+    p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
+                   help="for match and change: leave out this box: a clock, a cursor "
+                        "(repeatable)")
+    p.add_argument("--margin", type=int, default=0, metavar="PX",
+                   help="for match, with --crop: the picture may be up to PX pixels "
+                        "from the crop's place each way; say where it matched (0)")
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
@@ -552,21 +561,28 @@ def cmd_wait(argv):
     if a.kind == "change" and a.arg:
         p.error("change takes no ARG: it waits for a change from how it looks now")
     looks = a.kind in ("match", "change")
-    if not looks and (a.crop or a.fuzz is not None or a.max is not None):
-        p.error("--crop, --fuzz and --max go with match and change")
+    if not looks and (a.crop or a.fuzz is not None or a.max is not None or a.ignore):
+        p.error("--crop, --fuzz, --max and --ignore go with match and change")
+    if a.margin and a.kind != "match":
+        p.error("--margin goes with match")
     screen = inside(display=a.kind not in ("port", "file", "ready", "line"))
     screen.failed = a.failed or screen.failed
     if a.kind == "line":
         print(screen.wait_line(a.arg, a.file, a.from_start, a.timeout))
         return 0
+    if a.kind == "node":
+        screen.wait_node(a.arg, a.window, a.timeout)
+        return 0
     if not looks:
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
         return 0
     how = dict(window=a.window, crop=a.crop, fuzz="0%" if a.fuzz is None else a.fuzz,
-               most=a.max or 0,
-               timeout=a.timeout)
-    at = screen.wait_match(a.arg, **how) if a.kind == "match" else screen.wait_change(**how)
-    print(f"{at:.3f}s")
+               most=a.max or 0, timeout=a.timeout, ignore=a.ignore)
+    if a.kind == "change":
+        print(f"{screen.wait_change(**how):.3f}s")
+    else:
+        got = screen.wait_match(a.arg, margin=a.margin, **how)
+        print(f"{got.seconds:.3f}s" + (f" at {got.x},{got.y}" if a.margin else ""))
     return 0
 
 
@@ -1190,6 +1206,11 @@ def differing(n, box):
     return f"{n} pixels differ" + (f", in {box[0]}x{box[1]} at {box[2]},{box[3]}" if box else "")
 
 
+def shifted(at):
+    """How far a picture moved to match, if it did: ", moved 2,-1"."""
+    return f", moved {at[0]},{at[1]}" if any(at) else ""
+
+
 def cmd_compare(argv):
     p = argparse.ArgumentParser(prog="shotbox compare",
                                 description="Count the pixels that differ between two "
@@ -1209,12 +1230,39 @@ def cmd_compare(argv):
                         "picture (repeatable)")
     p.add_argument("--max", action="append", default=[], metavar="[NAME=]N",
                    help="pixels allowed to differ (0); NAME=N for one picture (repeatable)")
+    p.add_argument("--ignore", action="append", default=[], metavar="[NAME=]WxH+X+Y",
+                   help="leave out this box: a clock, a cursor; NAME=WxH+X+Y for one "
+                        "picture (repeatable)")
+    p.add_argument("--margin", action="append", default=[], metavar="[NAME=]PX",
+                   help="B may have moved up to PX pixels each way: compare it where it "
+                        "matches best, but for a band PX wide round the edge (0); NAME=PX "
+                        "for one picture (repeatable)")
     a = p.parse_args(argv)
+    for g in a.ignore:
+        if not x.box_of(g.split("=", 1)[-1]):
+            p.error(f"--ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not {g}")
+    for m in a.margin:
+        if not m.split("=", 1)[-1].isdigit():
+            p.error(f"--margin is a number of pixels, not {m}")
+
     def fuzz(name):
         return per_name(a.fuzz, name, "0%")
 
+    def ignore(name):
+        return [x.box_of(v.split("=", 1)[-1]) for v in a.ignore
+                if "=" not in v or v.split("=", 1)[0] == name]
+
     def most(name):
         return int(per_name(a.max, name, 0))
+
+    def compare(ref, new, name, diff=None, at=None):
+        """compare's count and box where `new` matches best within the
+        margin, and how far it moved to (`at`, if that's known)."""
+        how = dict(fuzz=fuzz(name), ignore=ignore(name),
+                   margin=int(per_name(a.margin, name, 0)))
+        if at is None:
+            at = x.moved(ref, new, most=most(name), **how) if how["margin"] else (0, 0)
+        return *x.compare(ref, new, diff=diff, box=True, at=at, **how), at
 
     dirs = Path(a.a).is_dir(), Path(a.b).is_dir()
     if dirs[0] != dirs[1]:
@@ -1227,11 +1275,11 @@ def cmd_compare(argv):
             sys.stderr.write(f"shotbox: no {' or '.join(missing)}\n")
             return 2
         try:
-            n, box = x.compare(a.a, a.b, diff=a.diff, fuzz=fuzz(None), box=True)
+            n, box, at = compare(a.a, a.b, None, a.diff)
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
-        print(differing(n, box))
+        print(differing(n, box) + shifted(at))
         return 0 if n <= most(None) else 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
@@ -1251,18 +1299,19 @@ def cmd_compare(argv):
             continue
         diff = Path(a.diff) / f"{name}-diff.png" if a.diff else None
         try:
-            n, box = x.compare(ref, new, fuzz=fuzz(name), box=True)
+            n, box, at = compare(ref, new, name)
         except ValueError as e:
             print(f"{name}: {e}")
             bad.append(name)
             continue
         if n > most(name):
             if diff:
-                x.compare(ref, new, diff=diff, fuzz=fuzz(name))
-            print(f"{name}: {differing(n, box)}" + (f"; see {diff}" if diff else ""))
+                compare(ref, new, name, diff, at)
+            print(f"{name}: {differing(n, box)}{shifted(at)}" + (f"; see {diff}" if diff else ""))
             bad.append(name)
         else:
-            print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}; allowed'}")
+            print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}; allowed'}"
+                  + shifted(at))
     if bad:
         print(f"differ: {', '.join(bad)}")
         return 1

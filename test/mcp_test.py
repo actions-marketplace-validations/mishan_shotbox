@@ -42,6 +42,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
                  f"freeze = {here / 'a11y_app.py'} freeze\n"
+                 f"ready = {here / 'a11y_app.py'} ready\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -218,6 +219,10 @@ try:
     check(bad and time.monotonic() - began < 5, "wait_for: a timeout of 0 gives up at once")
     said, bad, _ = tool("wait_for", session="t", what="window", value="a11y-test", timeout="20")
     check(not bad, f"wait_for: a window, its timeout given as text ({said})")
+    said, bad, _ = tool("wait_for", session="t", what="change", ignore=["10x10"], timeout=1)
+    check(bad and "WIDTHxHEIGHT" in said, f"wait_for: an ignore that's no box, refused ({said})")
+    said, bad, _ = tool("wait_for", session="t", what="change", margin=2, timeout=1)
+    check(bad and "margin goes with match" in said, f"wait_for: a margin for a change, refused ({said})")
     # Off the screen's corner, where the window's x,y and the screen's differ.
     subprocess.run(["xdotool", "search", "--name", "^a11y-test$", "windowmove", "--sync",
                     "230", "170"], env=server.sessions["t"].env, check=True)
@@ -227,6 +232,9 @@ try:
     check(not bad and "Announce" in said, "click_element: by a node's name")
     said, bad, _ = tool("wait_for", session="t", what="announcement", value="notes")
     check(not bad, "wait_for: an announcement")
+    said, bad, _ = tool("wait_for", session="t", what="node", value="^Wrap", window="a11y-test")
+    check(not bad and said.startswith("It's there: check box \"Wrap lines\""),
+          f"wait_for: a node ({said})")
     said, _, _ = tool("list_announcements", session="t")
     check(said == "| polite: Saved to notes.md", f"list_announcements, fenced ({said!r})")
     said, bad, content = tool("take_screenshot", session="t", window="a11y-test")
@@ -443,6 +451,9 @@ try:
                       ignore=['button "(Minimize|Maximize|Close)"'])
     check("focus not shown" in said and said.endswith("round again after 6\nfocus not shown on 1"),
           "check_focus_order: the order, and where the focus doesn't show")
+    said, bad, _ = tool("check_focus_order", session="t", window="a11y-test", document=True)
+    check(bad and "no web document" in said,
+          f"check_focus_order: document, in a window with none, refused ({said!r})")
     if shutil.which("orca"):
         said, bad, _ = tool("get_speech", session="t", window="a11y-test")
         check(not bad and re.search(r'^(push )?button "Save" .*  says "Save (push )?button\.?"$', said, re.M),
@@ -481,7 +492,7 @@ try:
     said, bad, _ = tool("wait_for", session="h", what="match", value="held.png", window="held")
     refused = [tool("wait_for", session="h", what="match", value=v)[:2]
                for v in ("/etc/passwd", "../" * 20 + "etc/hostname", "nope.png")]
-    check(not bad and "matches held.png" in said
+    check(not bad and "matches held.png" in said and said.endswith(", at 0,0.")
           and all(bad and "no file" in said for said, bad in refused),
           f"wait_for: match, a picture in the allow file's directory and nowhere else ({said})")
     (tmp / "game.log").write_text("beacon_claimed 1\n")
@@ -548,7 +559,7 @@ try:
     tool("start_session", name="l")
     tool("spawn_program", session="l", program="long")
     tool("wait_for", session="l", what="window", value="a11y-test", timeout="20")
-    before, before_bad, _ = tool("click_element", session="l", name="Row 25")
+    before, before_bad, _ = tool("click_element", session="l", name="Row 25", timeout=1)
     said, bad, _ = tool("scroll_wheel", session="l", name="Row 0", dy=10)
     tool("wait_for", session="l", what="stable", window="a11y-test")
     after, after_bad, _ = tool("click_element", session="l", name="Row 25")
@@ -681,6 +692,18 @@ try:
     check(bad and said.startswith("wait_for waits for window") and "not 'sleep'" in said,
           f"wait_for: a choice there isn't, said before what it lacks ({said})")
     tool("stop_session", session="n")
+    tool("start_session", name="r")
+    tool("spawn_program", session="r", program="ready")
+    tool("wait_for", session="r", what="window", value="a11y-test", timeout=20)
+    said = [tool("click_element", session="r", name="Soon", window="a11y-test", timeout=1)[:2],
+            tool("click_element", session="r", name="Soon", force=True)[:2],
+            tool("scroll_wheel", session="r", name="Soon", dy=1, force=True)[:2]]
+    check(said[0][1] and re.match(r'gave up after 1s: [a-z ]*button "Soon" \[focusable, disabled\] '
+                                  r'isn\'t enabled$', said[0][0])
+          and not said[1][1] and not said[2][1],
+          f"click_element: a disabled button waited for and said, and with force clicked, as "
+          f"scroll_wheel's is ({said})")
+    tool("stop_session", session="r")
     tool("start_session", name="u", a11y=False, usage=True)
     said, bad, _ = tool("stop_session", session="u")
     check(not bad and "used, over" in said and "peak memory" in said,

@@ -21,8 +21,13 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `(id, name, w, h, x, y)`),
   `wait_port(n)`, `wait_file(path)`, `wait_ready()`,
   `wait_line(re, path, from_start=False)` (returns the line),
-  `wait_stable(secs=0.5, window=None)`, and `until(what, test)` for a test
-  of your own; each takes `timeout` (30).
+  `wait_stable(secs=0.5, window=None)`, `wait_match(ref, window=None,
+  crop=None, fuzz="0%", most=0, ignore=(), margin=0)` and
+  `wait_change(...)` (as `shotbox wait match` and `change`, `ignore` a
+  list of `WxH+X+Y` boxes; `wait_match` returns a `Match(seconds, x, y)`,
+  x, y where the picture matched: where a `margin` found it, else the
+  crop's corner, or 0, 0; `wait_change` the seconds), and `until(what,
+  test)` for a test of your own; each takes `timeout` (30).
 - Input: `key(*chords, hold=None, state=None)`, `type(text)`, `click(x, y,
   window=None, button=1, double=False, hold=None, state=None)`, `move`,
   `scroll(x, y, dy, dx=0, window=None)` (wheel clicks down and right),
@@ -50,25 +55,34 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   screen there first, and says where.
 - Accessibility, in a session with `a11y=True`: `a11y_tree(window=None)`,
   the nodes (dicts, and attributes: `role`, `name`, `description`,
-  `states`, `path`, `depth`, and `bounds` on the screen; a window's
+  `states`, `path`, `depth`, and `bounds`: on the screen, or given a
+  `window`, here and in the nodes below, from its corner, as `click` and
+  `scroll` take an x,y with it; a window's
   with its program's `pid` and `toolkit`, and a program that didn't
   answer as a node with its `pid` and `quiet`); `find(role=None,
   name=None, window=None)`, `name` as `click_node` takes it (exactly,
-  else a regex); `focused()`; `wait_focus(re)`;
+  else a regex); `focused()`; `wait_focus(re)`; `wait_node(re,
+  window=None)`, the node `wait node` waits for, with its `text` where
+  that's what matched;
   `tab_walk(key="Tab", most=50, window=None, visible=False,
-  reach_all=False, ignore=())`, the nodes the focus lands on, failing as
-  `tabwalk` does (with `visible`, where the focus doesn't show; with
-  `reach_all`, on what it never reaches); `a11y_lint(window=None,
-  ignore=())`, the nodes with a `problem`; `contrast(window=None,
+  reach_all=False, ignore=(), document=False)`, the nodes the focus
+  lands on, failing as `tabwalk` does (with `visible`, where the focus
+  doesn't show; with `reach_all`, on what it never reaches; with
+  `document`, only the web page's, as `--document`); `a11y_lint(window=None,
+  ignore=())`, the nodes with a `problem` (one in a web page with its
+  `dom` and `text`: [Web nodes](accessibility.md#web-nodes));
+  `contrast(window=None,
   text=4.5, graphics=3, edges=None, large=3, passes=False,
   strict=False)`, a dict of `problems`, the nodes with a `problem`, and
   `notes`, what wasn't measured, which doesn't fail, each with its
   `note` (GTK 4's with its `why`), or with `strict` fails, among the
-  `problems`, but for what's scrolled out of view; and with `passes`,
-  `passes`, what passes, each with its `contrast`, the ratio as `a11y
-  contrast --passes` says it;
-  `click_node(name, role=None, window=None)` and
-  `scroll_node(name, dy, dx=0, role=None, window=None)`;
+  `problems`, but for what's scrolled out of view; `behind`, what's
+  behind a modal dialog, which doesn't fail, each with its `behind`;
+  and with `passes`, `passes`, what passes, each with its `contrast`,
+  the ratio as `a11y contrast --passes` says it;
+  `click_node(name, role=None, window=None, force=False)` and
+  `scroll_node(name, dy, dx=0, role=None, window=None, force=False)`,
+  waiting as `a11y click` does, unless `force`;
   `shotbox.a11y.changes(before, after)`, what changed from one
   `a11y_tree()` to another, as MCP's actions with `changes` say it;
   `speak(keys=None, window=None, most=50)`, what Orca says as `a11y

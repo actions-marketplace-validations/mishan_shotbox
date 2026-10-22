@@ -590,13 +590,13 @@ st2=$?
 "$sb" run -- sh -c "'$here/window.py' t1 &
   '$sb' wait change --window t1 --crop 300x10+0+0 --timeout 1" 2> "$tmp/err3"
 st3=$?
-bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--fuzz 150%' '--max -1' '--crop 10x10' '--crop 10x10+5000+0'; do
+bad=$("$sb" run -- sh -c "for o in '--fuzz 5' '--fuzz 150%' '--max -1' '--crop 10x10' '--crop 10x10+5000+0' '--ignore 0x5+0+0'; do
   '$sb' wait change \$o --timeout 1 2>&1 && echo took; done")
 set -e
 [ $st != 0 ] && grep -q "window 't1' to match" "$tmp/err" && ! grep -q "picture taken" "$tmp/err" \
   && [ $st2 != 0 ] && grep -q "app1.png is 200x120, the picture taken 10x10" "$tmp/err2" \
   && [ $st3 != 0 ] && grep -q "the crop isn't inside the window, 200x120" "$tmp/err3" \
-  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 5 ] \
+  && ! echo "$bad" | grep -q took && [ "$(echo "$bad" | grep -c "percentage\|0 or more\|WIDTHxHEIGHT\|isn't inside")" = 6 ] \
   && ok "match gives up on a picture it doesn't look like, saying sizes that differ; bad options refused" \
   || fail "match miss: $st $(cat "$tmp/err") $st2 $(cat "$tmp/err2") $st3 $(cat "$tmp/err3") $bad"
 "$sb" run -- sh -c "
@@ -606,6 +606,32 @@ set -e
   '$sb' wait change --window shotbox-term" > "$tmp/out" \
   && awk '{ exit !($1 + 0 >= 0.5) }' "$tmp/out" && ok "change waits for the screen to change, and says when" \
   || fail "change: $(cat "$tmp/out")"
+# --ignore: a patch on the picture the window lacks, matched once each
+# pixel of it is left out, by one box or two, or one past the edge.
+convert "$tmp/app1.png" -fill red -draw 'rectangle 5,5 14,14' "$tmp/patched.png"
+"$sb" run -- sh -c "'$here/window.py' t1 & '$sb' wait window t1 >/dev/null
+  for e in 'yes --ignore 10x10+5+5' 'yes --ignore 6x10+5+5 --ignore 4x10+11+5' \
+           'yes --ignore 300x300+0+0' 'no --ignore 9x10+5+5'; do
+    set -- \$e; want=\$1; shift
+    '$sb' wait match '$tmp/patched.png' --window t1 --timeout 1 \"\$@\" >/dev/null 2>&1 && got=yes || got=no
+    [ \$got = \$want ] || echo \"\$e: \$got\"
+  done" > "$tmp/out" 2>&1 && [ ! -s "$tmp/out" ] \
+  && ok "match leaves out what --ignore says" || fail "match --ignore: $(cat "$tmp/out")"
+# --margin: a part of the window, looked for that far from the crop's
+# place, at the window's edge too; with a patch on it left out.
+convert "$tmp/app1.png" -crop 60x40+20+30 +repage "$tmp/part.png"
+convert "$tmp/part.png" -fill red -draw 'point 5,5' "$tmp/part-patched.png"
+"$sb" run -- sh -c "'$here/window.py' t1 & '$sb' wait window t1 >/dev/null
+  for e in 'at 20,30:part 60x40+20+30 3' 'at 20,30:part 60x40+23+28 3' 'no:part 60x40+23+28 2' \
+           'at 20,30:part 60x40+0+0 30' 'no:part-patched 60x40+21+31 1' \
+           'at 20,30:part-patched 60x40+21+31 1 --ignore 1x1+5+5'; do
+    want=\${e%%:*}; set -- \${e#*:}; ref=\$1 crop=\$2 margin=\$3; shift 3
+    got=\$('$sb' wait match '$tmp/'\$ref.png --window t1 --timeout 1 --crop \$crop --margin \$margin \"\$@\" 2>/dev/null) \\
+      && got=\${got#* } || got=no
+    [ \"\$got\" = \"\$want\" ] || echo \"\$e: \$got\"
+  done" > "$tmp/out" 2>&1 && [ ! -s "$tmp/out" ] \
+  && ok "match finds a picture up to --margin from its place, and says where" \
+  || fail "match --margin: $(cat "$tmp/out")"
 
 # line: one written after the wait starts, not one begun before, and only
 # once it ends; from the top with --from-start; in a file that comes later,
@@ -925,6 +951,45 @@ if atspi; then
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y click Announce --window a11y-test >/dev/null &&
     '$sb' wait announce 'notes\.md' --timeout 10" \
     && ok "a11y: click finds a button by its name, and clicks it" || fail "a11y: click"
+  # A label shown three seconds in is waited for; before it is, a wait
+  # gives up saying nothing comes near, or what does. A text view by its
+  # text, not its name.
+  "$sb" run --a11y -- sh -c "'$app' notes drawing & '$sb' wait window a11y-test >/dev/null &&
+    ! '$sb' wait node Drawn --timeout 0.5 && ! '$sb' wait node Saev --window a11y-test --timeout 0.5 &&
+    '$sb' wait node '^notes\$' --window a11y-test && '$sb' wait node 'Drawn.*tiles\$' --timeout 10" \
+    > "$tmp/node" 2>&1 \
+    && grep -qx "shotbox: gave up waiting for a node matching 'Drawn' after 0.5s: nothing in the tree comes near it" "$tmp/node" \
+    && grep -qx "shotbox: gave up waiting for a node matching 'Saev' after 0.5s. The nearest: \"Save\"" "$tmp/node" \
+    && ok "a11y: wait node waits for a node to show, by its name or text, or says what's near" \
+    || { fail "a11y: wait node"; cat "$tmp/node"; }
+  # Under a dialog, disabled, moving and under a label, each is said and not
+  # clicked (--force clicks the disabled one, which does nothing), then
+  # waited for until "Ready" puts each right, and clicked.
+  "$sb" run --a11y -- sh -c "set -e; '$app' ready & '$sb' wait window Dialog >/dev/null
+    '$sb' a11y tree --window a11y-test >/dev/null
+    for b in Behind Soon Moving Covered; do
+      ! '$sb' a11y click \$b --window a11y-test --timeout 0.5 >/dev/null || exit 1; done
+    '$sb' a11y click Soon --window a11y-test --force >/dev/null
+    (sleep 1; '$sb' a11y click Ready --window a11y-test >/dev/null) & ready=\$!
+    '$sb' a11y click Soon --window a11y-test >/dev/null; wait \$ready
+    for b in Behind Moving Covered; do '$sb' a11y click \$b --window a11y-test >/dev/null; done
+    sleep 0.5" > "$tmp/ready" 2>&1 \
+    && grep -q '"Behind" \[focusable\] is covered by window "Dialog"$' "$tmp/ready" \
+    && grep -q 'gave up after 0.5s: [a-z ]*button "Soon" \[focusable, disabled\] isn.t enabled$' "$tmp/ready" \
+    && grep -q '"Moving" \[focusable\] is moving$' "$tmp/ready" \
+    && grep -q '"Covered" \[focusable\] is covered by label "Cover"$' "$tmp/ready" \
+    && [ "$(grep -v ' ' "$tmp/ready" | tr '\n' ' ')" = "Ready Soon Behind Moving Covered " ] \
+    && ok "a11y: click waits for a node enabled, still and uncovered, or says which it isn't" \
+    || { fail "a11y: click, not ready"; cat "$tmp/ready"; }
+  # A node with no position yet, its window not told from a twin, is waited
+  # for, with --force too, and said when it isn't placed in time.
+  "$sb" run --a11y -- sh -c "'$app' ready late & '$sb' wait window Dialog >/dev/null &&
+    '$sb' a11y tree --window a11y-test >/dev/null &&
+    ! '$sb' a11y click Ready --window a11y-test --timeout 0.3 >/dev/null &&
+    '$sb' a11y click Ready --window a11y-test --force >/dev/null && sleep 0.5" > "$tmp/late" 2>&1 \
+    && grep -q '"Ready" \[focusable\] has no position yet$' "$tmp/late" && grep -qx Ready "$tmp/late" \
+    && ok "a11y: click waits for a node to have a position, --force too" \
+    || { fail "a11y: click, no position yet"; cat "$tmp/late"; }
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --visible --window a11y-test" > "$tmp/walk"
   st=$?; set -e
@@ -946,7 +1011,7 @@ if atspi; then
   # whose pointer is gone before its next frame.
   by_name() {
     "$sb" run --a11y "$@" -- sh -c "'$app' long & '$sb' wait window a11y-test >/dev/null &&
-      ! '$sb' a11y click 'Row 199' --window a11y-test 2>/dev/null &&
+      ! '$sb' a11y click 'Row 199' --window a11y-test --timeout 1 2>/dev/null &&
       '$sb' a11y scroll 'Row 0' 150 --window a11y-test >/dev/null &&
       '$sb' wait stable --window a11y-test && '$sb' a11y click 'Row 199' --window a11y-test >/dev/null &&
       '$sb' a11y scroll 'Row 199' -150 --window a11y-test >/dev/null &&
@@ -1019,6 +1084,32 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
     && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5)$' "$tmp/contrast" \
     && ok "a11y: contrast finds faint text, and its colors, but not a disabled button's" \
     || { fail "a11y: contrast, faint ($st)"; cat "$tmp/contrast"; }
+  # Behind a modal dialog, libadwaita's in its window or a modal window,
+  # the faint text is said apart, and doesn't fail, even with --strict;
+  # not beside an error label (an alert), a box with a dialog's role or a
+  # popover with one, under a GTK 3 modal popover, or over an alert
+  # (a status page under a toast, a label under an overlay), nor for an
+  # alert in a layer-like box: after a banner folded away, on a view
+  # stack's second page (GTK lists it twice), or laid over the rest.
+  # libadwaita 1.5 names its dialog nothing, and shows no title for this
+  # one, so it's said by the first name in it, its text view's.
+  for over in "$app faint dialog;a11y-test;dialog \"(Reply|Notes)\"" \
+              "$app faint modal;a11y-test;dialog \"Over\"" \
+              "$app faint warned;a11y-test;" "$app faint inline;a11y-test;" \
+              "$app faint popped;a11y-test;" "$app toasted;a11y-test;" \
+              "$app overlaid;a11y-test;" "$app faint warned folded;a11y-test;" \
+              "$app faint warned paged;a11y-test;" "$app faint laid;a11y-test;" \
+              "$here/window.py popover popover;popover;"; do
+    cmd=${over%%;*} win=${over#*;} want=${over##*;}
+    "$sb" run --a11y -- sh -c "$cmd & '$sb' a11y contrast --strict --json --window ${win%%;*}" \
+      > "$tmp/contrast.json" \
+      && python3 -c "import json, re, sys; j = json.load(open(sys.argv[1])); want = sys.argv[2]
+faint = [n['behind'] for n in j['behind'] if n['name'] == 'Faint words']
+assert (len(faint) == 1 and re.fullmatch('text behind a modal ' + want, faint[0])
+        and not j['problems'] if want else not j['behind']), j" "$tmp/contrast.json" "$want" \
+      && ok "a11y: contrast says what's behind a modal dialog apart, and fails what isn't (${cmd##*/})" \
+      || { fail "a11y: contrast, behind a modal dialog (${cmd##*/})"; cat "$tmp/contrast.json"; }
+  done
   set +e
   "$sb" run --a11y --env SHOTBOX_TRUST_GTK4_BOUNDS=1 -- sh -c "'$app' &
     '$sb' a11y contrast --edges 3 --window a11y-test" > "$tmp/contrast"
@@ -1045,12 +1136,12 @@ assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in 
   # A window wider than the screen: what's past the screen's edge isn't
   # measured or clicked, and says so; nor is a label whose text is past it.
   "$sb" run --a11y --screen 800x600 -- sh -c "'$here/window.py' wide wide &
-    '$sb' a11y contrast --edges 1 --window wide && ! '$sb' a11y click There --window wide &&
+    '$sb' a11y contrast --edges 1 --window wide && ! '$sb' a11y click There --window wide --timeout 1 &&
     '$sb' a11y tabwalk --visible --window wide" > "$tmp/contrast" 2>&1 \
     && grep -q '/label\[0\]: text not measured: partly outside the screen$' "$tmp/contrast" \
     && grep -q '[/ ]button\[1\]: text not measured: outside the screen$' "$tmp/contrast" \
     && grep -q '[/ ]button\[1\]: edge not measured: outside the screen$' "$tmp/contrast" \
-    && grep -q '"There" \[focusable\] is outside the screen$' "$tmp/contrast" \
+    && grep -q '"There" \[focusable\] is off-screen$' "$tmp/contrast" \
     && grep -q '"There" \[focusable, focused\]  <- focus not measured: outside the screen$' "$tmp/contrast" \
     && ok "a11y: contrast, click and tabwalk --visible leave out what's past the screen's edge" \
     || { fail "a11y: past the screen's edge"; cat "$tmp/contrast"; }
@@ -1653,6 +1744,42 @@ convert "$tmp/a.png" -fill red -draw 'point 0,0' "$tmp/d.png"
 set +e; n=$("$sb" compare "$tmp/a.png" "$tmp/d.png" --diff "$tmp/diff.png"); st=$?; set -e
 [ $st = 1 ] && [ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ -s "$tmp/diff.png" ] \
   && ok "compare: one pixel off, found, and where" || fail "compare: $st $n"
+convert -size 1300x800 xc:red "$tmp/red.png"; convert -size 1300x800 xc:blue "$tmp/blue.png"
+set +e; n=$("$sb" compare "$tmp/red.png" "$tmp/blue.png" 2>&1); st=$?; set -e
+[ $st = 1 ] && [ "$n" = "1040000 pixels differ, in 1300x800 at 0,0" ] \
+  && ok "compare: a million pixels off, counted exactly" || fail "compare a million: $st $n"
+# --ignore: two pixels off, either left out, both, a NAME's for another
+# picture, or one that's no box.
+convert "$tmp/d.png" -fill red -draw 'point 3,2' "$tmp/d2.png"
+out=$(for e in '1:1 pixels differ, in 1x1 at 3,2:--ignore 1x1+0+0' \
+               '1:1 pixels differ, in 1x1 at 0,0:--ignore 2x2+2+1' \
+               '0:0 pixels differ:--ignore 1x1+0+0 --ignore 1x1+3+2' \
+               '0:0 pixels differ:--ignore 5x3+0+0' \
+               '1:2 pixels differ, in 4x3 at 0,0:--ignore other=5x3+0+0' \
+               '2::--ignore 0x1+0+0'; do
+  want=${e%%:*}; rest=${e#*:}; said=${rest%%:*}
+  set +e; got=$("$sb" compare "$tmp/a.png" "$tmp/d2.png" ${rest#*:} 2>/dev/null); st=$?; set -e
+  [ "$st:$got" = "$want:$said" ] || echo "${rest#*:}: $st $got"
+done)
+[ -z "$out" ] && ok "compare: --ignore leaves boxes out" || fail "compare --ignore: $out"
+# --margin: the picture moved 2 right and 1 up, found within 2 or more,
+# not 1; with a pixel changed, failing where it matches best; a box left
+# out goes with the first picture.
+convert "$tmp/a.png" -roll +2-1 "$tmp/moved.png"
+convert "$tmp/moved.png" -fill red -draw 'point 12,9' "$tmp/moved2.png"
+out=$(for e in '0:moved:0 pixels differ, moved 2,-1:--margin 2' '0:moved:0 pixels differ, moved 2,-1:--margin 5' \
+               '1:moved::--margin 1' '1:moved2:1 pixels differ, in 1x1 at 10,10, moved 2,-1:--margin 2' \
+               '0:moved2:0 pixels differ, moved 2,-1:--margin 2 --ignore 1x1+10+10' '2:moved::--margin x'; do
+  want=${e%%:*}; rest=${e#*:}; b=${rest%%:*}; rest=${rest#*:}; said=${rest%%:*}
+  set +e; got=$("$sb" compare "$tmp/a.png" "$tmp/$b.png" ${rest#*:} 2>/dev/null); st=$?; set -e
+  [ "$st" = "$want" ] && { [ -z "$said" ] || [ "$got" = "$said" ]; } || echo "$b ${rest#*:}: $st $got"
+done)
+[ -z "$out" ] && ok "compare: --margin finds where the picture moved" || fail "compare --margin: $out"
+"$sb" compare "$tmp/a.png" "$tmp/d2.png" --diff "$tmp/diff2.png" >/dev/null || :
+"$sb" compare "$tmp/a.png" "$tmp/d2.png" --ignore 1x1+0+0 --diff "$tmp/xdiff.png" >/dev/null || :
+set +e; n=$("$sb" compare "$tmp/diff2.png" "$tmp/xdiff.png"); set -e
+[ "$n" = "1 pixels differ, in 1x1 at 0,0" ] && [ "$(convert "$tmp/xdiff.png" -format '%[hex:p{0,0}]' info:)" = FF00FF ] \
+  && ok "compare: the diff shows what's left out, magenta" || fail "compare: diff: $n"
 
 mkdir -p "$tmp/ref" "$tmp/new"
 cp "$tmp/a.png" "$tmp/ref/same.png"; cp "$tmp/a.png" "$tmp/new/same.png"

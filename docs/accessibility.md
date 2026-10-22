@@ -15,14 +15,15 @@ Inside a session with `--a11y`:
   reader would say: [Reading the tree](#reading-the-tree).
 - **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
   for what has no name to say: [Lint](#lint).
-- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--window RE]`**
+- **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--document] [--window RE]`**
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
   trap: [Walking the Tab order](#walking-the-tab-order).
-- **`shotbox a11y click NAME [--role RE] [--window RE]`** clicks the
+- **`shotbox a11y click NAME [--role RE] [--window RE] [--force]`** clicks the
   node named NAME, exactly or as a regex matched in full: a button by
-  its label rather than where it is. [Clicking by name](#clicking-by-name).
-- **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE]`** turns
+  its label rather than where it is, once it's enabled, still and
+  uncovered. [Clicking by name](#clicking-by-name).
+- **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE] [--force]`** turns
   the mouse wheel over that node, found as `click` finds it, DY clicks
   down and DX right (negative, up and left): a list by itself or by a
   row still in view (one scrolled out of it is refused, as `click`
@@ -32,6 +33,7 @@ Inside a session with `--a11y`:
   `PATH: text 2.51:1, #a0a0a0 on #fafafb (at least 4.5)`; with `--passes`,
   what passes too: `PATH: text passes at 12.23:1, #323236 on #fafafb (at
   least 4.5)`; with `--strict`, what it couldn't measure fails too.
+  What's behind a modal dialog is said apart, and doesn't fail.
   [Contrast](#contrast).
 - **`shotbox a11y speak [--keys KEY...] [--max 50] [--window RE]`**
   starts Orca in the session, presses Tab until the focus comes round
@@ -43,6 +45,12 @@ Inside a session with `--a11y`:
   live region (`aria-live`, `role="status"`), an alert or info bar
   appearing (GTK 3's message dialogs, Qt's `QMessageBox`, libadwaita's
   `AdwAlertDialog`), or the focus renamed. [Announcements](#announcements).
+- **`shotbox wait node RE [--window RE]`** waits for a node showing in
+  the tree whose name or text RE is found in: a status line a program
+  sets once it's done, where the screen holding still says nothing (a
+  WebGL canvas waiting on its server). Giving up, it says what came
+  nearest: a match that isn't showing (scrolled out of view), or the
+  nearest names and texts, or that nothing comes near.
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &
@@ -90,15 +98,18 @@ otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
 yes, which the session sets. That puts its windows on the bus, and no
 more: it builds the rest of its tree, a page's too, only once it takes a
 screen reader to be at work, which it does when a node's attributes are
-asked for, as Orca asks. `shotbox a11y` asks a browser window's, the
-first time a command reads it, and waits for its page, so no
+asked for, as Orca asks. The announcement recorder (see below)
+asks each program's as it joins the session's bus, and `shotbox a11y`
+asks a browser window's, the first time a command reads it, and waits
+for its page, so no
 `--force-renderer-accessibility` is needed: up to 2 seconds for the
 page's document, then up to `--timeout` for its tree to be built (the
 document is an empty stand-in till then; a page of thousands of
 controls takes seconds). A page whose tree isn't built in time is noted
 on stderr, and the window `--window` asks for fails. That turns on
 Chromium's accessibility (its basic and extended-properties modes) for
-the whole browser, for as long as it runs, which slows its pages a
+the whole browser, from the start in an `--a11y` session, for as long
+as it runs, which slows its pages a
 little: a measure of a page's performance in the same session counts
 that in. It's a little less than the switch turns on (no screen-reader
 mode); the trees came out the same in testing. A window with no page
@@ -170,8 +181,8 @@ is on the screen: `[x, y, width, height]`. Toolkits give a node's
 extents in its window's coordinates, GTK 4 having no others (its screen
 coordinates are all 0), so shotbox puts them on the screen by the
 display's window that is the accessible frame's size, and name. (MCP's
-tools, given a window, give bounds from its corner instead, as their x,y
-with one are.) Where
+tools and the Python API, given a window, give bounds from its corner
+instead, as their x,y with one are.) Where
 it can't tell, a node's bounds are `null`, and clicking it says so:
 
 - Chromium on Wayland counts its shadow into its accessible frame and
@@ -229,6 +240,29 @@ place of its path (`button "": button with no name`): an unnamed node
 that won't be fixed yet, or a toolkit's own (libadwaita's tab bar
 scroller), so the rest can be held to in CI.
 
+### Web nodes
+
+A path into a web page, `.../document web[3]/section[0]/section[2]/static[0]`,
+is hard to map back to its source, so a lint or contrast line on a node
+in one also says where it is in the page's DOM, after `  <- `, as
+Chromium and Firefox give it (their `tag`, `id` and `class` object
+attributes): the element's tag, and its id if it has one, then the
+node's text, cut at 40 characters, then, if the element has no id, the
+nearest element round it that has one:
+
+```
+PATH: button with no name  <- button#icon
+PATH: text 2.84:1, #999999 on #ffffff (at least 4.5)  <- p "Faint words" in div#intro
+```
+
+A text node isn't an element: its element's tag is said. Classes are
+left out of the line, where they can run long. With `--json`, such a
+node has `dom`, its element's `tag`, `id` and `class` where it has them,
+and `in`, those of the nearest with an id, `{"tag": "p", "in": {"tag":
+"div", "id": "intro", "class": "card"}}`, and `text`, cut as the
+line's is. `--ignore` is matched against the line with them too:
+`--ignore 'div#intro'`, `--ignore '#icon'`.
+
 ## Walking the Tab order
 
 `tabwalk` notes where the focus is, presses the key (over XTEST, or
@@ -278,7 +312,8 @@ trap.
 
 Then it lists what Tab never reached: each showing, sensitive control
 (those lint holds to a name) or field it never landed on, nor on
-anything round it or in it (but a container's, as a window's frame),
+anything round it or in it (but a container's, as a window's frame,
+or a web page's document, which Chromium's Tab lands on),
 nor on another of its group beside it (a tab or radio button, one of
 which takes a stop, the rest arrows'), but for a menu bar's (F10's),
 `not reached by Tab: button "Play"`; and each table or list with an
@@ -293,6 +328,18 @@ every stock GTK window. `--ignore RE` leaves out each one, as lint's
 does, whose `PATH: not reached by Tab`, or `NODE: not reached by Tab`
 with its tree line, the regex is found in: `--ignore 'button
 "(Minimize|Maximize|Close)"'`.
+
+In a browser's window, Tab goes through the browser's own controls
+too (the address bar and the buttons by it), and the tab strip's and
+Back's are listed as not reached. `--document` lists only what's in
+the window's web page (in its `document web`, iframes' included), in
+Chromium and Firefox alike: the walk goes through the browser's
+controls as before, and their presses count towards `--max`, but they
+aren't listed, nor said as not reached, nor held to by `--visible` and
+`--reach-all`, and the count on the last line is of the page's stops.
+Chromium's Tab lands on the document itself as it comes in from the
+browser's controls; that isn't one of the page's stops. A window with no web document in it is refused, exit 1: `no web document
+to walk: the window isn't a browser's`.
 
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each
@@ -349,12 +396,44 @@ whose field it names, which matches too (the field takes the focus);
 fails if more than one is left, saying which, as tree lines with where
 each is; raises the `--window`; and clicks the middle of its bounds,
 cut to its window's (a node scrolled out of view is still "showing";
-one wholly outside its window, or the screen, is refused), over XTEST
-or sway's virtual pointer, as `shotbox click` does. A real
+one wholly outside its window, or the screen, is waited for, as below),
+over XTEST or sway's virtual pointer, as `shotbox click` does. A real
 click, not AT-SPI's `DoAction`: what's clicked is what a pointer would
 reach, and a click gives a window the keyboard where no window manager
 would. `scroll NAME DY [DX]` finds the node the same way and turns the
 wheel at the same place, as `shotbox scroll` does.
+
+Before it clicks, it waits, within the same `--timeout`, until the node
+is ready, as Playwright's actionability checks do, and when the time's
+up fails saying which it isn't, rather than clicking where nothing
+happens: `gave up after 10s: button "Save" [focusable, disabled] isn't
+enabled`, `... is moving`, `... is covered by dialog "Preferences"`. It's
+ready when it's:
+
+- **placed**: it has bounds, some of them in its window and on the
+  screen: `... has no position yet` (a browser puts a node in its tree
+  a moment before it places it), `... is outside its window` (scrolled
+  out of view), `... is off-screen` (a kiosk browser's own bar, above
+  the screen's top);
+- **enabled**: sensitive, not greyed out;
+- **still**: its bounds the same twice, 50 ms apart, so it isn't
+  clicked part way through a move (a list still laying out, a row
+  sliding in). That wait is what a click by name costs, when it's ready:
+  about 50 ms;
+- **uncovered**: in a GTK 4 window, the node GTK says is at the point
+  it clicks is it, inside it, or what it's in, not a node drawn over it
+  (an overlay, a libadwaita dialog, which is in its window). GTK 4
+  answers with what it would hand a click, the topmost; GTK 3 answers
+  with the first child there, whatever's drawn over it, so only GTK 4
+  is asked. On X11, no window of its own
+  dialogs (one transient for its window, which a window manager keeps
+  over it) is shown over that point. A click raises the window first,
+  which with no window manager puts it over anything else; on Wayland
+  sway does the same.
+
+`--force` clicks without waiting for the rest, but still for the node
+to show and be placed, since without a place there's nothing to click:
+to check that a disabled button does nothing, say.
 
 A name is taken as it is, and failing that as a regex matched in full:
 nodes named exactly NAME are picked over those it matches as a regex, so
@@ -484,15 +563,47 @@ where GTK 4's text was found. It doesn't list an image of one color, or
 an edge with nothing round it to measure, which have no ratio. `--json`
 gives an object of lists: `problems`, each node with its `problem`;
 with `--passes`, `passes`, each with its `contrast`; and `notes`, what
-wasn't measured, each with its `note` and, for GTK 4's, its `why`.
+wasn't measured, each with its `note` and, for GTK 4's, its `why`; a
+node in a web page with its `dom` and `text`, as lint's
+([Web nodes](#web-nodes)).
 `--strict` fails on what wasn't measured too, for CI that wants every
 node measured or ignored (`--ignore`): those lines are failures, under
 `problems` in `--json`, each with its `why` if it has one. On GTK 4.14
 and later that's every icon, window control and edge, which aren't
 measured, so leave them out with `--ignore` (`graphics not measured`,
 `edge not measured`). What's scrolled out of view, or hidden, isn't a
-failure: GTK 3 and browsers leave such rows out without a word. The
-exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
+failure: GTK 3 and browsers leave such rows out without a word.
+
+While a modal dialog is open, what's behind it isn't measured: it's
+shut off till the dialog closes, and dimmed on purpose or covered, so
+its ratio says nothing of how it reads with the dialog closed, where
+it's checked. It's said last, `PATH: text behind a modal dialog
+"Settings"`, and under `behind` in `--json`, each with its `behind`,
+and doesn't fail, with `--strict` either. A modal dialog is one that
+says it is: a dialog or alert, on the screen and of some size, in a
+window (aria-modal's, which shuts off the rest of its page), and a
+modal window, which shuts off its program's other windows; and
+libadwaita's, drawn in its window, which always are and don't say so:
+a GTK 4 dialog or alert that is itself a layer over the window's
+content (as big as it, after something as big, showing and not the
+same node listed twice), as libadwaita 1.10 draws them and 1.5 its
+alert dialog, or a dialog three levels down in one, as 1.5 draws the
+rest; only what comes before it in the tree, drawn under it, is
+behind. An alert anywhere else (an error label, a toast, a status
+page) isn't one, nor is a box or popover given a dialog's role. A
+modal window's program's other windows are all behind it, whether it
+covers them or not, and on X11 they aren't dimmed: GTK shuts them all
+off, and doesn't say which is its parent. A modal popover dims
+nothing, and doesn't count. Nor does an overlay that isn't modal,
+opaque or see-through: what's under it can still take the focus, so
+text there that can't be read fails. libadwaita's modal bottom sheet
+doesn't say it's there, and what's under it is measured, and fails as
+dimmed; a program's own see-through layer over its whole window, given
+a dialog's or alert's role, can't be told from libadwaita's, and
+counts. libadwaita 1.5 names its dialogs nothing, so one is said by
+the first name in it: its title, if it shows one.
+
+The exit status is 1 if anything failed, 0 if what was measured passed, and 2 if
 nothing was measured at all and GTK 4's was left out: a window on GTK
 4.14 or later none of whose text was found, `shotbox: nothing measured:
 ...` (text too small to measure, alone, doesn't fail). With `--json` it's 0
@@ -809,7 +920,9 @@ A browser's live regions are recorded too: Chromium sends
 (`polite` or `assertive`) among the node's attributes. Unlike an
 announcement, it sends the event only once a listener has registered
 for it, which the recorder does, every program's text insertions then
-coming to it. What's recorded is the text inserted: a region whose text
+coming to it, and only once it takes a screen reader to be at work,
+which the recorder has it do as it joins the bus, so nothing need read
+its tree first. What's recorded is the text inserted: a region whose text
 is replaced sends all of the new text, and an element put in one sends
 its own. Text outside a live region, and a busy region's, isn't
 recorded. GTK has no live regions.
