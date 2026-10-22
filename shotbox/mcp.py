@@ -210,14 +210,32 @@ def words(v):
 # --- the tools ------------------------------------------------------------------
 
 
-def windowed(s, nodes, window):
-    """`nodes` with their bounds in `window`'s x,y, as click_element, crop and
-    zoom take an x,y with it, so they're given to them as they are."""
+def windowed(s, nodes, window, at=None):
+    """`nodes` with their bounds in `window`'s x,y (its corner `at` on the
+    screen, if that's been looked up), as click_element, crop and zoom take
+    an x,y with it, so they're given to them as they are."""
     if not window:
         return nodes
-    wx, wy = s.window(window)[4:6]
+    wx, wy = at or s.window(window)[4:6]
     return [Node({**n, "bounds": [n.bounds[0] - wx, n.bounds[1] - wy, *n.bounds[2:]]})
             if n.get("bounds") else n for n in nodes]
+
+
+def by_name(s, window, timeout, act):
+    """The node `act(timeout)` clicks or scrolls over, in `window`'s x,y, as
+    are those listed when more than one matches. The window is waited for
+    first, so nothing fails once it's acted."""
+    began = time.monotonic()
+    at = window and s.wait_window(window, timeout)[4:6]
+    try:
+        n = act(max(0, timeout - (time.monotonic() - began)))
+    except SessionError as e:
+        if not at or not re.match(r"\d+ nodes match", str(e)):
+            raise
+        raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
+                                  lambda m: f" @{int(m[1]) - at[0]},{int(m[2]) - at[1]}",
+                                  str(e), flags=re.M)) from None
+    return windowed(s, [n], window, at)[0]
 
 
 def problems(nodes, window=None, key="problem"):
@@ -722,10 +740,11 @@ class Server:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
             timeout = number(timeout, "timeout", 0, 300)
-            n = self.a11y_session(session).click_node(
-                str(name), role=text(role), window=text(window), button=button, double=double,
-                timeout=10 if timeout is None else timeout)
-            n = windowed(s, [n], text(window))[0]
+            a = self.a11y_session(session)
+            n = by_name(s, text(window), 10 if timeout is None else timeout,
+                        lambda left: a.click_node(
+                            str(name), role=text(role), window=text(window), button=button,
+                            double=double, timeout=left))
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click_element takes a node's name, or x and y")
@@ -744,9 +763,11 @@ class Server:
         turned = "Scrolled " + " and ".join(f"{abs(n)} {ways[n < 0]}" for n, ways in (
             (dy, ("down", "up")), (dx, ("right", "left"))) if n)
         if name is not None:
-            n = self.a11y_session(session).scroll_node(str(name), dy, dx, role=text(role),
-                                                       window=text(window))
-            n = windowed(s, [n], text(window))[0]
+            a = self.a11y_session(session)
+            n = by_name(s, text(window), 10,
+                        lambda left: a.scroll_node(
+                            str(name), dy, dx, role=text(role), window=text(window),
+                            timeout=left))
             return f"{turned} over {n.line()}, at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("scroll_wheel takes a node's name, or x and y")

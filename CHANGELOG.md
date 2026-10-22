@@ -23,9 +23,10 @@
 - **MCP's bounds, given a window, are the window's**: from its top left
   corner, as `click_element`'s x,y, `crop` and `zoom` with it are, in
   `get_accessible_tree`, `check_accessible_names`, `check_contrast` and
-  a click or scroll by name. They were the screen's, so a node's bounds
-  given to a click in the window were off by where the window is. An
-  agent that added the window's place back no longer should.
+  a click or scroll by name, and the nodes it lists when more than one
+  matches. They were the screen's, so a node's bounds given to a click
+  in the window were off by where the window is. An agent that added
+  the window's place back no longer should.
 
 ### Added
 

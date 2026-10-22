@@ -405,6 +405,11 @@ try:
     check('"Announce" [focusable, focused]' in tree
           and re.search(r'^frame "a11y-test".* @0,0 ', tree, re.M),
           f"get_accessible_tree: with window, bounds in its x,y, as click_element's ({tree})")
+    said, bad, _ = tool("click_element", session="t", window="a11y-test", name="Save|Announce")
+    listed = re.findall(r'^  (?:push )?button ("\w+").* (@\d+,\d+ \d+x\d+)$', said, re.M)
+    check(bad and len(listed) == 2 and all(re.search(rf'^ *(push )?button {b}.* {at}$', tree, re.M)
+                                           for b, at in listed),
+          f"click_element: two nodes matching listed with bounds in the window's x,y ({said})")
     refused = [tool("take_screenshot", session="t", window="a11y-test", **a)[:2]
                for a in (dict(zoom=[0, 0, 10]), dict(zoom="300x200+10+10"),
                          dict(zoom={"x": 1}), dict(zoom=[10, 0, 5, 5]),
