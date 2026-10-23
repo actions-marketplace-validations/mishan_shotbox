@@ -3,7 +3,7 @@
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
 [thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [twin [hidden] [under]] [over [hidden] [drawn | named]] [lone] [slow] [alert]
 [freeze] [ready [late]] [modal] [warned] [inline] [popped] [toasted] [overlaid] [folded]
-[paged] [laid] [drawing]. Its icon-only button,
+[paged] [laid] [drawing] [fading]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -51,7 +51,8 @@ alone, and `overlaid` one laid over a label that's an alert, alone. With
 no header bar, `folded` puts it all under a banner folded away, `paged`
 on a view stack's second page, and `laid` under a layer as big as it
 holding an alert at its foot. `drawing` shows a label "Drawn: 4 tiles"
-three seconds after it starts.
+three seconds after it starts, and `fading` has the faint label darken
+from its color to #242424 over 1.6 s, again and again.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -365,6 +366,12 @@ def activate(app):
     if "warned" in sys.argv:
         box.append(Gtk.Revealer(reveal_child=True, child=Gtk.Label(
             label="Wrong password", accessible_role=Gtk.AccessibleRole.ALERT)))
+    if "fading" in sys.argv:
+        fade, step = Gtk.CssProvider(), iter(range(10 ** 9))
+        Gtk.StyleContext.add_provider_for_display(w.get_display(), fade,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        GLib.timeout_add(50, lambda: fade.load_from_string(
+            "label.faint { color: #%02x%02x%02x; }" % ((0xa0 - next(step) % 32 * 4,) * 3)) or True)
     if "drawing" in sys.argv:
         tiles = Gtk.Label(label="Drawn: 4 tiles", visible=False)
         box.append(tiles)

@@ -1142,6 +1142,31 @@ assert (len(faint) == 1 and re.fullmatch('text behind a modal ' + want, faint[0]
       2>/dev/null | grep -q '/label\[0\]: text too small to measure' \
     && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text, large text, a dot, which passes alone" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
+  # A faint label dark half a second in two is changing, whenever the
+  # first picture's taken, and with --strict fails; dark words sliding by
+  # pass, though they've moved out of where they were first seen.
+  "$sb" run --a11y -- sh -c "'$here/window.py' mv moving & '$sb' wait window mv >/dev/null
+    for i in 1 2 3 4 5; do '$sb' a11y contrast --strict --passes --json --window mv; sleep 0.\$i
+    done" > "$tmp/moving.json" \
+    && python3 -c "import json, re, sys
+runs = [json.loads(line) for line in open(sys.argv[1])]
+assert len(runs) == 5, runs
+for j in runs:
+    said = {n['name']: (k, n.get('problem') or n.get('contrast')) for k in ('problems', 'passes')
+            for n in j[k]}
+    assert re.fullmatch(r'text changing: 2\.\d\d:1 to 2\d\.\d\d:1 \(at least 4\.5\)',
+                        said['Mostly faint words'][1]) and said['Mostly faint words'][0] == 'problems', j
+    assert said['Breaking news scrolls by'][0] == 'passes', j" "$tmp/moving.json" \
+    && ok "a11y: contrast, GTK 3: a flash said as changing each time, failing with --strict; text moving passes" \
+    || { fail "a11y: contrast, GTK 3, a flash and text moving"; cat "$tmp/moving.json"; }
+  # Alone and blinking, it's measured however the first picture caught
+  # it: changing, so --strict fails each time, never "nothing measured".
+  "$sb" run --a11y -- sh -c "'$here/window.py' blink blinking & '$sb' wait window blink >/dev/null
+    for i in 1 2 3 4 5; do '$sb' a11y contrast --strict --window blink >/dev/null 2>&1
+      printf '%s ' \$?; sleep 0.\$i; done" > "$tmp/blinking" \
+    && [ "$(cat "$tmp/blinking")" = "1 1 1 1 1 " ] \
+    && ok "a11y: contrast, GTK 3: text blinking alone fails --strict each time" \
+    || { fail "a11y: contrast, GTK 3, text blinking alone: $(cat "$tmp/blinking")"; }
   # A window wider than the screen: what's past the screen's edge isn't
   # measured or clicked, and says so; nor is a label whose text is past it.
   "$sb" run --a11y --screen 800x600 -- sh -c "'$here/window.py' wide wide &

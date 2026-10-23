@@ -14,11 +14,13 @@
  * behind an aria-modal dialog said apart, but not behind one off the
  * screen or of no size, a page whose only text is in a field said to
  * have had none measured, a faint link wrapped in dark words and faint
- * words round emoji measured a line and a run at a time, its page's
- * Tab order walked without the browser's own controls, and how such a
- * walk ends, a node found by its text, a browser that builds no page's
- * tree for a reader told apart from an empty one, a big page read whole,
- * and a crashed tab noted. Prints what it found as JSON.
+ * words round emoji measured a line and a run at a time, text fading
+ * in said as changing, with its range, and held still by reduced
+ * motion in a page opened with `accessible`, its page's Tab order
+ * walked without the browser's own controls, and how such a walk ends,
+ * a node found by its text, a browser that builds no page's tree for a
+ * reader told apart from an empty one, a big page read whole, and a
+ * crashed tab noted. Prints what it found as JSON.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -147,6 +149,45 @@ try
                             { encoding: 'utf8' });
     await typed.close();
 
+    /* Fading below what text needs throughout, above it, and across it;
+       blinking each second; faint but for a flash, half a second in two;
+       and faint text being typed in, its caret blinking black. */
+    const motion = `.fails, .flash { color: #c8c8c8 } .passes { color: #595959 }
+        p, div { color: #a0a0a0 }
+        @keyframes fails { to { color: #a8a8a8 } } @keyframes passes { to { color: #000 } }
+        @keyframes words { to { color: #202020 } }
+        @keyframes blink { 0%, 49.9% { color: #a0a0a0 } 50%, 100% { color: #202020 } }
+        @keyframes flash { 0%, 74.9% { color: #c8c8c8 } 75%, 100% { color: #000 } }
+        @media (prefers-reduced-motion: no-preference) {
+            p { animation: words 1.6s linear infinite } .fails { animation-name: fails }
+            .passes { animation-name: passes } .blink { animation: blink 1s linear infinite }
+            .flash { animation: flash 2s linear infinite } }`;
+    const fading = {};
+    const pages = { 'a11y-fading': { ...accessible, reducedMotion: 'no-preference' },
+                    'a11y-still': { ...accessible } };
+
+    for (const [title, options] of Object.entries(pages))
+    {
+        const moving = await browser.newPage(options);
+
+        await moving.setContent(`<title>${title}</title><style>${motion}</style>
+            <p class="fails">Fading fails</p><p class="passes">Fading passes</p>
+            <p>Fading words</p><p class="blink">Blinking words</p>
+            <p class="flash">Flashing words</p>
+            <div contenteditable style="caret-color: #000">Typed words</div>`);
+        await moving.focus('div');
+        for (let i = 0; i < 50 && !run('a11y', 'tree', '--window', `${title}.*`)
+            .includes('"Fading words"'); i++)
+        {
+            await moving.waitForTimeout(200);
+        }
+        /* The same each time, whenever the first picture is taken. */
+        fading[title] = Array.from({ length: title === 'a11y-fading' ? 10 : 1 }, () => JSON.parse(
+            spawnSync(shotbox, ['a11y', 'contrast', '--json', '--passes', '--window',
+                                `${title}.*`], { encoding: 'utf8' }).stdout));
+        await moving.close();
+    }
+
     /* The page's Tab order: through the browser's controls, but only
        the page's said, Tab going on from a textarea; and without
        --document, the page's button Tab skips said too, though Tab
@@ -247,6 +288,7 @@ try
         behind,
         field: { status: field.status, out: field.stdout },
         runs,
+        fading,
         walk,
         around,
         long,

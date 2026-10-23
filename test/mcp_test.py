@@ -43,6 +43,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"keys = {here / 'a11y_app.py'} keys\n"
                  f"freeze = {here / 'a11y_app.py'} freeze\n"
                  f"ready = {here / 'a11y_app.py'} ready\n"
+                 f"fading = {here / 'a11y_app.py'} faint fading\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
@@ -704,6 +705,15 @@ try:
           f"click_element: a disabled button waited for and said, and with force clicked, as "
           f"scroll_wheel's is ({said})")
     tool("stop_session", session="r")
+    tool("start_session", name="f")
+    tool("spawn_program", session="f", program="fading")
+    tool("wait_for", session="f", what="window", value="a11y-test", timeout=20)
+    said, bad, _ = tool("check_contrast", session="f", window="a11y-test")
+    check(not bad and re.search(r"^1 changing, which doesn't fail:\n.*: text changing: "
+                                r"\d\.\d\d:1 to \d+\.\d\d:1 \(at least 4\.5\); found .*\n\d+ not measured", said, re.M)
+          and "Its contrast changed over 6 pictures" in said,
+          f"check_contrast: text fading, said apart with its range, and why ({said!r})")
+    tool("stop_session", session="f")
     tool("start_session", name="u", a11y=False, usage=True)
     said, bad, _ = tool("stop_session", session="u")
     check(not bad and "used, over" in said and "peak memory" in said,

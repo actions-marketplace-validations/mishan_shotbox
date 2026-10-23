@@ -1516,7 +1516,6 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         screen.close()
     nodes = [n for _, n in walk(Atspi, window, timeout, bounds=True)]
     fronts = modals(Atspi, nodes)
-    pic = picture.Picture(*screen.backend.pixels(screen.env))
     texts, controls = roles(Atspi, TEXTS), roles(Atspi, CONTROLS)
     named = roles(Atspi, ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION"))
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
@@ -1723,7 +1722,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return False
 
     def hovered(box):
-        """The screen with the pointer over the middle of `box`."""
+        """The screen with the pointer over the middle of `box`, once the
+        sampler's done, whose pictures it would change."""
+        sampler.join()
         s = Screen()
         try:
             s.move(box[0] + box[2] // 2, box[1] + box[3] // 2)
@@ -1775,7 +1776,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         finally:
             s.close()
     measured = [r for n in nodes if kind(n) for r in (runs(n) if wording(n) else [n])]
-    problems, passes, notes, behind, whys, count = [], [], [], [], [], 0
+    problems, passes, notes, behind, whys, count, taken = [], [], [], [], [], 0, []
+    uncounted = set()   # what's measured only by its pictures, if at all
     trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
     rel = {}
 
@@ -2113,13 +2115,57 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     def leaf(n):
         return not any(o.path.startswith(n.path + "/") for o in measured)
 
+    pic = picture.Picture(*screen.backend.pixels(screen.env))
+    shot, samples, stop = time.monotonic(), [], threading.Event()
+
+    def searched(n):
+        """Whether `n`'s text is looked for where it's drawn: GTK 4's, from
+        4.14."""
+        return (n._role in texts and n._role not in controls and gtk4(n)
+                and gtk4_release(n) >= (4, 14) and not trusted)
+
+    # Where each node measured is, or GTK 4's text can be, cut to the
+    # screen: all a sample keeps of what it pictures.
+    regions = {}
+    for n in measured:
+        region = pic.clip((searched(n) and room(n)) or shown(n) or [0, 0, 0, 0])
+        if region:
+            regions[id(n)] = region
+
+    def crops_of(p, r, x=0, y=0):
+        """The rows of `r` (x0, y0, x1, y1) in `p`, a picture of the screen
+        from `x`, `y`."""
+        return b"".join(p.data[(j * p.width + r[0] - x) * 3:(j * p.width + r[2] - x) * 3]
+                        for j in range(r[1] - y, r[3] - y))
+
+    def lay(data, width, r, rows):
+        wide = (r[2] - r[0]) * 3
+        for i, y in enumerate(range(r[1], r[3])):
+            data[(y * width + r[0]) * 3:(y * width + r[2]) * 3] = rows[i * wide:(i + 1) * wide]
+        return data
+
+    def sample():
+        """Each picture, of only what holds the regions where it can be had
+        that way, fast (x.grab), as the whole screen is too slow for."""
+        rs = set(regions.values())
+        x0, y0 = min((r[0] for r in rs), default=0), min((r[1] for r in rs), default=0)
+        x1, y1 = max((r[2] for r in rs), default=1), max((r[3] for r in rs), default=1)
+        for i in range(1, SAMPLES):
+            stop.wait(max(0, shot + i * SAMPLE - time.monotonic()))
+            if stop.is_set():
+                return
+            got = screen.backend.grab(screen.env, box=(x1 - x0, y1 - y0, x0, y0))
+            p = picture.Picture(*(got or screen.backend.pixels(screen.env)))
+            samples.append({r: crops_of(p, r, *((x0, y0) if got else (0, 0))) for r in rs})
+    # Pictured again at set times while it's measured, so when a blink is
+    # caught doesn't hang on how long measuring takes.
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
     found, late, hidden = {}, set(), set()
     cannot = None
     until = time.monotonic() + SEARCH
     for n in measured:
-        if (n._role in texts and n._role not in controls and gtk4(n)
-                and gtk4_release(n) >= (4, 14) and not trusted and leaf(n)
-                and n.path not in fronts):
+        if searched(n) and leaf(n) and n.path not in fronts:
             cannot = cannot or pango_cairo()
             if not cannot and out_of_view(n):
                 hidden.add(n.path)
@@ -2245,6 +2291,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         # Only in a window raised: another can be over it, its text faint.
         dim = window and n.path in found and not seen and faint(n, least)
         if dim:
+            uncounted.add(id(n))
+            taken.append((n, k, least, at, overlap(room(n), [0, 0, pic.width, pic.height]),
+                          False, ""))
             problems.append((n, f"{k} not found, but nothing where it can be has the contrast "
                                 f"it needs: the best anything there reaches is "
                                 f"{ratio_text(dim)}:1 ({at})"))
@@ -2294,6 +2343,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} ({at})"
                     if over else "")
             problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
+            uncounted.add(id(n))
+            taken.append((n, k, least, at, box, None, ""))
         elif got:
             moved = (f"; found {seen[1][0]},{seen[1][1]} px from " + (
                 f"where GTK {gtk4(n)} says its text is" if laid(n)
@@ -2301,6 +2352,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             colors = f"{picture.hex_of(got[1])} on {picture.hex_of(got[2])} ({at})"
             if got[0] >= least:
                 passes.append((n, f"{k} passes at {ratio_text(got[0])}:1, {colors}{moved}"))
+                taken.append((n, k, least, at, box, seen and seen[2], moved))
                 continue
             said = said_color(Atspi, n)
             # Light or small text covers no pixel whole, so measures short of
@@ -2310,6 +2362,92 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
             problems.append((n, f"{k} {ratio_text(got[0])}:1, {colors}{meant}{moved}"))
+            taken.append((n, k, least, at, box, seen and seen[2], moved))
+    # Text that fades or blinks measures as it is the moment it's pictured.
+    # What changed in a sample is measured in each, its sample's part laid
+    # over the first picture: GTK 4's text not found (`drawn` False) looked
+    # for again, or bounded by faint() where it still isn't, and what's
+    # blinked off the color of its background, while it's where it was
+    # (what's moved can't be told from blank). One that fails at its best
+    # fails, and one that passes at its worst passes; but between, the dim
+    # end of a fade can be meant, and the bright end be all it is for a
+    # moment, so it's said with its range, failing only with `strict`. A
+    # change of less than CHANGE is a level's flicker, none.
+    if not taken:
+        stop.set()
+    sampler.join()
+    first, where = pic, None
+    for n, k, least, at, box, drawn, rest in taken:
+        region = regions.get(id(n))
+        base = region and crops_of(first, region)
+        if not region or all(s[region] == base for s in samples):
+            continue
+        x0, y0, wide, high = region[0], region[1], region[2] - region[0], region[3] - region[1]
+        got, still = [], None
+        try:
+            for rows in [base, *(s[region] for s in samples)]:
+                if drawn is False:
+                    # Looked for in the whole picture, the sample's part
+                    # laid over the first's.
+                    pic = picture.Picture(first.width, first.height, bytes(lay(
+                        bytearray(first.data), first.width, region, rows)))
+                    aparts.clear()
+                    try:
+                        seen = seek(n, until)
+                    except TimeoutError:
+                        continue
+                    dim = not seen and faint(n, least)
+                    # Not found, it's measured where it is only where GTK says
+                    # that right.
+                    if not seen and not dim and gtk4(n) not in GTK4_BOUNDS:
+                        continue
+                    r = (picture.text_contrast(pic, overlap(seen[0], [
+                        0, 0, pic.width, pic.height]), seen[2]) if seen else (dim, None) if dim
+                        else picture.text_contrast(pic, box))
+                else:
+                    r = picture.text_contrast(
+                        picture.Picture(wide, high, rows), [box[0] - x0, box[1] - y0, *box[2:]],
+                        drawn and (drawn[0] - x0, drawn[1] - y0, drawn[2]))
+                if not r:
+                    if still is None:
+                        where = where or (Screen(), {})
+                        try:
+                            still = place(Atspi, n, where[0].backend.windows(where[0].env),
+                                          where[1]) == parents.get(n.path, n).bounds
+                        except Exception:   # gone since
+                            still = False
+                    if not still:
+                        continue
+                got.append(r or (1.0, None))
+        finally:
+            pic = first
+            if where:
+                where[0].close()
+                where = None
+        got.sort(key=lambda r: r[0])
+        if not got or got[-1][0] - got[0][0] < CHANGE:
+            continue
+        lo, hi = ratio_text(got[0][0]), ratio_text(got[-1][0])
+        passes = [p for p in passes if p[0] is not n]
+        problems = [p for p in problems if p[0] is not n]
+        n["range"] = [float(lo), float(hi)]
+        count += id(n) in uncounted
+        end = got[-1] if got[-1][0] < least else got[0]
+        colors = f", {picture.hex_of(end[1])} on {picture.hex_of(end[2])}" if end[1] else ""
+        if got[0][0] >= least:
+            passes.append((n, f"{k} passes at {lo}:1 at worst, changing to {hi}:1{colors} "
+                              f"({at}){rest}"))
+        elif got[-1][0] < least:
+            problems.append((n, f"{k} {hi}:1 at best, changing from {lo}:1{colors} ({at})"
+                                f"{rest}"))
+        else:
+            notes.append((n, f"{k} changing: {lo}:1 to {hi}:1 ({at}){rest}"))
+            n["_why"] = why = (
+                f"Its contrast changed over {SAMPLES} pictures {SAMPLE:g} s apart, as a fade's "
+                "or a blink's does, so it's a note, which fails only with --strict; see "
+                "docs/accessibility.md.")
+            if why not in whys:
+                whys.append(why)
     if edges:
         for n in nodes:
             if not (n._showing and not disabled(n) and (
@@ -2360,6 +2498,16 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 class Noted(tuple):
     """A note, (node, what), that --strict made a problem."""
 
+
+# How many pictures contrast takes, this many seconds apart: 0.37 s is
+# no fraction of a common blink's period (0.5, 1, 1.2, 2 s), so over 1.85 s
+# they fall all round each one's phase, never more than 0.37 s apart: a
+# 1 s blink is seen on and off, and a flash of 0.5 s in 2 s is caught.
+SAMPLE, SAMPLES = 0.37, 6
+
+# A ratio that changes by less than this between pictures hasn't: a
+# level's flicker in what's drawn.
+CHANGE = 0.05
 
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
 SMALLEST = 16
@@ -2932,8 +3080,11 @@ def main(argv):
         Atspi = atspi()
         for n, _ in problems + passes + notes + behind:
             dom(Atspi, n)
-        said = " ".join([f"{len(notes)} not measured"
-                         + ("." if nothing else ", which doesn't fail.")] * bool(notes)
+        changing = sum("range" in n for n, _ in notes)
+        said = " ".join([f"{len(notes) - changing} not measured"
+                         + ("." if nothing else ", which doesn't fail.")]
+                        * bool(len(notes) - changing)
+                        + [f"{changing} changing, which doesn't fail."] * bool(changing)
                         + [f"{len(behind)} behind a modal dialog, which doesn't fail."]
                         * bool(behind) + whys)
         if a.json and a.what == "lint":

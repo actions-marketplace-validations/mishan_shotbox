@@ -631,6 +631,45 @@ A web page with text, none of it measured (all in fields, say), is a
 note on its document, `text not measured: none of the
 page's text was`, rather than passing without a word.
 
+Text that fades or blinks measures as it is the moment it's pictured,
+and neither its best nor its worst is the answer: the dim end of a fade
+may be meant, and the bright end may be all it is for a moment. So the
+screen is pictured six times, 0.37 s apart, while measuring goes on:
+the first whole, the rest only the part holding what's measured,
+which takes a few milliseconds on X11 (where it can't be had that way,
+off the screen, the whole screen is, which takes longer, and so do big
+parts with grim on Wayland: where a picture takes more than 0.37 s,
+the next is taken when it's done, further apart). Each node measured,
+or not seen or found, whose pixels changed in any of them is measured
+in each: GTK 4's text not found is looked for again. 0.37 s is no
+fraction of a common blink's period (0.5, 1, 1.2 or 2 s), so over
+1.85 s the pictures fall all round its phase, never more than 0.37 s
+apart: a 1 s blink is seen both ways, and a flash of 0.5 s in 2 s is
+caught. If its ratio changed and fails at its best, it fails, `text
+3.10:1 at best, changing from 1.40:1, #8a8a8a on #ffffff (at least
+4.5)`; if it passes at its worst, it passes, `text passes at 5.20:1 at
+worst, changing to 9.80:1, …`. Across what it needs, it's a note,
+`PATH: text changing: 2.50:1 to 11.24:1 (at least 4.5)`, said apart on
+stderr (`1 changing, which doesn't fail.`), and in `--json` among
+`notes` with its `why`; with `--strict` it fails, as any note does.
+Each has its `range` in `--json`, `[2.5, 11.24]`, and counts as
+measured, though the first picture caught it blinked off. A control or
+image is judged the same way (`graphics changing: …`). Blinked off,
+text is the color of its background, 1:1, but only while its node is
+where it was: text that's moved, scrolling by, isn't blank where it
+was first seen. A ratio that changes by less than 0.05 is a level's
+flicker, and hasn't. A caret blinks only in what's being edited, which
+isn't measured. A check with anything to measure takes at least 1.85
+s, then: up to that much more where measuring took less, as on a GTK 3
+window (2.3 s, not 0.5, for a still one) or a Chromium page (about
+1 s); none on a GTK 4 window, which takes longer, but for its text not
+found that changed, looked for again in each picture: 10 to 14 s more
+for a label the first picture caught blinked off, within the 30 s
+contrast looks for text in all.
+Chromium's pages opened with the Node package's `accessible` emulate
+`prefers-reduced-motion: reduce`, so a page that honors it holds still
+([Node](node.md)).
+
 While a modal dialog is open, what's behind it isn't measured: it's
 shut off till the dialog closes, and dimmed on purpose or covered, so
 its ratio says nothing of how it reads with the dialog closed, where

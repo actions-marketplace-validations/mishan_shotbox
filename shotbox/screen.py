@@ -902,13 +902,15 @@ class Screen:
         what's wrong as `problem`: text, buttons and links against their
         background (at least `text`, or `large` for large text), images
         (`graphics`), and with `edges`, a button's or field's edge against
-        what's round it; and `notes`, what wasn't measured and doesn't
-        fail, each with its `note`: too small to, or GTK 4's, with `why`;
-        with `strict`, only what's scrolled out of view, the rest being
-        `problems` too; and `behind`, what's behind a modal dialog, not
-        measured, which doesn't fail even with `strict`, each with its
-        `behind`. With `passes`, `passes` too, what was measured
-        and passes, each with its ratio as `contrast`. But not those whose "PATH: WHAT" line, or
+        what's round it; and `notes`, what doesn't fail, each with its
+        `note`: what wasn't measured, too small to or GTK 4's (with `why`),
+        and text whose ratio changed between pictures across what it
+        needs (with `range` and `why`); with `strict` every note but what's
+        scrolled out of view is among the `problems` instead; and `behind`,
+        what's behind a modal dialog, not measured, which doesn't fail even
+        with `strict`, each with its `behind`. With `passes`, `passes` too,
+        what was measured and passes, each with its ratio as `contrast`.
+        But not those whose "PATH: WHAT" line, or
         "LINE: WHAT" with its tree line, one of the regexes in `ignore` is
         found in. Measured on a picture of the screen, `window` raised.
         Fails, saying why, if nothing could be measured: of a GTK 4 window,

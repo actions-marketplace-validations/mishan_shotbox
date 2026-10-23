@@ -886,9 +886,14 @@ class Server:
             passes=flag(passes), strict=flag(strict))
         notes, passed, behind = got["notes"], got.get("passes"), got["behind"]
         whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
+        changing = [n for n in notes if "range" in n]
+        notes = [n for n in notes if "range" not in n]
         return "\n".join([problems(got["problems"], window)]
                          + ([f"{len(passed)} pass:", problems(passed, window, "contrast")]
                             if passed else [])
+                         + ([f"{len(changing)} changing, which doesn't fail:",
+                             problems(changing, window, "note")]
+                            if changing else [])
                          + ([f"{len(notes)} not measured, which doesn't fail:",
                              problems(notes, window, "note")]
                             if notes else [])

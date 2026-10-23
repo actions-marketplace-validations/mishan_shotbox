@@ -61,7 +61,7 @@ const options: GifOptions = { width: 840, fps: 8, from: reel.from, colors: 64,
 const out: string = await gif(await reel.end(), 'demo.gif', options);
 
 const steadyPage = await (await chromium.launch({ args: [...steady] })).newPage();
-void chromium.launch({ ...accessible });
+void (await chromium.launch({ ...accessible })).newPage({ ...accessible });
 void chromium.launch({ ...accessible, args: [...accessible.args, ...steady] });
 const rec: Recorder = await frames(steadyPage, { dir: 'frames', fps: 8, seed: 1 });
 await rec.run(1000);

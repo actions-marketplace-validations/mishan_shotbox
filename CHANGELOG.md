@@ -4,6 +4,22 @@
 
 ### Changes to check when upgrading
 
+- **`a11y contrast` pictures the screen six times, 0.37 s apart, and
+  says text whose ratio changes across what it needs as changing, with
+  its range**: `PATH: text changing: 2.50:1 to 11.24:1 (at least 4.5)`,
+  a note, which fails only with `--strict`. A fading or blinking prompt
+  passed or failed by when it was pictured. Changing text that fails at
+  its best fails, `text 3.10:1 at best, changing from 1.40:1, …`, and
+  that passes at its worst passes, `text passes at 5.20:1 at worst,
+  changing to 9.80:1, …`; a control or image that changes is judged the
+  same way. `--json`, Python's `contrast()` and MCP's `check_contrast`
+  give each its `range`, and the note its `why`. The pictures are taken
+  while measuring goes on, of only what's measured, so a check with
+  anything to measure takes at least 1.85 s: up to that much more where
+  measuring took less (a still GTK 3 window, 2.3 s, not 0.5; about 1 s
+  more on a Chromium page; nothing on a GTK 4 window, which takes
+  longer, but for its text not found that changed, looked for again in
+  each picture: 10 to 14 s more for a label first caught blinked off).
 - **`a11y lint` and `a11y contrast` lines on a web page's node end in
   where it is in the page's DOM**, the element's tag and id, its text
   and the nearest id round it, as Chromium and Firefox give them:
@@ -87,6 +103,11 @@
 
 ### Added
 
+- The Node package's `accessible` is a page's options too:
+  `browser.newPage({ ...accessible })` emulates
+  `prefers-reduced-motion: reduce`, so a page that honors it holds
+  still for `a11y contrast`. `reducedMotion: 'no-preference'` after it
+  checks the motion.
 - `wait node RE` waits for a node showing in the accessible tree whose
   name or text RE is found in, `--window RE` for one window's: a status
   line saying a page is drawn, where `wait stable` passes on a WebGL

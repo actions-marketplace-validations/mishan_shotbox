@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, a page\'s text all in a field, a line and a run at a time, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
+test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, a page\'s text all in a field, a line and a run at a time, text fading or held still, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -368,7 +368,7 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, below, contrast, ignored, behind, field, runs, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, below, contrast, ignored, behind, field, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -394,6 +394,43 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
                       ['Faint', '#bbbbbb'], ['emoji words', '#bbbbbb']].sort());
     assert.equal(field.status, 0);
     assert.match(field.out, /^\S.*document web\[\d+\]: text not measured: none of the page's text was  <- "a11y-typed"$/m);
+    /* Each said once, in its list, as this, in every run. */
+    const verdicts = (got, name) => ['problems', 'passes', 'notes'].flatMap((list) => got[list]
+        .filter((n) => n.name === name).map((n) => [list, n.problem ?? n.contrast ?? n.note]));
+    const [held] = fading['a11y-still'];
+    const r = '\\d+\\.\\d\\d';
+    const at = '#[0-9a-f]{6} on #ffffff \\(at least 4\\.5\\)';
+
+    for (const [name, list, fades, still] of [
+        ['Fading fails', 'problems', `text ${r}:1 at best, changing from ${r}:1, ${at}`,
+         'text 1\\.6\\d:1, #c8c8c8'],
+        ['Fading passes', 'passes', `text passes at ${r}:1 at worst, changing to ${r}:1, ${at}`,
+         'text passes at 7\\.\\d\\d:1, #595959'],
+        ['Fading words', 'notes', `text changing: ${r}:1 to ${r}:1 \\(at least 4\\.5\\)`,
+         'text 2\\.6\\d:1, #a0a0a0'],
+        ['Blinking words', 'notes', 'text changing: 2\\.6\\d:1 to 1[56]\\.\\d\\d:1',
+         'text 2\\.6\\d:1, #a0a0a0'],
+        ['Flashing words', 'notes', 'text changing: 1\\.6\\d:1 to 21\\.00:1',
+         'text 1\\.6\\d:1, #c8c8c8'],
+    ])
+    {
+        for (const run of fading['a11y-fading'])
+        {
+            const [[got, what], ...more] = verdicts(run, name);
+
+            assert.deepEqual([got, more], [list, []], name);
+            assert.match(what, new RegExp(`^${fades}`), name);
+        }
+        assert.match(verdicts(held, name).map((s) => s[1]).join('\n'), new RegExp(`^${still}`),
+                     name);
+    }
+    /* A caret blinks only in what's being edited, which isn't measured. */
+    assert.deepEqual(fading['a11y-fading'].map((run) => verdicts(run, 'Typed words')),
+                     Array(10).fill(verdicts(held, 'Typed words')));
+    const [fade] = fading['a11y-fading'][0].notes.filter((n) => n.name === 'Fading words');
+
+    assert.ok(fade.range[0] < 4.5 && fade.range[1] >= 4.5, JSON.stringify(fade.range));
+    assert.match(fade.why, /^Its contrast changed over 6 pictures 0\.37 s apart/);
     assert.deepEqual([walk.end, walk.focus.map((n) => n.name), walk.unreached.map((n) => n.name)],
                      ['cycle', ['Notes', 'Two', 'One'], ['Off']]);
     assert.ok(around.unreached.some((n) => n.name === 'Off'), JSON.stringify(around.unreached));

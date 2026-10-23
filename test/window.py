@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
-TITLE caret MS, or TITLE spinner, or
+TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
@@ -23,9 +23,12 @@ down to 1s, and a Delete button that asks in a message dialog, its window
 titled Delete. With dot,
 a "." and nothing else. With popover, a faint label and a modal popover
 open below it. With wide, a window 1000 pixels wide, a label
-as wide, its text at the right, and below it a button at each end."""
+as wide, its text at the right, and below it a button at each end. With
+moving, a faint label that's dark half a second in two, and dark words
+sliding by; with blinking, dark words shown and hidden."""
 
 import sys
+import time
 
 import gi
 
@@ -184,6 +187,32 @@ elif sys.argv[2:3] == ["flash"]:
         return True
     GLib.timeout_add(1000, flash)
     w.add(square)
+elif sys.argv[2:] == ["blinking"]:
+    # Dark words, shown and hidden half a second each.
+    words, start = Gtk.Label(label="Blinking dark words"), time.monotonic()
+    GLib.timeout_add(20, lambda: words.set_opacity(
+        (time.monotonic() - start) % 1 < 0.5) or True)
+    w.add(words)
+elif sys.argv[2:] == ["moving"]:
+    # A faint label that flashes dark for half a second every two, and
+    # dark words sliding by, 80 pixels a second, round a 300 wide loop.
+    css, start = Gtk.CssProvider(), time.monotonic()
+    Gtk.StyleContext.add_provider_for_screen(w.get_screen(), css, 800)
+    box, slide = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), Gtk.Fixed()
+    words = Gtk.Label(label="Breaking news scrolls by")
+    box.add(Gtk.Label(label="Mostly faint words"))
+    slide.put(words, 0, 0)
+    box.add(slide)
+
+    def tick():
+        t = time.monotonic() - start
+        css.load_from_data(b"window { background: #ffffff; } label { color: #000000; }"
+                           b" box > label { color: %s; }" % (b"#000000" if t % 2 < 0.5
+                                                               else b"#a0a0a0"))
+        slide.move(words, int(250 - t * 80 % 300), 0)
+        return True
+    GLib.timeout_add(20, tick)
+    w.add(box)
 elif sys.argv[2:3] == ["scene"]:
     # bzflag's strip, as it was: black every other 30 ms, and between, a
     # scene that's moved on everywhere, as a turning tank's view has.
