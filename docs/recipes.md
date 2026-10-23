@@ -169,7 +169,9 @@ it says it's drawn. `site/` holds the app; its page sets a status line,
 # web.sh: shotbox run --net loopback --a11y --screen 1600x1000 -- ./web.sh
 python3 -m http.server 8000 --bind 127.0.0.1 --directory site 2>/dev/null &
 shotbox wait port 8000
-profile=$(mktemp -d)
+profile=$HOME/firefox
+mkdir -p "$profile"
+echo 'user_pref("datareporting.policy.firstRunURL", "");' > "$profile/user.js"
 firefox --kiosk --new-instance --profile "$profile" --width 1600 --height 1000 \
   http://127.0.0.1:8000/ 2>/dev/null &
 shotbox wait window '.*Mozilla Firefox'
@@ -179,15 +181,32 @@ shotbox capture app.png
 
 `--net loopback` gives the session a network of its own: the server
 and the browser reach each other on `127.0.0.1`, and nothing else does.
-`wait port` looks for the server there. The profile is made inside the
-session, so it's fresh each run: one made outside isn't there, and
-Firefox opens a "Profile Missing" dialog in place of the page. To
-spawn it into a lasting session from outside, make the profile in the
-command:
+`wait port` looks for the server there. The profile is made in the
+session's home, new each run and gone with the session, so nothing an
+earlier run left in it, a cached page or tabs to restore, changes
+what's pictured. One made outside the session works too, since the
+sandbox shows the machine's files, hiding only the desktop's
+`/run/user/UID`: a profile there isn't found, and Firefox opens a
+"Profile Missing" dialog in place of the page.
+
+A new profile's first run opens a second tab, Firefox's privacy notice
+from www.mozilla.org, which on the session's network doesn't load: out
+of sight in kiosk mode, but there in the accessible tree as a page tab
+"Problem loading page", with its page and its "Try Again" button.
+`user.js` turns it off.
+
+In a lasting session, worked from outside:
 
 ```
-shotbox spawn --session web -- sh -c 'p=$(mktemp -d)
-  exec firefox --kiosk --new-instance --profile "$p" --width 1600 --height 1000 URL'
+shotbox start --name web --net loopback --a11y --screen 1600x1000
+shotbox spawn --session web -- python3 -m http.server 8000 --bind 127.0.0.1 --directory site
+shotbox --session web wait port 8000
+shotbox spawn --session web -- sh -c 'p=$HOME/firefox; mkdir -p "$p"
+  echo "user_pref(\"datareporting.policy.firstRunURL\", \"\");" > "$p/user.js"
+  exec firefox --kiosk --new-instance --profile "$p" --width 1600 --height 1000 http://127.0.0.1:8000/'
+shotbox --session web wait node '^Drawn$' --window '.*Mozilla Firefox' --timeout 60
+shotbox --session web capture app.png
+shotbox stop web
 ```
 
 With no window manager, `--kiosk` doesn't fill the screen: the window

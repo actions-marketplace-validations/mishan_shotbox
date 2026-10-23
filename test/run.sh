@@ -962,6 +962,14 @@ if atspi; then
     && grep -qx "shotbox: gave up waiting for a node matching 'Saev' after 0.5s. The nearest: \"Save\"" "$tmp/node" \
     && ok "a11y: wait node waits for a node to show, by its name or text, or says what's near" \
     || { fail "a11y: wait node"; cat "$tmp/node"; }
+  # Asked for the text of what has none, the frame, GTK 3 logs a CRITICAL.
+  "$sb" run --a11y -- sh -c "'$here/window.py' g3 & '$sb' wait window g3 >/dev/null &&
+    '$sb' wait node '^a window\$' --window g3" > "$tmp/node" 2>&1 && ! grep -q CRITICAL "$tmp/node" \
+    && ok "a11y: wait node, GTK 3: no CRITICAL for what has no text" \
+    || { fail "a11y: wait node, GTK 3"; cat "$tmp/node"; }
+  set +e; "$sb" wait node 2>/dev/null; st=$?; "$sb" wait node '' 2>/dev/null; st2=$?; set -e
+  [ $st = 2 ] && [ $st2 = 2 ] && ok "a11y: wait node with no regex, or an empty one, is refused" \
+    || fail "a11y: wait node with no regex: status $st, $st2"
   # Under a dialog, disabled, moving and under a label, each is said and not
   # clicked (--force clicks the disabled one, which does nothing), then
   # waited for until "Ready" puts each right, and clicked.
@@ -1125,8 +1133,9 @@ assert (len(faint) == 1 and re.fullmatch('text behind a modal ' + want, faint[0]
   "$sb" run --a11y -- sh -c "'$here/window.py' g3 contrast &
     '$sb' a11y contrast --edges 3 --window g3" > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 1 ] && grep -q '/label\[1\]: text ' "$tmp/contrast" \
+  [ $st = 1 ] && grep -q '/label\[1\]: text [0-9]' "$tmp/contrast" \
     && ! grep -q 'toggle button\|/text\[0\]\|/label\[4\]' "$tmp/contrast" \
+    && ! grep -q 'GTK None' "$tmp/contrast" "$tmp/err" \
     && grep -q '/label\[5\]: text too small to measure' "$tmp/contrast" \
     && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'drawn lighter than its color, #5f5670, which is 6\.5[0-9]:1' \
     && "$sb" run --a11y -- sh -c "'$here/window.py' dot dot & '$sb' a11y contrast --window dot" \

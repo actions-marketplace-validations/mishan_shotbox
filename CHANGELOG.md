@@ -89,10 +89,11 @@
   grep`. Giving up, it says what came nearest: a match not showing,
   the nearest names and texts, or that nothing comes near.
   `Screen.wait_node(re, window=None)` and MCP's `wait_for` node have
-  it too.
+  it too, and say the node's text where that matched, cut to 80
+  characters round the match.
 - A recipe, in docs/recipes.md: a web app in Firefox, served on the
-  session's own network, in a profile made in the session, its window
-  sized to the screen, pictured once the page says it's drawn.
+  session's own network, in a new profile each run, its window sized
+  to the screen, pictured once the page says it's drawn.
 - `a11y tabwalk --document` lists only what's in a browser window's web
   page, and says only its controls Tab never reached: Tab still goes
   through the browser's own (the address bar, Back, the tab strip),
@@ -150,6 +151,11 @@
 
 ### Fixed
 
+- `a11y contrast` looked for every toolkit's label text where it's
+  drawn, as it does GTK 4.14 and later's, whose boxes are wrong; GTK 3's,
+  Qt's and Chromium's aren't, so their text is measured in them again.
+  With `--window`, a faint GTK 3 label was said as not found, "GTK None
+  reports where its widgets are wrong".
 - `a11y tabwalk` says a web page's controls Tab never reaches in
   Chromium: Tab lands on the page's document coming in from the
   toolbar, and that counted as reaching all that's in it, so a button

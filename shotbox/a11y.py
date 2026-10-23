@@ -790,8 +790,10 @@ def toolkit(n):
 
 
 def contents(Atspi, n):
+    # Not asked of what has none: GTK 3 logs a CRITICAL each time.
     try:
-        return Atspi.Text.get_text(n._acc, 0, -1)
+        return (Atspi.Text.get_text(n._acc, 0, -1) if "Text" in n._acc.get_interfaces()
+                else None)
     except Exception:   # gone since
         return None
 
@@ -1220,11 +1222,31 @@ def at_node(name, role, window, timeout, act, force=False):
     return n
 
 
+def around(text, start, end, most=80):
+    """`text` cut to `most` characters round its `start`:`end`, with … where
+    it's cut: a page's text can run to megabytes."""
+    a = max(0, min((start + end - most) // 2, len(text) - most, start))
+    return "…" * (a > 0) + text[a:a + most] + "…" * (a + most < len(text))
+
+
+def unembedded(text):
+    """`text` without the U+FFFC that stands in a page's text for each
+    element in it, and the space round one made one, so `Done <a>here</a>
+    now` reads "Done now". Not with the element's text in its place: that
+    takes round trips an element, and those of each in it, each poll; and
+    the element's text is matched on its own."""
+    return re.sub(r"\s*\ufffc[\s\ufffc]*", lambda m: " " if (
+        m.start() and m.end() < len(text) and m[0].strip("\ufffc")) else "", text)
+
+
 def wait_node(pattern, window=None, timeout=10):
     """Wait for a showing node with `pattern`, a regex, found in its name
-    or text; that node, with its text as `text` where that's what
-    matched. Giving up, say what came nearest: a match that isn't
-    showing, else the nearest names and texts, or that there were none."""
+    or text; that node, with its text round the match as `text` where
+    that's what matched. Giving up, say what came nearest: a match that
+    isn't showing, else the nearest names and texts, or that there were
+    none."""
+    if not pattern:
+        raise SessionError("wait node needs a regex to look for: an empty one matches any node")
     Atspi = atspi()
     try:
         found = re.compile(pattern)
@@ -1235,10 +1257,10 @@ def wait_node(pattern, window=None, timeout=10):
     def matches(n):
         if found.search(n.name):
             return True
-        # A page's text: U+FFFC stands in it for each element in it.
-        n["_text"] = (contents(Atspi, n) or "").replace("\ufffc", "")
-        if found.search(n._text):
-            n["text"] = n._text
+        n["_text"] = unembedded(contents(Atspi, n) or "")
+        m = found.search(n._text)
+        if m:
+            n["text"] = around(n._text, *m.span())
             return True
         return False
 
@@ -1254,11 +1276,27 @@ def wait_node(pattern, window=None, timeout=10):
             raise
         hidden = next((n for n in seen if not n._showing and matches(n)), None)
         if hidden:
-            raise SessionError(f"{e}: {hidden.line()} matches, but isn't showing") from None
-        near = difflib.get_close_matches(pattern, {t for n in seen
-                                                   for t in (n.name, n.get("_text")) if t}, 5)
+            text = (f", its text {json.dumps(hidden.text, ensure_ascii=False)},"
+                    if "text" in hidden else "")
+            raise SessionError(f"{e}: {hidden.line()}{text} matches, but isn't showing") from None
+        # Shorter, anything is near.
+        if len(pattern) < 3:
+            raise SessionError(str(e)) from None
+        # A long text in pieces of whole words, about twice the pattern's
+        # length, each compared and said on its own: whole, it's never near.
+        width, said = 2 * len(pattern), {}
+        for t in {t for n in seen for t in (n.name, n.get("_text")) if t}:
+            words = t.split() if len(t) > 80 else [t]
+            for i in range(len(words)):
+                j, length = i + 1, len(words[i])
+                while j < len(words) and length < width:
+                    length, j = length + 1 + len(words[j]), j + 1
+                piece = " ".join(words[i:j])
+                said.setdefault(piece, "…" * (i > 0) + around(piece, 0, 0)
+                                + "…" * (j < len(words)))
+        near = difflib.get_close_matches(pattern, said, 5)
         raise SessionError(f"{e}. The nearest: " + ", ".join(
-            json.dumps(t, ensure_ascii=False) for t in near) if near
+            json.dumps(said[t], ensure_ascii=False) for t in near) if near
             else f"{e}: nothing in the tree comes near it") from None
 
 
@@ -1914,8 +1952,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     cannot = None
     until = time.monotonic() + SEARCH
     for n in measured:
-        if (n._role in texts and n._role not in controls and gtk4_release(n) >= (4, 14)
-                and not trusted and leaf(n) and n.path not in fronts):
+        if (n._role in texts and n._role not in controls and gtk4(n)
+                and gtk4_release(n) >= (4, 14) and not trusted and leaf(n)
+                and n.path not in fronts):
             cannot = cannot or pango_cairo()
             if not cannot and out_of_view(n):
                 hidden.add(n.path)

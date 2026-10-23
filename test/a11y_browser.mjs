@@ -12,10 +12,10 @@
  * faint paragraph's contrast measured, said with its DOM tag, text and
  * id, and ignored by them, and one behind an aria-modal dialog said
  * apart, but not behind one off the screen or of no size, its page's
- * Tab order walked without the browser's own controls, a browser that
- * builds no page's tree for a reader told apart from an
- * empty one, a big page read whole, and a crashed tab noted. Prints what
- * it found as JSON.
+ * Tab order walked without the browser's own controls, a node found by
+ * its text, a browser that builds no page's tree for a reader told apart
+ * from an empty one, a big page read whole, and a crashed tab noted.
+ * Prints what it found as JSON.
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -129,6 +129,24 @@ try
     const around = JSON.parse(run('a11y', 'tabwalk', '--json', '--window', 'a11y-tabdoc.*'));
     await tabbed.close();
 
+    /* A node by its text, which comes back cut round what matched, and
+       by its text round an element in it; one scrolled out of view said
+       by its text, having no name; and the part of a long text near a
+       pattern that isn't in it. */
+    const texts = await browser.newPage();
+
+    await texts.setContent(`<title>a11y-text</title>
+        <p>${'Lorem ipsum. '.repeat(100)}Drawn${' Lorem ipsum.'.repeat(100)}</p>
+        <p>Done <a href="#">here</a> now</p>
+        <p style="margin-top: 3000px">Further down</p>`);
+    const long = JSON.parse(run('a11y', 'node', 'Drawn', '--json', '--window', 'a11y-text.*'));
+    run('wait', 'node', '^Done now$', '--window', 'a11y-text.*', '--timeout', '0');
+    const further = spawnSync(shotbox, ['wait', 'node', 'Further', '--window', 'a11y-text.*',
+                                        '--timeout', '0'], { encoding: 'utf8' }).stderr;
+    const nearest = spawnSync(shotbox, ['wait', 'node', 'ipsum. Drwan Lorem', '--window',
+                                        'a11y-text.*', '--timeout', '0'], { encoding: 'utf8' }).stderr;
+    await texts.close();
+
     /* One that won't build its page's tree for a reader. */
     const blind = await chromium.launch({ ...accessible,
         args: [...accessible.args, '--disable-platform-accessibility-integration'] });
@@ -168,6 +186,9 @@ try
         behind,
         walk,
         around,
+        long,
+        further,
+        nearest,
         said: fs.readFileSync(process.env.SHOTBOX_ANNOUNCEMENTS, 'utf8'),
         hint,
         whole,

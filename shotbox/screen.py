@@ -878,7 +878,8 @@ class Screen:
     def wait_node(self, pattern, window=None, timeout=30):
         """Wait for a showing node with `pattern`, a regex, found in its name
         or text: a status line saying a page is drawn, say. That node, with
-        its text as `text` where that's what matched."""
+        its text round the match, about 80 characters, as `text` where
+        that's what matched."""
         from .a11y import Node
         return Node(self._a11y("node", "--timeout", str(timeout),
                                *([f"--window={window}"] if window else []), "--", pattern,

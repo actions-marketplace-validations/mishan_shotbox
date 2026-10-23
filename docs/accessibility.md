@@ -50,7 +50,12 @@ Inside a session with `--a11y`:
   sets once it's done, where the screen holding still says nothing (a
   WebGL canvas waiting on its server). Giving up, it says what came
   nearest: a match that isn't showing (scrolled out of view), or the
-  nearest names and texts, or that nothing comes near.
+  nearest names and texts, or that nothing comes near. Python's
+  `wait_node` and MCP's `wait_for` give the text that matched cut to 80
+  characters round the match. A page's text is matched with each
+  element in it taken out and the spaces beside it made one: `<p>Done
+  <a>here</a> now</p>` matches "Done now"; with no space beside it, the
+  text either side joins, `Join<button>X</button>Me` as "JoinMe".
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &
@@ -65,6 +70,16 @@ every program's windows are there. It works on X11, Wayland and
 Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
 Bevy, GTK built with it), and for Chromium (Google Chrome, Playwright's
 Chromium, and the browsers built on it), headed, on X11.
+
+What `wait node` takes as showing is what the toolkit says is, which
+isn't what can be seen: text drawn at opacity 0, or with something over
+it, is showing, as is an element of no size in Chromium (Firefox says
+it isn't), and a GTK 4 row scrolled out of view (GTK 3's isn't). Each
+poll walks the tree, every window's, and reads the text of each node
+whose name doesn't match: seconds on a large page, as many as the
+machine takes, more in Chromium than in Firefox; one under way when the
+timeout runs out is finished first. `--window` keeps it to that
+window's tree.
 
 ## The bus
 

@@ -554,6 +554,8 @@ def cmd_wait(argv):
     a = p.parse_intermixed_args(argv)
     if a.kind == "match" and not a.arg:
         p.error("match needs the picture to look like")
+    if a.kind == "node" and not a.arg:
+        p.error("node needs a regex to look for: an empty one matches any node")
     if (a.kind == "line") != bool(a.file):
         p.error("line, and only line, takes a FILE after its pattern")
     if a.from_start and a.kind != "line":
