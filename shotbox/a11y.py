@@ -24,6 +24,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 from collections import Counter
 from functools import cache
 
@@ -1484,10 +1485,11 @@ def modals(Atspi, nodes):
 def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=(),
              large=3.0, strict=False):
     """What's drawn with too little contrast, as (node, what), measured on a
-    picture of the screen, `window` raised, in each node's bounds: text, and
-    a button, link, tab or menu item, which may draw text or an icon and
-    can't be told apart, against its background (at least `text`, or
-    `large` for large text); an image against its own (`graphics`); and
+    picture of the screen, `window` raised, in each node's bounds: text (a
+    web node's own, run by run, runs()), and a button, link, tab
+    or menu item, which may draw text or an icon and can't be told apart,
+    against its background (at least `text`, or `large` for large text);
+    an image against its own (`graphics`); and
     with `edges`, a control's edge against what's round it. Disabled nodes
     and what's in them are left out, as WCAG leaves them, and so are a
     switch, slider, check box or the like, and what's outside its window
@@ -1501,7 +1503,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     too; what's behind a modal dialog (modals()), not measured, as (node,
     what), which doesn't fail even with `strict`: shut off till it's
     closed, and dimmed on purpose or covered by it; why GTK 4's weren't,
-    a line each; how many were measured)."""
+    a line each; how many were measured). A web page with text, none of it
+    measured, is a note."""
     skip = ignored(ignore, web=True)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -1518,6 +1521,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     named = roles(Atspi, ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION"))
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
                                roles(Atspi, EDGED))
+    # A link draws its text, as other controls may not.
+    unworded = (controls - {int(Atspi.Role.LINK)}) | images
     parents = {n.path: n for n in nodes}
     ids = {n._id: n for n in nodes}
     layers = {}
@@ -1533,13 +1538,130 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 return True
         return "disabled" in n.states
 
+    kids, worded, kits = {}, {}, {}
+    for n in nodes:
+        kids.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+
+    def wording(n):
+        """Whether `n` is a web node measured by the runs of its own text
+        (runs()): Firefox keeps a page's text in what it's in (a
+        paragraph, a list item, a link), Chromium in a static node for each
+        run, and says where else its text is wrong (an option's). Not one
+        whose text is its static children's, nor a control or image,
+        measured as one."""
+        if n.path not in worded:
+            if n._top not in kits:
+                kits[n._top] = toolkit(n)
+            text = ("/document web[" in n.path and n._role not in unworded and (
+                n._role == Atspi.Role.STATIC or kits[n._top] != "Chromium")
+                and contents(Atspi, n) or "").replace("\ufffc", "")
+            worded[n.path] = any(c.isalnum() for c in text) and not any(
+                o._role == Atspi.Role.STATIC and o.name.strip() and o.name.strip() in text
+                for o in kids.get(n.path, ()))
+        return worded[n.path]
+
+    since = []   # when a character was first asked of that had no box yet
+
+    def runs(n):
+        """A Node for each line of each run of `n`'s own text in one look,
+        each with its `_run`, its text, its `_look`, its attributes, and
+        `bounds`, where its first and last characters drawn are, or None
+        if that can't be told. Not what's between runs: the objects in it
+        (U+FFFC), and pictographs (emoji), drawn in their own colors. A
+        line is where those characters are at one height, found by
+        halving; not by a range's extents, which in Firefox takes in an
+        object it ends at, nor its lines, which in Firefox are the whole
+        paragraph. Only characters drawn are asked of: whitespace, a line
+        break and zero-width ones have no box of their own. Both browsers
+        say nothing of some till a moment after they're first asked, so
+        up to a second, in all, is waited for that; and Chromium's window
+        coordinates for text start elsewhere than for its nodes, so it's
+        asked in the screen's, taken to the walk's bounds. Right to left
+        text, which may be drawn in another order, is asked of whole."""
+        acc, text, out, i, boxes = n._acc, contents(Atspi, n) or "", [], 0, {}
+        try:
+            e = acc.get_extents(Atspi.CoordType.SCREEN)
+        except Exception:   # gone since the walk
+            return out
+        at = n.bounds and (n.bounds[0] - e.x, n.bounds[1] - e.y)
+
+        def box(j):
+            if j not in boxes:
+                r = Atspi.Text.get_character_extents(acc, j, Atspi.CoordType.SCREEN)
+                if r.height <= 0 and not since:
+                    since.append(time.monotonic())
+                while r.height <= 0 and time.monotonic() < since[0] + 1:
+                    time.sleep(0.05)
+                    r = Atspi.Text.get_character_extents(acc, j, Atspi.CoordType.SCREEN)
+                boxes[j] = [r.x, r.y, r.width, r.height] if r.height > 0 else None
+            return boxes[j]
+
+        def halves(drawn):
+            # Firefox gives no box to some characters near a zero-width one:
+            # they're left out, but for a run of none, which can't be placed.
+            boxed = [j for j in (drawn[0], drawn[-1]) if box(j)]
+            while len(boxed) < 2 and len(drawn) > 2:
+                drawn = drawn[not box(drawn[0]):len(drawn) - (not box(drawn[-1]))]
+                boxed = [j for j in (drawn[0], drawn[-1]) if box(j)]
+            if len(boxed) < 2 or box(drawn[0])[1] == box(drawn[-1])[1]:
+                return [drawn]
+            return halves(drawn[:len(drawn) // 2]) + halves(drawn[len(drawn) // 2:])
+
+        def lines(drawn):
+            """`drawn`, split where its characters change height."""
+            got = []
+            for half in halves(drawn):
+                if got and box(got[-1][0]) and box(half[0]) and box(got[-1][0])[1] == box(
+                        half[0])[1]:
+                    got[-1] = got[-1] + half
+                else:
+                    got.append(half)
+            return got
+
+        def apart(j, k):
+            """Whether an object or a pictograph is between `j` and `k`."""
+            return any(text[m] == "\ufffc" or unicodedata.category(text[m]) == "So"
+                       for m in range(j + 1, k))
+
+        while i < len(text):
+            try:
+                look, _, end = Atspi.Text.get_attribute_run(acc, i, True)
+                end = max(end, i + 1)
+                parts = [[]]
+                for j in range(i, end):
+                    if text[j].isspace() or unicodedata.category(text[j]) in (
+                            "Cc", "Cf", "Mn", "Me", "So") or text[j] == "\ufffc":
+                        continue
+                    if parts[-1] and apart(parts[-1][-1], j):
+                        parts.append([])
+                    parts[-1].append(j)
+                found = [line for part in parts if part for line in lines(part)]
+            except Exception:   # gone since the walk
+                return out
+            for line in found:
+                span = text[line[0]:line[-1] + 1]
+                if not any(c.isalnum() for c in span):
+                    continue
+                rtl = any(unicodedata.bidirectional(c) in ("R", "AL") for c in span)
+                got = [box(j) for j in (line if rtl else (line[0], line[-1])) if box(j)]
+                x0 = min(b[0] for b in got) if got else None
+                y0 = min(b[1] for b in got) if got else None
+                out.append(Node(n, _run=span, _look=look or {}, bounds=[
+                    x0 + at[0], y0 + at[1], max(b[0] + b[2] for b in got) - x0,
+                    max(b[1] + b[3] for b in got) - y0] if at and x0 is not None else None))
+            i = end
+        return out
+
     def kind(n):
-        if (not n._showing or not n.name or "editable" in n.states
-                or disabled(n) or n._role in textless or gtk3_switch(Atspi, n)):
+        # A canvas's fallback text isn't what it draws.
+        if (not n._showing or not (n.name or wording(n)) or "editable" in n.states
+                or re.search(r"/document web\[\d+\]/(.*/)?canvas\[\d+\](/|$)", n.path)
+                or disabled(n)
+                or n._role in textless or gtk3_switch(Atspi, n)):
             return None
         if n._role in images:
             return "graphics"
-        return "text" if n._role in texts or n._role in controls else None
+        return "text" if n._role in texts or n._role in controls or wording(n) else None
 
     def shown(n):
         """`n`'s bounds cut to its window's and every node's it's inside, or
@@ -1638,12 +1760,24 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 return True
         return False
 
-    measured = [n for n in nodes if kind(n)]
+    # Firefox says where a page's node is a moment after it's in the tree.
+    unplaced = [n for n in nodes if "/document web[" in n.path and kind(n) and not n.bounds]
+    deadline = time.monotonic() + 1
+    if unplaced:
+        s, origins = Screen(), {}
+        try:
+            shown_ = s.backend.windows(s.env)
+            while unplaced and time.monotonic() < deadline:
+                time.sleep(0.1)
+                for n in unplaced:
+                    n["bounds"] = place(Atspi, n, shown_, origins)
+                unplaced = [n for n in unplaced if not n.bounds]
+        finally:
+            s.close()
+    measured = [r for n in nodes if kind(n) for r in (runs(n) if wording(n) else [n])]
     problems, passes, notes, behind, whys, count = [], [], [], [], [], 0
     trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
-    kids, rel = {}, {}
-    for n in nodes:
-        kids.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+    rel = {}
 
     def relative(n):
         """`n`'s extents in its parent's, as GTK says them."""
@@ -2075,7 +2209,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     for n in measured:
         # A button with a label in it: the label's text is what's measured.
-        if not leaf(n):
+        if "_run" not in n and not leaf(n):
             continue
         k = kind(n)
         # GTK 4 puts a label in a control that draws text, so one with none
@@ -2096,7 +2230,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if why not in whys:
                 whys.append(why)
             continue
-        big = k == "text" and large_text(Atspi, n)
+        big = k == "text" and (large_run(n._look, False) if "_run" in n
+                               else large_text(Atspi, n))
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
         if seen and n.path in doubt:
@@ -2124,7 +2259,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if not seen and wrong(n, k):
             continue
         if not n.bounds:
-            if not undrawn(Atspi, n):
+            if "_run" in n or not undrawn(Atspi, n):
                 problems.append((n, f"{k} not measured: can't tell where it is"))
             continue
         box = seen[0] if seen else shown(n)
@@ -2199,6 +2334,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 passes.append((n, f"edge passes, drawn by what it's in; its own {colors}"))
             else:
                 problems.append((n, f"edge {colors}"))
+    said = problems + passes + notes + behind
+    for d in nodes:
+        if (d._role == Atspi.Role.DOCUMENT_WEB and d._showing
+                and not any(within(n.path, d.path) for n, _ in said)
+                and any(o._showing and (contents(Atspi, o) or "").replace("\ufffc", "").strip()
+                        for o in nodes if within(o.path, d.path))):
+            notes.append((d, "text not measured: none of the page's text was"))
+            d["_why"] = why = (
+                "A web page has text, but none of it was measured: text in a field, or in "
+                "something disabled, isn't; see docs/accessibility.md.")
+            if why not in whys:
+                whys.append(why)
     notes = [(n, what) for n, what in notes if not skip(n, what)]
     # What's scrolled out of view isn't there to measure, as GTK 3's and
     # browsers' rows aren't, which aren't said at all.
@@ -2446,7 +2593,7 @@ def dom(Atspi, n):
             acc = up
     except Exception:   # gone while we looked
         pass
-    text = (n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
+    text = (n.get("_run") or n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
     n.update({**({"dom": el} if el else {}),
               **({"text": text[:40] + "…" * (len(text) > 40)} if text else {})})
 

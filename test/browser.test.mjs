@@ -6,8 +6,8 @@
 
 /*
  * The helpers that need a browser, in one: Playwright's Chromium, if it is
- * installed (`npm install && npx playwright install chromium`). Without it
- * they skip, saying so.
+ * installed (`npm install && npx playwright install chromium`), and Firefox,
+ * if it is. Without them they skip, saying so.
  */
 
 import assert from 'node:assert/strict';
@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
+test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, a page\'s text all in a field, a line and a run at a time, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -368,7 +368,7 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, below, contrast, ignored, behind, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, below, contrast, ignored, behind, field, runs, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -385,6 +385,15 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
                        'Faint words']]);
     assert.deepEqual(behind['a11y-unshown'].behind, []);
     assert.deepEqual(behind['a11y-unshown'].problems.map((n) => n.name), ['Faint words']);
+    /* Wrapped, a line each; and not by the emoji's colors. */
+    const page = runs.problems.filter((n) => n.path.includes('/document web['));
+
+    assert.ok(page.filter((n) => n.dom?.tag === 'a').length >= 2, JSON.stringify(page));
+    assert.deepEqual(page.map((n) => [n.text, n.problem.match(/#\w+/)[0]]).sort(),
+                     [...page.filter((n) => n.dom?.tag === 'a').map((n) => [n.text, '#cccccc']),
+                      ['Faint', '#bbbbbb'], ['emoji words', '#bbbbbb']].sort());
+    assert.equal(field.status, 0);
+    assert.match(field.out, /^\S.*document web\[\d+\]: text not measured: none of the page's text was  <- "a11y-typed"$/m);
     assert.deepEqual([walk.end, walk.focus.map((n) => n.name), walk.unreached.map((n) => n.name)],
                      ['cycle', ['Notes', 'Two', 'One'], ['Off']]);
     assert.ok(around.unreached.some((n) => n.name === 'Off'), JSON.stringify(around.unreached));
@@ -401,4 +410,105 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
     assert.equal(crash.status, 0, crash.err);
     assert.match(crash.err, /"a11y-crashed.*": no page in the browser's accessible tree \(a crashed tab/);
     assert.match(crash.out, /button "Save"/);
+});
+
+test('Firefox on an --a11y session: contrast by the runs of a node\'s own text',
+     { skip: (spawnSync('sh', ['-c', 'command -v firefox']).status && 'no Firefox') || atspi() },
+     async () =>
+{
+    const shotbox = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin',
+                              'shotbox');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'shotbox-test-'));
+    /* Firefox keeps text in what it's in, as runs between the objects in
+       it and the emoji, drawn in their own colors, a line each: each
+       measured where it is, not by its node's whole box, nor a canvas's
+       fallback text; and a line break, a soft hyphen or a zero-width
+       space doesn't make a line of its own. */
+    const faint = 'style="color: #bbb"';
+
+    await fs.writeFile(path.join(dir, 'page.html'), `<title>a11y-firefox</title>
+        <div id="intro"><p style="color: #999">Faint words</p></div>
+        <p id="around" ${faint}>Faint around <a href="#" style="color: #000">a dark link</a> in
+          here.</p>
+        <p id="span" ${faint}>Faint <span style="color: #000">dark span</span> faint again.</p>
+        <p id="box" ${faint}>Faint by a ticked box <input type="checkbox" checked
+          aria-label="tick"></p>
+        <p id="slider" ${faint}><input type="range" aria-label="level"> faint by a slider</p>
+        <ul><li id="item" ${faint}>Faint item</li></ul>
+        <table><tr><td id="cell" ${faint}>Faint cell</td></tr></table>
+        <canvas width="200" height="30">Canvas words</canvas>
+        <p id="br" ${faint}>Faint first line<br>faint second line</p>
+        <p id="emoji" ${faint}>Faint \u{1F600}\u{1F600} emoji words</p>
+        <p id="dark" style="width: 300px">Dark words dark words dark <a id="wrap" href="#"
+          style="color: #ccc">a faint link that wraps across lines</a> dark words.</p>
+        <p id="shy" style="color: #bbb; width: 120px">Extra&shy;ordinarily&shy;long&#8203;zero
+          &#8203;width&#8203;spaced</p>
+        <span ${faint}>Faint body words</span> <b style="color: #000">Dark bold words</b>`);
+    try
+    {
+        /* Straight after it's in the tree: Firefox says where a node is
+           a moment after. */
+        const got = spawnSync(shotbox, ['run', '--a11y', '--', 'sh', '-c', `
+            mkdir "$1/profile"
+            firefox --kiosk --new-instance --profile "$1/profile" --width 1280 --height 900 \
+              "file://$1/page.html" 2>/dev/null &
+            "$0" wait node '^Faint words$' --window 'a11y-firefox.*' --timeout 60 >/dev/null
+            "$0" a11y contrast --json --passes --window 'a11y-firefox.*'; kill $!`, shotbox, dir],
+                              { encoding: 'utf8' });
+
+        assert.ok(got.stdout.trim(), `contrast said nothing (status ${got.status}): ${got.stderr}`);
+        const out = JSON.parse(got.stdout);
+        /* What's said of each element by its id (or the nearest's), in a
+           list, the page's own text by none. */
+        const said = {};
+
+        for (const list of ['problems', 'passes'])
+        {
+            for (const n of out[list].filter((m) => m.path.includes('/document web[')))
+            {
+                (said[n.dom?.id ?? n.dom?.in?.id ?? ''] ??= []).push([list, n.text,
+                                                                      n.problem ?? n.contrast]);
+            }
+        }
+        const texts = (id) => said[id]?.map(([list, text]) => [list, text]).sort();
+
+        assert.deepEqual(Object.fromEntries(['intro', 'around', 'span', 'box', 'slider', 'item',
+                                             'cell', 'br', 'emoji', ''].map((id) => [id, texts(id)])),
+                         {
+                             intro: [['problems', 'Faint words']],
+                             around: [['passes', 'a dark link'], ['problems', 'Faint around'],
+                                      ['problems', 'in here.']],
+                             span: [['passes', 'dark span'], ['problems', 'Faint'],
+                                    ['problems', 'faint again.']],
+                             box: [['problems', 'Faint by a ticked box']],
+                             slider: [['problems', 'faint by a slider']],
+                             item: [['problems', 'Faint item']],
+                             cell: [['problems', 'Faint cell']],
+                             br: [['problems', 'Faint first line'],
+                                  ['problems', 'faint second line']],
+                             emoji: [['problems', 'Faint'], ['problems', 'emoji words']],
+                             '': [['passes', 'Dark bold words'], ['problems', 'Faint body words']],
+                         });
+        /* Wrapped, a line each, all of it faint, and none of what's round
+           it. */
+        assert.ok(said.wrap.length >= 2 && said.shy.length >= 2, JSON.stringify(said));
+        assert.ok(said.dark.every(([list]) => list === 'passes'), JSON.stringify(said.dark));
+        /* Antialiasing differs a little from one Firefox build to the
+           next: near the text's own color, not its dark neighbors'. */
+        for (const [id, look] of [['intro', /^text 2\.[7-9]\d:1, #9[0-9a-f]{5} on #ffffff/],
+                                  ['wrap', /^text 1\.[56]\d:1, #c[0-9a-f]{5} on #ffffff/],
+                                  ...['around', 'span', 'box', 'slider', 'item', 'cell', 'br',
+                                      'emoji', 'shy', '']
+                                      .map((i) => [i, /^text 1\.[89]\d:1, #b[0-9a-f]{5} on #ffffff/])])
+        {
+            for (const [list, text, what] of said[id].filter(([l]) => l === 'problems'))
+            {
+                assert.match(what, look, `${id} ${list} ${text}`);
+            }
+        }
+    }
+    finally
+    {
+        await fs.rm(dir, { recursive: true, force: true });
+    }
 });

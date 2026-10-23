@@ -174,6 +174,25 @@
   and where one of them leaves the page and Tab never comes back to
   it, the walk fails, `left the page by F6, and Tab never came back to
   it`, and presses Escape to take Chromium back to the page.
+- Firefox from Ubuntu's PPA, which GitHub's runners have, never joined
+  an `--a11y` session's bus, so `wait node` and `a11y` gave up on its
+  window: it asks whether a screen reader is running, as Chromium does,
+  and takes `GNOME_ACCESSIBILITY=1` for a yes, which the session now
+  sets with `ACCESSIBILITY_ENABLED=1`.
+- `a11y contrast` measured nothing on a page in Firefox, which keeps a
+  page's text in what it's in (a paragraph, a list item, a table cell,
+  a link, the page itself), where Chromium gives each run of it a
+  static node named by it: a page of faint text passed. A web node's
+  own text, a Chromium static node's too, is now measured run by run,
+  each run in one look and on one line, between the objects in it (a
+  link, a check box) and emoji, which are drawn in their own colors:
+  never by a whole box, which would take a dark link's color for the
+  faint words round it, or the dark words round a faint link that
+  wraps for the link's. A run the browser can't place, after up to a
+  second's wait, is `can't tell where it is`. A canvas's fallback text
+  isn't measured, in Chromium either, since it isn't what the canvas
+  draws. And a web page with text, none of it measured, is a note,
+  `text not measured: none of the page's text was`.
 - A read of the accessible tree (`a11y tree`, `lint`, a click by name
   and the rest) failed with `Object does not exist at path …` when a
   window closed while it was read. A window gone is left out, as a node

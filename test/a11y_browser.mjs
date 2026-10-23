@@ -10,8 +10,11 @@
  * its live regions heard before that, a button clicked by its name, a
  * node waited for by its name, one scrolled out of view not, a
  * faint paragraph's contrast measured, said with its DOM tag, text and
- * id, and ignored by them, and one behind an aria-modal dialog said
- * apart, but not behind one off the screen or of no size, its page's
+ * id, and ignored by them, but not a canvas's fallback text, and one
+ * behind an aria-modal dialog said apart, but not behind one off the
+ * screen or of no size, a page whose only text is in a field said to
+ * have had none measured, a faint link wrapped in dark words and faint
+ * words round emoji measured a line and a run at a time, its page's
  * Tab order walked without the browser's own controls, and how such a
  * walk ends, a node found by its text, a browser that builds no page's
  * tree for a reader told apart from an empty one, a big page read whole,
@@ -37,6 +40,7 @@ try
     await page.setContent(`<title>a11y-browser</title>
         <button onclick="this.dataset.clicked = 'yes'">Save</button>
         <div id="intro"><p style="color: #999">Faint words</p></div>
+        <canvas width="60" height="20">Canvas words</canvas>
         <p style="color: #8a8a8a; font-size: 18pt">Large words</p>
         <p style="color: #8a8a8a; font-size: 14pt; font-weight: bold">Bold words</p>
         <div role="status" id="polite"></div>
@@ -115,6 +119,33 @@ try
                                                        `${title}.*`], { encoding: 'utf8' }).stdout);
         await modal.close();
     }
+
+    const lines = await browser.newPage();
+
+    await lines.setContent(`<title>a11y-runs</title>
+        <p style="width: 300px">Dark words dark words dark <a href="#" style="color: #ccc">a
+          faint link that wraps across lines</a> dark words.</p>
+        <p style="color: #bbb">Faint \u{1F600}\u{1F600} emoji words</p>`);
+    for (let i = 0; i < 50 && !run('a11y', 'tree', '--window', 'a11y-runs.*')
+        .includes('emoji words'); i++)
+    {
+        await lines.waitForTimeout(200);
+    }
+    const runs = JSON.parse(spawnSync(shotbox, ['a11y', 'contrast', '--json', '--window',
+                                                'a11y-runs.*'], { encoding: 'utf8' }).stdout);
+    await lines.close();
+
+    const typed = await browser.newPage();
+
+    await typed.setContent('<title>a11y-typed</title><input value="Typed words">');
+    for (let i = 0; i < 50 && !run('a11y', 'tree', '--window', 'a11y-typed.*')
+        .includes('entry'); i++)
+    {
+        await typed.waitForTimeout(200);
+    }
+    const field = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-typed.*'],
+                            { encoding: 'utf8' });
+    await typed.close();
 
     /* The page's Tab order: through the browser's controls, but only
        the page's said, Tab going on from a textarea; and without
@@ -214,6 +245,8 @@ try
         contrast,
         ignored: { status: ignored.status, out: ignored.stdout },
         behind,
+        field: { status: field.status, out: field.stdout },
+        runs,
         walk,
         around,
         long,

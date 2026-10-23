@@ -110,7 +110,9 @@ Wayland count the surface's shadow in, consistently, and are placed
 right. Chromium also asks `org.a11y.Status`'s `IsEnabled` whether a screen
 reader is running, which here says no (the launcher aborts when told
 otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
-yes, which the session sets. That puts its windows on the bus, and no
+yes, which the session sets; some Firefox builds (the Ubuntu PPA's, which
+GitHub's runners have) ask too, and take `GNOME_ACCESSIBILITY=1`, which
+the session sets as well. That puts its windows on the bus, and no
 more: it builds the rest of its tree, a page's too, only once it takes a
 screen reader to be at work, which it does when a node's attributes are
 asked for, as Orca asks. The announcement recorder (see below)
@@ -500,7 +502,20 @@ and later's, whose text is measured where it's found
 
 - **Text**: a node with a name whose role is text (a label, heading,
   link, static text, paragraph), or a button, link, tab, menu item or
-  combo box with no such node inside it: the color most of its bounds are is the background, and the
+  combo box with no such node inside it, or the text a web page's node
+  holds of its own (Firefox keeps a page's text in what it's in, a
+  paragraph, list item, table cell, link or the page itself; Chromium in
+  a static node for each run): run by run, each in one look and on one
+  line, between the objects in it (a link, a check box) and emoji and
+  other pictographs, which are drawn in their own colors and left out,
+  in the box from its first character drawn to its last, or `can't tell
+  where it is` where the browser says none. Chromium's character boxes
+  slip by one at each soft hyphen or zero-width space, so a run's text
+  quoted after it can be a character off ("Extra", a soft hyphen, "o"),
+  though its ratio isn't. A browser says where a node
+  and its characters are a moment after it's in the tree, so up to a
+  second is waited for that. Not a canvas's fallback text, which isn't
+  what it draws. The color most of its bounds are is the background, and the
   third pixel in order of contrast against it is the text: an
   antialiased glyph's core reaches its color, though a thin stroke
   seldom draws three pixels of one color. At least 4.5:1 (`--text`).
@@ -612,6 +627,9 @@ and later that's every icon, window control and edge, which aren't
 measured, so leave them out with `--ignore` (`graphics not measured`,
 `edge not measured`). What's scrolled out of view, or hidden, isn't a
 failure: GTK 3 and browsers leave such rows out without a word.
+A web page with text, none of it measured (all in fields, say), is a
+note on its document, `text not measured: none of the
+page's text was`, rather than passing without a word.
 
 While a modal dialog is open, what's behind it isn't measured: it's
 shut off till the dialog closes, and dimmed on purpose or covered, so
