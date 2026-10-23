@@ -1038,9 +1038,9 @@ class Screen:
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
         isn't drawn, as in a picture; with `park`, it goes out of the way
-        first. It needs ffmpeg, and on Wayland, wf-recorder; sway draws no
-        pointer there, so `pointer` is refused. A .wav is what plays in
-        a session with audio, on X11 or Wayland, and takes none of those.
+        first. It needs ffmpeg, and on Wayland, wf-recorder; the pointer is
+        drawn as nothing there, so `pointer` is refused. A .wav is what plays
+        in a session with audio, on X11 or Wayland, and takes none of those.
         With `sound`, in a session with audio, an .mp4 or .webm has what
         plays in it too, heard with `gap` as `shotbox.sound.hear` takes it.
         With `size`, it ends when the file (for a .gif, the video it's made
@@ -1064,7 +1064,7 @@ class Screen:
             except (ValueError, RuntimeError) as e:
                 raise SessionError(str(e))
         if self.wayland and pointer:
-            raise SessionError("sway draws no pointer to record")
+            raise SessionError("the pointer is drawn as nothing on Wayland: none to record")
         if park:
             self.park()
         try:

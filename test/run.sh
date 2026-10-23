@@ -752,9 +752,10 @@ held() {
     '$sb' click 60 60 --window held --hold 0.3; st=\$?; sleep 0.3; exit \$st" || return 1
   awk '{ s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$log"
 }
-# How long the key a was held in LOG, in hundredths of a second.
+# How long the key a was held in LOG, in hundredths of a second, from its
+# first press: one held past the repeat delay, on a busy machine, repeats.
 held_for() {
-  awk '$2 == "a" { t[$1] = $3 } END { printf "%d", (t["release"] - t["press"]) * 100 }' "$1"
+  awk '$2 == "a" && !($1 in t) { t[$1] = $3 } END { printf "%d", (t["release"] - t["press"]) * 100 }' "$1"
 }
 want_held="+button1 -button1 +a +d -d -a +button1 -button1 "
 
@@ -771,7 +772,8 @@ chords "$tmp/chords.log" && ok "shift in a chord: the shifted symbol, and back-t
   || fail "shift chords"
 got=$(held "$tmp/held.log")
 [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/held.log")" -ge 35 ] \
-  && ok "key and click --hold: held together, let go last first" || fail "hold: $got"
+  && ok "key and click --hold: held together, let go last first" \
+  || fail "hold: $got(a for $(held_for "$tmp/held.log")0 ms)"
 # down LOG [SESSION OPTIONS]: --down and --up, a key left down between two
 # commands: X11's server keeps it, and on Wayland the session's keyboard;
 # and Shift left down alone shifts the next command's key.
@@ -782,7 +784,7 @@ down() {
     '$sb' wait window held && '$sb' wait stable --window held &&
     '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
     '$sb' key --down shift && '$sb' key a && '$sb' key --up shift && sleep 0.3" &&
-    awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
+    awk '$2 == "w" && !($1 in t) { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
     grep -q '^press A ' "$log"
 }
 down "$tmp/down.log" && ok "key --down, then --up: held between commands, Shift alone too" || fail "--down, --up: $(tr '\n' ' ' < "$tmp/down.log")"
@@ -1644,6 +1646,17 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     "W=wayland-"*" D= S=$wl/shotbox-"*/run/sway-ipc.*" R=$wl/shotbox-"*) ok "wayland: a sway of its own, and no X" ;;
     *) fail "wayland: the environment: $out" ;;
   esac
+  # The session's cursor theme, written into its home, over a seed's links
+  # out of it: a linked ~/.icons, and a linked cursor. What they point at
+  # stays as it was.
+  mkdir -p "$tmp/icons-out" "$tmp/icons-seed1" "$tmp/icons-seed2/.icons/shotbox-blank/cursors"
+  echo mine > "$tmp/icons-cursor"
+  ln -s "$tmp/icons-out" "$tmp/icons-seed1/.icons"
+  ln -s "$tmp/icons-cursor" "$tmp/icons-seed2/.icons/shotbox-blank/cursors/default"
+  "$sb" run --wayland --seed "$tmp/icons-seed1" -- true && "$sb" run --wayland --seed "$tmp/icons-seed2" -- true \
+    && [ -z "$(ls -A "$tmp/icons-out")" ] && [ "$(cat "$tmp/icons-cursor")" = mine ] \
+    && ok "wayland: the cursor theme doesn't follow a seed's links out" \
+    || fail "wayland: cursor theme over a seed's links: $(ls -A "$tmp/icons-out") $(head -c 4 "$tmp/icons-cursor")"
   "$sb" shoot "$tmp/w1.png" --wayland --window wl-test -- "$win" wl-test >/dev/null
   "$sb" shoot "$tmp/w2.png" --wayland --window wl-test -- "$win" wl-test >/dev/null
   [ "$(identify -format %wx%h "$tmp/w1.png")" = 200x120 ] && cmp -s "$tmp/w1.png" "$tmp/w2.png" \
@@ -1712,7 +1725,7 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     && ok "wayland: shift in a chord: the shifted symbol, and back-tab" || fail "wayland: shift chords"
   got=$(held "$tmp/wl-held.log" --wayland)
   [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/wl-held.log")" -ge 35 ] \
-    && ok "wayland: key and click --hold" || fail "wayland: hold: $got"
+    && ok "wayland: key and click --hold" || fail "wayland: hold: $got(a for $(held_for "$tmp/wl-held.log")0 ms)"
   down "$tmp/wl-down.log" --wayland && ok "wayland: key --down, then --up: held between commands, Shift alone too" \
     || fail "wayland: --down, --up: $(tr '\n' ' ' < "$tmp/wl-down.log")"
   set +e; "$sb" run --wayland -- "$sb" click 1 1 --down 2> "$tmp/err"; st=$?; set -e
@@ -2078,7 +2091,7 @@ PY
   if command -v sway >/dev/null && command -v grim >/dev/null && command -v wf-recorder >/dev/null; then
     records --wayland wrec "wayland: record"
     set +e; "$sb" run --wayland -- "$sb" record "$tmp/wrec-p.mp4" --pointer --seconds 1 2> "$tmp/err"; st=$?; set -e
-    [ $st != 0 ] && grep -q "no pointer" "$tmp/err" \
+    [ $st != 0 ] && grep -q "drawn as nothing" "$tmp/err" \
       && ok "wayland: record --pointer, refused saying why" || fail "wayland: record --pointer ($st)"
   else
     [ "${SHOTBOX_WAYLAND-}" = required ] && fail "wayland: record skipped: no sway, grim or wf-recorder" \

@@ -127,7 +127,8 @@ pointer isn't drawn unless `--pointer`, as in a picture (`--park` moves it
 aside first). A window is recorded where it is when recording starts, as
 far as it's on the screen: it isn't followed if it moves, and what's drawn
 over it is recorded too. It needs ffmpeg, and on Wayland wf-recorder;
-sway draws no pointer, so there `--pointer` is refused. `shotbox record
+the session's cursor theme draws the pointer as nothing, so there
+`--pointer` is refused. `shotbox record
 OUT.wav` records what plays in a session with `--audio` instead: the
 sink's mix, 48 kHz 16-bit stereo, so what plays in that format comes
 through bit for bit, and `--seconds` is to the sample.
@@ -170,10 +171,23 @@ is. `shotbox focus RE` gives a window the keyboard and raises it: on X11
 there's no window manager to do that for a window that comes up after
 another, a dialog say, and keys pressed go nowhere. They speak XTEST to the
 display directly, or on Wayland sway's virtual keyboard and pointer, so
-they need nothing installed. On Wayland the keyboard is the session's,
-made as it starts and shared by every command until it stops, so
-programs always have one, as on a desktop: GTK says where the focus is,
-and draws the caret of a field with the focus, between commands too.
+they need nothing installed. On Wayland the keyboard and pointer are
+the session's, made as it starts and shared by every command until it
+stops, so programs always have them, as on a desktop: GTK says where the
+focus is, and draws the caret of a field with the focus, between
+commands too. The pointer starts in the screen's bottom-right corner
+(on X11, in its middle) and, as on X11, stays where a command leaves it,
+hovering there, until another moves it: `park` and `--park` move it
+back to that corner. It's drawn as nothing: sway and every program in
+the session take their cursors from a theme whose every cursor is clear
+(`XCURSOR_THEME`, and GTK's cursor theme setting), since sway 1.9 puts
+the cursor in a picture. Checked with GTK 3 and 4, on Wayland and as X
+clients, and Chromium on both; a program that draws a cursor of its own
+making, not from the theme, has it in a picture where the pointer was
+left. If the server dies, each key and pointer command after fails,
+saying `the session's keyboard and pointer have gone`. One that gives up
+on a server too busy to answer in 30 seconds may still have its key
+pressed or its pointer moved, late, once the server gets to it.
 
 ## Holding keys and buttons
 
@@ -184,10 +198,11 @@ chords together, keeps them down that long, and lets go, last first;
 doing something else, run it in the background: `shotbox key --hold 2 w &
 shotbox click 300 200 --hold 1`. `--down` presses and leaves it down,
 across commands, until the same command with `--up` (X11's server keeps
-it down, and on Wayland the session's keyboard); a Wayland virtual
-pointer's buttons go up when the command ends, so `click --down` is
-refused there, saying to use `--hold`. A hold killed outright, which
-can't let go, is cleared with `--up`. A chord already held isn't pressed
+it down, and on Wayland the session's keyboard); on Wayland a button
+goes up when the command that pressed it ends, however it ends, so
+`click --down` is refused there, saying to use `--hold`. A hold killed
+outright, which can't let go, is cleared with `--up` (on Wayland a
+button's needn't be). A chord already held isn't pressed
 again, or let go by pressing it, and keys pressed or typed while one
 is held leave its keys down. As
 on a real keyboard, a shifted symbol held

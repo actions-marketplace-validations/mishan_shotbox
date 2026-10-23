@@ -20,6 +20,15 @@
   more on a Chromium page; nothing on a GTK 4 window, which takes
   longer, but for its text not found that changed, looked for again in
   each picture: 10 to 14 s more for a label first caught blinked off).
+- **On Wayland the pointer stays where a command leaves it, as on X11**,
+  hovering there, until a command moves it; `park` and `--park` move it
+  to the bottom-right corner, where it starts. Each command made a
+  pointer of its own, which went when it ended, and the hover with it.
+  The pointer is drawn as nothing, in pictures and recordings: the
+  session gives sway and its programs a cursor theme whose every cursor
+  is clear (`XCURSOR_THEME`, GTK's `gtk-cursor-theme-name` and GSettings'
+  `cursor-theme`), since sway 1.9 (Ubuntu 24.04) puts the cursor in a
+  picture.
 - **`a11y lint` and `a11y contrast` lines on a web page's node end in
   where it is in the page's DOM**, the element's tag and id, its text
   and the nearest id round it, as Chromium and Firefox give them:
@@ -197,6 +206,13 @@
 
 ### Fixed
 
+- On Wayland a click or scroll, or the start of a held click, sometimes
+  didn't reach a busy program: between commands sway had no pointer,
+  so programs had none, and one slow to take up the next command's
+  missed what it sent first. The session's server holds the one
+  pointer now, as it holds the keyboard, and every command points
+  through it. A button pressed by a command killed outright goes up
+  when it dies.
 - `a11y contrast` looked for every toolkit's label text where it's
   drawn, as it does GTK 4.14 and later's, whose boxes are wrong; GTK 3's,
   Qt's and Chromium's aren't, so their text is measured in them again.
