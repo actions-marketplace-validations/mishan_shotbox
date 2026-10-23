@@ -785,8 +785,12 @@ can fall between rows), and not where anything else in that room
 matches 0.8 or more (the same text twice), unless no other node could
 have drawn one of the two, and another with this same text could the
 other: a node draws its text once, so the first is this one's, and it's
-looked for again just there, to fail only (see below). A node could
-have drawn a place if its room holds it and its text (a label's own as
+looked for again just there, to fail only (see below). Else either can
+be this one's, and taking it that a node draws its text in one of them,
+it's measured in both, and fails at the better if it fails in both:
+`text 2.50:1 at best, #a0a0a0 on #fafafb (at least 4.5); it matches in
+two places and fails in both`; if either would pass, it's a note. A
+node could have drawn a place if its room holds it and its text (a label's own as
 well as its name) holds that text, or, whatever its text, it has
 nothing in it and isn't a label (an entry, a text view, a drawing area,
 an image): a label is taken to draw only its text, and a container

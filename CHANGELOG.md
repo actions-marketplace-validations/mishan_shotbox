@@ -267,7 +267,8 @@
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a
   longer one, so where it's drawn apart too it doesn't count against it
-  now; "check" itself, matching in both places, still isn't taken.
+  now; "check" itself, matching in both places, isn't taken unless it
+  fails in both (see below).
 - MCP's `take_screenshot` said one scale for a thin picture, its
   width's, though each side is rounded on its own: a 10x4320 crop said
   0.4 and was 0.363 down. It says both when they differ. A crop with
@@ -286,7 +287,11 @@
   the same text has it in its room: a combo row's selected item under
   an entry holding it, or a label over one, was a note however faint.
   Where no other node could have drawn it there, it's measured, and
-  only a failure is reported; if it would pass, it's still a note.
+  only a failure is reported; if it would pass, it's still a note. Text
+  matching in two places that either can be its (a faint "check" over a
+  faint "unchecked") is measured in both, and fails at the better if it
+  fails in both: `text 2.50:1 at best, …; it matches in two places and
+  fails in both`.
 - `record` on X11 went by a frame rate ffmpeg guessed from when the
   frames came, not `--fps`: on a busy machine a 30 frames a second MP4
   was 29.97 (2 seconds lasting 2.002), a WebM a frame or two short, and

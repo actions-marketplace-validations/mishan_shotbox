@@ -1316,6 +1316,17 @@ CASES
         && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: text found though shorter text inside it matches there; the shorter not, said" \
         || { fail "a11y: contrast, GTK 4, check over unchecked"; cat "$tmp/contrast"; }
+      # A faint "check" fails in both places only over a faint "unchecked":
+      # it fails at the better one; where one passes, it's still a note.
+      # Without --window, which would fail it as not found but faint.
+      for args in "nested pale" "nested pale both"; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' wait window a11y-test >/dev/null &&
+          '$sb' a11y contrast --passes" < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      grep -q '/label\[0\]: text 2\.[0-9]*:1 at best, #a0a0a0 on .*; it matches in two places and fails in both; found ' "$tmp/contrast" \
+        && [ "$(grep -c '/label\[0\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast")" = 1 ] \
+        && ok "a11y: contrast, GTK 4: text matching in two places fails where it fails in both, else not" \
+        || { fail "a11y: contrast, GTK 4, faint check over unchecked"; cat "$tmp/contrast"; }
       # Under "Recheck", whose room takes in both, "check" names the node
       # where its other match is. A hidden "Open File" isn't taken for
       # "Open" and "File" drawn side by side under it: "Open" is drawn

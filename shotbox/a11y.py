@@ -1862,7 +1862,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 rel[n.path] = None
         return rel[n.path]
 
-    areas, fonts, drawings, lays, refused, aparts, doubt = {}, {}, {}, {}, {}, {}, {}
+    areas, fonts, drawings, lays, refused, aparts, doubt, both = {}, {}, {}, {}, {}, {}, {}, {}
 
     def room(n):
         """Where `n`'s text can be on GTK 4.14 and later, which says where
@@ -2078,7 +2078,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                         refused[n.path] = why
                     return seen
             refused[n.path] = why
-            return None
+            if near:
+                return None
+            # Else either place can be its, so it fails where both do (doubt).
+            at = laid(n) or (0, 0)
+            doubt[n.path] = why
+            both[n.path] = [(b, tuple(b[i] - n.bounds[i] - at[i] for i in (0, 1)), (x, y, shape))
+                            for b, (x, y) in zip(boxes, places)]
+            return both[n.path][0]
         if not as_wide(n, got[6]):
             refused[n.path] = ("wide", "what matches is drawn wider or narrower than GTK "
                                        "lays it out")
@@ -2294,7 +2301,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and this matched in two "
                "places where it can be (the same text twice, or inside a longer one), so "
-               "neither is taken; see docs/accessibility.md." if case == "twice" else
+               "neither is taken unless it fails in both; see docs/accessibility.md."
+               if case == "twice" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and another node's text "
                "matches what was found as well, so it isn't "
@@ -2355,10 +2363,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             # Told apart from another's text by which nodes could have drawn
             # it, which can't count one left out of the tree: taken only to
             # fail, else as if not found.
-            got = picture.text_contrast(pic, overlap(seen[0], [0, 0, pic.width, pic.height]),
-                                        seen[2])
-            if not got or got[0] >= least:
+            got = [(picture.text_contrast(pic, overlap(s[0], [0, 0, pic.width, pic.height]),
+                                          s[2]), s) for s in both.get(n.path, [seen])]
+            if not all(g for g, _ in got) or max(g[0] for g, _ in got) >= least:
                 seen, refused[n.path] = None, doubt[n.path]
+            else:
+                seen = max(got, key=lambda g: g[0][0])[1]
         # Only in a window raised: another can be over it, its text faint.
         dim = window and n.path in found and not seen and faint(n, least)
         if dim:
@@ -2420,6 +2430,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             moved = (f"; found {seen[1][0]},{seen[1][1]} px from " + (
                 f"where GTK {gtk4(n)} says its text is" if laid(n)
                 else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
+            twice = seen and n.path in both
+            moved = ("; it matches in two places and fails in both" if twice else "") + moved
             colors = f"{picture.hex_of(got[1])} on {picture.hex_of(got[2])} ({at})"
             if got[0] >= least:
                 passes.append((n, f"{k} passes at {ratio_text(got[0])}:1, {colors}{moved}"))
@@ -2432,7 +2444,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
-            problems.append((n, f"{k} {ratio_text(got[0])}:1, {colors}{meant}{moved}"))
+            problems.append((n, (f"{k} {ratio_text(got[0])}:1{' at best' if twice else ''}, "
+                                 f"{colors}{meant}{moved}")))
             taken.append((n, k, least, at, box, seen and seen[2], moved))
     # Text that fades or blinks measures as it is the moment it's pictured.
     # What changed in a sample is measured in each, its sample's part laid

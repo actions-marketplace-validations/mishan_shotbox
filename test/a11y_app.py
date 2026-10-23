@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [twin [hidden] [under]] [over [hidden] [drawn | named]] [lone] [slow] [alert]
+[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck] [pale [both]]] [split] [twin [hidden] [under]] [over [hidden] [drawn | named]] [lone] [slow] [alert]
 [freeze] [ready [late]] [modal] [warned] [inline] [popped] [toasted] [overlaid] [folded]
 [paged] [laid] [drawing] [fading]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
@@ -22,8 +22,8 @@ holding its text or showing it as a placeholder, or a drawing area
 drawing it (not all ASCII), `lines` a button labeled over two lines,
 `letter` a label of one letter, `carousel` a carousel at its second
 page, the first's label outside the window, `nested` "check" over
-"unchecked" (under "Recheck" with `recheck`), padded below as the
-decoys are, `split` a hidden
+"unchecked" (under "Recheck" with `recheck`; with `pale` "check" faint,
+and with `both` "unchecked" too), padded below as the decoys are, `split` a hidden
 "Open File" over "Open" and "File" side by side, padded so too;
 `twin` a faint "Twin" over an entry holding it, in a box padded below
 alone, with `under` under it, with `hidden` a hidden "Twin" over the
@@ -193,8 +193,10 @@ def activate(app):
             GLib.timeout_add(300, lambda: box.get_vadjustment().set_value(60) and False)
     if "nested" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
+        pale = ("check", "unchecked")[:("pale" in sys.argv) + ("both" in sys.argv)]
         for text in ("Recheck", "check", "unchecked")[("recheck" not in sys.argv):]:
-            pair.append(Gtk.Label(label=text, halign=Gtk.Align.START))
+            pair.append(Gtk.Label(label=text, halign=Gtk.Align.START,
+                                  css_classes=["faint"] if text in pale else []))
         box.append(pair)
     if "split" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
