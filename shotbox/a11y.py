@@ -2066,8 +2066,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             # drawn one place (drawers, blank too) and another with the same
             # text could the other, this one's is the first, looked for
             # again just there, but taken only if it fails (doubt). Text
-            # inside a longer one ("check" in "unchecked") is left as
-            # matching twice.
+            # inside a longer one ("check" in "unchecked") is measured in both
+            # places, below.
             for i in (0, 1):
                 if not near and not drawers(boxes[i], n.name, n, blank=True) and any(
                         s.lower() == n.name.lower() for _, s in others[1 - i]):

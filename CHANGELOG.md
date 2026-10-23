@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-10-23
+
+Contrast measures web pages' text run by run, in Firefox as in
+Chromium, on lines that say where in the DOM each is. It pictures the
+screen six times, so text that fades or blinks is said with its range;
+it fails GTK 4 text that matches in two places and fails in both, and,
+with `--window`, faint GTK 4 text it can't find where nothing there
+could pass; and it says what's behind a modal dialog apart. A click by
+name waits until its node is ready, and `--action` reaches one a click
+can't; on Wayland the session holds one pointer, as on X11. `wait node`
+waits on the accessible tree, and pictures match with boxes left out
+and within a margin. `tabwalk --document` and a Firefox recipe help
+with web apps; MCP gains zoom, numbered labels and tree changes; a
+seeded home's GSettings are kept. Bounds given a window are now the
+window's, in MCP and Python: see the changes to check.
 
 ### Changes to check when upgrading
 
@@ -49,7 +63,7 @@
   still and uncovered**, and fails, saying which it isn't, when its
   timeout runs out: `gave up after 10s: button "Save" [focusable,
   disabled] isn't enabled`, `... has no position yet`, `... is
-  off-screen`, `... is outside its window` (each failed at once before,
+  off-screen`, `... is outside its window` (the next three failed at once before,
   the first as "can't tell where", which a browser's node just added
   was), `... is moving`, `... is covered by label "Cover"` (in a GTK 4
   window), `... is covered by window "Dialog"` (a dialog of its window,
@@ -109,7 +123,6 @@
   matches. They were the screen's, so a node's bounds given to a click
   in the window were off by where the window is. Without a window
   they're the screen's, as `a11y --json`'s still are.
-
 - **A seeded home's GSettings keyfile
   (`.config/glib-2.0/settings/keyfile`) is read, with the session's
   interface keys merged into it**, as `settings.ini`'s are; it no longer
@@ -191,7 +204,8 @@
   text. Its answer, and a crop's or a shrunk picture's, says where a
   point on it is for `click_element`: `100 + x/4.356, 39 + y/4.355`,
   rather than leaving the agent to undo a scale and a corner itself.
-- `a11y contrast --strict` fails on what it couldn't measure, too: for
+- `a11y contrast --strict` fails on its notes, too, what it couldn't
+  measure and text whose contrast changes: for
   CI that wants every node measured, or ignored with `--ignore`. Those
   lines are failures, under `problems` in `--json`, each with its `why`
   if it has one; `Screen.contrast(strict=True)` and MCP's
@@ -223,7 +237,7 @@
 - `a11y contrast` looked for every toolkit's label text where it's
   drawn, as it does GTK 4.14 and later's, whose boxes are wrong; GTK 3's,
   Qt's and Chromium's aren't, so their text is measured in them again.
-  With `--window`, a faint GTK 3 label was said as not found, "GTK None
+  A faint GTK 3 label was said as not found, "GTK None
   reports where its widgets are wrong".
 - `a11y tabwalk` takes a web page's `<textarea>` as the browser does:
   Tab moves on from it. It was taken for a text view that keeps Tab
@@ -281,8 +295,6 @@
   `#0f0d14`), and the less it matched its shape. Where the best match
   falls short, it's worked out again there with the lines through the
   text's box taken off: those labels are found, and fail at 1.61:1.
-- `a11y contrast` let GTK 4's text it didn't find pass quietly however
-  faint (see above).
 - `a11y contrast` didn't take GTK 4's text where another node holding
   the same text has it in its room: a combo row's selected item under
   an entry holding it, or a label over one, was a note however faint.

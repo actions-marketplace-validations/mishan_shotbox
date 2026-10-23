@@ -1,6 +1,6 @@
 {
   "name": "shotbox",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Playwright helpers for reproducible browser screenshots and recordings: a static server, a sealed browser environment, frame-by-frame recordings, captions, GIFs, page errors and checks. The shotbox command itself is on PyPI.",
   "keywords": ["screenshots", "playwright", "visual-regression", "testing", "accessibility", "a11y", "wcag", "recording", "gif", "reproducible"],
   "type": "module",

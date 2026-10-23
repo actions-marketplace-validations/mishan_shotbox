@@ -5,13 +5,13 @@
   "description": "Sealed X11/Wayland sessions to see, drive and check real GUI programs: a11y, pictures, sound.",
   "repository": { "url": "https://github.com/mishan/shotbox", "source": "github" },
   "websiteUrl": "https://github.com/mishan/shotbox/blob/main/docs/mcp.md",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "shotbox",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "transport": { "type": "stdio" },
       "packageArguments": [
         { "type": "positional", "value": "mcp" },
