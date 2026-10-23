@@ -966,7 +966,8 @@ class Screen:
         seen = [Node(n) for n in got["focus"]]
         if got["end"] != "cycle":
             where = f", on {seen[-1].line()}" if seen and got["end"] == "trap" else ""
-            self.fail(walk_end(key, most, seen, got["end"], []) + where)
+            self.fail(walk_end(key, most, seen, got["end"], [],
+                               began=got["began"] and Node(got["began"])) + where)
         hidden = [n for n in seen if unseen(n)]
         if hidden:
             self.fail("the focus doesn't show on " + "; ".join(n.line() for n in hidden))

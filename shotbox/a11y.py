@@ -650,20 +650,24 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     window manager), and nothing is pressed into that. A press that leaves
     it on the one thing in the window that could take it is a cycle of one.
     `key` isn't pressed in a text view one writes in, which takes Tab for
-    itself: ESCAPES are, noted on it as `tried`, the one that moves the
-    focus as `left_by`, one after which its text changed as `edited`; none
-    is a trap, and one after which the text view isn't there ends the walk,
-    "closed". Escape isn't tried in a dialog, which it would close, nor
-    shift+Tab but in Qt; once that leaves, backward, the walk goes on from
-    the first thing after the text view that takes the focus (grab_focus).
+    itself, but first in a web page's, as a textarea doesn't: ESCAPES are,
+    noted on it as `tried`, the one that moves the focus as `left_by`, one
+    after which its text changed as `edited`; none is a trap, and one after
+    which the text view isn't there ends the walk, "closed". Escape isn't
+    tried in a dialog, which it would close, nor shift+Tab but in Qt; once
+    that leaves, backward, the walk goes on from the first thing after the
+    text view that takes the focus (grab_focus). A cycle with no stop in a
+    web page after one of a web page's was left so is "escaped", and
+    Escape is pressed, back to the page.
     Where the walk began in one nothing leaves, it gives the focus to the
     first thing outside it that takes it (AT-SPI's grab_focus, which GTK 4
     doesn't do), so the rest of the window is walked before the trap. With
     `visible`, each node says how much of the screen round it changed as it
     took the focus (see shown()). With `document`, the nodes, what it never
-    reached and the text view are only those in the window's web documents,
-    though the walk goes through the browser's own controls too; a window
-    with none is refused."""
+    reached and the text view are only those in the window's web documents
+    (but the documents), though the walk goes through the browser's own
+    controls too, and a trap on a web document with nothing in the page it
+    never reached is a cycle; a window with no web document is refused."""
     Atspi = atspi()
     screen = Screen()
 
@@ -688,7 +692,8 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         raise SessionError("no web document to walk: the window isn't a browser's")
 
     def mine(n):
-        return not document or n.path.startswith(tuple(docs))
+        return not document or (n.path.startswith(tuple(docs))
+                                and n._role != Atspi.Role.DOCUMENT_WEB)
 
     start = press(None, None)
     if start is None:
@@ -707,6 +712,17 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         n["tried"], n["left_by"] = [], None
         dialog, qt = in_dialog(Atspi, n), toolkit(n).startswith("Qt")
         text = contents(Atspi, n)
+        # A web page's textarea doesn't take Tab, and a browser's ctrl+Tab
+        # and F6 go to its other tabs and its toolbar: they're for a web
+        # editor that does.
+        if "/document web[" in n.path:
+            now = press(key, n)
+            if now is None or now._id != n._id:
+                del n["tried"], n["left_by"]
+                return now, None
+            n["tried"].append(key)
+            if contents(Atspi, n) != text:
+                n["edited"], text = key, contents(Atspi, n)
         for k in ESCAPES:
             if k == key or (dialog and k == "Escape") or (k == "shift+Tab" and not qt):
                 continue
@@ -764,13 +780,28 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
 
     try:
         seen, how = go()
+        # Left a web page's text view by a browser's key (Chromium's F6, to
+        # its toolbar's pane), and Tab went round the browser's controls,
+        # never back in the page. Escape takes Chromium back to it (F6 does
+        # too, but leaves Tab stuck there).
+        walked = [n for n in (start, *seen) if n]
+        out = next((i for i in range(len(walked) - 1, -1, -1)
+                    if "/document web[" in walked[i].path and walked[i].get("left_by")), None)
+        if how == "cycle" and out is not None and not any(
+                "/document web[" in n.path for n in walked[out + 1:]):
+            how = "escaped"
+            screen.key("Escape")
     finally:
         screen.close()
     # Said only where the walk left it; else it's the trap.
     began = began if began and mine(began) and (began.get("left_by")
                                                  or began.get("walked_from")) else None
-    missed = unreached(Atspi, window, [n for n in (start, *seen) if n and mine(n)])
-    return [n for n in seen if mine(n)], how, [n for n in missed if mine(n)], began
+    missed = [n for n in unreached(Atspi, window, [n for n in (start, *seen) if n and mine(n)])
+              if mine(n)]
+    # A page's document keeping the focus, with nothing in the page to walk.
+    if document and how == "trap" and seen[-1]._role == Atspi.Role.DOCUMENT_WEB and not missed:
+        how = "cycle"
+    return [n for n in seen if mine(n)], how, missed, began
 
 
 def writing(Atspi, n):
@@ -2381,6 +2412,11 @@ def public(n):
     return {k: v for k, v in n.items() if not k.startswith("_")}
 
 
+# What dom() has read of each node it climbed through, in this run: a
+# page's findings share the elements round them.
+CLIMBED = {}
+
+
 def dom(Atspi, n):
     """Note on `n`, if it's a node in a web page, where it is in its DOM,
     as Chromium's and Firefox's object attributes say, once: "dom", the
@@ -2392,16 +2428,22 @@ def dom(Atspi, n):
     n["_placed"] = True
     el, acc = None, n._acc
     try:
-        while acc is not None and acc.get_role() != Atspi.Role.DOCUMENT_WEB:
-            got = acc.get_attributes() or {}
-            if got.get("tag"):
-                this = {k: got[k] for k in ("tag", "id", "class") if got.get(k)}
-                el = el or this
+        while acc is not None:
+            key = ident(acc)
+            if key not in CLIMBED:
+                got = acc.get_attributes() or {}
+                CLIMBED[key] = (acc.get_role() == Atspi.Role.DOCUMENT_WEB, got.get("tag") and {
+                    k: got[k] for k in ("tag", "id", "class") if got.get(k)}, acc.get_parent())
+            top, this, up = CLIMBED[key]
+            if top:
+                break
+            if this:
+                el = el or dict(this)
                 if "id" in this:
-                    if this is not el:
+                    if this != el:
                         el["in"] = this
                     break
-            acc = acc.get_parent()
+            acc = up
     except Exception:   # gone while we looked
         pass
     text = (n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
@@ -2650,7 +2692,8 @@ def main(argv):
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
     w.add_argument("--reach-all", action="store_true",
                    help="fail where a showing, sensitive control is never reached; "
-                        "without it, they're said, as arrows or shortcuts may reach them")
+                        "without it, they're said, as arrows or shortcuts may reach them "
+                        "(but a --document walk that never lands in the page fails)")
     w.add_argument("--ignore", **ignore)
     w.add_argument("--document", action="store_true",
                    help="only what's in the window's web page: the walk goes through the "
@@ -2781,6 +2824,8 @@ def main(argv):
     seen, how, missed, began = tab_walk(a.key, a.max, a.window, timeout=a.timeout,
                                         visible=a.visible, document=a.document)
     missed = [n for n in missed if not skip(n, f"not reached by {a.key}")]
+    if a.document and how == "cycle" and missed and not seen:
+        how = "outside"
     if a.json:
         print(json.dumps({"focus": [public(n) for n in seen], "end": how,
                           "unreached": [public(n) for n in missed],
@@ -2814,21 +2859,27 @@ def walk_lines(key, most, seen, how, missed, began, focus="shotbox focus"):
     lines = [f"began in {marked(began)}"] if began else []
     lines += [marked(n) for n in seen]
     lines += [f"not reached by {key}: {n.line()}" for n in missed]
-    lines.append(walk_end(key, most, seen, how, missed, focus))
+    lines.append(walk_end(key, most, seen, how, missed, focus, began))
     hidden = [n for n in seen if unseen(n)]
     if hidden:
         lines.append(f"focus not shown on {len(hidden)}")
     return lines
 
 
-def walk_end(key, most, seen, how, missed, focus="shotbox focus"):
+def walk_end(key, most, seen, how, missed, focus="shotbox focus", began=None):
     """How a walk ended, as a line."""
     tried = seen[-1].get("tried") if seen else None
+    # The key itself is tried first in a web page's, and is the one it takes.
+    others = [k for k in tried or [] if k != key]
+    left = next((n.left_by for n in reversed([began, *seen]) if n and n.get("left_by")), None)
     unreached = f"; {len(missed)} not reached by {key}" if missed else ""
     return {
         "cycle": f"round again after {len(seen)}{unreached}",
-        "trap": (f"stuck in a text view, which takes {key}: {', '.join(tried[:-1])} and "
-                 f"{tried[-1]} leave the focus there" if tried
+        "outside": f"round again, never in the page{unreached}",
+        "escaped": f"left the page by {left}, and {key} never came back to it{unreached}",
+        "trap": (f"stuck in a text view, which takes {key}: "
+                 + " and ".join(filter(None, [", ".join(others[:-1]), others[-1]]))
+                 + (" leave" if len(others) > 1 else " leaves") + " the focus there" if others
                  else f"stuck: {key} leaves the focus where it was"),
         "lost": f"lost: after {key}, no node has the focus",
         "closed": f"stopped: after {tried and tried[-1]}, the text view isn't there",

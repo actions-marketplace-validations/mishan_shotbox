@@ -262,21 +262,31 @@ is hard to map back to its source, so a lint or contrast line on a node
 in one also says where it is in the page's DOM, after `  <- `, as
 Chromium and Firefox give it (their `tag`, `id` and `class` object
 attributes): the element's tag, and its id if it has one, then the
-node's text, cut at 40 characters, then, if the element has no id, the
-nearest element round it that has one:
+node's text (or its name, an `aria-label`'s), cut at 40 characters,
+then, if the element has no id, the nearest element round it that has
+one:
 
 ```
 PATH: button with no name  <- button#icon
 PATH: text 2.84:1, #999999 on #ffffff (at least 4.5)  <- p "Faint words" in div#intro
 ```
 
-A text node isn't an element: its element's tag is said. Classes are
-left out of the line, where they can run long. With `--json`, such a
-node has `dom`, its element's `tag`, `id` and `class` where it has them,
-and `in`, those of the nearest with an id, `{"tag": "p", "in": {"tag":
-"div", "id": "intro", "class": "card"}}`, and `text`, cut as the
-line's is. `--ignore` is matched against the line with them too:
-`--ignore 'div#intro'`, `--ignore '#icon'`.
+A text node isn't an element: its element's tag is said. The elements
+are those in the browser's tree, not the DOM's every one: Chromium
+leaves out a generic element (a `span`, a `div`) with no id, so the
+tag, class and nearest id said can be of one round the node's own
+(`<div><span class="f">Deep</span></div>` is said `div "Deep"`), and
+in a shadow root its `div`s, even with an id, so a node in one is said
+in its host's id. An iframe's document ends the climb: a node in one
+is said in an id in the iframe's page, or none. Classes are left out
+of the line, where they can run long. Firefox's contrast doesn't
+measure a paragraph's text, so there a contrast line is a control's, a
+link's or a button's. With `--json`, such a node has `dom`, its
+element's `tag`, `id` and `class` where it has them, and `in`, those
+of the nearest with an id, `{"tag": "p", "in": {"tag": "div", "id":
+"intro", "class": "card"}}`, and `text`, cut as the line's is.
+`--ignore` is matched against the line with them too: `--ignore
+'div#intro'`, `--ignore '#icon'`.
 
 ## Walking the Tab order
 
@@ -310,13 +320,20 @@ the document: it tries ctrl+Tab, which GTK's text views take to move
 on, then in Qt shift+Tab, Qt's (GTK's text views type a tab for it),
 Escape (not in a dialog or alert, which it would close, libadwaita's in
 its window's frame too), and F6, a pane's key, last, since Kate and
-KWrite show a view with it. shift+Tab leaves backward, so the walk then
-gives the focus to the first thing after the text view that takes it
-(AT-SPI's `grab_focus`, which Qt does) and goes on from there. The
-first that moves the focus is said on the node, `a text view: ctrl+Tab
-leaves it`, and the walk goes on; if none does, it's a trap, exit 1,
-`stuck in a text view`. One that changes the text is said on the node
-too, and if the text view is gone after
+KWrite show a view with it. A web page's `<textarea>` doesn't take
+Tab, so in a web page it presses Tab first, and if that moves the
+focus the walk goes on as from any other stop; only a web editor that
+keeps Tab gets the rest (a browser's ctrl+Tab goes to its next tab,
+and Chromium's F6 into its toolbar). If one of those leaves the page
+and Tab, going round the browser's controls, never comes back to it,
+the walk says so, exit 1: `left the page by F6, and Tab never came
+back to it`, and presses Escape, which takes Chromium back to the
+page. shift+Tab leaves backward, so the walk then gives the focus to
+the first thing after the text view that takes it (AT-SPI's
+`grab_focus`, which Qt does) and goes on from there. The first that moves the focus is said on the node, `a
+text view: ctrl+Tab leaves it`, and the walk goes on; if none does,
+it's a trap, exit 1, `stuck in a text view`. One that changes the
+text is said on the node too, and if the text view is gone after
 one, the walk stops there, exit 1. An editor's own shortcuts can take
 ctrl+Tab: gedit's moves the focus somewhere no node says, and Tab goes
 on from there; gnome-text-editor keeps it for all of them. A walk that
@@ -353,8 +370,15 @@ controls as before, and their presses count towards `--max`, but they
 aren't listed, nor said as not reached, nor held to by `--visible` and
 `--reach-all`, and the count on the last line is of the page's stops.
 Chromium's Tab lands on the document itself as it comes in from the
-browser's controls; that isn't one of the page's stops. A window with no web document in it is refused, exit 1: `no web document
-to walk: the window isn't a browser's`.
+browser's controls, as it can on an iframe's; those aren't among the
+page's stops. A walk that never gets into the page, though it has
+controls, isn't a pass, even without `--reach-all`: `round again,
+never in the page; 2 not reached by Tab`, exit 1, as in Firefox on a
+page whose controls are all `tabindex="-1"`. Chromium's Tab keeps the
+focus on such a page's document, a trap, exit 1, whatever `--ignore`
+leaves out; on a page with nothing to focus, that passes. A window
+with no web document in it is refused, exit 1: `no web document to
+walk: the window isn't a browser's`.
 
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each

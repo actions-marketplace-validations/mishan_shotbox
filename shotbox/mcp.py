@@ -1275,9 +1275,11 @@ TOOLS = [
      "back round, and list where it went, a tree line each, after a \"began in\" line. Then "
      "the controls the key never reached, and how it ended: round again (fine), stuck (a "
      "trap, or a text view nothing leaves), not round after most presses, lost (no node has "
-     "the focus), stopped (a text view closed as it was left), or nothing focused to begin "
-     "with (click the window with click_element first). With visible, \"focus not shown on "
-     "N\" counts stops that don't show it. A text view that takes Tab is left as a person "
+     "the focus), stopped (a text view closed as it was left), never in the page (with "
+     "document, a page with controls), left the page (a web editor that keeps Tab, left "
+     "by F6, and Tab never back), or nothing focused to begin with (click the window "
+     "with click_element first). With visible, \"focus not shown on N\" counts stops that "
+     "don't show it. A text view that takes Tab is left as a person "
      "would, with ctrl+Tab, shift+Tab, Escape or F6. The focus stays where it ended. To "
      "press a few keys yourself, use press_keys.",
      schema({"session": SESSION,

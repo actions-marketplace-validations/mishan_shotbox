@@ -15,6 +15,11 @@
   `check_accessible_names` and `check_contrast` lines end the same way.
   `--ignore` matches the ending too: `--ignore 'div#intro'`. A script
   that reads the lines as `PATH: WHAT` gets the end in WHAT.
+- **`a11y tabwalk` says a web page's controls Tab never reaches in
+  Chromium**, so `--reach-all` can fail where it passed: Tab lands on
+  the page's document coming in from the toolbar, and that counted as
+  reaching all that's in it, so a button with `tabindex="-1"` passed.
+  Leave out what's meant to be off the Tab order with `--ignore`.
 - **A click or scroll by name waits until the node is placed, enabled,
   still and uncovered**, and fails, saying which it isn't, when its
   timeout runs out: `gave up after 10s: button "Save" [focusable,
@@ -98,8 +103,11 @@
   page, and says only its controls Tab never reached: Tab still goes
   through the browser's own (the address bar, Back, the tab strip),
   which were listed as not reached on every page. A window with no web
-  document is refused. `Screen.tab_walk(document=True)` and MCP's
-  `check_focus_order` with `document` have it too.
+  document is refused, and a walk that never gets into a page with
+  controls fails, even without `--reach-all`: `round again, never in
+  the page`.
+  `Screen.tab_walk(document=True)` and MCP's `check_focus_order` with
+  `document` have it too.
 - `compare` and `wait match` and `change` take `--ignore WxH+X+Y`
   (repeatable), as `flicker` does, to leave out a box that changes on
   its own, a clock or a cursor, as openQA's exclude areas and
@@ -156,10 +164,16 @@
   Qt's and Chromium's aren't, so their text is measured in them again.
   With `--window`, a faint GTK 3 label was said as not found, "GTK None
   reports where its widgets are wrong".
-- `a11y tabwalk` says a web page's controls Tab never reaches in
-  Chromium: Tab lands on the page's document coming in from the
-  toolbar, and that counted as reaching all that's in it, so a button
-  with `tabindex="-1"` passed `--reach-all`.
+- `a11y tabwalk` takes a web page's `<textarea>` as the browser does:
+  Tab moves on from it. It was taken for a text view that keeps Tab
+  and left with ctrl+Tab, which goes to the browser's next tab, Escape
+  and F6, which in Chromium goes into the toolbar, where Tab then went
+  round: the page's controls after it were said as not reached, failing
+  `--reach-all`, and the browser was left there for the next walk. In a
+  web page Tab is pressed first; the rest only if it keeps the focus,
+  and where one of them leaves the page and Tab never comes back to
+  it, the walk fails, `left the page by F6, and Tab never came back to
+  it`, and presses Escape to take Chromium back to the page.
 - A read of the accessible tree (`a11y tree`, `lint`, a click by name
   and the rest) failed with `Object does not exist at path …` when a
   window closed while it was read. A window gone is left out, as a node
