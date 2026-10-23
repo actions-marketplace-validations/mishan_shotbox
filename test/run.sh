@@ -541,20 +541,22 @@ for qt in PyQt5 PyQt6; do
   esac
 done
 # GSettings: the system's defaults, its vendor's overrides included, but
-# for the caret's blink and animations, off; a seed's keyfile, linked
-# out, never written.
+# for the caret's blink and animations, off; a seed's keyfile merged in,
+# its other groups kept, but linked out, never written.
 dump="gsettings list-recursively org.gnome.desktop.interface | sort"
 if command -v gsettings >/dev/null && GSETTINGS_BACKEND=memory sh -c "$dump" 2>/dev/null | grep -q .; then
   mkdir -p "$tmp/gs/.config/glib-2.0/settings"
-  printf "[org/gnome/desktop/interface]\nfont-name='Mine 9'\n" > "$tmp/gs.keyfile"
+  printf "[org/gnome/TextEditor]\nspellcheck=false\n\n[org/gnome/desktop/interface]\nfont-name='Mine 9'\ncursor-blink=true\n" > "$tmp/gs.keyfile"
   cp "$tmp/gs.keyfile" "$tmp/gs.orig"
   ln -s "$tmp/gs.keyfile" "$tmp/gs/.config/glib-2.0/settings/keyfile"
   GSETTINGS_BACKEND=memory LC_ALL=C.UTF-8 sh -c "$dump" \
-    | sed -E 's/^(org.gnome.desktop.interface (cursor-blink|enable-animations)) true$/\1 false/' \
+    | sed -E -e 's/^(org.gnome.desktop.interface (cursor-blink|enable-animations)) true$/\1 false/' \
+        -e "s/^(org.gnome.desktop.interface font-name) .*/\\1 'Mine 9'/" \
     | sort > "$tmp/gs.want"
-  "$sb" run --seed "$tmp/gs" -- sh -c "$dump" > "$tmp/gs.got"
+  "$sb" run --seed "$tmp/gs" -- sh -c "$dump; sed -n '/TextEditor/,+1p' ~/.config/glib-2.0/settings/keyfile" > "$tmp/gs.got"
+  printf '[org/gnome/TextEditor]\nspellcheck=false\n' >> "$tmp/gs.want"
   cmp -s "$tmp/gs.want" "$tmp/gs.got" && cmp -s "$tmp/gs.keyfile" "$tmp/gs.orig" \
-    && ok "GSettings: the system's defaults, but for the caret's blink and animations" \
+    && ok "GSettings: the system's defaults, a seed's keyfile over them, but for the caret's blink and animations" \
     || fail "GSettings: $(diff "$tmp/gs.want" "$tmp/gs.got"; diff "$tmp/gs.orig" "$tmp/gs.keyfile")"
 fi
 

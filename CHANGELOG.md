@@ -110,6 +110,13 @@
   in the window were off by where the window is. Without a window
   they're the screen's, as `a11y --json`'s still are.
 
+- **A seeded home's GSettings keyfile
+  (`.config/glib-2.0/settings/keyfile`) is read, with the session's
+  interface keys merged into it**, as `settings.ini`'s are; it no longer
+  takes `--env GSETTINGS_BACKEND=keyfile`. Since 0.9.0 the session's
+  replaced it, losing the settings of seeds that read it that way
+  before.
+
 ### Added
 
 - The Node package's `accessible` is a page's options too:

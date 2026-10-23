@@ -62,8 +62,8 @@ read it from different places:
 
 So a session's `settings.ini` says `gtk-cursor-blink = false`; its
 GSettings, a keyfile in the scratch home (`GSETTINGS_BACKEND=keyfile`)
-over the system's defaults, say `cursor-blink` false (a seed's own
-keyfile is replaced); and on X11 it holds the XSETTINGS selection for
+over the system's defaults, merged into a seed's own, say `cursor-blink`
+false; and on X11 it holds the XSETTINGS selection for
 as long as it runs, saying `Net/CursorBlink` 0 and nothing else, so no
 other XSETTINGS manager (xsettingsd, say) can take it. `--desktop` uses
 the desktop's own GSettings and XSETTINGS manager, so it leaves

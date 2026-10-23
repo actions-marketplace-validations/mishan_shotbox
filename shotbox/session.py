@@ -298,23 +298,23 @@ def settings(text):
     return keys
 
 
-def merge(text, keys):
-    """`text`, a settings.ini, with `keys` set in its [Settings] group, and
-    its comments and everything else as they were."""
+def merge(text, keys, into="[Settings]"):
+    """`text`, a settings.ini (or GLib keyfile), with `keys` set in its
+    `into` group, and its comments and everything else as they were."""
     kept, group, at = [], None, None
     for line in text.splitlines():
         bare = line.strip()
         if bare.startswith("["):
             group = bare
-            if bare == "[Settings]" and at is None:
+            if bare == into and at is None:
                 kept.append(line)
                 at = len(kept)
                 continue
-        elif group == "[Settings]" and bare.split("=", 1)[0].strip() in keys:
+        elif group == into and bare.split("=", 1)[0].strip() in keys:
             continue
         kept.append(line)
     if at is None:
-        kept.append("[Settings]")
+        kept.append(into)
         at = len(kept)
     kept[at:at] = [f"{k} = {v}" for k, v in keys.items()]
     return "\n".join(kept) + "\n"
@@ -917,14 +917,16 @@ class Session(Screen):
                 self._blink = keys.get("gtk-cursor-blink") in (None, "true", "1")
                 still = keys.get("gtk-enable-animations") in ("false", "0")
         # GTK 3 on Wayland reads these from GSettings, over settings.ini: the
-        # session's own keyfile, which nothing of a seed's stands in for.
+        # session's own keyfile, a seed's merged into it as settings.ini is.
         keyfile = home / ".config" / "glib-2.0" / "settings" / "keyfile"
         unfold(home, keyfile)
         keyfile.parent.mkdir(parents=True, exist_ok=True)
-        keyfile.write_text("[org/gnome/desktop/interface]\n" + "".join(
-            f"{k}=false\n" for k, off in (("cursor-blink", not self._blink),
-                                          ("enable-animations", still)) if off)
-            + (f"cursor-theme='{CURSOR_THEME}'\n" if self.use_wayland else ""))
+        more = {k: "false" for k, off in (("cursor-blink", not self._blink),
+                                          ("enable-animations", still)) if off}
+        if self.use_wayland:
+            more["cursor-theme"] = f"'{CURSOR_THEME}'"
+        keyfile.write_text(merge(keyfile.read_text() if keyfile.exists() else "", more,
+                                 "[org/gnome/desktop/interface]"))
         run = self.scratch / "run"
         run.mkdir(mode=0o700)
 

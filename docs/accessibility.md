@@ -1125,7 +1125,8 @@ On X11 (and Xwayland), GTK takes the font DPI from the X server's
 `RESOURCE_MANAGER` over `settings.ini`, so `--text-scale` sets
 `Xft.dpi` there, at 96 times N. GTK 3 on Wayland reads text scaling from
 GSettings alone, which a sealed session keeps in a keyfile of its own
-with no text scaling in it, so it doesn't scale.
+with no text scaling in it unless a seed's keyfile has some, so it
+doesn't scale.
 
 GTK 3's dark variant is its theme's: Ubuntu's GTK 3 defaults to Yaru,
 and where Yaru isn't installed (a CI image), it falls back to Adwaita
