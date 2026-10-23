@@ -19,10 +19,11 @@ Inside a session with `--a11y`:
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
   trap: [Walking the Tab order](#walking-the-tab-order).
-- **`shotbox a11y click NAME [--role RE] [--window RE] [--force]`** clicks the
+- **`shotbox a11y click NAME [--role RE] [--window RE] [--force] [--action NAME]`** clicks the
   node named NAME, exactly or as a regex matched in full: a button by
   its label rather than where it is, once it's enabled, still and
-  uncovered. [Clicking by name](#clicking-by-name).
+  uncovered; with `--action NAME`, does that AT-SPI action instead, for a
+  node a click won't reach. [Clicking by name](#clicking-by-name).
 - **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE] [--force]`** turns
   the mouse wheel over that node, found as `click` finds it, DY clicks
   down and DX right (negative, up and left): a list by itself or by a
@@ -475,6 +476,48 @@ ready when it's:
 `--force` clicks without waiting for the rest, but still for the node
 to show and be placed, since without a place there's nothing to click:
 to check that a disabled button does nothing, say.
+
+`--action NAME` does the node's AT-SPI action NAME in place of a click,
+for a node a click by name won't reach: a control given no size, which
+never gets a position, or a drop-down's option. A closed `<select>`'s
+other options aren't in Chromium's tree, and aren't showing in
+Firefox's, so open it first, then pick one (Firefox's, once open, are in
+a window of their own over the page, which a click takes as covering
+them):
+
+```
+shotbox a11y click Pick --action open
+shotbox a11y click Beta --action select    # Chromium's; Firefox's is click
+```
+
+An action's name, and what it does, are the toolkit's, and none is a
+click everywhere: Qt's `Toggle` on a list item is a ctrl+click, a GTK
+entry's `activate` presses its dialog's default button, a GTK 4
+window's actions include `window.close`, and GTK 4's check button has
+no action at all, as of 4.24. So a test names the one it means; NAME is
+matched as it is, and failing that in any case, if only one matches
+so. Without NAME,
+`--action` fails listing the node's actions: `button "Unplaced"
+[focusable] takes an action by its name; its actions: click (--action
+NAME does one)`. Put `--action NAME` after the node's name, or write
+`--action=NAME`.
+
+An action needs no place and no raised window, so it waits for
+neither, nor for the node to be still or uncovered; it still waits for
+it to be enabled, unless `--force`, since an action on a disabled
+control does nothing and can answer that it worked, as Firefox's
+`press` on a disabled button does. It prints the node and the action:
+`button "Send" [focusable], by its action "press"`, and fails if the
+program says it refused it, `... refused its action "click"`. A node
+without it fails at once, saying what it has: `image "Saved" has no
+action`, `label "Cover" has no "click"; its actions: clipboard.copy, ...
+(--action NAME does one)`. A click that gives up on a node with no
+position lists its actions, `... has no position yet; its actions:
+click (--action NAME does one)`, and on a match that isn't showing says
+that, `... matches, but isn't showing`, but doesn't do an action
+(Python's and MCP's say `action`): a click and an action differ (an
+action gives no window the keyboard, and reaches what's covered), and a
+test should say which it means.
 
 A name is taken as it is, and failing that as a regex matched in full:
 nodes named exactly NAME are picked over those it matches as a regex, so

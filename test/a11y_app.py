@@ -41,7 +41,9 @@ and asks in an alert dialog as it starts, again once answered, then
 holds a button that makes a toast; `freeze`, a button that stops it
 answering for 30 seconds; `ready`, buttons "Behind" under a dialog,
 "Soon" disabled, "Moving" moving and "Covered" under a label, until
-"Ready" is clicked, each printing its name when clicked; with `late`, under
+"Ready" is clicked, each printing its name when clicked, "Unplaced",
+given no height, as a browser gives a closed drop-down's option none, and
+an image, "Saved", which has no action; with `late`, under
 a window of the same title and size, which puts nothing in either
 anywhere, for two seconds; `modal`, a modal window over it; `warned`, an
 error label, an alert, revealed below the rest; `inline` a box with a
@@ -269,8 +271,17 @@ def activate(app):
             clicked[text].connect("clicked", lambda b: print(b.get_label(), flush=True))
         cover = Gtk.Overlay(child=clicked["Covered"])
         cover.add_overlay(Gtk.Label(label="Cover"))
+        unplaced = Gtk.Button(css_classes=["unplaced"])
+        unplaced.update_property([Gtk.AccessibleProperty.LABEL], ["Unplaced"])
+        unplaced.connect("clicked", lambda b: print("Unplaced", flush=True))
+        flat = Gtk.CssProvider()
+        flat.load_from_string("button.unplaced { min-height: 0; padding: 0; border: 0; }")
+        Gtk.StyleContext.add_provider_for_display(w.get_display(), flat,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        saved = Gtk.Image(icon_name="document-save")
+        saved.update_property([Gtk.AccessibleProperty.LABEL], ["Saved"])
         for widget in (clicked["Behind"], clicked["Soon"], clicked["Moving"], cover,
-                       clicked["Ready"]):
+                       clicked["Ready"], unplaced, saved):
             view.append(widget)
         clicked["Soon"].set_sensitive(False)
         moving = clicked["Moving"]

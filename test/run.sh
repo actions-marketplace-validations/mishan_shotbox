@@ -995,9 +995,32 @@ if atspi; then
     '$sb' a11y tree --window a11y-test >/dev/null &&
     ! '$sb' a11y click Ready --window a11y-test --timeout 0.3 >/dev/null &&
     '$sb' a11y click Ready --window a11y-test --force >/dev/null && sleep 0.5" > "$tmp/late" 2>&1 \
-    && grep -q '"Ready" \[focusable\] has no position yet$' "$tmp/late" && grep -qx Ready "$tmp/late" \
+    && grep -q '"Ready" \[focusable\] has no position yet; its actions: click (--action NAME does one)$' "$tmp/late" \
+    && grep -qx Ready "$tmp/late" \
     && ok "a11y: click waits for a node to have a position, --force too" \
     || { fail "a11y: click, no position yet"; cat "$tmp/late"; }
+  # One that never gets a position is done by the action --action names,
+  # in any case, which says so, and still waits for it to be enabled; one
+  # with no action says so, and --action without a name lists them.
+  "$sb" run --a11y -- sh -c "'$app' ready & '$sb' wait window Dialog >/dev/null &&
+    '$sb' a11y tree --window a11y-test >/dev/null &&
+    ! '$sb' a11y click Unplaced --window a11y-test --timeout 0.3 >/dev/null &&
+    ! '$sb' a11y click Unplaced --window a11y-test --action >/dev/null &&
+    '$sb' a11y click Unplaced --window a11y-test --action Click &&
+    ! '$sb' a11y click Soon --window a11y-test --action click --timeout 0.3 >/dev/null &&
+    ! '$sb' a11y click Saved --window a11y-test --action click >/dev/null &&
+    ! '$sb' a11y click Cover --window a11y-test --action click >/dev/null &&
+    '$sb' a11y click Cover --window a11y-test --action clipboard.copy && sleep 0.5" > "$tmp/action" 2>&1 \
+    && grep -q '"Unplaced" \[focusable\] has no position yet; its actions: click (--action NAME does one)$' "$tmp/action" \
+    && grep -q '"Unplaced" \[focusable\] takes an action by its name; its actions: click (--action NAME does one)$' "$tmp/action" \
+    && grep -qx '[a-z ]*button "Unplaced" \[focusable\], by its action "click"' "$tmp/action" \
+    && grep -qx Unplaced "$tmp/action" \
+    && grep -q 'gave up after 0.3s: [a-z ]*button "Soon" \[focusable, disabled\] isn.t enabled$' "$tmp/action" \
+    && grep -qx 'shotbox: image "Saved" has no action' "$tmp/action" \
+    && grep -q '^shotbox: label "Cover" has no "click"; its actions: clipboard.copy, .* (--action NAME does one)$' "$tmp/action" \
+    && grep -qx 'label "Cover", by its action "clipboard.copy"' "$tmp/action" \
+    && ok "a11y: click --action NAME does a node's action, with no position, once it's enabled" \
+    || { fail "a11y: click --action"; cat "$tmp/action"; }
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --visible --window a11y-test" > "$tmp/walk"
   st=$?; set -e

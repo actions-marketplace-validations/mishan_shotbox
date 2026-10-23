@@ -7,8 +7,9 @@
 /*
  * Inside `shotbox run --a11y` (browser.test.mjs): Chromium, launched with
  * `accessible`, on the session's accessibility bus, its page's tree read,
- * its live regions heard before that, a button clicked by its name, a
- * node waited for by its name, one scrolled out of view not, a
+ * its live regions heard before that, a button clicked by its name,
+ * one pressed by its action, a drop-down's option picked and a check box
+ * checked by theirs, a node waited for by its name, one scrolled out of view not, a
  * faint paragraph's contrast measured, said with its DOM tag, text and
  * id, and ignored by them, but not a canvas's fallback text, and one
  * behind an aria-modal dialog said apart, but not behind one off the
@@ -41,6 +42,7 @@ try
 
     await page.setContent(`<title>a11y-browser</title>
         <button onclick="this.dataset.clicked = 'yes'">Save</button>
+        <button onclick="this.dataset.clicked = 'yes'">Send</button>
         <div id="intro"><p style="color: #999">Faint words</p></div>
         <canvas width="60" height="20">Canvas words</canvas>
         <p style="color: #8a8a8a; font-size: 18pt">Large words</p>
@@ -85,7 +87,10 @@ try
     run('wait', 'node', '^Done$', '--window', 'a11y-browser.*', '--timeout', '10');
     const below = spawnSync(shotbox, ['wait', 'node', '^Below$', '--timeout', '0.5'],
                             { encoding: 'utf8' }).stderr;
-    const clicked = await page.evaluate(() => document.querySelector('button').dataset.clicked);
+    const pressed = run('a11y', 'click', 'Send', '--action', 'press', '--window',
+                        'a11y-browser.*');
+    const clicked = await page.evaluate(() => [...document.querySelectorAll('button')]
+        .slice(0, 2).map((b) => b.dataset.clicked));
     const contrast = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-browser.*'],
                                { encoding: 'utf8' }).stdout;
     const ignored = spawnSync(shotbox, ['a11y', 'contrast', '--ignore', 'div#intro',
@@ -188,6 +193,22 @@ try
         await moving.close();
     }
 
+    /* A closed drop-down's other options aren't in the tree: it's opened
+       by its action, then one picked by its own. */
+    const form = await browser.newPage();
+
+    await form.setContent(`<title>a11y-pick</title><select aria-label="Pick">
+        <option>Alpha</option><option>Beta</option></select>
+        <input type="checkbox" aria-label="Agree">`);
+    const pick = (...args) => spawnSync(shotbox, ['a11y', 'click', ...args, '--window',
+                                                  'a11y-pick.*'], { encoding: 'utf8' });
+    const picked = [pick('Beta', '--action', 'select', '--timeout', '0.5').status,
+                    ...[['Pick', 'open'], ['Beta', 'select'], ['Agree', 'check']]
+                        .map(([n, a]) => pick(n, '--action', a).stdout),
+                    await form.evaluate(() => [document.querySelector('select').value,
+                                               document.querySelector('input').checked])];
+    await form.close();
+
     /* The page's Tab order: through the browser's controls, but only
        the page's said, Tab going on from a textarea; and without
        --document, the page's button Tab skips said too, though Tab
@@ -282,6 +303,8 @@ try
     process.stdout.write(JSON.stringify({
         tree,
         clicked,
+        pressed,
+        picked,
         below,
         contrast,
         ignored: { status: ignored.status, out: ignored.stdout },

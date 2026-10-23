@@ -108,6 +108,23 @@
   `prefers-reduced-motion: reduce`, so a page that honors it holds
   still for `a11y contrast`. `reducedMotion: 'no-preference'` after it
   checks the motion.
+- `a11y click NAME --action ACTION` does the node's AT-SPI action ACTION
+  (matched as it is, else in any case) in place of a pointer click, for
+  a node a click by name won't reach: a control given no size, which
+  never gets a position, or a drop-down's option, which isn't in the
+  tree, or isn't showing, until the drop-down is opened: `a11y click
+  Pick --action open`, then `a11y click Beta --action select`. An
+  action's name and what it does are the toolkit's, so it's named;
+  without one, it fails listing the node's actions. It waits for the
+  node to be enabled, unless `--force`, but not placed, still or
+  uncovered, and says the action: `button "Send" [focusable], by its
+  action "press"`; a node without it fails, listing the actions it has,
+  as does one whose program refuses it. A click by name that gives up on
+  a node with no position lists its actions: `... has no position yet;
+  its actions: click (--action NAME does one)`; on a match that isn't
+  showing, it says that, as `wait node` does. Python's
+  `click_node(action="NAME")` and MCP's `click_element` with `action`
+  have it too.
 - `wait node RE` waits for a node showing in the accessible tree whose
   name or text RE is found in, `--window RE` for one window's: a status
   line saying a page is drawn, where `wait stable` passes on a WebGL
@@ -217,8 +234,9 @@
 - A read of the accessible tree (`a11y tree`, `lint`, a click by name
   and the rest) failed with `Object does not exist at path …` when a
   window closed while it was read. A window gone is left out, as a node
-  gone already was; one gone before its bounds are read leaves its
-  nodes' bounds `null`, as a node gone then had.
+  gone already was, and so are its nodes when it goes while they're
+  walked; one gone before its bounds are read leaves its nodes' bounds
+  `null`, as a node gone then had.
 - `compare` failed on two pictures with a million or more pixels
   differing, unable to read ImageMagick's count, `1.04e+06`; it counts
   them exactly now.

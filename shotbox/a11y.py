@@ -446,13 +446,22 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
             return
         n["_top"] = top
         out.append((depth, n))
-        for i in range(acc.get_child_count()):
+        try:
+            count = acc.get_child_count()
+        except Exception:   # gone while we looked: a window closing
+            return
+        for i in range(count):
             if done():
                 return
-            child = acc.get_child_at_index(i)
-            if child is not None:
+            try:
+                child = acc.get_child_at_index(i)
+                if child is None:
+                    continue
                 role = child.get_role()
-                visit(child, role, depth + 1, f"{path}/{role_name(Atspi, child, role)}[{i}]", web)
+                at = f"{path}/{role_name(Atspi, child, role)}[{i}]"
+            except Exception:   # gone while we looked: a window closing
+                return
+            visit(child, role, depth + 1, at, web)
 
     for _, top in toplevels(Atspi, window, timeout):
         if done():
@@ -1162,10 +1171,12 @@ def ratio_text(r):
     return f"{math.floor(r * 100) / 100:.2f}"
 
 
-def click(name, role=None, window=None, button=1, double=False, timeout=10, force=False):
-    """Click the node `at_node` finds; that node."""
+def click(name, role=None, window=None, button=1, double=False, timeout=10, force=False,
+          action=False):
+    """Click the node `at_node` finds, or with `action`, do its action; that
+    node."""
     return at_node(name, role, window, timeout,
-                   lambda s, x, y: s.click(x, y, button=button, double=double), force)
+                   lambda s, x, y: s.click(x, y, button=button, double=double), force, action)
 
 
 def scroll(name, dy, dx=0, role=None, window=None, timeout=10, force=False):
@@ -1174,23 +1185,34 @@ def scroll(name, dy, dx=0, role=None, window=None, timeout=10, force=False):
     return at_node(name, role, window, timeout, lambda s, x, y: s.scroll(x, y, dy, dx), force)
 
 
-def at_node(name, role, window, timeout, act, force=False):
+def at_node(name, role, window, timeout, act, force=False, action=None):
     """Do `act` (a Screen, x, y) at the middle of the node named `name`, and
     with role `role` if given, each as x.pattern() matches a name, waiting
     up to `timeout` for it to show, placed in its window and on the
     screen, and unless `force`, to be ready (see unready), its window
-    raised. Nodes named exactly
+    raised; where it gets no place, saying the actions it has if `action`
+    is False. With `action` an action's name, do that action (see
+    node_action) in place of `act`, waiting for it to show and, unless
+    `force`, be enabled: an action on a disabled control can do nothing
+    and say it did. With `action` True, say its actions, as one has to
+    be named: their names and what they do are the toolkit's, and none
+    is a click everywhere. Nodes named exactly
     `name` are taken over those it matches as a regex: a calculator's "."
     is its button, not any one character. A match inside another (a
     button's label) is the outer one. The node."""
     Atspi = atspi()
     (named, note), (as_role, role_note) = x.pattern(name), x.pattern(role or "")
-    showing, late = [], []
+    showing, unshown, late = [], [], []
     screen = Screen()
 
+    def fits(n):
+        return named(n.name) and (role is None or as_role(n.role))
+
     def matches():
-        showing[:] = [n for _, n in walk(Atspi, window, timeout) if n._showing]
-        nodes = [n for n in showing if named(n.name) and (role is None or as_role(n.role))]
+        seen = [n for _, n in walk(Atspi, window, timeout)]
+        showing[:] = [n for n in seen if n._showing]
+        unshown[:] = [n for n in seen if not n._showing]
+        nodes = [n for n in showing if fits(n)]
         nodes = [n for n in nodes if n.name == name] or nodes
         # A field named by its label is the one of the two that's taken.
         ids = {n._id for n in nodes}
@@ -1199,7 +1221,8 @@ def at_node(name, role, window, timeout, act, force=False):
                                for t in related(Atspi, n._acc, "LABEL_FOR")}]
 
     def found():
-        """The node, where it's clicked and its window's origin(), once it's ready."""
+        """The node, where it's clicked (or the action it does, as node_action
+        has it) and its window's origin(), once it's ready."""
         late.clear()
         hits = matches()
         if not hits:
@@ -1214,9 +1237,19 @@ def at_node(name, role, window, timeout, act, force=False):
                                + "\nNarrow it with a role or a window, or click one where it is.")
         n = hits[0]
         box = n.bounds
-        # A browser puts a node in its tree a moment before it places it.
-        why = None
-        if not box or box[2] <= 0 or box[3] <= 0:
+        why = point = None
+        if action:
+            point, names = node_action(n._acc, action)
+            if not names:
+                raise SessionError(f"{n.line()} has no action")
+            if not point:
+                raise SessionError(f"{n.line()} " + (
+                    f"has no {json.dumps(action)}" if isinstance(action, str)
+                    else "takes an action by its name")
+                    + f"; its actions: {', '.join(names)} (--action NAME does one)")
+            why = not force and "disabled" in n.states and "isn't enabled"
+        elif not box or box[2] <= 0 or box[3] <= 0:
+            # A browser puts a node in its tree a moment before it places it.
             why = "has no position yet"
         else:
             # Inside its window: a node scrolled out of view is still showing.
@@ -1227,7 +1260,8 @@ def at_node(name, role, window, timeout, act, force=False):
             elif not w or not h:
                 why = "is off-screen"
             point = (px + w // 2, py + h // 2)
-        why = why or not force and unready(Atspi, screen, n, point, origins[n._top], shown)
+        why = why or not force and not action and unready(Atspi, screen, n, point,
+                                                         origins[n._top], shown)
         if why:
             late[:] = [n, why]
             return None
@@ -1235,11 +1269,17 @@ def at_node(name, role, window, timeout, act, force=False):
 
     what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
     try:
-        n, (px, py), at = wait_for(what, found, timeout)
+        n, point, at = wait_for(what, found, timeout)
     except SessionError as e:
         if late and str(e).startswith("gave up"):
-            raise SessionError(f"gave up after {timeout:g}s: {late[0].line()} {late[1]}"
-                               ) from None
+            names = (action is False and late[1] == "has no position yet"
+                     and node_action(late[0]._acc)[1])
+            raise SessionError(f"gave up after {timeout:g}s: {late[0].line()} {late[1]}" + (
+                f"; its actions: {', '.join(names)} (--action NAME does one)" if names
+                else "")) from None
+        hidden = next((n for n in unshown if fits(n)), None)
+        if hidden and not any(fits(n) for n in showing):
+            raise SessionError(f"{e}: {hidden.line()} matches, but isn't showing") from None
         near = not any(named(n.name) for n in showing) and difflib.get_close_matches(
             name, {n.name for n in showing if n.name}, 5)
         if not near:
@@ -1247,8 +1287,18 @@ def at_node(name, role, window, timeout, act, force=False):
         raise SessionError(f"{e}. The nearest names: "
                            + ", ".join(json.dumps(n, ensure_ascii=False) for n in near)) from None
     try:
-        screen.backend.focus(screen.env, at[2])
-        act(screen, px, py)
+        if action:
+            i, n["action"] = point
+            try:
+                done = n._acc.do_action(i)
+            except Exception as e:   # gone since, or the program's own error
+                raise SessionError(f"{n.line()}: its action {json.dumps(n.action)} failed: "
+                                   f"{e}") from None
+            if not done:
+                raise SessionError(f"{n.line()} refused its action {json.dumps(n.action)}")
+        else:
+            screen.backend.focus(screen.env, at[2])
+            act(screen, *point)
     finally:
         screen.close()
     return n
@@ -1269,6 +1319,27 @@ def unembedded(text):
     the element's text is matched on its own."""
     return re.sub(r"\s*\ufffc[\s\ufffc]*", lambda m: " " if (
         m.start() and m.end() < len(text) and m[0].strip("\ufffc")) else "", text)
+
+
+def node_action(acc, action=True):
+    """`acc`'s action named `action`, exactly or else in any case (Qt's are
+    Press and Toggle), as (its index, its name), or None; and the names
+    of all its actions. Two alike in case and neither exact fail."""
+    try:
+        names = [acc.get_action_name(i) for i in range(acc.get_n_actions())]
+    except Exception:   # no Action, or gone since
+        names = []
+    if not isinstance(action, str):
+        return None, names
+    if action in names:
+        i = names.index(action)
+    else:
+        alike = [i for i, a in enumerate(names) if a.lower() == action.lower()]
+        if len(alike) > 1:
+            raise SessionError(f"{json.dumps(action)} is any of "
+                               + ", ".join(names[i] for i in alike) + ": name one exactly")
+        i = alike[0] if alike else None
+    return (None if i is None else (i, names[i])), names
 
 
 def wait_node(pattern, window=None, timeout=10):
@@ -2997,11 +3068,16 @@ def main(argv):
                    help="fail where the focus doesn't show: too little of the screen "
                         "round a node changed as it took it")
     c = sub.add_parser("click", help="click a node, found by its name")
-    c.add_argument("name", metavar="NAME", help="its name: exactly, or failing that, a regex "
-                                                "matched in full")
+    # Not required here, so a NAME --action took is said as that.
+    c.add_argument("name", metavar="NAME", nargs="?", help="its name: exactly, or failing "
+                                                           "that, a regex matched in full")
     c.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     c.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
     c.add_argument("--double", action="store_true", help="click twice")
+    c.add_argument("--action", nargs="?", const=True, default=False, metavar="NAME",
+                   help="do its accessible action NAME in place of a pointer click, for a "
+                        "node a click won't reach; without NAME, lists its actions and fails. Their "
+                        "names and what they do are its toolkit's")
     sc = sub.add_parser("scroll", help="turn the mouse wheel over a node, found by its name")
     sc.add_argument("name", metavar="NAME", help="its name: exactly, or failing that, a regex "
                                                  "matched in full")
@@ -3109,10 +3185,19 @@ def main(argv):
             sys.stderr.write(said + "\n")
         return 1 if problems and not a.json else 0
     if a.what in ("click", "scroll"):
-        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout, a.force)
+        if a.what == "click" and a.name is None:
+            c.error("the following arguments are required: NAME" + (
+                f" (--action took {a.action!r} as the action's name: write --action=NAME, "
+                "or put it after the name)" if isinstance(a.action, str) else ""))
+        if a.what == "click" and a.action == "":
+            c.error("--action= takes an action's name")
+        if a.what == "click" and a.action and (a.button != 1 or a.double):
+            p.error("--action does the node's action, not a --button or --double click")
+        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout, a.force, a.action)
              if a.what == "click" else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout,
                                               a.force))
-        print(json.dumps(public(n)) if a.json else n.line())
+        print(json.dumps(public(n)) if a.json else n.line() + (
+            f", by its action {json.dumps(n.action)}" if n.get("action") else ""))
         return 0
     if a.what == "node":
         n = wait_node(a.pattern, a.window, a.timeout)

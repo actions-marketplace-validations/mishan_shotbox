@@ -836,6 +836,8 @@ class Screen:
         except SessionError as e:
             # The time it gave up after is the caller's, not what was left of it.
             said = re.sub(r"^(gave up .*?after )[\d.e-]+s", lambda m: f"{m[1]}{timeout:g}s", str(e))
+            # Its caller names it action, not --action.
+            said = said.replace("(--action", "(action")
             if not at or not re.match(r"\d+ nodes match", said):
                 raise SessionError(said) from None
             raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
@@ -925,16 +927,22 @@ class Screen:
                 for k, v in self._a11y("contrast", *args).items()}
 
     def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10,
-                   force=False):
+                   force=False, action=False):
         """Click the middle of the node named `name`, exactly or else as a
         regex matched in full, and role `role` if given (the same), waiting
         up to `timeout` for it to show, and unless `force`, to be enabled,
-        still and uncovered; that node."""
+        still and uncovered; that node. With `action`, an action's name, do
+        that accessible action instead, as `a11y click --action NAME` does,
+        the node's `action` saying which; with True, fail listing them."""
+        if action == "" or not (action is None or isinstance(action, (bool, str))):
+            raise SessionError(f"action takes an action's name, not {action!r}")
         from .a11y import Node
         return self._by_name(window, timeout, lambda left: Node(self._a11y(
             "click", "--button", str(button), "--timeout", str(left),
             *([f"--role={role}"] if role else []), *(["--double"] if double else []),
             *(["--force"] if force else []),
+            *([] if action is False or action is None else ["--action"] if action is True
+              else [f"--action={action}"]),
             *([f"--window={window}"] if window else []), "--", name, timeout=90 + left)))
 
     def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10, force=False):

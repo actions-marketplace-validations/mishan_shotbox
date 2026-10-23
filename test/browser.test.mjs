@@ -358,7 +358,7 @@ const atspi = () =>
     return launcher && gir ? false : 'no at-spi (at-spi2-core, gir1.2-atspi-2.0)';
 };
 
-test('Chromium on an --a11y session: its tree, a click by name, a node waited for, contrast, behind a modal too, a page\'s text all in a field, a line and a run at a time, text fading or held still, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
+test('Chromium on an --a11y session: its tree, a click by name or by its action, a node waited for, contrast, behind a modal too, a page\'s text all in a field, a line and a run at a time, text fading or held still, the page\'s own Tab order, live regions, no page, a big page, a crashed tab',
      { skip: why || atspi() }, () =>
 {
     const here = path.dirname(new URL(import.meta.url).pathname);
@@ -368,12 +368,18 @@ test('Chromium on an --a11y session: its tree, a click by name, a node waited fo
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, below, contrast, ignored, behind, field, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, pressed, picked, below, contrast, ignored, behind, field, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
     assert.match(tree, /button "Below"/);
-    assert.equal(clicked, 'yes');
+    assert.deepEqual(clicked, ['yes', 'yes']);
+    assert.match(pressed, /^(push )?button "Send" \[focusable\], by its action "press"\n$/);
+    assert.equal(picked[0], 1);
+    assert.match(picked[1], /^combo box "Pick" .*, by its action "open"\n$/);
+    assert.match(picked[2], /^menu item "Beta" .*, by its action "select"\n$/);
+    assert.match(picked[3], /^check box "Agree" .*, by its action "check"\n$/);
+    assert.deepEqual(picked[4], ['Beta', true]);
     assert.match(below, /after 0\.5s: (push )?button "Below" \[focusable\] matches, but isn't showing$/m);
     assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff.*  <- p "Faint words" in div#intro$/m);
     /* Large text, 18pt or 14pt bold, passes at 3.45:1. */

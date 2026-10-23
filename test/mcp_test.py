@@ -704,6 +704,18 @@ try:
           and not said[1][1] and not said[2][1],
           f"click_element: a disabled button waited for and said, and with force clicked, as "
           f"scroll_wheel's is ({said})")
+    said = [tool("click_element", session="r", name="Unplaced", action=v)[:2]
+            for v in ("click", "nope", "true", "", 0)]
+    check(not said[0][1] and re.match(r'Did the action "click" of [a-z ]*button "Unplaced" '
+                                      r'\[focusable\], not a click\.$', said[0][0])
+          and said[1][1] and said[1][0].endswith(
+              '"Unplaced" [focusable] has no "nope"; its actions: click (action NAME does one)')
+          and said[2][1] and said[2][0].endswith(
+              '"Unplaced" [focusable] takes an action by its name; its actions: click '
+              '(action NAME does one)')
+          and all(bad and "an action's name" in got for got, bad in said[3:]),
+          f"click_element: with action, a node with no position done by its action, and one "
+          f"it hasn't, one not named or empty, said ({said})")
     tool("stop_session", session="r")
     tool("start_session", name="f")
     tool("spawn_program", session="f", program="fading")
