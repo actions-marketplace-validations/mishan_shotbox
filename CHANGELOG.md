@@ -1,9 +1,48 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-10-23
+
+Contrast measures web pages' text run by run, in Firefox as in
+Chromium, on lines that say where in the DOM each is. It pictures the
+screen six times, so text that fades or blinks is said with its range;
+it fails GTK 4 text that matches in two places and fails in both, and,
+with `--window`, faint GTK 4 text it can't find where nothing there
+could pass; and it says what's behind a modal dialog apart. A click by
+name waits until its node is ready, and `--action` reaches one a click
+can't; on Wayland the session holds one pointer, as on X11. `wait node`
+waits on the accessible tree, and pictures match with boxes left out
+and within a margin. `tabwalk --document` and a Firefox recipe help
+with web apps; MCP gains zoom, numbered labels and tree changes; a
+seeded home's GSettings are kept. Bounds given a window are now the
+window's, in MCP and Python: see the changes to check.
 
 ### Changes to check when upgrading
 
+- **`a11y contrast` pictures the screen six times, 0.37 s apart, and
+  says text whose ratio changes across what it needs as changing, with
+  its range**: `PATH: text changing: 2.50:1 to 11.24:1 (at least 4.5)`,
+  a note, which fails only with `--strict`. A fading or blinking prompt
+  passed or failed by when it was pictured. Changing text that fails at
+  its best fails, `text 3.10:1 at best, changing from 1.40:1, …`, and
+  that passes at its worst passes, `text passes at 5.20:1 at worst,
+  changing to 9.80:1, …`; a control or image that changes is judged the
+  same way. `--json`, Python's `contrast()` and MCP's `check_contrast`
+  give each its `range`, and the note its `why`. The pictures are taken
+  while measuring goes on, of only what's measured, so a check with
+  anything to measure takes at least 1.85 s: up to that much more where
+  measuring took less (a still GTK 3 window, 2.3 s, not 0.5; about 1 s
+  more on a Chromium page; nothing on a GTK 4 window, which takes
+  longer, but for its text not found that changed, looked for again in
+  each picture: 10 to 14 s more for a label first caught blinked off).
+- **On Wayland the pointer stays where a command leaves it, as on X11**,
+  hovering there, until a command moves it; `park` and `--park` move it
+  to the bottom-right corner, where it starts. Each command made a
+  pointer of its own, which went when it ended, and the hover with it.
+  The pointer is drawn as nothing, in pictures and recordings: the
+  session gives sway and its programs a cursor theme whose every cursor
+  is clear (`XCURSOR_THEME`, GTK's `gtk-cursor-theme-name` and GSettings'
+  `cursor-theme`), since sway 1.9 (Ubuntu 24.04) puts the cursor in a
+  picture.
 - **`a11y lint` and `a11y contrast` lines on a web page's node end in
   where it is in the page's DOM**, the element's tag and id, its text
   and the nearest id round it, as Chromium and Firefox give them:
@@ -15,11 +54,16 @@
   `check_accessible_names` and `check_contrast` lines end the same way.
   `--ignore` matches the ending too: `--ignore 'div#intro'`. A script
   that reads the lines as `PATH: WHAT` gets the end in WHAT.
+- **`a11y tabwalk` says a web page's controls Tab never reaches in
+  Chromium**, so `--reach-all` can fail where it passed: Tab lands on
+  the page's document coming in from the toolbar, and that counted as
+  reaching all that's in it, so a button with `tabindex="-1"` passed.
+  Leave out what's meant to be off the Tab order with `--ignore`.
 - **A click or scroll by name waits until the node is placed, enabled,
   still and uncovered**, and fails, saying which it isn't, when its
   timeout runs out: `gave up after 10s: button "Save" [focusable,
   disabled] isn't enabled`, `... has no position yet`, `... is
-  off-screen`, `... is outside its window` (each failed at once before,
+  off-screen`, `... is outside its window` (the next three failed at once before,
   the first as "can't tell where", which a browser's node just added
   was), `... is moving`, `... is covered by label "Cover"` (in a GTK 4
   window), `... is covered by window "Dialog"` (a dialog of its window,
@@ -79,9 +123,37 @@
   matches. They were the screen's, so a node's bounds given to a click
   in the window were off by where the window is. Without a window
   they're the screen's, as `a11y --json`'s still are.
+- **A seeded home's GSettings keyfile
+  (`.config/glib-2.0/settings/keyfile`) is read, with the session's
+  interface keys merged into it**, as `settings.ini`'s are; it no longer
+  takes `--env GSETTINGS_BACKEND=keyfile`. Since 0.9.0 the session's
+  replaced it, losing the settings of seeds that read it that way
+  before.
 
 ### Added
 
+- The Node package's `accessible` is a page's options too:
+  `browser.newPage({ ...accessible })` emulates
+  `prefers-reduced-motion: reduce`, so a page that honors it holds
+  still for `a11y contrast`. `reducedMotion: 'no-preference'` after it
+  checks the motion.
+- `a11y click NAME --action ACTION` does the node's AT-SPI action ACTION
+  (matched as it is, else in any case) in place of a pointer click, for
+  a node a click by name won't reach: a control given no size, which
+  never gets a position, or a drop-down's option, which isn't in the
+  tree, or isn't showing, until the drop-down is opened: `a11y click
+  Pick --action open`, then `a11y click Beta --action select`. An
+  action's name and what it does are the toolkit's, so it's named;
+  without one, it fails listing the node's actions. It waits for the
+  node to be enabled, unless `--force`, but not placed, still or
+  uncovered, and says the action: `button "Send" [focusable], by its
+  action "press"`; a node without it fails, listing the actions it has,
+  as does one whose program refuses it. A click by name that gives up on
+  a node with no position lists its actions: `... has no position yet;
+  its actions: click (--action NAME does one)`; on a match that isn't
+  showing, it says that, as `wait node` does. Python's
+  `click_node(action="NAME")` and MCP's `click_element` with `action`
+  have it too.
 - `wait node RE` waits for a node showing in the accessible tree whose
   name or text RE is found in, `--window RE` for one window's: a status
   line saying a page is drawn, where `wait stable` passes on a WebGL
@@ -89,16 +161,20 @@
   grep`. Giving up, it says what came nearest: a match not showing,
   the nearest names and texts, or that nothing comes near.
   `Screen.wait_node(re, window=None)` and MCP's `wait_for` node have
-  it too.
+  it too, and say the node's text where that matched, cut to 80
+  characters round the match.
 - A recipe, in docs/recipes.md: a web app in Firefox, served on the
-  session's own network, in a profile made in the session, its window
-  sized to the screen, pictured once the page says it's drawn.
+  session's own network, in a new profile each run, its window sized
+  to the screen, pictured once the page says it's drawn.
 - `a11y tabwalk --document` lists only what's in a browser window's web
   page, and says only its controls Tab never reached: Tab still goes
   through the browser's own (the address bar, Back, the tab strip),
   which were listed as not reached on every page. A window with no web
-  document is refused. `Screen.tab_walk(document=True)` and MCP's
-  `check_focus_order` with `document` have it too.
+  document is refused, and a walk that never gets into a page with
+  controls fails, even without `--reach-all`: `round again, never in
+  the page`.
+  `Screen.tab_walk(document=True)` and MCP's `check_focus_order` with
+  `document` have it too.
 - `compare` and `wait match` and `change` take `--ignore WxH+X+Y`
   (repeatable), as `flicker` does, to leave out a box that changes on
   its own, a clock or a cursor, as openQA's exclude areas and
@@ -128,7 +204,8 @@
   text. Its answer, and a crop's or a shrunk picture's, says where a
   point on it is for `click_element`: `100 + x/4.356, 39 + y/4.355`,
   rather than leaving the agent to undo a scale and a corner itself.
-- `a11y contrast --strict` fails on what it couldn't measure, too: for
+- `a11y contrast --strict` fails on its notes, too, what it couldn't
+  measure and text whose contrast changes: for
   CI that wants every node measured, or ignored with `--ignore`. Those
   lines are failures, under `problems` in `--json`, each with its `why`
   if it has one; `Screen.contrast(strict=True)` and MCP's
@@ -150,15 +227,53 @@
 
 ### Fixed
 
-- `a11y tabwalk` says a web page's controls Tab never reaches in
-  Chromium: Tab lands on the page's document coming in from the
-  toolbar, and that counted as reaching all that's in it, so a button
-  with `tabindex="-1"` passed `--reach-all`.
+- On Wayland a click or scroll, or the start of a held click, sometimes
+  didn't reach a busy program: between commands sway had no pointer,
+  so programs had none, and one slow to take up the next command's
+  missed what it sent first. The session's server holds the one
+  pointer now, as it holds the keyboard, and every command points
+  through it. A button pressed by a command killed outright goes up
+  when it dies.
+- `a11y contrast` looked for every toolkit's label text where it's
+  drawn, as it does GTK 4.14 and later's, whose boxes are wrong; GTK 3's,
+  Qt's and Chromium's aren't, so their text is measured in them again.
+  A faint GTK 3 label was said as not found, "GTK None
+  reports where its widgets are wrong".
+- `a11y tabwalk` takes a web page's `<textarea>` as the browser does:
+  Tab moves on from it. It was taken for a text view that keeps Tab
+  and left with ctrl+Tab, which goes to the browser's next tab, Escape
+  and F6, which in Chromium goes into the toolbar, where Tab then went
+  round: the page's controls after it were said as not reached, failing
+  `--reach-all`, and the browser was left there for the next walk. In a
+  web page Tab is pressed first; the rest only if it keeps the focus,
+  and where one of them leaves the page and Tab never comes back to
+  it, the walk fails, `left the page by F6, and Tab never came back to
+  it`, and presses Escape to take Chromium back to the page.
+- Firefox from Ubuntu's PPA, which GitHub's runners have, never joined
+  an `--a11y` session's bus, so `wait node` and `a11y` gave up on its
+  window: it asks whether a screen reader is running, as Chromium does,
+  and takes `GNOME_ACCESSIBILITY=1` for a yes, which the session now
+  sets with `ACCESSIBILITY_ENABLED=1`.
+- `a11y contrast` measured nothing on a page in Firefox, which keeps a
+  page's text in what it's in (a paragraph, a list item, a table cell,
+  a link, the page itself), where Chromium gives each run of it a
+  static node named by it: a page of faint text passed. A web node's
+  own text, a Chromium static node's too, is now measured run by run,
+  each run in one look and on one line, between the objects in it (a
+  link, a check box) and emoji, which are drawn in their own colors:
+  never by a whole box, which would take a dark link's color for the
+  faint words round it, or the dark words round a faint link that
+  wraps for the link's. A run the browser can't place, after up to a
+  second's wait, is `can't tell where it is`. A canvas's fallback text
+  isn't measured, in Chromium either, since it isn't what the canvas
+  draws. And a web page with text, none of it measured, is a note,
+  `text not measured: none of the page's text was`.
 - A read of the accessible tree (`a11y tree`, `lint`, a click by name
   and the rest) failed with `Object does not exist at path …` when a
   window closed while it was read. A window gone is left out, as a node
-  gone already was; one gone before its bounds are read leaves its
-  nodes' bounds `null`, as a node gone then had.
+  gone already was, and so are its nodes when it goes while they're
+  walked; one gone before its bounds are read leaves its nodes' bounds
+  `null`, as a node gone then had.
 - `compare` failed on two pictures with a million or more pixels
   differing, unable to read ImageMagick's count, `1.04e+06`; it counts
   them exactly now.
@@ -166,7 +281,8 @@
   text inside it matched there too: "unchecked", under a "check" whose
   room took it in, was a note. A shorter text can't match all of a
   longer one, so where it's drawn apart too it doesn't count against it
-  now; "check" itself, matching in both places, still isn't taken.
+  now; "check" itself, matching in both places, isn't taken unless it
+  fails in both (see below).
 - MCP's `take_screenshot` said one scale for a thin picture, its
   width's, though each side is rounded on its own: a 10x4320 crop said
   0.4 and was 0.363 down. It says both when they differ. A crop with
@@ -179,13 +295,15 @@
   `#0f0d14`), and the less it matched its shape. Where the best match
   falls short, it's worked out again there with the lines through the
   text's box taken off: those labels are found, and fail at 1.61:1.
-- `a11y contrast` let GTK 4's text it didn't find pass quietly however
-  faint (see above).
 - `a11y contrast` didn't take GTK 4's text where another node holding
   the same text has it in its room: a combo row's selected item under
   an entry holding it, or a label over one, was a note however faint.
   Where no other node could have drawn it there, it's measured, and
-  only a failure is reported; if it would pass, it's still a note.
+  only a failure is reported; if it would pass, it's still a note. Text
+  matching in two places that either can be its (a faint "check" over a
+  faint "unchecked") is measured in both, and fails at the better if it
+  fails in both: `text 2.50:1 at best, …; it matches in two places and
+  fails in both`.
 - `record` on X11 went by a frame rate ffmpeg guessed from when the
   frames came, not `--fps`: on a busy machine a 30 frames a second MP4
   was 29.97 (2 seconds lasting 2.002), a WebM a frame or two short, and

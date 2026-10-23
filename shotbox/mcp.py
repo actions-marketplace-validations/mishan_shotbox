@@ -700,23 +700,33 @@ class Server:
 
     @watched
     def click_element(self, session, name=None, role=None, x=None, y=None, window=None,
-                      button=1, double=False, hold=None, state=None, timeout=None, force=False):
+                      button=1, double=False, hold=None, state=None, timeout=None, force=False,
+                      action=None):
         s = self.session(session)
         button, double = int(number(button, "button") or 1), flag(double)
         hold, state = held(hold, state)
+        if action == "" or not (action is None or isinstance(action, (bool, str))):
+            raise Refused(f"action takes an action's name, not {json.dumps(action)}")
+        action = None if action in (None, False) else True if flag(action) else str(action)
         if double and (hold is not None or state):
             raise Refused("double, or hold and state: not together")
         if name is not None:
             if hold is not None or state:
                 raise Refused("hold and state go with x and y, not a node's name")
+            if action and (button != 1 or double):
+                raise Refused("action does the node's action, not a button or double click")
             timeout = number(timeout, "timeout", 0, 300)
             n = self.a11y_session(session).click_node(
                 str(name), role=text(role), window=text(window), button=button, double=double,
                 timeout=10 if timeout is None else timeout,
-                force=flag(force))
+                force=flag(force), action=action)
+            if n.get("action"):
+                return f"Did the action {json.dumps(n.action)} of {n.line()}, not a click."
             return f"Clicked {n.line()} at the middle of {n.bounds}."
         if x is None or y is None:
             raise Refused("click_element takes a node's name, or x and y")
+        if action:
+            raise Refused("action goes with a node's name, not x and y")
         px, py = int(number(x, "x")), int(number(y, "y"))
         s.click(px, py, window=text(window), button=button, double=double, hold=hold,
                 state=state)
@@ -886,9 +896,14 @@ class Server:
             passes=flag(passes), strict=flag(strict))
         notes, passed, behind = got["notes"], got.get("passes"), got["behind"]
         whys = list(dict.fromkeys(n.why for n in got["problems"] + notes if "why" in n))
+        changing = [n for n in notes if "range" in n]
+        notes = [n for n in notes if "range" not in n]
         return "\n".join([problems(got["problems"], window)]
                          + ([f"{len(passed)} pass:", problems(passed, window, "contrast")]
                             if passed else [])
+                         + ([f"{len(changing)} changing, which doesn't fail:",
+                             problems(changing, window, "note")]
+                            if changing else [])
                          + ([f"{len(notes)} not measured, which doesn't fail:",
                              problems(notes, window, "note")]
                             if notes else [])
@@ -998,7 +1013,7 @@ NAME = {"type": "string", "description": "A node's name, as get_accessible_tree 
         "exactly, or a regex matched in full"}
 ROLE = {"type": "string", "description": "Narrows name: exactly, or a regex"}
 FORCE = {"type": "boolean", "description": "By name, don't wait for the node to be enabled, "
-         "still and uncovered: to check a disabled one does nothing"}
+         "still and uncovered (with action, enabled): to check a disabled one does nothing"}
 X = {"type": "integer", "description": "Pixels from the left: of the window, with window"}
 Y = {"type": "integer", "description": "Pixels from the top: of the window, with window"}
 IGNORE = {"type": "array", "items": {"type": "string"},
@@ -1143,7 +1158,14 @@ TOOLS = [
              "hold": HOLD, "state": STATE,
              "timeout": {"type": "number", "minimum": 0, "maximum": 300,
                          "description": "By name, seconds to wait for the node (10)"},
-             "force": FORCE, "changes": CHANGES},
+             "force": FORCE,
+             "action": {"type": "string", "description":
+                        "By name, do the node's accessible action of this name in place of "
+                        "a click, for a node a click won't reach. Its names and what they do "
+                        "are its toolkit's: a click that can't place a node lists them, as "
+                        "\"true\" does. It still waits for the node to be enabled, unless "
+                        "force"},
+             "changes": CHANGES},
             ["session"])),
     ("scroll_wheel",
      "Turn the mouse wheel over a node by its name, found as click_element finds it (waiting "
@@ -1275,9 +1297,11 @@ TOOLS = [
      "back round, and list where it went, a tree line each, after a \"began in\" line. Then "
      "the controls the key never reached, and how it ended: round again (fine), stuck (a "
      "trap, or a text view nothing leaves), not round after most presses, lost (no node has "
-     "the focus), stopped (a text view closed as it was left), or nothing focused to begin "
-     "with (click the window with click_element first). With visible, \"focus not shown on "
-     "N\" counts stops that don't show it. A text view that takes Tab is left as a person "
+     "the focus), stopped (a text view closed as it was left), never in the page (with "
+     "document, a page with controls), left the page (a web editor that keeps Tab, left "
+     "by F6, and Tab never back), or nothing focused to begin with (click the window "
+     "with click_element first). With visible, \"focus not shown on N\" counts stops that "
+     "don't show it. A text view that takes Tab is left as a person "
      "would, with ctrl+Tab, shift+Tab, Escape or F6. The focus stays where it ended. To "
      "press a few keys yourself, use press_keys.",
      schema({"session": SESSION,

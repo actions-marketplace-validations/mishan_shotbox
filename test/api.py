@@ -137,6 +137,11 @@ def a11y():
               "a11y: wait_focus()")
         check(s.wait_node("^Wrap", window="a11y-test", timeout=5).name == "Wrap lines",
               "a11y: wait_node()")
+        try:
+            s.wait_node("")
+            check(False, "a11y: wait_node() with an empty regex raises")
+        except shotbox.SessionError as e:
+            check("needs a regex" in str(e), "a11y: wait_node() with an empty regex raises")
         s.key("space")
         s.wait_announce("notes", timeout=5)
         check(s.click_node("Announce", window="a11y-test").name == "Announce",

@@ -62,8 +62,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   answer as a node with its `pid` and `quiet`); `find(role=None,
   name=None, window=None)`, `name` as `click_node` takes it (exactly,
   else a regex); `focused()`; `wait_focus(re)`; `wait_node(re,
-  window=None)`, the node `wait node` waits for, with its `text` where
-  that's what matched;
+  window=None)`, the node `wait node` waits for, with its `text`, cut to
+  80 characters round the match, where that's what matched;
   `tab_walk(key="Tab", most=50, window=None, visible=False,
   reach_all=False, ignore=(), document=False)`, the nodes the focus
   lands on, failing as `tabwalk` does (with `visible`, where the focus
@@ -76,13 +76,18 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   strict=False)`, a dict of `problems`, the nodes with a `problem`, and
   `notes`, what wasn't measured, which doesn't fail, each with its
   `note` (GTK 4's with its `why`), or with `strict` fails, among the
-  `problems`, but for what's scrolled out of view; `behind`, what's
+  `problems`, but for what's scrolled out of view (text whose ratio
+  changed between pictures across what it needs is a note too, with
+  its `range` and `why`: [Contrast](accessibility.md#contrast));
+  `behind`, what's
   behind a modal dialog, which doesn't fail, each with its `behind`;
   and with `passes`, `passes`, what passes, each with its `contrast`,
   the ratio as `a11y contrast --passes` says it;
-  `click_node(name, role=None, window=None, force=False)` and
+  `click_node(name, role=None, window=None, force=False, action=False)` and
   `scroll_node(name, dy, dx=0, role=None, window=None, force=False)`,
-  waiting as `a11y click` does, unless `force`;
+  waiting as `a11y click` does, unless `force`, and with `action`, an
+  action's name, doing that action as `a11y click --action NAME` does,
+  the node's `action` naming it;
   `shotbox.a11y.changes(before, after)`, what changed from one
   `a11y_tree()` to another, as MCP's actions with `changes` say it;
   `speak(keys=None, window=None, most=50)`, what Orca says as `a11y

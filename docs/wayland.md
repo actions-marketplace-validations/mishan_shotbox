@@ -70,9 +70,14 @@ The session, with `--wayland`:
   `-displayfd`);
 - sets `WAYLAND_DISPLAY`, `SWAYSOCK`, `XDG_SESSION_TYPE=wayland` and
   `GDK_BACKEND=wayland`, and no `DISPLAY`;
-- starts its keyboard, kept till it stops: headless sway has none of
-  its own, and while there's none GTK has no keyboard focus, saying
-  nothing has the focus and drawing no caret.
+- starts its keyboard and pointer, kept till it stops: headless sway
+  has neither of its own; while there's no keyboard GTK has no keyboard
+  focus, saying nothing has the focus and drawing no caret, and while
+  there's no pointer a program has none, and is slow to take up a new
+  one, missing its first button;
+- gives sway and its programs a cursor theme whose every cursor is
+  clear, so the pointer, which stays where it was left, isn't seen: sway
+  1.9 puts the cursor in what grim takes.
 
 With `--xwayland`, sway starts Xwayland straight away (`xwayland force`)
 and the session sets `DISPLAY` to it too, which sway reports to a command
@@ -111,8 +116,8 @@ can connect for as long as the session lasts.
    installs them. *Done.*
 2. **Input.** Keys, text, clicks, moves, scrolls, drags and `park` over the
    virtual keyboard and pointer protocols, reaching Xwayland's X clients
-   too: one keyboard for the session, which a server it starts holds
-   for every command, and a pointer a command. *Done.*
+   too: one keyboard and pointer for the session, which a server it
+   starts holds for every command. *Done.*
 
    The spike lost the first key `wtype` sent, so the keyboard is made
    with one fixed keymap holding every key shotbox can press, laid out

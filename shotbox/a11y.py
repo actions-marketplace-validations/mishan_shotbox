@@ -24,6 +24,7 @@ import re
 import sys
 import threading
 import time
+import unicodedata
 from collections import Counter
 from functools import cache
 
@@ -445,13 +446,22 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
             return
         n["_top"] = top
         out.append((depth, n))
-        for i in range(acc.get_child_count()):
+        try:
+            count = acc.get_child_count()
+        except Exception:   # gone while we looked: a window closing
+            return
+        for i in range(count):
             if done():
                 return
-            child = acc.get_child_at_index(i)
-            if child is not None:
+            try:
+                child = acc.get_child_at_index(i)
+                if child is None:
+                    continue
                 role = child.get_role()
-                visit(child, role, depth + 1, f"{path}/{role_name(Atspi, child, role)}[{i}]", web)
+                at = f"{path}/{role_name(Atspi, child, role)}[{i}]"
+            except Exception:   # gone while we looked: a window closing
+                return
+            visit(child, role, depth + 1, at, web)
 
     for _, top in toplevels(Atspi, window, timeout):
         if done():
@@ -650,20 +660,24 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     window manager), and nothing is pressed into that. A press that leaves
     it on the one thing in the window that could take it is a cycle of one.
     `key` isn't pressed in a text view one writes in, which takes Tab for
-    itself: ESCAPES are, noted on it as `tried`, the one that moves the
-    focus as `left_by`, one after which its text changed as `edited`; none
-    is a trap, and one after which the text view isn't there ends the walk,
-    "closed". Escape isn't tried in a dialog, which it would close, nor
-    shift+Tab but in Qt; once that leaves, backward, the walk goes on from
-    the first thing after the text view that takes the focus (grab_focus).
+    itself, but first in a web page's, as a textarea doesn't: ESCAPES are,
+    noted on it as `tried`, the one that moves the focus as `left_by`, one
+    after which its text changed as `edited`; none is a trap, and one after
+    which the text view isn't there ends the walk, "closed". Escape isn't
+    tried in a dialog, which it would close, nor shift+Tab but in Qt; once
+    that leaves, backward, the walk goes on from the first thing after the
+    text view that takes the focus (grab_focus). A cycle with no stop in a
+    web page after one of a web page's was left so is "escaped", and
+    Escape is pressed, back to the page.
     Where the walk began in one nothing leaves, it gives the focus to the
     first thing outside it that takes it (AT-SPI's grab_focus, which GTK 4
     doesn't do), so the rest of the window is walked before the trap. With
     `visible`, each node says how much of the screen round it changed as it
     took the focus (see shown()). With `document`, the nodes, what it never
-    reached and the text view are only those in the window's web documents,
-    though the walk goes through the browser's own controls too; a window
-    with none is refused."""
+    reached and the text view are only those in the window's web documents
+    (but the documents), though the walk goes through the browser's own
+    controls too, and a trap on a web document with nothing in the page it
+    never reached is a cycle; a window with no web document is refused."""
     Atspi = atspi()
     screen = Screen()
 
@@ -688,7 +702,8 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         raise SessionError("no web document to walk: the window isn't a browser's")
 
     def mine(n):
-        return not document or n.path.startswith(tuple(docs))
+        return not document or (n.path.startswith(tuple(docs))
+                                and n._role != Atspi.Role.DOCUMENT_WEB)
 
     start = press(None, None)
     if start is None:
@@ -707,6 +722,17 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         n["tried"], n["left_by"] = [], None
         dialog, qt = in_dialog(Atspi, n), toolkit(n).startswith("Qt")
         text = contents(Atspi, n)
+        # A web page's textarea doesn't take Tab, and a browser's ctrl+Tab
+        # and F6 go to its other tabs and its toolbar: they're for a web
+        # editor that does.
+        if "/document web[" in n.path:
+            now = press(key, n)
+            if now is None or now._id != n._id:
+                del n["tried"], n["left_by"]
+                return now, None
+            n["tried"].append(key)
+            if contents(Atspi, n) != text:
+                n["edited"], text = key, contents(Atspi, n)
         for k in ESCAPES:
             if k == key or (dialog and k == "Escape") or (k == "shift+Tab" and not qt):
                 continue
@@ -764,13 +790,28 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
 
     try:
         seen, how = go()
+        # Left a web page's text view by a browser's key (Chromium's F6, to
+        # its toolbar's pane), and Tab went round the browser's controls,
+        # never back in the page. Escape takes Chromium back to it (F6 does
+        # too, but leaves Tab stuck there).
+        walked = [n for n in (start, *seen) if n]
+        out = next((i for i in range(len(walked) - 1, -1, -1)
+                    if "/document web[" in walked[i].path and walked[i].get("left_by")), None)
+        if how == "cycle" and out is not None and not any(
+                "/document web[" in n.path for n in walked[out + 1:]):
+            how = "escaped"
+            screen.key("Escape")
     finally:
         screen.close()
     # Said only where the walk left it; else it's the trap.
     began = began if began and mine(began) and (began.get("left_by")
                                                  or began.get("walked_from")) else None
-    missed = unreached(Atspi, window, [n for n in (start, *seen) if n and mine(n)])
-    return [n for n in seen if mine(n)], how, [n for n in missed if mine(n)], began
+    missed = [n for n in unreached(Atspi, window, [n for n in (start, *seen) if n and mine(n)])
+              if mine(n)]
+    # A page's document keeping the focus, with nothing in the page to walk.
+    if document and how == "trap" and seen[-1]._role == Atspi.Role.DOCUMENT_WEB and not missed:
+        how = "cycle"
+    return [n for n in seen if mine(n)], how, missed, began
 
 
 def writing(Atspi, n):
@@ -790,8 +831,10 @@ def toolkit(n):
 
 
 def contents(Atspi, n):
+    # Not asked of what has none: GTK 3 logs a CRITICAL each time.
     try:
-        return Atspi.Text.get_text(n._acc, 0, -1)
+        return (Atspi.Text.get_text(n._acc, 0, -1) if "Text" in n._acc.get_interfaces()
+                else None)
     except Exception:   # gone since
         return None
 
@@ -1128,10 +1171,12 @@ def ratio_text(r):
     return f"{math.floor(r * 100) / 100:.2f}"
 
 
-def click(name, role=None, window=None, button=1, double=False, timeout=10, force=False):
-    """Click the node `at_node` finds; that node."""
+def click(name, role=None, window=None, button=1, double=False, timeout=10, force=False,
+          action=False):
+    """Click the node `at_node` finds, or with `action`, do its action; that
+    node."""
     return at_node(name, role, window, timeout,
-                   lambda s, x, y: s.click(x, y, button=button, double=double), force)
+                   lambda s, x, y: s.click(x, y, button=button, double=double), force, action)
 
 
 def scroll(name, dy, dx=0, role=None, window=None, timeout=10, force=False):
@@ -1140,23 +1185,34 @@ def scroll(name, dy, dx=0, role=None, window=None, timeout=10, force=False):
     return at_node(name, role, window, timeout, lambda s, x, y: s.scroll(x, y, dy, dx), force)
 
 
-def at_node(name, role, window, timeout, act, force=False):
+def at_node(name, role, window, timeout, act, force=False, action=None):
     """Do `act` (a Screen, x, y) at the middle of the node named `name`, and
     with role `role` if given, each as x.pattern() matches a name, waiting
     up to `timeout` for it to show, placed in its window and on the
     screen, and unless `force`, to be ready (see unready), its window
-    raised. Nodes named exactly
+    raised; where it gets no place, saying the actions it has if `action`
+    is False. With `action` an action's name, do that action (see
+    node_action) in place of `act`, waiting for it to show and, unless
+    `force`, be enabled: an action on a disabled control can do nothing
+    and say it did. With `action` True, say its actions, as one has to
+    be named: their names and what they do are the toolkit's, and none
+    is a click everywhere. Nodes named exactly
     `name` are taken over those it matches as a regex: a calculator's "."
     is its button, not any one character. A match inside another (a
     button's label) is the outer one. The node."""
     Atspi = atspi()
     (named, note), (as_role, role_note) = x.pattern(name), x.pattern(role or "")
-    showing, late = [], []
+    showing, unshown, late = [], [], []
     screen = Screen()
 
+    def fits(n):
+        return named(n.name) and (role is None or as_role(n.role))
+
     def matches():
-        showing[:] = [n for _, n in walk(Atspi, window, timeout) if n._showing]
-        nodes = [n for n in showing if named(n.name) and (role is None or as_role(n.role))]
+        seen = [n for _, n in walk(Atspi, window, timeout)]
+        showing[:] = [n for n in seen if n._showing]
+        unshown[:] = [n for n in seen if not n._showing]
+        nodes = [n for n in showing if fits(n)]
         nodes = [n for n in nodes if n.name == name] or nodes
         # A field named by its label is the one of the two that's taken.
         ids = {n._id for n in nodes}
@@ -1165,7 +1221,8 @@ def at_node(name, role, window, timeout, act, force=False):
                                for t in related(Atspi, n._acc, "LABEL_FOR")}]
 
     def found():
-        """The node, where it's clicked and its window's origin(), once it's ready."""
+        """The node, where it's clicked (or the action it does, as node_action
+        has it) and its window's origin(), once it's ready."""
         late.clear()
         hits = matches()
         if not hits:
@@ -1180,9 +1237,19 @@ def at_node(name, role, window, timeout, act, force=False):
                                + "\nNarrow it with a role or a window, or click one where it is.")
         n = hits[0]
         box = n.bounds
-        # A browser puts a node in its tree a moment before it places it.
-        why = None
-        if not box or box[2] <= 0 or box[3] <= 0:
+        why = point = None
+        if action:
+            point, names = node_action(n._acc, action)
+            if not names:
+                raise SessionError(f"{n.line()} has no action")
+            if not point:
+                raise SessionError(f"{n.line()} " + (
+                    f"has no {json.dumps(action)}" if isinstance(action, str)
+                    else "takes an action by its name")
+                    + f"; its actions: {', '.join(names)} (--action NAME does one)")
+            why = not force and "disabled" in n.states and "isn't enabled"
+        elif not box or box[2] <= 0 or box[3] <= 0:
+            # A browser puts a node in its tree a moment before it places it.
             why = "has no position yet"
         else:
             # Inside its window: a node scrolled out of view is still showing.
@@ -1193,7 +1260,8 @@ def at_node(name, role, window, timeout, act, force=False):
             elif not w or not h:
                 why = "is off-screen"
             point = (px + w // 2, py + h // 2)
-        why = why or not force and unready(Atspi, screen, n, point, origins[n._top], shown)
+        why = why or not force and not action and unready(Atspi, screen, n, point,
+                                                         origins[n._top], shown)
         if why:
             late[:] = [n, why]
             return None
@@ -1201,11 +1269,17 @@ def at_node(name, role, window, timeout, act, force=False):
 
     what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
     try:
-        n, (px, py), at = wait_for(what, found, timeout)
+        n, point, at = wait_for(what, found, timeout)
     except SessionError as e:
         if late and str(e).startswith("gave up"):
-            raise SessionError(f"gave up after {timeout:g}s: {late[0].line()} {late[1]}"
-                               ) from None
+            names = (action is False and late[1] == "has no position yet"
+                     and node_action(late[0]._acc)[1])
+            raise SessionError(f"gave up after {timeout:g}s: {late[0].line()} {late[1]}" + (
+                f"; its actions: {', '.join(names)} (--action NAME does one)" if names
+                else "")) from None
+        hidden = next((n for n in unshown if fits(n)), None)
+        if hidden and not any(fits(n) for n in showing):
+            raise SessionError(f"{e}: {hidden.line()} matches, but isn't showing") from None
         near = not any(named(n.name) for n in showing) and difflib.get_close_matches(
             name, {n.name for n in showing if n.name}, 5)
         if not near:
@@ -1213,18 +1287,69 @@ def at_node(name, role, window, timeout, act, force=False):
         raise SessionError(f"{e}. The nearest names: "
                            + ", ".join(json.dumps(n, ensure_ascii=False) for n in near)) from None
     try:
-        screen.backend.focus(screen.env, at[2])
-        act(screen, px, py)
+        if action:
+            i, n["action"] = point
+            try:
+                done = n._acc.do_action(i)
+            except Exception as e:   # gone since, or the program's own error
+                raise SessionError(f"{n.line()}: its action {json.dumps(n.action)} failed: "
+                                   f"{e}") from None
+            if not done:
+                raise SessionError(f"{n.line()} refused its action {json.dumps(n.action)}")
+        else:
+            screen.backend.focus(screen.env, at[2])
+            act(screen, *point)
     finally:
         screen.close()
     return n
 
 
+def around(text, start, end, most=80):
+    """`text` cut to `most` characters round its `start`:`end`, with … where
+    it's cut: a page's text can run to megabytes."""
+    a = max(0, min((start + end - most) // 2, len(text) - most, start))
+    return "…" * (a > 0) + text[a:a + most] + "…" * (a + most < len(text))
+
+
+def unembedded(text):
+    """`text` without the U+FFFC that stands in a page's text for each
+    element in it, and the space round one made one, so `Done <a>here</a>
+    now` reads "Done now". Not with the element's text in its place: that
+    takes round trips an element, and those of each in it, each poll; and
+    the element's text is matched on its own."""
+    return re.sub(r"\s*\ufffc[\s\ufffc]*", lambda m: " " if (
+        m.start() and m.end() < len(text) and m[0].strip("\ufffc")) else "", text)
+
+
+def node_action(acc, action=True):
+    """`acc`'s action named `action`, exactly or else in any case (Qt's are
+    Press and Toggle), as (its index, its name), or None; and the names
+    of all its actions. Two alike in case and neither exact fail."""
+    try:
+        names = [acc.get_action_name(i) for i in range(acc.get_n_actions())]
+    except Exception:   # no Action, or gone since
+        names = []
+    if not isinstance(action, str):
+        return None, names
+    if action in names:
+        i = names.index(action)
+    else:
+        alike = [i for i, a in enumerate(names) if a.lower() == action.lower()]
+        if len(alike) > 1:
+            raise SessionError(f"{json.dumps(action)} is any of "
+                               + ", ".join(names[i] for i in alike) + ": name one exactly")
+        i = alike[0] if alike else None
+    return (None if i is None else (i, names[i])), names
+
+
 def wait_node(pattern, window=None, timeout=10):
     """Wait for a showing node with `pattern`, a regex, found in its name
-    or text; that node, with its text as `text` where that's what
-    matched. Giving up, say what came nearest: a match that isn't
-    showing, else the nearest names and texts, or that there were none."""
+    or text; that node, with its text round the match as `text` where
+    that's what matched. Giving up, say what came nearest: a match that
+    isn't showing, else the nearest names and texts, or that there were
+    none."""
+    if not pattern:
+        raise SessionError("wait node needs a regex to look for: an empty one matches any node")
     Atspi = atspi()
     try:
         found = re.compile(pattern)
@@ -1235,10 +1360,10 @@ def wait_node(pattern, window=None, timeout=10):
     def matches(n):
         if found.search(n.name):
             return True
-        # A page's text: U+FFFC stands in it for each element in it.
-        n["_text"] = (contents(Atspi, n) or "").replace("\ufffc", "")
-        if found.search(n._text):
-            n["text"] = n._text
+        n["_text"] = unembedded(contents(Atspi, n) or "")
+        m = found.search(n._text)
+        if m:
+            n["text"] = around(n._text, *m.span())
             return True
         return False
 
@@ -1254,11 +1379,27 @@ def wait_node(pattern, window=None, timeout=10):
             raise
         hidden = next((n for n in seen if not n._showing and matches(n)), None)
         if hidden:
-            raise SessionError(f"{e}: {hidden.line()} matches, but isn't showing") from None
-        near = difflib.get_close_matches(pattern, {t for n in seen
-                                                   for t in (n.name, n.get("_text")) if t}, 5)
+            text = (f", its text {json.dumps(hidden.text, ensure_ascii=False)},"
+                    if "text" in hidden else "")
+            raise SessionError(f"{e}: {hidden.line()}{text} matches, but isn't showing") from None
+        # Shorter, anything is near.
+        if len(pattern) < 3:
+            raise SessionError(str(e)) from None
+        # A long text in pieces of whole words, about twice the pattern's
+        # length, each compared and said on its own: whole, it's never near.
+        width, said = 2 * len(pattern), {}
+        for t in {t for n in seen for t in (n.name, n.get("_text")) if t}:
+            words = t.split() if len(t) > 80 else [t]
+            for i in range(len(words)):
+                j, length = i + 1, len(words[i])
+                while j < len(words) and length < width:
+                    length, j = length + 1 + len(words[j]), j + 1
+                piece = " ".join(words[i:j])
+                said.setdefault(piece, "…" * (i > 0) + around(piece, 0, 0)
+                                + "…" * (j < len(words)))
+        near = difflib.get_close_matches(pattern, said, 5)
         raise SessionError(f"{e}. The nearest: " + ", ".join(
-            json.dumps(t, ensure_ascii=False) for t in near) if near
+            json.dumps(said[t], ensure_ascii=False) for t in near) if near
             else f"{e}: nothing in the tree comes near it") from None
 
 
@@ -1415,10 +1556,11 @@ def modals(Atspi, nodes):
 def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore=(),
              large=3.0, strict=False):
     """What's drawn with too little contrast, as (node, what), measured on a
-    picture of the screen, `window` raised, in each node's bounds: text, and
-    a button, link, tab or menu item, which may draw text or an icon and
-    can't be told apart, against its background (at least `text`, or
-    `large` for large text); an image against its own (`graphics`); and
+    picture of the screen, `window` raised, in each node's bounds: text (a
+    web node's own, run by run, runs()), and a button, link, tab
+    or menu item, which may draw text or an icon and can't be told apart,
+    against its background (at least `text`, or `large` for large text);
+    an image against its own (`graphics`); and
     with `edges`, a control's edge against what's round it. Disabled nodes
     and what's in them are left out, as WCAG leaves them, and so are a
     switch, slider, check box or the like, and what's outside its window
@@ -1432,7 +1574,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     too; what's behind a modal dialog (modals()), not measured, as (node,
     what), which doesn't fail even with `strict`: shut off till it's
     closed, and dimmed on purpose or covered by it; why GTK 4's weren't,
-    a line each; how many were measured)."""
+    a line each; how many were measured). A web page with text, none of it
+    measured, is a note."""
     skip = ignored(ignore, web=True)
     Atspi = atspi()
     toplevels(Atspi, window, timeout)
@@ -1444,11 +1587,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         screen.close()
     nodes = [n for _, n in walk(Atspi, window, timeout, bounds=True)]
     fronts = modals(Atspi, nodes)
-    pic = picture.Picture(*screen.backend.pixels(screen.env))
     texts, controls = roles(Atspi, TEXTS), roles(Atspi, CONTROLS)
     named = roles(Atspi, ("LABEL", "HEADING", "LINK", "STATIC", "CAPTION"))
     images, textless, edged = (roles(Atspi, ("IMAGE", "ICON")), roles(Atspi, TEXTLESS),
                                roles(Atspi, EDGED))
+    # A link draws its text, as other controls may not.
+    unworded = (controls - {int(Atspi.Role.LINK)}) | images
     parents = {n.path: n for n in nodes}
     ids = {n._id: n for n in nodes}
     layers = {}
@@ -1464,13 +1608,130 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 return True
         return "disabled" in n.states
 
+    kids, worded, kits = {}, {}, {}
+    for n in nodes:
+        kids.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+
+    def wording(n):
+        """Whether `n` is a web node measured by the runs of its own text
+        (runs()): Firefox keeps a page's text in what it's in (a
+        paragraph, a list item, a link), Chromium in a static node for each
+        run, and says where else its text is wrong (an option's). Not one
+        whose text is its static children's, nor a control or image,
+        measured as one."""
+        if n.path not in worded:
+            if n._top not in kits:
+                kits[n._top] = toolkit(n)
+            text = ("/document web[" in n.path and n._role not in unworded and (
+                n._role == Atspi.Role.STATIC or kits[n._top] != "Chromium")
+                and contents(Atspi, n) or "").replace("\ufffc", "")
+            worded[n.path] = any(c.isalnum() for c in text) and not any(
+                o._role == Atspi.Role.STATIC and o.name.strip() and o.name.strip() in text
+                for o in kids.get(n.path, ()))
+        return worded[n.path]
+
+    since = []   # when a character was first asked of that had no box yet
+
+    def runs(n):
+        """A Node for each line of each run of `n`'s own text in one look,
+        each with its `_run`, its text, its `_look`, its attributes, and
+        `bounds`, where its first and last characters drawn are, or None
+        if that can't be told. Not what's between runs: the objects in it
+        (U+FFFC), and pictographs (emoji), drawn in their own colors. A
+        line is where those characters are at one height, found by
+        halving; not by a range's extents, which in Firefox takes in an
+        object it ends at, nor its lines, which in Firefox are the whole
+        paragraph. Only characters drawn are asked of: whitespace, a line
+        break and zero-width ones have no box of their own. Both browsers
+        say nothing of some till a moment after they're first asked, so
+        up to a second, in all, is waited for that; and Chromium's window
+        coordinates for text start elsewhere than for its nodes, so it's
+        asked in the screen's, taken to the walk's bounds. Right to left
+        text, which may be drawn in another order, is asked of whole."""
+        acc, text, out, i, boxes = n._acc, contents(Atspi, n) or "", [], 0, {}
+        try:
+            e = acc.get_extents(Atspi.CoordType.SCREEN)
+        except Exception:   # gone since the walk
+            return out
+        at = n.bounds and (n.bounds[0] - e.x, n.bounds[1] - e.y)
+
+        def box(j):
+            if j not in boxes:
+                r = Atspi.Text.get_character_extents(acc, j, Atspi.CoordType.SCREEN)
+                if r.height <= 0 and not since:
+                    since.append(time.monotonic())
+                while r.height <= 0 and time.monotonic() < since[0] + 1:
+                    time.sleep(0.05)
+                    r = Atspi.Text.get_character_extents(acc, j, Atspi.CoordType.SCREEN)
+                boxes[j] = [r.x, r.y, r.width, r.height] if r.height > 0 else None
+            return boxes[j]
+
+        def halves(drawn):
+            # Firefox gives no box to some characters near a zero-width one:
+            # they're left out, but for a run of none, which can't be placed.
+            boxed = [j for j in (drawn[0], drawn[-1]) if box(j)]
+            while len(boxed) < 2 and len(drawn) > 2:
+                drawn = drawn[not box(drawn[0]):len(drawn) - (not box(drawn[-1]))]
+                boxed = [j for j in (drawn[0], drawn[-1]) if box(j)]
+            if len(boxed) < 2 or box(drawn[0])[1] == box(drawn[-1])[1]:
+                return [drawn]
+            return halves(drawn[:len(drawn) // 2]) + halves(drawn[len(drawn) // 2:])
+
+        def lines(drawn):
+            """`drawn`, split where its characters change height."""
+            got = []
+            for half in halves(drawn):
+                if got and box(got[-1][0]) and box(half[0]) and box(got[-1][0])[1] == box(
+                        half[0])[1]:
+                    got[-1] = got[-1] + half
+                else:
+                    got.append(half)
+            return got
+
+        def apart(j, k):
+            """Whether an object or a pictograph is between `j` and `k`."""
+            return any(text[m] == "\ufffc" or unicodedata.category(text[m]) == "So"
+                       for m in range(j + 1, k))
+
+        while i < len(text):
+            try:
+                look, _, end = Atspi.Text.get_attribute_run(acc, i, True)
+                end = max(end, i + 1)
+                parts = [[]]
+                for j in range(i, end):
+                    if text[j].isspace() or unicodedata.category(text[j]) in (
+                            "Cc", "Cf", "Mn", "Me", "So") or text[j] == "\ufffc":
+                        continue
+                    if parts[-1] and apart(parts[-1][-1], j):
+                        parts.append([])
+                    parts[-1].append(j)
+                found = [line for part in parts if part for line in lines(part)]
+            except Exception:   # gone since the walk
+                return out
+            for line in found:
+                span = text[line[0]:line[-1] + 1]
+                if not any(c.isalnum() for c in span):
+                    continue
+                rtl = any(unicodedata.bidirectional(c) in ("R", "AL") for c in span)
+                got = [box(j) for j in (line if rtl else (line[0], line[-1])) if box(j)]
+                x0 = min(b[0] for b in got) if got else None
+                y0 = min(b[1] for b in got) if got else None
+                out.append(Node(n, _run=span, _look=look or {}, bounds=[
+                    x0 + at[0], y0 + at[1], max(b[0] + b[2] for b in got) - x0,
+                    max(b[1] + b[3] for b in got) - y0] if at and x0 is not None else None))
+            i = end
+        return out
+
     def kind(n):
-        if (not n._showing or not n.name or "editable" in n.states
-                or disabled(n) or n._role in textless or gtk3_switch(Atspi, n)):
+        # A canvas's fallback text isn't what it draws.
+        if (not n._showing or not (n.name or wording(n)) or "editable" in n.states
+                or re.search(r"/document web\[\d+\]/(.*/)?canvas\[\d+\](/|$)", n.path)
+                or disabled(n)
+                or n._role in textless or gtk3_switch(Atspi, n)):
             return None
         if n._role in images:
             return "graphics"
-        return "text" if n._role in texts or n._role in controls else None
+        return "text" if n._role in texts or n._role in controls or wording(n) else None
 
     def shown(n):
         """`n`'s bounds cut to its window's and every node's it's inside, or
@@ -1532,7 +1793,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return False
 
     def hovered(box):
-        """The screen with the pointer over the middle of `box`."""
+        """The screen with the pointer over the middle of `box`, once the
+        sampler's done, whose pictures it would change."""
+        sampler.join()
         s = Screen()
         try:
             s.move(box[0] + box[2] // 2, box[1] + box[3] // 2)
@@ -1569,12 +1832,25 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 return True
         return False
 
-    measured = [n for n in nodes if kind(n)]
-    problems, passes, notes, behind, whys, count = [], [], [], [], [], 0
+    # Firefox says where a page's node is a moment after it's in the tree.
+    unplaced = [n for n in nodes if "/document web[" in n.path and kind(n) and not n.bounds]
+    deadline = time.monotonic() + 1
+    if unplaced:
+        s, origins = Screen(), {}
+        try:
+            shown_ = s.backend.windows(s.env)
+            while unplaced and time.monotonic() < deadline:
+                time.sleep(0.1)
+                for n in unplaced:
+                    n["bounds"] = place(Atspi, n, shown_, origins)
+                unplaced = [n for n in unplaced if not n.bounds]
+        finally:
+            s.close()
+    measured = [r for n in nodes if kind(n) for r in (runs(n) if wording(n) else [n])]
+    problems, passes, notes, behind, whys, count, taken = [], [], [], [], [], 0, []
+    uncounted = set()   # what's measured only by its pictures, if at all
     trusted = os.environ.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
-    kids, rel = {}, {}
-    for n in nodes:
-        kids.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+    rel = {}
 
     def relative(n):
         """`n`'s extents in its parent's, as GTK says them."""
@@ -1586,7 +1862,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 rel[n.path] = None
         return rel[n.path]
 
-    areas, fonts, drawings, lays, refused, aparts, doubt = {}, {}, {}, {}, {}, {}, {}
+    areas, fonts, drawings, lays, refused, aparts, doubt, both = {}, {}, {}, {}, {}, {}, {}, {}
 
     def room(n):
         """Where `n`'s text can be on GTK 4.14 and later, which says where
@@ -1790,8 +2066,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             # drawn one place (drawers, blank too) and another with the same
             # text could the other, this one's is the first, looked for
             # again just there, but taken only if it fails (doubt). Text
-            # inside a longer one ("check" in "unchecked") is left as
-            # matching twice.
+            # inside a longer one ("check" in "unchecked") is measured in both
+            # places, below.
             for i in (0, 1):
                 if not near and not drawers(boxes[i], n.name, n, blank=True) and any(
                         s.lower() == n.name.lower() for _, s in others[1 - i]):
@@ -1802,7 +2078,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                         refused[n.path] = why
                     return seen
             refused[n.path] = why
-            return None
+            if near:
+                return None
+            # Else either place can be its, so it fails where both do (doubt).
+            at = laid(n) or (0, 0)
+            doubt[n.path] = why
+            both[n.path] = [(b, tuple(b[i] - n.bounds[i] - at[i] for i in (0, 1)), (x, y, shape))
+                            for b, (x, y) in zip(boxes, places)]
+            return both[n.path][0]
         if not as_wide(n, got[6]):
             refused[n.path] = ("wide", "what matches is drawn wider or narrower than GTK "
                                        "lays it out")
@@ -1910,12 +2193,57 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     def leaf(n):
         return not any(o.path.startswith(n.path + "/") for o in measured)
 
+    pic = picture.Picture(*screen.backend.pixels(screen.env))
+    shot, samples, stop = time.monotonic(), [], threading.Event()
+
+    def searched(n):
+        """Whether `n`'s text is looked for where it's drawn: GTK 4's, from
+        4.14."""
+        return (n._role in texts and n._role not in controls and gtk4(n)
+                and gtk4_release(n) >= (4, 14) and not trusted)
+
+    # Where each node measured is, or GTK 4's text can be, cut to the
+    # screen: all a sample keeps of what it pictures.
+    regions = {}
+    for n in measured:
+        region = pic.clip((searched(n) and room(n)) or shown(n) or [0, 0, 0, 0])
+        if region:
+            regions[id(n)] = region
+
+    def crops_of(p, r, x=0, y=0):
+        """The rows of `r` (x0, y0, x1, y1) in `p`, a picture of the screen
+        from `x`, `y`."""
+        return b"".join(p.data[(j * p.width + r[0] - x) * 3:(j * p.width + r[2] - x) * 3]
+                        for j in range(r[1] - y, r[3] - y))
+
+    def lay(data, width, r, rows):
+        wide = (r[2] - r[0]) * 3
+        for i, y in enumerate(range(r[1], r[3])):
+            data[(y * width + r[0]) * 3:(y * width + r[2]) * 3] = rows[i * wide:(i + 1) * wide]
+        return data
+
+    def sample():
+        """Each picture, of only what holds the regions where it can be had
+        that way, fast (x.grab), as the whole screen is too slow for."""
+        rs = set(regions.values())
+        x0, y0 = min((r[0] for r in rs), default=0), min((r[1] for r in rs), default=0)
+        x1, y1 = max((r[2] for r in rs), default=1), max((r[3] for r in rs), default=1)
+        for i in range(1, SAMPLES):
+            stop.wait(max(0, shot + i * SAMPLE - time.monotonic()))
+            if stop.is_set():
+                return
+            got = screen.backend.grab(screen.env, box=(x1 - x0, y1 - y0, x0, y0))
+            p = picture.Picture(*(got or screen.backend.pixels(screen.env)))
+            samples.append({r: crops_of(p, r, *((x0, y0) if got else (0, 0))) for r in rs})
+    # Pictured again at set times while it's measured, so when a blink is
+    # caught doesn't hang on how long measuring takes.
+    sampler = threading.Thread(target=sample, daemon=True)
+    sampler.start()
     found, late, hidden = {}, set(), set()
     cannot = None
     until = time.monotonic() + SEARCH
     for n in measured:
-        if (n._role in texts and n._role not in controls and gtk4_release(n) >= (4, 14)
-                and not trusted and leaf(n) and n.path not in fronts):
+        if searched(n) and leaf(n) and n.path not in fronts:
             cannot = cannot or pango_cairo()
             if not cannot and out_of_view(n):
                 hidden.add(n.path)
@@ -1973,7 +2301,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and this matched in two "
                "places where it can be (the same text twice, or inside a longer one), so "
-               "neither is taken; see docs/accessibility.md." if case == "twice" else
+               "neither is taken unless it fails in both; see docs/accessibility.md."
+               if case == "twice" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and another node's text "
                "matches what was found as well, so it isn't "
@@ -2005,7 +2334,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 
     for n in measured:
         # A button with a label in it: the label's text is what's measured.
-        if not leaf(n):
+        if "_run" not in n and not leaf(n):
             continue
         k = kind(n)
         # GTK 4 puts a label in a control that draws text, so one with none
@@ -2026,20 +2355,26 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if why not in whys:
                 whys.append(why)
             continue
-        big = k == "text" and large_text(Atspi, n)
+        big = k == "text" and (large_run(n._look, False) if "_run" in n
+                               else large_text(Atspi, n))
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
         if seen and n.path in doubt:
             # Told apart from another's text by which nodes could have drawn
             # it, which can't count one left out of the tree: taken only to
             # fail, else as if not found.
-            got = picture.text_contrast(pic, overlap(seen[0], [0, 0, pic.width, pic.height]),
-                                        seen[2])
-            if not got or got[0] >= least:
+            got = [(picture.text_contrast(pic, overlap(s[0], [0, 0, pic.width, pic.height]),
+                                          s[2]), s) for s in both.get(n.path, [seen])]
+            if not all(g for g, _ in got) or max(g[0] for g, _ in got) >= least:
                 seen, refused[n.path] = None, doubt[n.path]
+            else:
+                seen = max(got, key=lambda g: g[0][0])[1]
         # Only in a window raised: another can be over it, its text faint.
         dim = window and n.path in found and not seen and faint(n, least)
         if dim:
+            uncounted.add(id(n))
+            taken.append((n, k, least, at, overlap(room(n), [0, 0, pic.width, pic.height]),
+                          False, ""))
             problems.append((n, f"{k} not found, but nothing where it can be has the contrast "
                                 f"it needs: the best anything there reaches is "
                                 f"{ratio_text(dim)}:1 ({at})"))
@@ -2054,7 +2389,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if not seen and wrong(n, k):
             continue
         if not n.bounds:
-            if not undrawn(Atspi, n):
+            if "_run" in n or not undrawn(Atspi, n):
                 problems.append((n, f"{k} not measured: can't tell where it is"))
             continue
         box = seen[0] if seen else shown(n)
@@ -2089,13 +2424,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     f"{picture.hex_of(over[1])} on {picture.hex_of(over[2])} ({at})"
                     if over else "")
             problems.append((n, f"{k} not seen: nothing drawn on {back}{then}"))
+            uncounted.add(id(n))
+            taken.append((n, k, least, at, box, None, ""))
         elif got:
             moved = (f"; found {seen[1][0]},{seen[1][1]} px from " + (
                 f"where GTK {gtk4(n)} says its text is" if laid(n)
                 else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
+            twice = seen and n.path in both
+            moved = ("; it matches in two places and fails in both" if twice else "") + moved
             colors = f"{picture.hex_of(got[1])} on {picture.hex_of(got[2])} ({at})"
             if got[0] >= least:
                 passes.append((n, f"{k} passes at {ratio_text(got[0])}:1, {colors}{moved}"))
+                taken.append((n, k, least, at, box, seen and seen[2], moved))
                 continue
             said = said_color(Atspi, n)
             # Light or small text covers no pixel whole, so measures short of
@@ -2104,7 +2444,94 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                      f"{ratio_text(picture.ratio(said, got[2]))}:1 (light text, or opacity)"
                      if said and picture.ratio(said, got[2]) > got[0]
                      and picture.between(got[1], got[2], said) else "")
-            problems.append((n, f"{k} {ratio_text(got[0])}:1, {colors}{meant}{moved}"))
+            problems.append((n, (f"{k} {ratio_text(got[0])}:1{' at best' if twice else ''}, "
+                                 f"{colors}{meant}{moved}")))
+            taken.append((n, k, least, at, box, seen and seen[2], moved))
+    # Text that fades or blinks measures as it is the moment it's pictured.
+    # What changed in a sample is measured in each, its sample's part laid
+    # over the first picture: GTK 4's text not found (`drawn` False) looked
+    # for again, or bounded by faint() where it still isn't, and what's
+    # blinked off the color of its background, while it's where it was
+    # (what's moved can't be told from blank). One that fails at its best
+    # fails, and one that passes at its worst passes; but between, the dim
+    # end of a fade can be meant, and the bright end be all it is for a
+    # moment, so it's said with its range, failing only with `strict`. A
+    # change of less than CHANGE is a level's flicker, none.
+    if not taken:
+        stop.set()
+    sampler.join()
+    first, where = pic, None
+    for n, k, least, at, box, drawn, rest in taken:
+        region = regions.get(id(n))
+        base = region and crops_of(first, region)
+        if not region or all(s[region] == base for s in samples):
+            continue
+        x0, y0, wide, high = region[0], region[1], region[2] - region[0], region[3] - region[1]
+        got, still = [], None
+        try:
+            for rows in [base, *(s[region] for s in samples)]:
+                if drawn is False:
+                    # Looked for in the whole picture, the sample's part
+                    # laid over the first's.
+                    pic = picture.Picture(first.width, first.height, bytes(lay(
+                        bytearray(first.data), first.width, region, rows)))
+                    aparts.clear()
+                    try:
+                        seen = seek(n, until)
+                    except TimeoutError:
+                        continue
+                    dim = not seen and faint(n, least)
+                    # Not found, it's measured where it is only where GTK says
+                    # that right.
+                    if not seen and not dim and gtk4(n) not in GTK4_BOUNDS:
+                        continue
+                    r = (picture.text_contrast(pic, overlap(seen[0], [
+                        0, 0, pic.width, pic.height]), seen[2]) if seen else (dim, None) if dim
+                        else picture.text_contrast(pic, box))
+                else:
+                    r = picture.text_contrast(
+                        picture.Picture(wide, high, rows), [box[0] - x0, box[1] - y0, *box[2:]],
+                        drawn and (drawn[0] - x0, drawn[1] - y0, drawn[2]))
+                if not r:
+                    if still is None:
+                        where = where or (Screen(), {})
+                        try:
+                            still = place(Atspi, n, where[0].backend.windows(where[0].env),
+                                          where[1]) == parents.get(n.path, n).bounds
+                        except Exception:   # gone since
+                            still = False
+                    if not still:
+                        continue
+                got.append(r or (1.0, None))
+        finally:
+            pic = first
+            if where:
+                where[0].close()
+                where = None
+        got.sort(key=lambda r: r[0])
+        if not got or got[-1][0] - got[0][0] < CHANGE:
+            continue
+        lo, hi = ratio_text(got[0][0]), ratio_text(got[-1][0])
+        passes = [p for p in passes if p[0] is not n]
+        problems = [p for p in problems if p[0] is not n]
+        n["range"] = [float(lo), float(hi)]
+        count += id(n) in uncounted
+        end = got[-1] if got[-1][0] < least else got[0]
+        colors = f", {picture.hex_of(end[1])} on {picture.hex_of(end[2])}" if end[1] else ""
+        if got[0][0] >= least:
+            passes.append((n, f"{k} passes at {lo}:1 at worst, changing to {hi}:1{colors} "
+                              f"({at}){rest}"))
+        elif got[-1][0] < least:
+            problems.append((n, f"{k} {hi}:1 at best, changing from {lo}:1{colors} ({at})"
+                                f"{rest}"))
+        else:
+            notes.append((n, f"{k} changing: {lo}:1 to {hi}:1 ({at}){rest}"))
+            n["_why"] = why = (
+                f"Its contrast changed over {SAMPLES} pictures {SAMPLE:g} s apart, as a fade's "
+                "or a blink's does, so it's a note, which fails only with --strict; see "
+                "docs/accessibility.md.")
+            if why not in whys:
+                whys.append(why)
     if edges:
         for n in nodes:
             if not (n._showing and not disabled(n) and (
@@ -2129,6 +2556,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 passes.append((n, f"edge passes, drawn by what it's in; its own {colors}"))
             else:
                 problems.append((n, f"edge {colors}"))
+    said = problems + passes + notes + behind
+    for d in nodes:
+        if (d._role == Atspi.Role.DOCUMENT_WEB and d._showing
+                and not any(within(n.path, d.path) for n, _ in said)
+                and any(o._showing and (contents(Atspi, o) or "").replace("\ufffc", "").strip()
+                        for o in nodes if within(o.path, d.path))):
+            notes.append((d, "text not measured: none of the page's text was"))
+            d["_why"] = why = (
+                "A web page has text, but none of it was measured: text in a field, or in "
+                "something disabled, isn't; see docs/accessibility.md.")
+            if why not in whys:
+                whys.append(why)
     notes = [(n, what) for n, what in notes if not skip(n, what)]
     # What's scrolled out of view isn't there to measure, as GTK 3's and
     # browsers' rows aren't, which aren't said at all.
@@ -2143,6 +2582,16 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
 class Noted(tuple):
     """A note, (node, what), that --strict made a problem."""
 
+
+# How many pictures contrast takes, this many seconds apart: 0.37 s is
+# no fraction of a common blink's period (0.5, 1, 1.2, 2 s), so over 1.85 s
+# they fall all round each one's phase, never more than 0.37 s apart: a
+# 1 s blink is seen on and off, and a flash of 0.5 s in 2 s is caught.
+SAMPLE, SAMPLES = 0.37, 6
+
+# A ratio that changes by less than this between pictures hasn't: a
+# level's flicker in what's drawn.
+CHANGE = 0.05
 
 # Fewer pixels than this, a glyph (a ".") has no core of its own color.
 SMALLEST = 16
@@ -2342,6 +2791,11 @@ def public(n):
     return {k: v for k, v in n.items() if not k.startswith("_")}
 
 
+# What dom() has read of each node it climbed through, in this run: a
+# page's findings share the elements round them.
+CLIMBED = {}
+
+
 def dom(Atspi, n):
     """Note on `n`, if it's a node in a web page, where it is in its DOM,
     as Chromium's and Firefox's object attributes say, once: "dom", the
@@ -2353,19 +2807,25 @@ def dom(Atspi, n):
     n["_placed"] = True
     el, acc = None, n._acc
     try:
-        while acc is not None and acc.get_role() != Atspi.Role.DOCUMENT_WEB:
-            got = acc.get_attributes() or {}
-            if got.get("tag"):
-                this = {k: got[k] for k in ("tag", "id", "class") if got.get(k)}
-                el = el or this
+        while acc is not None:
+            key = ident(acc)
+            if key not in CLIMBED:
+                got = acc.get_attributes() or {}
+                CLIMBED[key] = (acc.get_role() == Atspi.Role.DOCUMENT_WEB, got.get("tag") and {
+                    k: got[k] for k in ("tag", "id", "class") if got.get(k)}, acc.get_parent())
+            top, this, up = CLIMBED[key]
+            if top:
+                break
+            if this:
+                el = el or dict(this)
                 if "id" in this:
-                    if this is not el:
+                    if this != el:
                         el["in"] = this
                     break
-            acc = acc.get_parent()
+            acc = up
     except Exception:   # gone while we looked
         pass
-    text = (n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
+    text = (n.get("_run") or n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
     n.update({**({"dom": el} if el else {}),
               **({"text": text[:40] + "…" * (len(text) > 40)} if text else {})})
 
@@ -2611,7 +3071,8 @@ def main(argv):
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
     w.add_argument("--reach-all", action="store_true",
                    help="fail where a showing, sensitive control is never reached; "
-                        "without it, they're said, as arrows or shortcuts may reach them")
+                        "without it, they're said, as arrows or shortcuts may reach them "
+                        "(but a --document walk that never lands in the page fails)")
     w.add_argument("--ignore", **ignore)
     w.add_argument("--document", action="store_true",
                    help="only what's in the window's web page: the walk goes through the "
@@ -2620,11 +3081,16 @@ def main(argv):
                    help="fail where the focus doesn't show: too little of the screen "
                         "round a node changed as it took it")
     c = sub.add_parser("click", help="click a node, found by its name")
-    c.add_argument("name", metavar="NAME", help="its name: exactly, or failing that, a regex "
-                                                "matched in full")
+    # Not required here, so a NAME --action took is said as that.
+    c.add_argument("name", metavar="NAME", nargs="?", help="its name: exactly, or failing "
+                                                           "that, a regex matched in full")
     c.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     c.add_argument("--button", type=int, default=1, help="1 left, 2 middle, 3 right")
     c.add_argument("--double", action="store_true", help="click twice")
+    c.add_argument("--action", nargs="?", const=True, default=False, metavar="NAME",
+                   help="do its accessible action NAME in place of a pointer click, for a "
+                        "node a click won't reach; without NAME, lists its actions and fails. Their "
+                        "names and what they do are its toolkit's")
     sc = sub.add_parser("scroll", help="turn the mouse wheel over a node, found by its name")
     sc.add_argument("name", metavar="NAME", help="its name: exactly, or failing that, a regex "
                                                  "matched in full")
@@ -2703,8 +3169,11 @@ def main(argv):
         Atspi = atspi()
         for n, _ in problems + passes + notes + behind:
             dom(Atspi, n)
-        said = " ".join([f"{len(notes)} not measured"
-                         + ("." if nothing else ", which doesn't fail.")] * bool(notes)
+        changing = sum("range" in n for n, _ in notes)
+        said = " ".join([f"{len(notes) - changing} not measured"
+                         + ("." if nothing else ", which doesn't fail.")]
+                        * bool(len(notes) - changing)
+                        + [f"{changing} changing, which doesn't fail."] * bool(changing)
                         + [f"{len(behind)} behind a modal dialog, which doesn't fail."]
                         * bool(behind) + whys)
         if a.json and a.what == "lint":
@@ -2729,10 +3198,19 @@ def main(argv):
             sys.stderr.write(said + "\n")
         return 1 if problems and not a.json else 0
     if a.what in ("click", "scroll"):
-        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout, a.force)
+        if a.what == "click" and a.name is None:
+            c.error("the following arguments are required: NAME" + (
+                f" (--action took {a.action!r} as the action's name: write --action=NAME, "
+                "or put it after the name)" if isinstance(a.action, str) else ""))
+        if a.what == "click" and a.action == "":
+            c.error("--action= takes an action's name")
+        if a.what == "click" and a.action and (a.button != 1 or a.double):
+            p.error("--action does the node's action, not a --button or --double click")
+        n = (click(a.name, a.role, a.window, a.button, a.double, a.timeout, a.force, a.action)
              if a.what == "click" else scroll(a.name, a.dy, a.dx, a.role, a.window, a.timeout,
                                               a.force))
-        print(json.dumps(public(n)) if a.json else n.line())
+        print(json.dumps(public(n)) if a.json else n.line() + (
+            f", by its action {json.dumps(n.action)}" if n.get("action") else ""))
         return 0
     if a.what == "node":
         n = wait_node(a.pattern, a.window, a.timeout)
@@ -2742,6 +3220,8 @@ def main(argv):
     seen, how, missed, began = tab_walk(a.key, a.max, a.window, timeout=a.timeout,
                                         visible=a.visible, document=a.document)
     missed = [n for n in missed if not skip(n, f"not reached by {a.key}")]
+    if a.document and how == "cycle" and missed and not seen:
+        how = "outside"
     if a.json:
         print(json.dumps({"focus": [public(n) for n in seen], "end": how,
                           "unreached": [public(n) for n in missed],
@@ -2775,21 +3255,27 @@ def walk_lines(key, most, seen, how, missed, began, focus="shotbox focus"):
     lines = [f"began in {marked(began)}"] if began else []
     lines += [marked(n) for n in seen]
     lines += [f"not reached by {key}: {n.line()}" for n in missed]
-    lines.append(walk_end(key, most, seen, how, missed, focus))
+    lines.append(walk_end(key, most, seen, how, missed, focus, began))
     hidden = [n for n in seen if unseen(n)]
     if hidden:
         lines.append(f"focus not shown on {len(hidden)}")
     return lines
 
 
-def walk_end(key, most, seen, how, missed, focus="shotbox focus"):
+def walk_end(key, most, seen, how, missed, focus="shotbox focus", began=None):
     """How a walk ended, as a line."""
     tried = seen[-1].get("tried") if seen else None
+    # The key itself is tried first in a web page's, and is the one it takes.
+    others = [k for k in tried or [] if k != key]
+    left = next((n.left_by for n in reversed([began, *seen]) if n and n.get("left_by")), None)
     unreached = f"; {len(missed)} not reached by {key}" if missed else ""
     return {
         "cycle": f"round again after {len(seen)}{unreached}",
-        "trap": (f"stuck in a text view, which takes {key}: {', '.join(tried[:-1])} and "
-                 f"{tried[-1]} leave the focus there" if tried
+        "outside": f"round again, never in the page{unreached}",
+        "escaped": f"left the page by {left}, and {key} never came back to it{unreached}",
+        "trap": (f"stuck in a text view, which takes {key}: "
+                 + " and ".join(filter(None, [", ".join(others[:-1]), others[-1]]))
+                 + (" leave" if len(others) > 1 else " leaves") + " the focus there" if others
                  else f"stuck: {key} leaves the focus where it was"),
         "lost": f"lost: after {key}, no node has the focus",
         "closed": f"stopped: after {tried and tried[-1]}, the text view isn't there",

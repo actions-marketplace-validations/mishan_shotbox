@@ -541,20 +541,22 @@ for qt in PyQt5 PyQt6; do
   esac
 done
 # GSettings: the system's defaults, its vendor's overrides included, but
-# for the caret's blink and animations, off; a seed's keyfile, linked
-# out, never written.
+# for the caret's blink and animations, off; a seed's keyfile merged in,
+# its other groups kept, but linked out, never written.
 dump="gsettings list-recursively org.gnome.desktop.interface | sort"
 if command -v gsettings >/dev/null && GSETTINGS_BACKEND=memory sh -c "$dump" 2>/dev/null | grep -q .; then
   mkdir -p "$tmp/gs/.config/glib-2.0/settings"
-  printf "[org/gnome/desktop/interface]\nfont-name='Mine 9'\n" > "$tmp/gs.keyfile"
+  printf "[org/gnome/TextEditor]\nspellcheck=false\n\n[org/gnome/desktop/interface]\nfont-name='Mine 9'\ncursor-blink=true\n" > "$tmp/gs.keyfile"
   cp "$tmp/gs.keyfile" "$tmp/gs.orig"
   ln -s "$tmp/gs.keyfile" "$tmp/gs/.config/glib-2.0/settings/keyfile"
   GSETTINGS_BACKEND=memory LC_ALL=C.UTF-8 sh -c "$dump" \
-    | sed -E 's/^(org.gnome.desktop.interface (cursor-blink|enable-animations)) true$/\1 false/' \
+    | sed -E -e 's/^(org.gnome.desktop.interface (cursor-blink|enable-animations)) true$/\1 false/' \
+        -e "s/^(org.gnome.desktop.interface font-name) .*/\\1 'Mine 9'/" \
     | sort > "$tmp/gs.want"
-  "$sb" run --seed "$tmp/gs" -- sh -c "$dump" > "$tmp/gs.got"
+  "$sb" run --seed "$tmp/gs" -- sh -c "$dump; sed -n '/TextEditor/,+1p' ~/.config/glib-2.0/settings/keyfile" > "$tmp/gs.got"
+  printf '[org/gnome/TextEditor]\nspellcheck=false\n' >> "$tmp/gs.want"
   cmp -s "$tmp/gs.want" "$tmp/gs.got" && cmp -s "$tmp/gs.keyfile" "$tmp/gs.orig" \
-    && ok "GSettings: the system's defaults, but for the caret's blink and animations" \
+    && ok "GSettings: the system's defaults, a seed's keyfile over them, but for the caret's blink and animations" \
     || fail "GSettings: $(diff "$tmp/gs.want" "$tmp/gs.got"; diff "$tmp/gs.orig" "$tmp/gs.keyfile")"
 fi
 
@@ -752,9 +754,10 @@ held() {
     '$sb' click 60 60 --window held --hold 0.3; st=\$?; sleep 0.3; exit \$st" || return 1
   awk '{ s = ($1 == "press" ? "+" : "-") $2; if (s != last) printf "%s ", s; last = s }' "$log"
 }
-# How long the key a was held in LOG, in hundredths of a second.
+# How long the key a was held in LOG, in hundredths of a second, from its
+# first press: one held past the repeat delay, on a busy machine, repeats.
 held_for() {
-  awk '$2 == "a" { t[$1] = $3 } END { printf "%d", (t["release"] - t["press"]) * 100 }' "$1"
+  awk '$2 == "a" && !($1 in t) { t[$1] = $3 } END { printf "%d", (t["release"] - t["press"]) * 100 }' "$1"
 }
 want_held="+button1 -button1 +a +d -d -a +button1 -button1 "
 
@@ -771,7 +774,8 @@ chords "$tmp/chords.log" && ok "shift in a chord: the shifted symbol, and back-t
   || fail "shift chords"
 got=$(held "$tmp/held.log")
 [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/held.log")" -ge 35 ] \
-  && ok "key and click --hold: held together, let go last first" || fail "hold: $got"
+  && ok "key and click --hold: held together, let go last first" \
+  || fail "hold: $got(a for $(held_for "$tmp/held.log")0 ms)"
 # down LOG [SESSION OPTIONS]: --down and --up, a key left down between two
 # commands: X11's server keeps it, and on Wayland the session's keyboard;
 # and Shift left down alone shifts the next command's key.
@@ -782,7 +786,7 @@ down() {
     '$sb' wait window held && '$sb' wait stable --window held &&
     '$sb' click 50 50 --window held && '$sb' key --down w && sleep 0.3 && '$sb' key --up w &&
     '$sb' key --down shift && '$sb' key a && '$sb' key --up shift && sleep 0.3" &&
-    awk '$2 == "w" { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
+    awk '$2 == "w" && !($1 in t) { t[$1] = $3 } END { exit !(t["release"] - t["press"] >= 0.25) }' "$log" &&
     grep -q '^press A ' "$log"
 }
 down "$tmp/down.log" && ok "key --down, then --up: held between commands, Shift alone too" || fail "--down, --up: $(tr '\n' ' ' < "$tmp/down.log")"
@@ -962,6 +966,14 @@ if atspi; then
     && grep -qx "shotbox: gave up waiting for a node matching 'Saev' after 0.5s. The nearest: \"Save\"" "$tmp/node" \
     && ok "a11y: wait node waits for a node to show, by its name or text, or says what's near" \
     || { fail "a11y: wait node"; cat "$tmp/node"; }
+  # Asked for the text of what has none, the frame, GTK 3 logs a CRITICAL.
+  "$sb" run --a11y -- sh -c "'$here/window.py' g3 & '$sb' wait window g3 >/dev/null &&
+    '$sb' wait node '^a window\$' --window g3" > "$tmp/node" 2>&1 && ! grep -q CRITICAL "$tmp/node" \
+    && ok "a11y: wait node, GTK 3: no CRITICAL for what has no text" \
+    || { fail "a11y: wait node, GTK 3"; cat "$tmp/node"; }
+  set +e; "$sb" wait node 2>/dev/null; st=$?; "$sb" wait node '' 2>/dev/null; st2=$?; set -e
+  [ $st = 2 ] && [ $st2 = 2 ] && ok "a11y: wait node with no regex, or an empty one, is refused" \
+    || fail "a11y: wait node with no regex: status $st, $st2"
   # Under a dialog, disabled, moving and under a label, each is said and not
   # clicked (--force clicks the disabled one, which does nothing), then
   # waited for until "Ready" puts each right, and clicked.
@@ -987,9 +999,32 @@ if atspi; then
     '$sb' a11y tree --window a11y-test >/dev/null &&
     ! '$sb' a11y click Ready --window a11y-test --timeout 0.3 >/dev/null &&
     '$sb' a11y click Ready --window a11y-test --force >/dev/null && sleep 0.5" > "$tmp/late" 2>&1 \
-    && grep -q '"Ready" \[focusable\] has no position yet$' "$tmp/late" && grep -qx Ready "$tmp/late" \
+    && grep -q '"Ready" \[focusable\] has no position yet; its actions: click (--action NAME does one)$' "$tmp/late" \
+    && grep -qx Ready "$tmp/late" \
     && ok "a11y: click waits for a node to have a position, --force too" \
     || { fail "a11y: click, no position yet"; cat "$tmp/late"; }
+  # One that never gets a position is done by the action --action names,
+  # in any case, which says so, and still waits for it to be enabled; one
+  # with no action says so, and --action without a name lists them.
+  "$sb" run --a11y -- sh -c "'$app' ready & '$sb' wait window Dialog >/dev/null &&
+    '$sb' a11y tree --window a11y-test >/dev/null &&
+    ! '$sb' a11y click Unplaced --window a11y-test --timeout 0.3 >/dev/null &&
+    ! '$sb' a11y click Unplaced --window a11y-test --action >/dev/null &&
+    '$sb' a11y click Unplaced --window a11y-test --action Click &&
+    ! '$sb' a11y click Soon --window a11y-test --action click --timeout 0.3 >/dev/null &&
+    ! '$sb' a11y click Saved --window a11y-test --action click >/dev/null &&
+    ! '$sb' a11y click Cover --window a11y-test --action click >/dev/null &&
+    '$sb' a11y click Cover --window a11y-test --action clipboard.copy && sleep 0.5" > "$tmp/action" 2>&1 \
+    && grep -q '"Unplaced" \[focusable\] has no position yet; its actions: click (--action NAME does one)$' "$tmp/action" \
+    && grep -q '"Unplaced" \[focusable\] takes an action by its name; its actions: click (--action NAME does one)$' "$tmp/action" \
+    && grep -qx '[a-z ]*button "Unplaced" \[focusable\], by its action "click"' "$tmp/action" \
+    && grep -qx Unplaced "$tmp/action" \
+    && grep -q 'gave up after 0.3s: [a-z ]*button "Soon" \[focusable, disabled\] isn.t enabled$' "$tmp/action" \
+    && grep -qx 'shotbox: image "Saved" has no action' "$tmp/action" \
+    && grep -q '^shotbox: label "Cover" has no "click"; its actions: clipboard.copy, .* (--action NAME does one)$' "$tmp/action" \
+    && grep -qx 'label "Cover", by its action "clipboard.copy"' "$tmp/action" \
+    && ok "a11y: click --action NAME does a node's action, with no position, once it's enabled" \
+    || { fail "a11y: click --action"; cat "$tmp/action"; }
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --visible --window a11y-test" > "$tmp/walk"
   st=$?; set -e
@@ -1125,14 +1160,40 @@ assert (len(faint) == 1 and re.fullmatch('text behind a modal ' + want, faint[0]
   "$sb" run --a11y -- sh -c "'$here/window.py' g3 contrast &
     '$sb' a11y contrast --edges 3 --window g3" > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 1 ] && grep -q '/label\[1\]: text ' "$tmp/contrast" \
+  [ $st = 1 ] && grep -q '/label\[1\]: text [0-9]' "$tmp/contrast" \
     && ! grep -q 'toggle button\|/text\[0\]\|/label\[4\]' "$tmp/contrast" \
+    && ! grep -q 'GTK None' "$tmp/contrast" "$tmp/err" \
     && grep -q '/label\[5\]: text too small to measure' "$tmp/contrast" \
     && ! grep '/label\[0\]: ' "$tmp/contrast" | grep -qv 'drawn lighter than its color, #5f5670, which is 6\.5[0-9]:1' \
     && "$sb" run --a11y -- sh -c "'$here/window.py' dot dot & '$sb' a11y contrast --window dot" \
       2>/dev/null | grep -q '/label\[0\]: text too small to measure' \
     && ok "a11y: contrast, GTK 3: not a switch, a framed text view, light text, large text, a dot, which passes alone" \
     || { fail "a11y: contrast, GTK 3 ($st)"; cat "$tmp/contrast"; }
+  # A faint label dark half a second in two is changing, whenever the
+  # first picture's taken, and with --strict fails; dark words sliding by
+  # pass, though they've moved out of where they were first seen.
+  "$sb" run --a11y -- sh -c "'$here/window.py' mv moving & '$sb' wait window mv >/dev/null
+    for i in 1 2 3 4 5; do '$sb' a11y contrast --strict --passes --json --window mv; sleep 0.\$i
+    done" > "$tmp/moving.json" \
+    && python3 -c "import json, re, sys
+runs = [json.loads(line) for line in open(sys.argv[1])]
+assert len(runs) == 5, runs
+for j in runs:
+    said = {n['name']: (k, n.get('problem') or n.get('contrast')) for k in ('problems', 'passes')
+            for n in j[k]}
+    assert re.fullmatch(r'text changing: 2\.\d\d:1 to 2\d\.\d\d:1 \(at least 4\.5\)',
+                        said['Mostly faint words'][1]) and said['Mostly faint words'][0] == 'problems', j
+    assert said['Breaking news scrolls by'][0] == 'passes', j" "$tmp/moving.json" \
+    && ok "a11y: contrast, GTK 3: a flash said as changing each time, failing with --strict; text moving passes" \
+    || { fail "a11y: contrast, GTK 3, a flash and text moving"; cat "$tmp/moving.json"; }
+  # Alone and blinking, it's measured however the first picture caught
+  # it: changing, so --strict fails each time, never "nothing measured".
+  "$sb" run --a11y -- sh -c "'$here/window.py' blink blinking & '$sb' wait window blink >/dev/null
+    for i in 1 2 3 4 5; do '$sb' a11y contrast --strict --window blink >/dev/null 2>&1
+      printf '%s ' \$?; sleep 0.\$i; done" > "$tmp/blinking" \
+    && [ "$(cat "$tmp/blinking")" = "1 1 1 1 1 " ] \
+    && ok "a11y: contrast, GTK 3: text blinking alone fails --strict each time" \
+    || { fail "a11y: contrast, GTK 3, text blinking alone: $(cat "$tmp/blinking")"; }
   # A window wider than the screen: what's past the screen's edge isn't
   # measured or clicked, and says so; nor is a label whose text is past it.
   "$sb" run --a11y --screen 800x600 -- sh -c "'$here/window.py' wide wide &
@@ -1255,6 +1316,17 @@ CASES
         && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: text found though shorter text inside it matches there; the shorter not, said" \
         || { fail "a11y: contrast, GTK 4, check over unchecked"; cat "$tmp/contrast"; }
+      # A faint "check" fails in both places only over a faint "unchecked":
+      # it fails at the better one; where one passes, it's still a note.
+      # Without --window, which would fail it as not found but faint.
+      for args in "nested pale" "nested pale both"; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' wait window a11y-test >/dev/null &&
+          '$sb' a11y contrast --passes" < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      grep -q '/label\[0\]: text 2\.[0-9]*:1 at best, #a0a0a0 on .*; it matches in two places and fails in both; found ' "$tmp/contrast" \
+        && [ "$(grep -c '/label\[0\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast")" = 1 ] \
+        && ok "a11y: contrast, GTK 4: text matching in two places fails where it fails in both, else not" \
+        || { fail "a11y: contrast, GTK 4, faint check over unchecked"; cat "$tmp/contrast"; }
       # Under "Recheck", whose room takes in both, "check" names the node
       # where its other match is. A hidden "Open File" isn't taken for
       # "Open" and "File" drawn side by side under it: "Open" is drawn
@@ -1587,6 +1659,17 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     "W=wayland-"*" D= S=$wl/shotbox-"*/run/sway-ipc.*" R=$wl/shotbox-"*) ok "wayland: a sway of its own, and no X" ;;
     *) fail "wayland: the environment: $out" ;;
   esac
+  # The session's cursor theme, written into its home, over a seed's links
+  # out of it: a linked ~/.icons, and a linked cursor. What they point at
+  # stays as it was.
+  mkdir -p "$tmp/icons-out" "$tmp/icons-seed1" "$tmp/icons-seed2/.icons/shotbox-blank/cursors"
+  echo mine > "$tmp/icons-cursor"
+  ln -s "$tmp/icons-out" "$tmp/icons-seed1/.icons"
+  ln -s "$tmp/icons-cursor" "$tmp/icons-seed2/.icons/shotbox-blank/cursors/default"
+  "$sb" run --wayland --seed "$tmp/icons-seed1" -- true && "$sb" run --wayland --seed "$tmp/icons-seed2" -- true \
+    && [ -z "$(ls -A "$tmp/icons-out")" ] && [ "$(cat "$tmp/icons-cursor")" = mine ] \
+    && ok "wayland: the cursor theme doesn't follow a seed's links out" \
+    || fail "wayland: cursor theme over a seed's links: $(ls -A "$tmp/icons-out") $(head -c 4 "$tmp/icons-cursor")"
   "$sb" shoot "$tmp/w1.png" --wayland --window wl-test -- "$win" wl-test >/dev/null
   "$sb" shoot "$tmp/w2.png" --wayland --window wl-test -- "$win" wl-test >/dev/null
   [ "$(identify -format %wx%h "$tmp/w1.png")" = 200x120 ] && cmp -s "$tmp/w1.png" "$tmp/w2.png" \
@@ -1655,7 +1738,7 @@ if command -v sway >/dev/null && command -v grim >/dev/null; then
     && ok "wayland: shift in a chord: the shifted symbol, and back-tab" || fail "wayland: shift chords"
   got=$(held "$tmp/wl-held.log" --wayland)
   [ "$got" = "$want_held" ] && [ "$(held_for "$tmp/wl-held.log")" -ge 35 ] \
-    && ok "wayland: key and click --hold" || fail "wayland: hold: $got"
+    && ok "wayland: key and click --hold" || fail "wayland: hold: $got(a for $(held_for "$tmp/wl-held.log")0 ms)"
   down "$tmp/wl-down.log" --wayland && ok "wayland: key --down, then --up: held between commands, Shift alone too" \
     || fail "wayland: --down, --up: $(tr '\n' ' ' < "$tmp/wl-down.log")"
   set +e; "$sb" run --wayland -- "$sb" click 1 1 --down 2> "$tmp/err"; st=$?; set -e
@@ -2021,7 +2104,7 @@ PY
   if command -v sway >/dev/null && command -v grim >/dev/null && command -v wf-recorder >/dev/null; then
     records --wayland wrec "wayland: record"
     set +e; "$sb" run --wayland -- "$sb" record "$tmp/wrec-p.mp4" --pointer --seconds 1 2> "$tmp/err"; st=$?; set -e
-    [ $st != 0 ] && grep -q "no pointer" "$tmp/err" \
+    [ $st != 0 ] && grep -q "drawn as nothing" "$tmp/err" \
       && ok "wayland: record --pointer, refused saying why" || fail "wayland: record --pointer ($st)"
   else
     [ "${SHOTBOX_WAYLAND-}" = required ] && fail "wayland: record skipped: no sway, grim or wf-recorder" \

@@ -54,6 +54,7 @@ import select
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import sysconfig
@@ -119,7 +120,37 @@ focus_follows_mouse no
 swaynag_command -
 for_window [all] floating enable, move position 0 0
 xwayland {xwayland}
+seat * xcursor_theme {cursors}
 """
+
+
+# The cursor theme of a Wayland session, sway's and every program's: one
+# cursor, 1x1 and clear, under every name a program asks for, so the
+# pointer, which stays where it was left, isn't in a picture, as on X11 it
+# isn't. sway 1.9 puts the cursor in what grim takes. The names are the
+# freedesktop cursor spec's, the X cursor font's and the older ones GTK,
+# Chromium and X clients fall back to.
+BLANK_CURSOR = (b"Xcur" + struct.pack("<6I", 16, 0x10000, 1, 0xFFFD0002, 24, 28)
+                + struct.pack("<9I", 36, 0xFFFD0002, 24, 1, 1, 1, 0, 0, 0) + bytes(4))
+CURSOR_THEME = "shotbox-blank"
+CURSOR_NAMES = """
+default context-menu help pointer progress wait cell crosshair text vertical-text alias
+copy move no-drop not-allowed grab grabbing all-scroll all-resize col-resize row-resize
+n-resize e-resize s-resize w-resize ne-resize nw-resize se-resize sw-resize ew-resize
+ns-resize nesw-resize nwse-resize zoom-in zoom-out dnd-ask dnd-move dnd-copy dnd-link
+dnd-none dnd-no-drop X_cursor arrow based_arrow_down based_arrow_up boat bogosity
+bottom_left_corner bottom_right_corner bottom_side bottom_tee box_spiral center_ptr circle
+clock coffee_mug cross cross_reverse diamond_cross dot dotbox double_arrow draft_large
+draft_small draped_box exchange fleur gobbler gumby hand1 hand2 heart icon iron_cross
+left_ptr left_side left_tee leftbutton ll_angle lr_angle man middlebutton mouse pencil
+pirate plus question_arrow right_ptr right_side right_tee rightbutton rtl_logo sailboat
+sb_down_arrow sb_h_double_arrow sb_left_arrow sb_right_arrow sb_up_arrow sb_v_double_arrow
+shuttle sizing spider spraycan star target tcross top_left_arrow top_left_corner
+top_right_corner top_side top_tee trek ul_angle umbrella ur_angle watch xterm
+left_ptr_watch h_double_arrow v_double_arrow fd_double_arrow bd_double_arrow hand
+pointing_hand openhand closedhand ibeam size_all size_hor size_ver size_bdiag size_fdiag
+split_h split_v whats_this forbidden crossed_circle half-busy
+""".split()
 
 
 GTK_SETTINGS = """[Settings]
@@ -267,23 +298,23 @@ def settings(text):
     return keys
 
 
-def merge(text, keys):
-    """`text`, a settings.ini, with `keys` set in its [Settings] group, and
-    its comments and everything else as they were."""
+def merge(text, keys, into="[Settings]"):
+    """`text`, a settings.ini (or GLib keyfile), with `keys` set in its
+    `into` group, and its comments and everything else as they were."""
     kept, group, at = [], None, None
     for line in text.splitlines():
         bare = line.strip()
         if bare.startswith("["):
             group = bare
-            if bare == "[Settings]" and at is None:
+            if bare == into and at is None:
                 kept.append(line)
                 at = len(kept)
                 continue
-        elif group == "[Settings]" and bare.split("=", 1)[0].strip() in keys:
+        elif group == into and bare.split("=", 1)[0].strip() in keys:
             continue
         kept.append(line)
     if at is None:
-        kept.append("[Settings]")
+        kept.append(into)
         at = len(kept)
     kept[at:at] = [f"{k} = {v}" for k, v in keys.items()]
     return "\n".join(kept) + "\n"
@@ -734,8 +765,8 @@ class Session(Screen):
                 graphics = {"DISPLAY": display, "XAUTHORITY": str(xauth)}
             self.env = self._make_env(graphics, bus, sysbus)
             if self.use_wayland:
-                # A keyboard for the whole session (see wlinput.py).
-                self._serve("the keyboard", "wlinput", self.env, wlinput.KEYBOARD)
+                # A keyboard and pointer for the whole session (see wlinput.py).
+                self._serve("the keyboard and pointer", "wlinput", self.env, wlinput.KEYBOARD)
             if not self._blink and "DISPLAY" in self.env and not self.desktop:
                 self._xsettings = xtest.Display(self.env)
                 self._xsettings.own_settings({"Net/CursorBlink": 0})
@@ -877,6 +908,8 @@ class Session(Screen):
             if (gtk == "gtk-4.0" and (minor or 0) >= 16
                     and "gtk-font-rendering" not in settings(ini.read_text())):
                 more["gtk-font-rendering"] = "manual"
+            if self.use_wayland:
+                more["gtk-cursor-theme-name"] = CURSOR_THEME     # for X clients on Xwayland
             if more:
                 ini.write_text(merge(ini.read_text(), more))
             if gtk == "gtk-3.0":
@@ -884,13 +917,16 @@ class Session(Screen):
                 self._blink = keys.get("gtk-cursor-blink") in (None, "true", "1")
                 still = keys.get("gtk-enable-animations") in ("false", "0")
         # GTK 3 on Wayland reads these from GSettings, over settings.ini: the
-        # session's own keyfile, which nothing of a seed's stands in for.
+        # session's own keyfile, a seed's merged into it as settings.ini is.
         keyfile = home / ".config" / "glib-2.0" / "settings" / "keyfile"
         unfold(home, keyfile)
         keyfile.parent.mkdir(parents=True, exist_ok=True)
-        keyfile.write_text("[org/gnome/desktop/interface]\n" + "".join(
-            f"{k}=false\n" for k, off in (("cursor-blink", not self._blink),
-                                          ("enable-animations", still)) if off))
+        more = {k: "false" for k, off in (("cursor-blink", not self._blink),
+                                          ("enable-animations", still)) if off}
+        if self.use_wayland:
+            more["cursor-theme"] = f"'{CURSOR_THEME}'"
+        keyfile.write_text(merge(keyfile.read_text() if keyfile.exists() else "", more,
+                                 "[org/gnome/desktop/interface]"))
         run = self.scratch / "run"
         run.mkdir(mode=0o700)
 
@@ -938,10 +974,24 @@ class Session(Screen):
         run = self.scratch / "run"
         conf = self.scratch / "sway.conf"
         conf.write_text(SWAY_CONFIG.format(width=self.size[0], height=self.size[1],
-                                           xwayland="force" if self.xwayland else "disable"))
+                                           xwayland="force" if self.xwayland else "disable",
+                                           cursors=CURSOR_THEME))
         home = self.scratch / "home"
+        # In the home's ~/.icons, which GTK 4 looks in, not in XCURSOR_PATH.
+        theme = home / ".icons" / CURSOR_THEME / "cursors"
+        unfold(home, theme / "default")
+        theme.mkdir(parents=True, exist_ok=True)
+        for name in CURSOR_NAMES:
+            if (theme / name).is_dir() and not (theme / name).is_symlink():
+                raise SessionError(f"the seed's ~/{(theme / name).relative_to(home)} is a "
+                                   "directory, in the way of the session's cursor theme")
+        (theme / "default").write_bytes(BLANK_CURSOR)
+        for name in CURSOR_NAMES[1:]:
+            (theme / name).unlink(missing_ok=True)
+            (theme / name).symlink_to("default")
+        blank = {"XCURSOR_THEME": CURSOR_THEME}
         env = {k: os.environ[k] for k in ("PATH",) if k in os.environ}
-        env.update(HOME=str(home), XDG_RUNTIME_DIR=str(run),
+        env.update(HOME=str(home), XDG_RUNTIME_DIR=str(run), **blank,
                    XDG_CONFIG_HOME=str(home / ".config"), DBUS_SESSION_BUS_ADDRESS=bus,
                    LANG="C.UTF-8", TZ="UTC",
                    # No GPU, no seat, no input devices: an output in memory,
@@ -989,7 +1039,7 @@ class Session(Screen):
                                           interval=0.2, alive=proc)
             except SessionError as e:
                 raise SessionError(f"{e}; see {log}")
-        got.update(XDG_SESSION_TYPE="wayland", GDK_BACKEND="wayland")
+        got.update(XDG_SESSION_TYPE="wayland", GDK_BACKEND="wayland", **blank)
         return got
 
     def _start_bus(self, kind):
@@ -1030,8 +1080,9 @@ class Session(Screen):
         if self.a11y:
             del env["GTK_A11Y"], env["NO_AT_BRIDGE"]
             # Chromium joins a bus only when told a reader is running, and
-            # the bus's IsEnabled says none is.
-            env["ACCESSIBILITY_ENABLED"] = "1"
+            # the bus's IsEnabled says none is; some Firefox builds (Ubuntu's
+            # PPA's) too, told so their own way.
+            env["ACCESSIBILITY_ENABLED"] = env["GNOME_ACCESSIBILITY"] = "1"
         # libadwaita takes its style from the portal or GSettings, not from
         # GTK's settings.ini, and a sealed session has neither to tell it.
         if self.dark:

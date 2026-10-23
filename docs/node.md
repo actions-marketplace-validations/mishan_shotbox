@@ -58,7 +58,12 @@ import { serve, checks, pageErrors, launch, until, gif, sealed,
 - `accessible`: Chromium's launch options for `shotbox run --a11y`,
   `chromium.launch({ ...accessible })`: headed, since a headless browser
   isn't on the bus, and without LCD text, whose tinted glyphs `shotbox
-  a11y contrast` would measure low.
+  a11y contrast` would measure low. And its pages' options,
+  `browser.newPage({ ...accessible })` (or `newContext`): with
+  `prefers-reduced-motion: reduce`, so a page that honors it holds still
+  to be measured. Playwright's pages emulate no preference unless told,
+  which a launch option can't change. To check the motion,
+  `{ ...accessible, reducedMotion: 'no-preference' }`.
 
 ```js
 const context = await browser.newContext({ recordVideo: { dir } });

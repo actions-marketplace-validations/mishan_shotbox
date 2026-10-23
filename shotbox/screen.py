@@ -836,6 +836,8 @@ class Screen:
         except SessionError as e:
             # The time it gave up after is the caller's, not what was left of it.
             said = re.sub(r"^(gave up .*?after )[\d.e-]+s", lambda m: f"{m[1]}{timeout:g}s", str(e))
+            # Its caller names it action, not --action.
+            said = said.replace("(--action", "(action")
             if not at or not re.match(r"\d+ nodes match", said):
                 raise SessionError(said) from None
             raise SessionError(re.sub(r" @(-?\d+),(-?\d+)(?= \d+x\d+$)",
@@ -878,7 +880,8 @@ class Screen:
     def wait_node(self, pattern, window=None, timeout=30):
         """Wait for a showing node with `pattern`, a regex, found in its name
         or text: a status line saying a page is drawn, say. That node, with
-        its text as `text` where that's what matched."""
+        its text round the match, about 80 characters, as `text` where
+        that's what matched."""
         from .a11y import Node
         return Node(self._a11y("node", "--timeout", str(timeout),
                                *([f"--window={window}"] if window else []), "--", pattern,
@@ -901,13 +904,15 @@ class Screen:
         what's wrong as `problem`: text, buttons and links against their
         background (at least `text`, or `large` for large text), images
         (`graphics`), and with `edges`, a button's or field's edge against
-        what's round it; and `notes`, what wasn't measured and doesn't
-        fail, each with its `note`: too small to, or GTK 4's, with `why`;
-        with `strict`, only what's scrolled out of view, the rest being
-        `problems` too; and `behind`, what's behind a modal dialog, not
-        measured, which doesn't fail even with `strict`, each with its
-        `behind`. With `passes`, `passes` too, what was measured
-        and passes, each with its ratio as `contrast`. But not those whose "PATH: WHAT" line, or
+        what's round it; and `notes`, what doesn't fail, each with its
+        `note`: what wasn't measured, too small to or GTK 4's (with `why`),
+        and text whose ratio changed between pictures across what it
+        needs (with `range` and `why`); with `strict` every note but what's
+        scrolled out of view is among the `problems` instead; and `behind`,
+        what's behind a modal dialog, not measured, which doesn't fail even
+        with `strict`, each with its `behind`. With `passes`, `passes` too,
+        what was measured and passes, each with its ratio as `contrast`.
+        But not those whose "PATH: WHAT" line, or
         "LINE: WHAT" with its tree line, one of the regexes in `ignore` is
         found in. Measured on a picture of the screen, `window` raised.
         Fails, saying why, if nothing could be measured: of a GTK 4 window,
@@ -922,16 +927,22 @@ class Screen:
                 for k, v in self._a11y("contrast", *args).items()}
 
     def click_node(self, name, role=None, window=None, button=1, double=False, timeout=10,
-                   force=False):
+                   force=False, action=False):
         """Click the middle of the node named `name`, exactly or else as a
         regex matched in full, and role `role` if given (the same), waiting
         up to `timeout` for it to show, and unless `force`, to be enabled,
-        still and uncovered; that node."""
+        still and uncovered; that node. With `action`, an action's name, do
+        that accessible action instead, as `a11y click --action NAME` does,
+        the node's `action` saying which; with True, fail listing them."""
+        if action == "" or not (action is None or isinstance(action, (bool, str))):
+            raise SessionError(f"action takes an action's name, not {action!r}")
         from .a11y import Node
         return self._by_name(window, timeout, lambda left: Node(self._a11y(
             "click", "--button", str(button), "--timeout", str(left),
             *([f"--role={role}"] if role else []), *(["--double"] if double else []),
             *(["--force"] if force else []),
+            *([] if action is False or action is None else ["--action"] if action is True
+              else [f"--action={action}"]),
             *([f"--window={window}"] if window else []), "--", name, timeout=90 + left)))
 
     def scroll_node(self, name, dy, dx=0, role=None, window=None, timeout=10, force=False):
@@ -965,7 +976,8 @@ class Screen:
         seen = [Node(n) for n in got["focus"]]
         if got["end"] != "cycle":
             where = f", on {seen[-1].line()}" if seen and got["end"] == "trap" else ""
-            self.fail(walk_end(key, most, seen, got["end"], []) + where)
+            self.fail(walk_end(key, most, seen, got["end"], [],
+                               began=got["began"] and Node(got["began"])) + where)
         hidden = [n for n in seen if unseen(n)]
         if hidden:
             self.fail("the focus doesn't show on " + "; ".join(n.line() for n in hidden))
@@ -1026,9 +1038,9 @@ class Screen:
         (WxH+X+Y, inside it), to `out`: an .mp4, .webm or .gif. For
         `seconds`, or until interrupted. Without `pointer`, the pointer
         isn't drawn, as in a picture; with `park`, it goes out of the way
-        first. It needs ffmpeg, and on Wayland, wf-recorder; sway draws no
-        pointer there, so `pointer` is refused. A .wav is what plays in
-        a session with audio, on X11 or Wayland, and takes none of those.
+        first. It needs ffmpeg, and on Wayland, wf-recorder; the pointer is
+        drawn as nothing there, so `pointer` is refused. A .wav is what plays
+        in a session with audio, on X11 or Wayland, and takes none of those.
         With `sound`, in a session with audio, an .mp4 or .webm has what
         plays in it too, heard with `gap` as `shotbox.sound.hear` takes it.
         With `size`, it ends when the file (for a .gif, the video it's made
@@ -1052,7 +1064,7 @@ class Screen:
             except (ValueError, RuntimeError) as e:
                 raise SessionError(str(e))
         if self.wayland and pointer:
-            raise SessionError("sway draws no pointer to record")
+            raise SessionError("the pointer is drawn as nothing on Wayland: none to record")
         if park:
             self.park()
         try:

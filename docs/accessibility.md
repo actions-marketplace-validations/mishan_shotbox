@@ -19,10 +19,11 @@ Inside a session with `--a11y`:
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
   trap: [Walking the Tab order](#walking-the-tab-order).
-- **`shotbox a11y click NAME [--role RE] [--window RE] [--force]`** clicks the
+- **`shotbox a11y click NAME [--role RE] [--window RE] [--force] [--action NAME]`** clicks the
   node named NAME, exactly or as a regex matched in full: a button by
   its label rather than where it is, once it's enabled, still and
-  uncovered. [Clicking by name](#clicking-by-name).
+  uncovered; with `--action NAME`, does that AT-SPI action instead, for a
+  node a click won't reach. [Clicking by name](#clicking-by-name).
 - **`shotbox a11y scroll NAME DY [DX] [--role RE] [--window RE] [--force]`** turns
   the mouse wheel over that node, found as `click` finds it, DY clicks
   down and DX right (negative, up and left): a list by itself or by a
@@ -50,7 +51,12 @@ Inside a session with `--a11y`:
   sets once it's done, where the screen holding still says nothing (a
   WebGL canvas waiting on its server). Giving up, it says what came
   nearest: a match that isn't showing (scrolled out of view), or the
-  nearest names and texts, or that nothing comes near.
+  nearest names and texts, or that nothing comes near. Python's
+  `wait_node` and MCP's `wait_for` give the text that matched cut to 80
+  characters round the match. A page's text is matched with each
+  element in it taken out and the spaces beside it made one: `<p>Done
+  <a>here</a> now</p>` matches "Done now"; with no space beside it, the
+  text either side joins, `Join<button>X</button>Me` as "JoinMe".
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &
@@ -65,6 +71,16 @@ every program's windows are there. It works on X11, Wayland and
 Xwayland, for GTK 4, GTK 3, Qt 5 and AccessKit's toolkits (egui, Slint,
 Bevy, GTK built with it), and for Chromium (Google Chrome, Playwright's
 Chromium, and the browsers built on it), headed, on X11.
+
+What `wait node` takes as showing is what the toolkit says is, which
+isn't what can be seen: text drawn at opacity 0, or with something over
+it, is showing, as is an element of no size in Chromium (Firefox says
+it isn't), and a GTK 4 row scrolled out of view (GTK 3's isn't). Each
+poll walks the tree, every window's, and reads the text of each node
+whose name doesn't match: seconds on a large page, as many as the
+machine takes, more in Chromium than in Firefox; one under way when the
+timeout runs out is finished first. `--window` keeps it to that
+window's tree.
 
 ## The bus
 
@@ -95,7 +111,9 @@ Wayland count the surface's shadow in, consistently, and are placed
 right. Chromium also asks `org.a11y.Status`'s `IsEnabled` whether a screen
 reader is running, which here says no (the launcher aborts when told
 otherwise in a sealed session), and takes `ACCESSIBILITY_ENABLED=1` for a
-yes, which the session sets. That puts its windows on the bus, and no
+yes, which the session sets; some Firefox builds (the Ubuntu PPA's, which
+GitHub's runners have) ask too, and take `GNOME_ACCESSIBILITY=1`, which
+the session sets as well. That puts its windows on the bus, and no
 more: it builds the rest of its tree, a page's too, only once it takes a
 screen reader to be at work, which it does when a node's attributes are
 asked for, as Orca asks. The announcement recorder (see below)
@@ -247,21 +265,31 @@ is hard to map back to its source, so a lint or contrast line on a node
 in one also says where it is in the page's DOM, after `  <- `, as
 Chromium and Firefox give it (their `tag`, `id` and `class` object
 attributes): the element's tag, and its id if it has one, then the
-node's text, cut at 40 characters, then, if the element has no id, the
-nearest element round it that has one:
+node's text (or its name, an `aria-label`'s), cut at 40 characters,
+then, if the element has no id, the nearest element round it that has
+one:
 
 ```
 PATH: button with no name  <- button#icon
 PATH: text 2.84:1, #999999 on #ffffff (at least 4.5)  <- p "Faint words" in div#intro
 ```
 
-A text node isn't an element: its element's tag is said. Classes are
-left out of the line, where they can run long. With `--json`, such a
-node has `dom`, its element's `tag`, `id` and `class` where it has them,
-and `in`, those of the nearest with an id, `{"tag": "p", "in": {"tag":
-"div", "id": "intro", "class": "card"}}`, and `text`, cut as the
-line's is. `--ignore` is matched against the line with them too:
-`--ignore 'div#intro'`, `--ignore '#icon'`.
+A text node isn't an element: its element's tag is said. The elements
+are those in the browser's tree, not the DOM's every one: Chromium
+leaves out a generic element (a `span`, a `div`) with no id, so the
+tag, class and nearest id said can be of one round the node's own
+(`<div><span class="f">Deep</span></div>` is said `div "Deep"`), and
+in a shadow root its `div`s, even with an id, so a node in one is said
+in its host's id. An iframe's document ends the climb: a node in one
+is said in an id in the iframe's page, or none. Classes are left out
+of the line, where they can run long. Firefox's contrast doesn't
+measure a paragraph's text, so there a contrast line is a control's, a
+link's or a button's. With `--json`, such a node has `dom`, its
+element's `tag`, `id` and `class` where it has them, and `in`, those
+of the nearest with an id, `{"tag": "p", "in": {"tag": "div", "id":
+"intro", "class": "card"}}`, and `text`, cut as the line's is.
+`--ignore` is matched against the line with them too: `--ignore
+'div#intro'`, `--ignore '#icon'`.
 
 ## Walking the Tab order
 
@@ -295,13 +323,20 @@ the document: it tries ctrl+Tab, which GTK's text views take to move
 on, then in Qt shift+Tab, Qt's (GTK's text views type a tab for it),
 Escape (not in a dialog or alert, which it would close, libadwaita's in
 its window's frame too), and F6, a pane's key, last, since Kate and
-KWrite show a view with it. shift+Tab leaves backward, so the walk then
-gives the focus to the first thing after the text view that takes it
-(AT-SPI's `grab_focus`, which Qt does) and goes on from there. The
-first that moves the focus is said on the node, `a text view: ctrl+Tab
-leaves it`, and the walk goes on; if none does, it's a trap, exit 1,
-`stuck in a text view`. One that changes the text is said on the node
-too, and if the text view is gone after
+KWrite show a view with it. A web page's `<textarea>` doesn't take
+Tab, so in a web page it presses Tab first, and if that moves the
+focus the walk goes on as from any other stop; only a web editor that
+keeps Tab gets the rest (a browser's ctrl+Tab goes to its next tab,
+and Chromium's F6 into its toolbar). If one of those leaves the page
+and Tab, going round the browser's controls, never comes back to it,
+the walk says so, exit 1: `left the page by F6, and Tab never came
+back to it`, and presses Escape, which takes Chromium back to the
+page. shift+Tab leaves backward, so the walk then gives the focus to
+the first thing after the text view that takes it (AT-SPI's
+`grab_focus`, which Qt does) and goes on from there. The first that moves the focus is said on the node, `a
+text view: ctrl+Tab leaves it`, and the walk goes on; if none does,
+it's a trap, exit 1, `stuck in a text view`. One that changes the
+text is said on the node too, and if the text view is gone after
 one, the walk stops there, exit 1. An editor's own shortcuts can take
 ctrl+Tab: gedit's moves the focus somewhere no node says, and Tab goes
 on from there; gnome-text-editor keeps it for all of them. A walk that
@@ -338,8 +373,15 @@ controls as before, and their presses count towards `--max`, but they
 aren't listed, nor said as not reached, nor held to by `--visible` and
 `--reach-all`, and the count on the last line is of the page's stops.
 Chromium's Tab lands on the document itself as it comes in from the
-browser's controls; that isn't one of the page's stops. A window with no web document in it is refused, exit 1: `no web document
-to walk: the window isn't a browser's`.
+browser's controls, as it can on an iframe's; those aren't among the
+page's stops. A walk that never gets into the page, though it has
+controls, isn't a pass, even without `--reach-all`: `round again,
+never in the page; 2 not reached by Tab`, exit 1, as in Firefox on a
+page whose controls are all `tabindex="-1"`. Chromium's Tab keeps the
+focus on such a page's document, a trap, exit 1, whatever `--ignore`
+leaves out; on a page with nothing to focus, that passes. A window
+with no web document in it is refused, exit 1: `no web document to
+walk: the window isn't a browser's`.
 
 With `--visible`, it also checks that the focus shows. It parks the
 pointer, takes a picture of the screen before the walk, and after each
@@ -435,6 +477,48 @@ ready when it's:
 to show and be placed, since without a place there's nothing to click:
 to check that a disabled button does nothing, say.
 
+`--action NAME` does the node's AT-SPI action NAME in place of a click,
+for a node a click by name won't reach: a control given no size, which
+never gets a position, or a drop-down's option. A closed `<select>`'s
+other options aren't in Chromium's tree, and aren't showing in
+Firefox's, so open it first, then pick one (Firefox's, once open, are in
+a window of their own over the page, which a click takes as covering
+them):
+
+```
+shotbox a11y click Pick --action open
+shotbox a11y click Beta --action select    # Chromium's; Firefox's is click
+```
+
+An action's name, and what it does, are the toolkit's, and none is a
+click everywhere: Qt's `Toggle` on a list item is a ctrl+click, a GTK
+entry's `activate` presses its dialog's default button, a GTK 4
+window's actions include `window.close`, and GTK 4's check button has
+no action at all, as of 4.24. So a test names the one it means; NAME is
+matched as it is, and failing that in any case, if only one matches
+so. Without NAME,
+`--action` fails listing the node's actions: `button "Unplaced"
+[focusable] takes an action by its name; its actions: click (--action
+NAME does one)`. Put `--action NAME` after the node's name, or write
+`--action=NAME`.
+
+An action needs no place and no raised window, so it waits for
+neither, nor for the node to be still or uncovered; it still waits for
+it to be enabled, unless `--force`, since an action on a disabled
+control does nothing and can answer that it worked, as Firefox's
+`press` on a disabled button does. It prints the node and the action:
+`button "Send" [focusable], by its action "press"`, and fails if the
+program says it refused it, `... refused its action "click"`. A node
+without it fails at once, saying what it has: `image "Saved" has no
+action`, `label "Cover" has no "click"; its actions: clipboard.copy, ...
+(--action NAME does one)`. A click that gives up on a node with no
+position lists its actions, `... has no position yet; its actions:
+click (--action NAME does one)`, and on a match that isn't showing says
+that, `... matches, but isn't showing`, but doesn't do an action
+(Python's and MCP's say `action`): a click and an action differ (an
+action gives no window the keyboard, and reaches what's covered), and a
+test should say which it means.
+
 A name is taken as it is, and failing that as a regex matched in full:
 nodes named exactly NAME are picked over those it matches as a regex, so
 a calculator's `+`, `.` and `(Draft)` are its buttons, not a regex that
@@ -461,7 +545,20 @@ and later's, whose text is measured where it's found
 
 - **Text**: a node with a name whose role is text (a label, heading,
   link, static text, paragraph), or a button, link, tab, menu item or
-  combo box with no such node inside it: the color most of its bounds are is the background, and the
+  combo box with no such node inside it, or the text a web page's node
+  holds of its own (Firefox keeps a page's text in what it's in, a
+  paragraph, list item, table cell, link or the page itself; Chromium in
+  a static node for each run): run by run, each in one look and on one
+  line, between the objects in it (a link, a check box) and emoji and
+  other pictographs, which are drawn in their own colors and left out,
+  in the box from its first character drawn to its last, or `can't tell
+  where it is` where the browser says none. Chromium's character boxes
+  slip by one at each soft hyphen or zero-width space, so a run's text
+  quoted after it can be a character off ("Extra", a soft hyphen, "o"),
+  though its ratio isn't. A browser says where a node
+  and its characters are a moment after it's in the tree, so up to a
+  second is waited for that. Not a canvas's fallback text, which isn't
+  what it draws. The color most of its bounds are is the background, and the
   third pixel in order of contrast against it is the text: an
   antialiased glyph's core reaches its color, though a thin stroke
   seldom draws three pixels of one color. At least 4.5:1 (`--text`).
@@ -573,6 +670,48 @@ and later that's every icon, window control and edge, which aren't
 measured, so leave them out with `--ignore` (`graphics not measured`,
 `edge not measured`). What's scrolled out of view, or hidden, isn't a
 failure: GTK 3 and browsers leave such rows out without a word.
+A web page with text, none of it measured (all in fields, say), is a
+note on its document, `text not measured: none of the
+page's text was`, rather than passing without a word.
+
+Text that fades or blinks measures as it is the moment it's pictured,
+and neither its best nor its worst is the answer: the dim end of a fade
+may be meant, and the bright end may be all it is for a moment. So the
+screen is pictured six times, 0.37 s apart, while measuring goes on:
+the first whole, the rest only the part holding what's measured,
+which takes a few milliseconds on X11 (where it can't be had that way,
+off the screen, the whole screen is, which takes longer, and so do big
+parts with grim on Wayland: where a picture takes more than 0.37 s,
+the next is taken when it's done, further apart). Each node measured,
+or not seen or found, whose pixels changed in any of them is measured
+in each: GTK 4's text not found is looked for again. 0.37 s is no
+fraction of a common blink's period (0.5, 1, 1.2 or 2 s), so over
+1.85 s the pictures fall all round its phase, never more than 0.37 s
+apart: a 1 s blink is seen both ways, and a flash of 0.5 s in 2 s is
+caught. If its ratio changed and fails at its best, it fails, `text
+3.10:1 at best, changing from 1.40:1, #8a8a8a on #ffffff (at least
+4.5)`; if it passes at its worst, it passes, `text passes at 5.20:1 at
+worst, changing to 9.80:1, …`. Across what it needs, it's a note,
+`PATH: text changing: 2.50:1 to 11.24:1 (at least 4.5)`, said apart on
+stderr (`1 changing, which doesn't fail.`), and in `--json` among
+`notes` with its `why`; with `--strict` it fails, as any note does.
+Each has its `range` in `--json`, `[2.5, 11.24]`, and counts as
+measured, though the first picture caught it blinked off. A control or
+image is judged the same way (`graphics changing: …`). Blinked off,
+text is the color of its background, 1:1, but only while its node is
+where it was: text that's moved, scrolling by, isn't blank where it
+was first seen. A ratio that changes by less than 0.05 is a level's
+flicker, and hasn't. A caret blinks only in what's being edited, which
+isn't measured. A check with anything to measure takes at least 1.85
+s, then: up to that much more where measuring took less, as on a GTK 3
+window (2.3 s, not 0.5, for a still one) or a Chromium page (about
+1 s); none on a GTK 4 window, which takes longer, but for its text not
+found that changed, looked for again in each picture: 10 to 14 s more
+for a label the first picture caught blinked off, within the 30 s
+contrast looks for text in all.
+Chromium's pages opened with the Node package's `accessible` emulate
+`prefers-reduced-motion: reduce`, so a page that honors it holds still
+([Node](node.md)).
 
 While a modal dialog is open, what's behind it isn't measured: it's
 shut off till the dialog closes, and dimmed on purpose or covered, so
@@ -646,8 +785,12 @@ can fall between rows), and not where anything else in that room
 matches 0.8 or more (the same text twice), unless no other node could
 have drawn one of the two, and another with this same text could the
 other: a node draws its text once, so the first is this one's, and it's
-looked for again just there, to fail only (see below). A node could
-have drawn a place if its room holds it and its text (a label's own as
+looked for again just there, to fail only (see below). Else either can
+be this one's, and taking it that a node draws its text in one of them,
+it's measured in both, and fails at the better if it fails in both:
+`text 2.50:1 at best, #a0a0a0 on #fafafb (at least 4.5); it matches in
+two places and fails in both`; if either would pass, it's a note. A
+node could have drawn a place if its room holds it and its text (a label's own as
 well as its name) holds that text, or, whatever its text, it has
 nothing in it and isn't a label (an entry, a text view, a drawing area,
 an image): a label is taken to draw only its text, and a container
@@ -986,7 +1129,8 @@ On X11 (and Xwayland), GTK takes the font DPI from the X server's
 `RESOURCE_MANAGER` over `settings.ini`, so `--text-scale` sets
 `Xft.dpi` there, at 96 times N. GTK 3 on Wayland reads text scaling from
 GSettings alone, which a sealed session keeps in a keyfile of its own
-with no text scaling in it, so it doesn't scale.
+with no text scaling in it unless a seed's keyfile has some, so it
+doesn't scale.
 
 GTK 3's dark variant is its theme's: Ubuntu's GTK 3 defaults to Yaru,
 and where Yaru isn't installed (a CI image), it falls back to Adwaita

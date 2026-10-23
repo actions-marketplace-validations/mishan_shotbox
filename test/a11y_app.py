@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """A libadwaita window to read the accessible tree of: test/a11y_app.py
 [fixed] [notes] [trap] [dialog] [lists] [one] [unfocusable] [untitled] [second] [faint]
-[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck]] [split] [twin [hidden] [under]] [over [hidden] [drawn | named]] [lone] [slow] [alert]
+[thin] [long [down]] [keys] [form] [decoys] [lines] [letter] [carousel] [nested [recheck] [pale [both]]] [split] [twin [hidden] [under]] [over [hidden] [drawn | named]] [lone] [slow] [alert]
 [freeze] [ready [late]] [modal] [warned] [inline] [popped] [toasted] [overlaid] [folded]
-[paged] [laid] [drawing]. Its icon-only button,
+[paged] [laid] [drawing] [fading]. Its icon-only button,
 its status icon and its drawing area have no accessible name unless
 `fixed`, nor has the window with `untitled`, and `second` opens an
 untitled second window; `notes` puts a text view first, which keeps Tab
@@ -22,8 +22,8 @@ holding its text or showing it as a placeholder, or a drawing area
 drawing it (not all ASCII), `lines` a button labeled over two lines,
 `letter` a label of one letter, `carousel` a carousel at its second
 page, the first's label outside the window, `nested` "check" over
-"unchecked" (under "Recheck" with `recheck`), padded below as the
-decoys are, `split` a hidden
+"unchecked" (under "Recheck" with `recheck`; with `pale` "check" faint,
+and with `both` "unchecked" too), padded below as the decoys are, `split` a hidden
 "Open File" over "Open" and "File" side by side, padded so too;
 `twin` a faint "Twin" over an entry holding it, in a box padded below
 alone, with `under` under it, with `hidden` a hidden "Twin" over the
@@ -41,7 +41,9 @@ and asks in an alert dialog as it starts, again once answered, then
 holds a button that makes a toast; `freeze`, a button that stops it
 answering for 30 seconds; `ready`, buttons "Behind" under a dialog,
 "Soon" disabled, "Moving" moving and "Covered" under a label, until
-"Ready" is clicked, each printing its name when clicked; with `late`, under
+"Ready" is clicked, each printing its name when clicked, "Unplaced",
+given no height, as a browser gives a closed drop-down's option none, and
+an image, "Saved", which has no action; with `late`, under
 a window of the same title and size, which puts nothing in either
 anywhere, for two seconds; `modal`, a modal window over it; `warned`, an
 error label, an alert, revealed below the rest; `inline` a box with a
@@ -51,7 +53,8 @@ alone, and `overlaid` one laid over a label that's an alert, alone. With
 no header bar, `folded` puts it all under a banner folded away, `paged`
 on a view stack's second page, and `laid` under a layer as big as it
 holding an alert at its foot. `drawing` shows a label "Drawn: 4 tiles"
-three seconds after it starts.
+three seconds after it starts, and `fading` has the faint label darken
+from its color to #242424 over 1.6 s, again and again.
 The Announce button says something to a screen reader (GTK 4.14+)."""
 
 import sys
@@ -190,8 +193,10 @@ def activate(app):
             GLib.timeout_add(300, lambda: box.get_vadjustment().set_value(60) and False)
     if "nested" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
+        pale = ("check", "unchecked")[:("pale" in sys.argv) + ("both" in sys.argv)]
         for text in ("Recheck", "check", "unchecked")[("recheck" not in sys.argv):]:
-            pair.append(Gtk.Label(label=text, halign=Gtk.Align.START))
+            pair.append(Gtk.Label(label=text, halign=Gtk.Align.START,
+                                  css_classes=["faint"] if text in pale else []))
         box.append(pair)
     if "split" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
@@ -268,8 +273,17 @@ def activate(app):
             clicked[text].connect("clicked", lambda b: print(b.get_label(), flush=True))
         cover = Gtk.Overlay(child=clicked["Covered"])
         cover.add_overlay(Gtk.Label(label="Cover"))
+        unplaced = Gtk.Button(css_classes=["unplaced"])
+        unplaced.update_property([Gtk.AccessibleProperty.LABEL], ["Unplaced"])
+        unplaced.connect("clicked", lambda b: print("Unplaced", flush=True))
+        flat = Gtk.CssProvider()
+        flat.load_from_string("button.unplaced { min-height: 0; padding: 0; border: 0; }")
+        Gtk.StyleContext.add_provider_for_display(w.get_display(), flat,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        saved = Gtk.Image(icon_name="document-save")
+        saved.update_property([Gtk.AccessibleProperty.LABEL], ["Saved"])
         for widget in (clicked["Behind"], clicked["Soon"], clicked["Moving"], cover,
-                       clicked["Ready"]):
+                       clicked["Ready"], unplaced, saved):
             view.append(widget)
         clicked["Soon"].set_sensitive(False)
         moving = clicked["Moving"]
@@ -365,6 +379,12 @@ def activate(app):
     if "warned" in sys.argv:
         box.append(Gtk.Revealer(reveal_child=True, child=Gtk.Label(
             label="Wrong password", accessible_role=Gtk.AccessibleRole.ALERT)))
+    if "fading" in sys.argv:
+        fade, step = Gtk.CssProvider(), iter(range(10 ** 9))
+        Gtk.StyleContext.add_provider_for_display(w.get_display(), fade,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        GLib.timeout_add(50, lambda: fade.load_from_string(
+            "label.faint { color: #%02x%02x%02x; }" % ((0xa0 - next(step) % 32 * 4,) * 3)) or True)
     if "drawing" in sys.argv:
         tiles = Gtk.Label(label="Drawn: 4 tiles", visible=False)
         box.append(tiles)

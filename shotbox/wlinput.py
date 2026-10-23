@@ -7,12 +7,16 @@ protocols wlroots compositors have for exactly this: a virtual keyboard
 No Python Wayland binding and no wtype: the standard library, with the
 keymap passed as a file descriptor.
 
-A session's keyboard is made once, by a server it starts (serve), and
-lasts as long as it does: headless sway has no keyboard of its own, and
-while there's none GTK has no keyboard focus, so it says nothing has the
-focus and draws no caret. Every command presses keys through that
-server, so a key one leaves down stays down for the next; a pointer is
-made a command.
+A session's keyboard and pointer are made once, by a server it starts
+(serve), and last as long as it does: headless sway has neither of its
+own, and while there's no keyboard GTK has no keyboard focus, so it says
+nothing has the focus and draws no caret; while there's no pointer sway
+takes it away from programs, and a program slow to take up a new one
+misses its first button. Every command presses keys and works the
+pointer through that server, so a key one leaves down stays down for the
+next, and the pointer stays where the last command left it, as on X11.
+A button is let go when the command that pressed it goes, however it
+goes.
 
 The keyboard's keymap holds every key shotbox can press, laid out as a US
 keyboard is: a and A, 1 and !, Tab and back-tab on one key, the second
@@ -28,12 +32,14 @@ missing with or without that; it's cheap to keep.
 import json
 import os
 from functools import cached_property
+import selectors
 import socket
 import struct
+import threading
 import time
 
 from . import wl
-from .pad import REQUEST_SECONDS, read_line, write_ready
+from .pad import write_ready
 from .xtest import KEYSYMS, SHIFT, XError, parse_chord
 
 # Real modifier bits, as the keymap below maps them.
@@ -42,7 +48,7 @@ MOD_BITS = {0xFFE1: 0x01, 0xFFE3: 0x04, 0xFFE9: 0x08, 0xFFE7: 0x08, 0xFFEB: 0x40
 BUTTONS = {1: 0x110, 2: 0x112, 3: 0x111}
 PRESSED, RELEASED = 1, 0
 KEYMAP_XKB_V1 = 1
-KEYBOARD = "keyboard.sock"      # the keyboard server's, in the session's scratch dir
+KEYBOARD = "keyboard.sock"      # the server's, in the session's scratch dir
 
 # What the keymap holds, besides a key with no symbol for the first press
 # and the modifiers: printable ASCII, a US keyboard's pairs on two levels,
@@ -97,18 +103,18 @@ def _string(s):
 
 class Display:
     """A connection to the compositor in `env` (XDG_RUNTIME_DIR and
-    WAYLAND_DISPLAY), with a pointer of its own, and the keyboard of the
-    session's server (in SHOTBOX_SCRATCH), or else one of its own. With
-    `pointer` off, a keyboard of its own and no pointer: the server's. The
-    screen's size, for the pointer, comes from sway's IPC ($SWAYSOCK)."""
+    WAYLAND_DISPLAY), working the keyboard and pointer of the session's
+    server (its socket in SHOTBOX_SCRATCH); with no server, or with `own`,
+    as the server's own, ones of its own. The screen's size, for the
+    pointer, comes from sway's IPC ($SWAYSOCK)."""
 
-    def __init__(self, env=None, pointer=True):
+    def __init__(self, env=None, own=False):
         env = os.environ if env is None else env
         path = os.path.join(env.get("XDG_RUNTIME_DIR", ""), env.get("WAYLAND_DISPLAY", ""))
         self.sock = socket.socket(socket.AF_UNIX)
         try:
             self.sock.connect(path)
-            self._setup(env, pointer)
+            self._setup(env, own)
         except OSError as e:
             self.sock.close()
             raise XError(f"can't reach the Wayland compositor at {path}: {e.strerror or e}")
@@ -116,7 +122,7 @@ class Display:
             self.sock.close()
             raise
 
-    def _setup(self, env, pointer):
+    def _setup(self, env, own):
         self.buf = b""
         self.next_id = 2
         self.waiting, self.done = set(), set()
@@ -125,14 +131,14 @@ class Display:
         self._send(1, 1, struct.pack("<I", self.registry))    # wl_display.get_registry
         self.sync()
         server = env.get("SHOTBOX_SCRATCH") and os.path.join(env["SHOTBOX_SCRATCH"], KEYBOARD)
-        self.shared = server if pointer and server and os.path.exists(server) else None
-        missing = [i for i, need in (("wl_seat", True),
-                                     ("zwp_virtual_keyboard_manager_v1", not self.shared),
-                                     ("zwlr_virtual_pointer_manager_v1", pointer))
-                   if need and i not in self.globals]
+        self.shared = server if not own and server and os.path.exists(server) else None
+        missing = [i for i in ("wl_seat", "zwp_virtual_keyboard_manager_v1",
+                               "zwlr_virtual_pointer_manager_v1")
+                   if i not in self.globals and not (self.shared and i != "wl_seat")]
         if missing:
             raise XError("the compositor has no " + ", ".join(missing))
         self.env = env
+        self._conn, self._lock = None, threading.Lock()
         self.seat = self._bind("wl_seat", 1)
         text, self.blank, self.keys = keymap()
         self.held = {}          # keysym: its modifier bits, while `down`
@@ -307,29 +313,60 @@ class Display:
         for ch in text:
             self.press({"\n": 0xFF0D, "\r": 0xFF0D, "\t": 0xFF09}.get(ch, ord(ch)), keep=keep)
 
-    def _ask(self, *call):
-        """Have the session's keyboard server make `call`."""
-        try:
-            with socket.socket(socket.AF_UNIX) as s:
-                s.settimeout(30)
+    def _connect(self):
+        """A connection to the session's server. Its backlog may be full,
+        with many commands starting at once: then it's tried again."""
+        end = time.monotonic() + 30
+        while True:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(30)
+            try:
                 s.connect(self.shared)
+                return s, s.makefile("rb")
+            except BlockingIOError:
+                s.close()
+                if time.monotonic() > end:
+                    raise
+                time.sleep(0.01)
+            except OSError:
+                s.close()
+                raise
+
+    def _hang_up(self):
+        if self._conn:
+            for f in reversed(self._conn):
+                f.close()
+        self._conn = None
+
+    def _ask(self, *call):
+        """Have the session's server make `call`, over a connection kept
+        while this lasts, so a button pressed over it is let go when it
+        closes; one that fails is made again for the next call. Threads
+        take turns."""
+        with self._lock:
+            try:
+                if not self._conn:
+                    self._conn = self._connect()
+                s, replies = self._conn
                 s.sendall(json.dumps(call).encode() + b"\n")
-                reply = json.loads(s.makefile("rb").readline() or b"null")
-        except TimeoutError:
-            raise XError("the session's keyboard didn't answer in time: busy, or stuck")
-        except OSError as e:
-            raise XError(f"the session's keyboard has gone ({e.strerror or e})")
-        if not isinstance(reply, dict):
-            raise XError("the session's keyboard has gone (no answer)")
+                reply = json.loads(replies.readline() or b"null")
+            except TimeoutError:
+                self._hang_up()
+                raise XError("the session's keyboard and pointer didn't answer in time: "
+                             "busy, or stuck")
+            except (OSError, ValueError) as e:
+                self._hang_up()
+                raise XError("the session's keyboard and pointer have gone "
+                             f"({getattr(e, 'strerror', None) or e})")
+            if not isinstance(reply, dict):
+                self._hang_up()
+                raise XError("the session's keyboard and pointer have gone (no answer)")
         if "error" in reply:
             raise XError(reply["error"])
 
     # --- the pointer ----------------------------------------------------------
 
-    # Made, and the screen's size asked of sway, only once a command
-    # points: one that only presses keys needs neither. The size is asked
-    # after the pointer's made, which gives a program the moment it needs
-    # to take up the new pointer before the first move.
+    # Made, and the screen's size asked of sway, only once it points.
     @cached_property
     def pointer(self):
         manager = self._bind("zwlr_virtual_pointer_manager_v1", 1)
@@ -339,7 +376,6 @@ class Display:
 
     @cached_property
     def _size(self):
-        self.pointer
         return wl.root_size(self.env)
 
     @property
@@ -354,6 +390,8 @@ class Display:
         self._send(self.pointer, 4)
 
     def move(self, x, y):
+        if self.shared:
+            return self._ask("move", x, y)
         # Absolute motion is unsigned: off the screen is its edge, as on X11.
         x = min(max(x, 0), self.width - 1)
         y = min(max(y, 0), self.height - 1)
@@ -367,6 +405,8 @@ class Display:
         self._frame()
 
     def click(self, x, y, button=1, count=1):
+        if self.shared:
+            return self._ask("click", x, y, button, count)
         self.move(x, y)
         for _ in range(count):
             self._button(button, PRESSED)
@@ -375,6 +415,8 @@ class Display:
 
     def button(self, x, y, button=1, state="down"):
         """Move to x, y and press a button, leaving it down, or let it go."""
+        if self.shared:
+            return self._ask("button", x, y, button, state)
         self.move(x, y)
         self._button(button, PRESSED if state == "down" else RELEASED)
         self.sync()
@@ -385,6 +427,8 @@ class Display:
         axis_discrete for a click; wlroots passes it on as value120 to a
         program that takes that. 15 is a click in degrees, as libinput
         gives a mouse's."""
+        if self.shared:
+            return self._ask("scroll", x, y, dy, dx)
         self.move(x, y)
         for axis, n in ((0, dy), (1, dx)):
             step = 1 if n > 0 else -1
@@ -393,13 +437,11 @@ class Display:
                                                         step * 15 * 256, step))
                 self._frame()
         self.sync()
-        # GTK 4 holds scroll events till its next frame, and crashes on
-        # one whose pointer has gone by then, as this one does when the
-        # connection closes (it's sway's only pointer): a dozen frames.
-        time.sleep(0.2)
 
     def drag(self, x1, y1, x2, y2, button=1, steps=10):
         """Press at one point, move to another in steps, release there."""
+        if self.shared:
+            return self._ask("drag", x1, y1, x2, y2, button, steps)
         self.move(x1, y1)
         self._button(button, PRESSED)
         self.sync()
@@ -409,6 +451,8 @@ class Display:
         self.sync()
 
     def close(self):
+        with self._lock:
+            self._hang_up()
         self.sock.close()
 
     def __enter__(self):
@@ -419,33 +463,73 @@ class Display:
 
 
 def serve(sock_path, ready):
-    """The session's keyboard: make it, write to `ready` that it's there
-    (or why not), then press what's asked on the Unix socket at
-    `sock_path`, a JSON line each, ["chord", spec, state, keep] or
-    ["type", text, keep], one at a time, until stopped."""
+    """The session's keyboard and pointer: make them, the pointer in the
+    screen's bottom-right corner, where `park` puts it and fewer windows
+    reach than X's start in the middle, write to `ready` that they're
+    there (or why not), then do what's asked on the Unix socket at
+    `sock_path`, a JSON line each, a Display method's name and its
+    arguments, answering each in turn, until stopped. The buttons a
+    connection pressed and didn't let go of go up when it closes."""
     try:
-        d = Display(pointer=False)
-    except XError as e:
+        d = Display(own=True)
+        d.move(d.width - 1, d.height - 1)
+    except (XError, RuntimeError, LookupError) as e:
         write_ready(ready, {"error": str(e)})
         return 1
     srv = socket.socket(socket.AF_UNIX)
     srv.bind(sock_path)
-    srv.listen(8)
+    srv.listen(socket.SOMAXCONN)
     write_ready(ready, [])
-    calls = {"chord": d.chord, "type": d.type}
+    calls = {name: getattr(d, name)
+             for name in ("chord", "type", "move", "click", "button", "scroll", "drag")}
+    sel = selectors.DefaultSelector()
+    sel.register(srv, selectors.EVENT_READ)
+    clients = {}        # connection: [what's come of a line, the buttons it holds down]
+
+    def hang_up(conn):
+        """Let go of a connection, and of the buttons it pressed and didn't."""
+        sel.unregister(conn)
+        conn.close()
+        try:
+            for button in clients.pop(conn)[1]:
+                d._button(button, RELEASED)
+            d.sync()
+        except (XError, OSError):
+            pass
+
     while True:
-        conn, _ = srv.accept()
-        with conn:
+        for key, _ in sel.select():
+            conn = key.fileobj
+            if conn is srv:
+                conn, _ = srv.accept()
+                # Answers that don't fit are dropped with the connection: one
+                # that doesn't read them can't hold the server up.
+                conn.setblocking(False)
+                clients[conn] = [b"", set()]
+                sel.register(conn, selectors.EVENT_READ)
+                continue
             try:
-                line = read_line(conn, REQUEST_SECONDS)
-                if not line:
-                    continue
+                got = conn.recv(65536)
+            except BlockingIOError:
+                continue
+            except OSError:
+                got = b""
+            if not got:
+                hang_up(conn)
+                continue
+            held = clients[conn][1]
+            *lines, clients[conn][0] = (clients[conn][0] + got).split(b"\n")
+            for line in lines:
                 try:
                     call, *args = json.loads(line)
                     calls[call](*args)
+                    if call == "button":
+                        (held.add if args[3] == "down" else held.discard)(args[2])
                     reply = {}
-                except Exception as e:      # whatever a request is, the keyboard stays
+                except Exception as e:      # whatever a request is, the server stays
                     reply = {"error": str(e) if isinstance(e, XError) else f"bad request: {e}"}
-                conn.sendall(json.dumps(reply).encode() + b"\n")
-            except OSError:
-                pass
+                try:
+                    conn.sendall(json.dumps(reply).encode() + b"\n")
+                except OSError:
+                    hang_up(conn)
+                    break
