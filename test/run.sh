@@ -307,7 +307,7 @@ TMPDIR=$st "$sb" sessions --stale > "$tmp/stale"
 TMPDIR=$st "$sb" doctor > "$tmp/doctor1" || true
 TMPDIR=$st "$sb" sessions --clean > "$tmp/clean"
 TMPDIR=$st "$sb" doctor > "$tmp/doctor2" || true
-[ "$(cut -d' ' -f1 "$tmp/stale")" = "$d2" ] && grep -q "  shotbox run -- sh -c .*, pid $run, " "$tmp/stale" \
+[ "$(grep -v ' a lasting session, ' "$tmp/stale" | cut -d' ' -f1)" = "$d2" ] && grep -q "  shotbox run -- sh -c .*, pid $run, " "$tmp/stale" \
   && ok "sessions --stale: a run killed with its watchdog, what made it, and not a live one" \
   || fail "sessions --stale: $(cat "$tmp/stale")"
 [ ! -e "$d2" ] && [ -z "$(left "$d2")" ] && grep -q "^removed $d2 " "$tmp/clean" \
