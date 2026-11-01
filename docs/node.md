@@ -5,7 +5,7 @@ pieces several projects had copied between them:
 
 ```js
 import { serve, checks, pageErrors, launch, until, gif, sealed,
-         dress, film, frames, steady, accessible } from 'shotbox';
+         dress, film, frames, steady, accessible, mutated } from 'shotbox';
 ```
 
 - `serve(dir, port = 0)`: a static server on localhost that serves ES
@@ -64,6 +64,9 @@ import { serve, checks, pageErrors, launch, until, gif, sealed,
   to be measured. Playwright's pages emulate no preference unless told,
   which a launch option can't change. To check the motion,
   `{ ...accessible, reducedMotion: 'no-preference' }`.
+- `mutated(context)`: in a run of `shotbox mutate`, that run's change
+  to the context's pages, and the proof it was made; anywhere else,
+  nothing. Before the first page loads: [Mutation testing](mutate.md).
 
 ```js
 const context = await browser.newContext({ recordVideo: { dir } });

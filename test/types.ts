@@ -16,7 +16,7 @@
 
 import { chromium } from 'playwright';
 
-import { accessible, checks, dress, film, frames, gif, launch, pageErrors, sealed,
+import { accessible, checks, dress, film, frames, gif, launch, mutated, pageErrors, sealed,
          serve, steady, until } from 'shotbox';
 import type { Checks, Dressing, GifOptions, Launched, Recorder, Reel,
               Seal } from 'shotbox';
@@ -29,10 +29,11 @@ import { film as filmToo } from 'shotbox/film';
 import { frames as framesToo } from 'shotbox/frames';
 import { gif as gifToo } from 'shotbox/gif';
 import { launch as launchToo } from 'shotbox/launch';
+import { mutated as mutatedToo } from 'shotbox/mutate';
 import { sealed as sealedToo } from 'shotbox/sealed';
 
 void [serveToo, accessibleToo, checksToo, dressToo, pageErrorsToo, filmToo, framesToo, gifToo,
-      launchToo, sealedToo];
+      launchToo, mutatedToo, sealedToo];
 
 const t: Checks = checks(process.stderr);
 const held: boolean = t.check(1 + 1 === 2, 'arithmetic');
@@ -46,6 +47,7 @@ const seal: Seal = await sealed({ pass: ['DISPLAY'], env: { A: 'b' } });
 const home: string | undefined = seal.env.HOME;
 const browser = await chromium.launch({ env: seal.env });
 const context = await browser.newContext({ recordVideo: { dir: seal.dir } });
+await mutated(context);
 const page = await context.newPage();
 const reel: Reel = film(page);
 const errors: string[] = pageErrors(page);

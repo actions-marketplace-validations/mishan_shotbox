@@ -27,6 +27,11 @@ changelog's newest heading; `test/run.sh` fails if they disagree.
    gh release create vX.Y.Z --verify-tag --title X.Y.Z --notes-file NOTES.md
    ```
 
+5. On the release's page, edit it, check "Publish this Action to the
+   GitHub Marketplace" (category Testing) and update it. Only the web
+   page can, and the Marketplace's "latest version" stays at the last
+   release published there.
+
 `.github/workflows/release.yml` then runs the tests (`ci.yml`, including
 its build of both packages from scratch), checks the tag is the version,
 and publishes to PyPI and npm, then, once PyPI has it, `server.json` to

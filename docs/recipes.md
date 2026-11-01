@@ -104,7 +104,8 @@ theme. Commit the runner's, not your desktop's: the first run fails
 (`no pictures in docs/pictures`), and the `pictures` artifact it uploads
 is what to commit. When a change is meant to change a picture, commit
 the new one from that run's artifact the same way; each failing one has
-`NAME-diff.png` beside it there. A picture that differs by a few pixels
+`NAME-diff.png` beside it there, which isn't to be committed, or the next
+run fails on it as a picture it didn't take. A picture that differs by a few pixels
 of dithering or antialiasing every run can be given room by name,
 `--fuzz month=1%` or `--max files=20`, leaving the rest exact.
 

@@ -15,6 +15,7 @@
     "./frames": "./node/frames.mjs",
     "./gif": "./node/gif.mjs",
     "./launch": "./node/launch.mjs",
+    "./mutate": "./node/mutate.mjs",
     "./sealed": "./node/sealed.mjs"
   },
   "bin": { "shotbox-serve": "node/serve.mjs" },

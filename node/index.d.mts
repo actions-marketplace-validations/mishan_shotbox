@@ -12,5 +12,6 @@ export { film, type Reel } from './film.mjs';
 export { frames, steady, type FramesOptions, type Recorder } from './frames.mjs';
 export { gif, type GifOptions } from './gif.mjs';
 export { launch, until, type Launched, type LaunchOptions } from './launch.mjs';
+export { mutated } from './mutate.mjs';
 export { sealed, type Seal, type SealOptions } from './sealed.mjs';
 export { serve } from './serve.mjs';

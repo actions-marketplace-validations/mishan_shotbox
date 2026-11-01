@@ -517,6 +517,11 @@ In a session with `--gamepads N`: [Gamepads](gamepads.md).
 
 Sessions for an agent, over MCP: [mcp.md](mcp.md).
 
+## mutate
+
+A browser test run against small changes to its page, to find one that
+is brittle or blind: [mutate.md](mutate.md).
+
 ## Session options
 
 `shoot`, `run` and `start` take the session options: `--screen WxH`

@@ -101,6 +101,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `announce_log`, `audio`, `clock`, `tz`, `dark`, `high_contrast`,
   `text_scale`, `wayland` and the rest.
 
+`shotbox.mutate(cmd, targets, ...)` runs `shotbox mutate` and returns
+its report: [Mutation testing](mutate.md#verdicts).
+
 Installed, `import shotbox` just works. With a checkout, put its root on
 `PYTHONPATH` (`--pass PYTHONPATH` to let it
 into a session).

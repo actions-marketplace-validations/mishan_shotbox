@@ -205,4 +205,18 @@ here = subprocess.run(
      sys.executable, "-c", "import shotbox; s = shotbox.here(); print(s.xt.width, s.xt.height)"],
     capture_output=True, text=True).stdout.strip()
 check(here == "1280 800", f"here() is the display it's inside ({here})")
+
+# A test that passes whatever changes, its change proven, in sessions with
+# the variable it needs to pass clean at all.
+PASSING = """import json, os, sys
+spec = json.loads(os.environ["SHOTBOX_MUTATION"])
+rep = {"seen": [True]} if spec["kind"] is None else {"proven": True}
+open(os.path.join(os.environ["SHOTBOX_MUTATION_REPORT"], "r.json"), "w").write(json.dumps(rep))
+sys.exit(os.environ.get("NEEDED") != "yes")
+"""
+rep = shotbox.mutate([sys.executable, "-c", PASSING], targets=['button "Pay"'],
+                     kinds=["hide", "move"], env={"NEEDED": "yes"})
+check([r.label for r in rep.blind_runs] == ['hide button "Pay"'] and rep.status == 1
+      and not rep.brittle_runs and rep.control == "pass",
+      f"mutate(), with session options: {[(r.label, r.verdict) for r in rep.runs]}")
 sys.exit(1 if fails else 0)

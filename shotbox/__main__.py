@@ -7,6 +7,7 @@
     shotbox spawn --session NAME -- COMMAND...      run a program in a lasting session
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
+    shotbox mutate --target T [options] -- TEST...  a browser test against changes to its page
     shotbox wait window|port|file|ready|stable|announce|node|match|change [ARG]
     shotbox wait line RE FILE                       (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
@@ -38,6 +39,7 @@ session in a lasting one. `shotbox COMMAND --help` for each one's options.
 
 import argparse
 import contextlib
+import dataclasses
 import io
 import json
 import math
@@ -54,7 +56,7 @@ import time
 import wave
 from pathlib import Path
 
-from . import __version__, a11y, kept, mcp, pad, sound, term, usage, x, xtest
+from . import __version__, a11y, kept, mcp, mutation, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
@@ -70,6 +72,13 @@ def seconds(s):
     n = float(s)
     if not (math.isfinite(n) and 0 <= n <= 86400):
         raise argparse.ArgumentTypeError(f"seconds, 0 to a day (86400), not {s}")
+    return n
+
+
+def run_seconds(s):
+    n = float(s)
+    if not (math.isfinite(n) and 0 < n <= 86400):
+        raise argparse.ArgumentTypeError(f"seconds, more than 0, up to a day (86400), not {s}")
     return n
 
 
@@ -249,6 +258,70 @@ def cmd_exec(argv):
     cmd = command(cmd, p)
     with session(a) as s:
         return s.run(cmd)
+
+
+def cmd_mutate(argv):
+    # No abbreviations, so the reproduce line can drop --save and the rest.
+    p = argparse.ArgumentParser(prog="shotbox mutate", allow_abbrev=False,
+                                description="Run a test against small changes to the page it "
+                                            "tests, each in a session of its own, to find a "
+                                            "test that fails on one that shouldn't matter "
+                                            "(BRITTLE) or passes on one that should (BLIND). "
+                                            "The test calls mutated() from shotbox's npm "
+                                            "package, which makes each change.")
+    session_options(p)
+    p.add_argument("--target", action="append", default=[], metavar="T",
+                   help=f"what to change: {mutation.FORMS} (repeatable)")
+    p.add_argument("--kinds", default=",".join(mutation.MATTERS), metavar="K,K",
+                   help="which changes (%(default)s)")
+    p.add_argument("--only", metavar="RUN", help="only this run, as the report names it")
+    p.add_argument("--confirm", type=int, default=1, metavar="N",
+                   help="reruns a failure on a change that shouldn't matter needs, "
+                        "to be BRITTLE (1)")
+    p.add_argument("--timeout", type=run_seconds, metavar="S",
+                   help="stop a run after S seconds (by default, a changed run after 3 "
+                        "times the slower clean run, at least 30, and the first two clean "
+                        "runs never)")
+    p.add_argument("--save", metavar="DIR", help="keep each run's output and report in DIR")
+    p.add_argument("--strict", action="store_true", help="fail on UNAPPLIED runs too")
+    p.add_argument("--json", action="store_true", help="the report as JSON, on stdout")
+    opts, cmd = split(argv)
+    a = p.parse_args(opts)
+    cmd = command(cmd, p)
+    if a.confirm < 1:
+        p.error("--confirm needs 1 or more")
+    try:
+        mutation.plan(a.target, a.kinds.split(","), a.only)
+    except SessionError as e:
+        p.error(str(e))
+    try:
+        rep = mutation.mutate(cmd, a.target, kinds=a.kinds.split(","), confirm=a.confirm,
+                              timeout=a.timeout, only=a.only, save=a.save, strict=a.strict,
+                              out=None if a.json else sys.stdout,
+                              _new_session=lambda: session(a))
+    except (SessionError, OSError) as e:
+        # 1 is for what the runs found: this is that they couldn't all be made.
+        sys.stderr.write(f"shotbox: {e}\n")
+        return 2
+    found = rep.brittle_runs + rep.blind_runs + (rep.unapplied_runs if a.strict else [])
+    again = None
+    if found:
+        drop = {"--only": 2, "--save": 2, "--json": 1}
+        rest, skip = [], 0
+        for o in opts:
+            name = o.split("=", 1)[0]
+            if skip:
+                skip -= 1
+            elif name in drop:
+                skip = drop[name] - 1 if "=" not in o else 0
+            else:
+                rest.append(o)
+        again = "shotbox mutate " + shlex.join([*rest, "--only", found[0].label, "--", *cmd])
+    if a.json:
+        print(json.dumps({**dataclasses.asdict(rep), "reproduce": again}, indent=2))
+    elif again:
+        print(f"reproduce: {again}")
+    return rep.status
 
 
 def tail(path, n=30):
@@ -1330,6 +1403,7 @@ COMMANDS = {"run": cmd_run, "exec": cmd_exec, "shoot": cmd_shoot, "term": term.m
             "flicker": cmd_flicker, "pad": cmd_pad, "play": cmd_play,
             "a11y": a11y.main,
             "mcp": mcp.main,
+            "mutate": cmd_mutate,
             "start": kept.main, "spawn": cmd_spawn, "stop": cmd_stop,
             "sessions": cmd_sessions, "doctor": cmd_doctor}
 

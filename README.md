@@ -36,7 +36,7 @@ claude mcp add shotbox -- shotbox mcp --allow ~/src/app/shotbox-programs
 Without an agent, it's the same session from the command line:
 
 ```
-shotbox shoot editor.png --window 'Text Editor' -- gnome-text-editor notes.md
+shotbox shoot editor.png --window '.*Text Editor' -- gnome-text-editor notes.md
 ```
 
 Worked examples, from checking a change to a game's smoke test:
@@ -186,6 +186,7 @@ shotbox stop ed
 | [`compare`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#compare) | counts the pixels that differ, picture by picture or directory by directory |
 | [`vision`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#vision) | a picture as colorblind eyes see it |
 | [`listen`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#listen) | a recording's level, clipping and dropouts |
+| [`mutate`](https://github.com/mishan/shotbox/blob/main/docs/mutate.md) | runs a browser test against small changes to its page: is it brittle, or blind? |
 | [`mcp`](https://github.com/mishan/shotbox/blob/main/docs/mcp.md) | sessions for an agent, over MCP |
 | [`doctor`](https://github.com/mishan/shotbox/blob/main/docs/commands.md#needs) | what's here of what each command needs |
 
@@ -257,6 +258,8 @@ sway, how it fits, and what differs from X11:
 - [Python](https://github.com/mishan/shotbox/blob/main/docs/python.md): `shotbox.Session` and `here()`, for a script
   that drives the display itself
 - [Node](https://github.com/mishan/shotbox/blob/main/docs/node.md): helpers for browser checks with Playwright
+- [Mutation testing](https://github.com/mishan/shotbox/blob/main/docs/mutate.md): `shotbox mutate`, its changes,
+  verdicts and limits
 - [Contributing](https://github.com/mishan/shotbox/blob/main/CONTRIBUTING.md): the tests
 - [Code of conduct](https://github.com/mishan/shotbox/blob/main/CODE_OF_CONDUCT.md),
   [security](https://github.com/mishan/shotbox/blob/main/SECURITY.md) and

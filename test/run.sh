@@ -669,6 +669,124 @@ st=$?; set -e
   && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
   && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
 
+# shotbox mutate's targets and verdicts.
+set +e; python3 "$here/mutate_test.py" > "$tmp/mutate.log" 2>&1; st=$?; set -e
+cat "$tmp/mutate.log"
+fails=$((fails + $(grep -c '^FAIL' "$tmp/mutate.log" || true)))
+[ $st = 0 ] || grep -q "^FAIL" "$tmp/mutate.log" || fail "mutate_test.py: status $st"
+
+# shotbox mutate's runs, verdicts and exit statuses, with a stand-in for a
+# test that reads its change and writes the page's report itself. Pay is
+# checked well; Blind is never checked; Brittle breaks when moved; Flaky
+# only the first two times; Hang hangs when hidden. number is never proven.
+# "dirty" fails clean from its third clean run on, as if state leaked.
+# "unseen" misses its second target on the second clean run only.
+cat > "$tmp/fake.py" <<'PY'
+import json, os, sys, time
+os.chdir("/")   # as a test that changes directory before it reports
+spec, mode = json.loads(os.environ["SHOTBOX_MUTATION"]), sys.argv[1]
+kind, name = spec.get("kind"), spec.get("target", {}).get("name")
+n, state = 0, os.environ.get("FAKE_STATE")
+if state:
+    os.makedirs(state, exist_ok=True)
+    p = os.path.join(state, str(kind))
+    n = int(open(p).read()) if os.path.exists(p) else 0
+    open(p, "w").write(str(n + 1))
+if mode != "silent":
+    rep = {"seen": [not (mode == "unseen" and i and n) for i, _ in enumerate(spec["targets"])]} \
+        if kind is None else {"proven": kind != "number"}
+    if mode == "died" and kind is not None:
+        rep = {"proven": False, "made": True, "looking": True, "why": "the change was made, and not yet proven",
+               **{"Fought": {"fought": True}, "Shown": {"shown": True}, "Used": {"used": True},
+                  "Looked": {"looking": False, "why": "the test could still find it unchanged"}}.get(name, {})}
+    out = os.environ["SHOTBOX_MUTATION_REPORT"]
+    open(os.path.join(out, f"{os.getpid()}.json"), "w").write(json.dumps(rep))
+    # Another process's, which saw nothing, and one cut short.
+    open(os.path.join(out, "0.json"), "w").write(json.dumps(
+        {"seen": [False] * len(spec["targets"])} if kind is None else {"proven": False}))
+    open(os.path.join(out, "1.part"), "w").write("{")
+if kind is None:
+    sys.exit(mode == "failing" or (mode == "dirty" and n >= 2))
+if mode == "died":
+    sys.exit(1)
+if name == "Hang" and kind == "hide":
+    time.sleep(60)
+sys.exit({"Pay": kind in ("hide", "number"), "Brittle": kind == "move",
+          "Flaky": kind == "move" and n < 2}.get(name, False))
+PY
+set +e
+(cd "$tmp" && "$sb" mutate --target 'button "Pay"' --target 'button "Blind"' --target 'button "Brittle"' \
+  --kinds size,move,hide,number --save saved --json -- python3 "$tmp/fake.py" good > "$tmp/m.json" 2> "$tmp/err")
+st=$?; set -e
+[ $st = 1 ] && python3 - "$tmp/m.json" "$tmp/fake.py" <<'PY' && [ "$(ls "$tmp/saved" | wc -l)" = 16 ] \
+  && ok "mutate: robust, caught, BLIND, BRITTLE and UNAPPLIED, said as JSON and saved" \
+  || fail "mutate's verdicts: status $st, $(head -c 600 "$tmp/m.json") $(cat "$tmp/err")"
+import json, sys
+j = json.load(open(sys.argv[1]))
+got = {r["label"]: r["verdict"] for r in j["runs"]}
+want = {"size 1024x768": "robust", "size 1920x1080": "robust",
+        'move button "Pay"': "robust", 'hide button "Pay"': "caught", 'number button "Pay"': "UNAPPLIED",
+        'move button "Blind"': "robust", 'hide button "Blind"': "BLIND", 'number button "Blind"': "UNAPPLIED",
+        'move button "Brittle"': "BRITTLE", 'hide button "Brittle"': "BLIND", 'number button "Brittle"': "UNAPPLIED"}
+sys.exit(not (got == want and list(got) == list(want) and j["control"] == "pass" and not j["suspect"]
+              and j["reproduce"] == "shotbox mutate --target 'button \"Pay\"' --target 'button \"Blind\"' "
+              "--target 'button \"Brittle\"' --kinds size,move,hide,number "
+              f"--only 'move button \"Brittle\"' -- python3 {sys.argv[2]} good"))
+PY
+# A test that fails on a change made but not yet looked at, as one that
+# dies at once leaves it: caught, unless fought, still showing, dead and
+# unused, or looked at and not proven.
+"$sb" mutate --target 'button "Made"' --target 'button "Fought"' --target 'button "Shown"' \
+  --target 'button "Used"' --target 'button "Looked"' --kinds hide,dead --json -- python3 "$tmp/fake.py" died > "$tmp/m.json" 2> "$tmp/err" \
+  && python3 - "$tmp/m.json" <<'PY' && ok "mutate: a failure on a change made, not yet proven, counts as caught" \
+  || fail "mutate, died: $(head -c 600 "$tmp/m.json") $(cat "$tmp/err")"
+import json, sys
+got = {r["label"]: r["verdict"] for r in json.load(open(sys.argv[1]))["runs"]}
+sys.exit(got != {'hide button "Made"': "caught", 'dead button "Made"': "UNAPPLIED",
+                 'hide button "Fought"': "UNAPPLIED", 'dead button "Fought"': "UNAPPLIED",
+                 'hide button "Shown"': "UNAPPLIED", 'dead button "Shown"': "UNAPPLIED",
+                 'hide button "Used"': "caught", 'dead button "Used"': "caught",
+                 'hide button "Looked"': "UNAPPLIED", 'dead button "Looked"': "UNAPPLIED"})
+PY
+set +e; "$sb" mutate --target 'button "Pay"' --timeout 0 -- true > "$tmp/out" 2>&1; st=$?; set -e
+[ $st = 2 ] && grep -q '^usage: shotbox mutate' "$tmp/out" && grep -qF 'more than 0, up to a day' "$tmp/out" \
+  && ok "mutate --timeout 0: refused as an option" || fail "mutate --timeout 0: status $st, $(cat "$tmp/out")"
+set +e; "$sb" mutate --target 'button "Pay"' --save "$tmp/saved" -- true > "$tmp/out" 2>&1; st=$?
+"$sb" mutate --target 'button "Pay"' --save "$tmp/fake.py/x" -- true > "$tmp/out2" 2>&1; st2=$?; set -e
+[ $st = 2 ] && grep -q "has files in it already" "$tmp/out" && [ $st2 = 2 ] && grep -q "Not a directory" "$tmp/out2" \
+  && ok "mutate --save: not into a dir with files, nor a file; 2, for nothing judged" \
+  || fail "mutate --save, again: status $st, $st2, $(cat "$tmp/out" "$tmp/out2")"
+set +e
+"$sb" mutate --target 'button "Brittle"' --save "$tmp/saved2" --only='move button "Brittle"' -- python3 "$tmp/fake.py" good > "$tmp/out" 2>&1
+st=$?; set -e
+[ $st = 1 ] && grep -q '^move button "Brittle" .*BRITTLE  (rerun FAIL, clean rerun pass)$' "$tmp/out" && [ "$(grep -c '^\(move\|hide\|size\|number\|dead\) ' "$tmp/out")" = 1 ] \
+  && grep -qxF "reproduce: shotbox mutate --target 'button \"Brittle\"' --only 'move button \"Brittle\"' -- python3 $tmp/fake.py good" "$tmp/out" \
+  && ok "mutate --only: the one run, its reruns, and how to run it again, without --save" || fail "mutate --only: status $st, $(cat "$tmp/out")"
+set +e
+"$sb" mutate --env FAKE_STATE="$tmp/state" --target 'button "Flaky"' --kinds move --confirm 2 \
+  -- python3 "$tmp/fake.py" good > "$tmp/out" 2>&1
+st=$?; set -e
+[ $st = 0 ] && grep -q '^move button "Flaky" .*inconclusive  (rerun FAIL, rerun pass)$' "$tmp/out" \
+  && ok "mutate --confirm 2: a failure the second rerun doesn't repeat is inconclusive" \
+  || fail "mutate, flaky: status $st, $(cat "$tmp/out")"
+set +e
+"$sb" mutate --env FAKE_STATE="$tmp/state-dirty" --target 'button "Brittle"' --kinds move -- python3 "$tmp/fake.py" dirty > "$tmp/out" 2>&1
+st=$?; set -e
+[ $st = 0 ] && grep -q '^move button "Brittle" .*inconclusive  (rerun FAIL, clean rerun FAIL)$' "$tmp/out" \
+  && grep -q '^control .*FAIL.*suspect' "$tmp/out" \
+  && ok "mutate: a failure whose clean rerun fails too is inconclusive; a failed control, suspect" \
+  || fail "mutate, dirty: status $st, $(cat "$tmp/out")"
+set +e
+"$sb" mutate --target 'button "Hang"' --kinds hide,number --timeout 2 --strict -- python3 "$tmp/fake.py" good > "$tmp/out" 2>&1
+st=$?; set -e
+[ $st = 1 ] && grep -q '^hide button "Hang" .*caught (timeout)' "$tmp/out" && grep -q '^number button "Hang" .*UNAPPLIED' "$tmp/out" \
+  && ok "mutate: a run past --timeout is stopped; --strict counts UNAPPLIED" || fail "mutate --timeout --strict: status $st, $(cat "$tmp/out")"
+for c in "silent:never called mutated()" "unseen:didn't both find button \"Two\"" "failing:fails with no change"; do
+  set +e; "$sb" mutate --env FAKE_STATE="$tmp/state-${c%%:*}" --target 'button "One"' --target 'button "Two"' \
+    -- python3 "$tmp/fake.py" "${c%%:*}" > "$tmp/out" 2>&1; st=$?; set -e
+  [ $st = 2 ] && grep -qF "${c#*:}" "$tmp/out" && ok "mutate stops with 2: the test ${c#*:}" || fail "mutate, ${c%%:*}: status $st, $(cat "$tmp/out")"
+done
+
 #: part input
 # flicker: a square switching green and black every 30 ms flickers, at
 # that; one that blinks every half second, as a caret does, doesn't; one

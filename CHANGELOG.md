@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `shotbox mutate` runs a browser test against small changes to the page
+  it tests, each run in a session of its own, to find a test that fails
+  on a change that shouldn't matter (BRITTLE: the page at another size,
+  a button moved 40 px) or passes on one that should (BLIND: a button
+  hidden or dead, a total a cent off). The test opts in with `await
+  mutated(context)` from the npm package; each change to a target is
+  proven by Playwright looking for it as the test would, and a run whose
+  change can't be proven is UNAPPLIED, with why. Python has
+  `shotbox.mutate()`.
+
 ## 0.10.0 — 2026-10-23
 
 Contrast measures web pages' text run by run, in Firefox as in
