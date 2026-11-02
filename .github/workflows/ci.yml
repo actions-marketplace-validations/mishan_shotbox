@@ -37,12 +37,14 @@ jobs:
           node-version: 22
           cache: npm
 
-      # The packages' downloads, kept until the runner's image changes.
+      # The packages' downloads, kept until the runner's image changes; when
+      # this file does, the last ones, so only what's new is fetched.
       - run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
       - uses: actions/cache@v6
         with:
           path: ~/apt/*.deb
           key: apt-${{ env.image }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: apt-${{ env.image }}-
 
       # The README's list, and what the tests use besides: GTK 3 for the
       # Python API's button, and cairo for its windows that draw, gdbus
