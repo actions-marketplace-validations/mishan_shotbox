@@ -1615,7 +1615,11 @@ EOF
   # or for an X window, by Xwayland's ping, and else it says it can't tell.
   # Beside a window that takes no ping (xmessage's), the rest are waited
   # for and it's named; picked with --window, with another, it fails at
-  # once. No program here is said to have a page or children.
+  # once. No program here is said to have a page or children. An idle one
+  # passes within a second. A fake app on the bus, answering from a thread
+  # of its own: as AccessKit, it can't be told on Wayland, though only its
+  # main thread is busy; as GTK, a busy bus thread is waited out on X11,
+  # where its ping answers, and on Wayland it's not idle once it's left.
   cat > "$tmp/idle.sh" <<'EOF'
 sb=$1; here=$2; out=$3; shift 3
 for c; do
@@ -1624,10 +1628,13 @@ $c
 END
   log=$out.$how.$t
   : > "$log"
-  "$here/gtk4_window.py" block "$log" $n $(echo $blocks | tr , ' ') & app=$!
+  case $how in
+    fake*) "$here/gtk4_window.py" fake "$log" $(echo $blocks | tr , ' ') & app=$! w=fake ;;
+    *) "$here/gtk4_window.py" block "$log" $n $(echo $blocks | tr , ' ') & app=$! w=gtk4-block ;;
+  esac
   msg=; case $how in mixed|pick) xmessage -title plain hi & msg=$!; "$sb" wait window plain >/dev/null ;; esac
-  "$sb" wait window gtk4-block >/dev/null
-  kill -USR1 $app
+  "$sb" wait window $w >/dev/null
+  [ $how = calm ] || kill -USR1 $app
   [ $t = 1 ] || { "$sb" wait stable >/dev/null; echo "$(date +%s.%N) stable" >> "$log"; }
   s=$(date +%s%N)
   case $how in
@@ -1645,9 +1652,10 @@ EOF
   xw=$([ -n "$wayland" ] && command -v Xwayland >/dev/null && echo xwayland || true)
   for s in x a11y $wayland $xw; do
     case $s in
-      x) opts= rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1 mixed:1:1,1,1:10 pick:1:1:1" ;;
-      a11y) opts=--a11y rows="cli:20:1,1,1:10 cli:1:4:1" ;;
-      wl-a11y) opts="--wayland --a11y" rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1" ;;
+      x) opts= rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1 mixed:1:1,1,1:10 pick:1:1:1 calm:1:1:5" ;;
+      a11y) opts=--a11y rows="cli:20:1,1,1:10 cli:1:4:1 fake-bus:1:GTK,bus,2:9" ;;
+      wl-a11y) opts="--wayland --a11y"
+        rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1 fake-kit:1:AccessKit,main,3:2 fake-left:1:GTK,leave,1:3" ;;
       xwayland) opts="--wayland --xwayland --env GDK_BACKEND=x11" rows="cli:1:1,1,1:10 cli:1:4:1" ;;
     esac
     : > "$tmp/idle.$s"
@@ -1667,6 +1675,13 @@ EOF
   awk '$2 == "idle" { exit !($3 && $4 < 1000 && /can.t tell whether the program of window .plain./) }' \
     "$tmp/idle.x.pick.1" || bad="$bad pick"
   ! grep "answers, but" "$tmp"/idle.*.out || bad="$bad noted"
+  awk '$2 == "idle" { exit !(!$3 && $6 + 0 < 1) }' "$tmp/idle.x.calm.5" || bad="$bad calm"
+  awk '$2 == "end" { end = $1 } $2 == "idle" { exit !(!$3 && end && $1 > end) }' "$tmp/idle.a11y.fake-bus.9" \
+    || bad="$bad fake-bus"
+  [ -z "$wayland" ] || { awk '$2 == "idle" { exit !($3 && /AccessKit, isn.t known to answer/) }' \
+      "$tmp/idle.wl-a11y.fake-kit.2" || bad="$bad fake-kit"
+    awk '$2 == "idle" { exit !($3 && /\(window .fake.\) didn.t answer/) }' \
+      "$tmp/idle.wl-a11y.fake-left.3" || bad="$bad fake-left"; }
   # A window nothing can ask, said so, with no traceback: a bus that isn't
   # there; on Wayland without --a11y; and with it, a program kept off it.
   refusals="--a11y|AT_SPI_BUS_ADDRESS=unix:path=$tmp/none|can't reach the accessibility bus: "

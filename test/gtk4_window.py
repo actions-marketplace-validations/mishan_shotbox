@@ -7,16 +7,24 @@ whose faint "Here" is at the other end. `glyphs
 TEXT|FONT|PX|WEIGHT|COLOR|BACKGROUND[|SHADOW]...` is a window of those
 labels instead. `block LOG N [SECONDS...]` is N windows whose main thread,
 on SIGUSR1, is busy for each of SECONDS (1 1 1), free for 90 ms between,
-writing to LOG when each starts and ends."""
+writing to LOG when each starts and ends. `fake LOG KIT WHAT SECONDS` is a
+window whose program is on the accessibility bus as AccessKit's are, by
+toolkit KIT, answering it from a thread of its own; on SIGUSR1, its main
+thread is busy for SECONDS (WHAT main), or its bus thread is (bus), or
+that, then it leaves the bus (leave)."""
 
+import os
 import signal
 import sys
+import threading
 import time
 
 import gi
 
+if sys.argv[1:2] == ["fake"]:
+    os.environ["GTK_A11Y"] = "none"     # its own bus side, not GTK's
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
 
 def faint(text, **props):
@@ -70,11 +78,22 @@ def glyphs(app):
     w.present()
 
 
-def block(app):
-    def note(what):
-        with open(sys.argv[2], "a") as f:
-            f.write(f"{time.time():.3f} {what}\n")
+def note(what):
+    with open(sys.argv[2], "a") as f:
+        f.write(f"{time.time():.3f} {what}\n")
 
+
+def on_usr1(then):
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        add = GLibUnix.signal_add
+    except (ImportError, ValueError):   # GLib before 2.80
+        add = GLib.unix_signal_add
+    add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda *_: then() or True)
+
+
+def block(app):
     def busy(left):
         note("start")
         end = time.monotonic() + left[0]
@@ -84,19 +103,49 @@ def block(app):
         if left[1:]:
             GLib.timeout_add(90, busy, left[1:])
         return False
-    try:
-        gi.require_version("GLibUnix", "2.0")
-        from gi.repository import GLibUnix
-        add = GLibUnix.signal_add
-    except (ImportError, ValueError):   # GLib before 2.80
-        add = GLib.unix_signal_add
-    add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
-        lambda *_: busy([float(s) for s in sys.argv[4:]] or [1, 1, 1]) or True)
+    on_usr1(lambda: busy([float(s) for s in sys.argv[4:]] or [1, 1, 1]))
     for _ in range(int(sys.argv[3])):
         Gtk.ApplicationWindow(application=app, title="gtk4-block",
                               child=Gtk.Label(label="Busy on SIGUSR1")).present()
 
 
+def fake(app):
+    kit, what, seconds = sys.argv[3], sys.argv[4], float(sys.argv[5])
+    root, ctx, bus = "/org/a11y/atspi/accessible/root", GLib.MainContext(), []
+    node = Gio.DBusNodeInfo.new_for_xml(
+        '<node><interface name="org.a11y.atspi.Application"><property name="ToolkitName" '
+        'type="s" access="read"/></interface><interface name="org.a11y.atspi.Accessible">'
+        '<property name="ChildCount" type="i" access="read"/></interface></node>')
+
+    def serve():
+        # Its calls are dispatched in this thread, as the context's.
+        ctx.push_thread_default()
+        conn = Gio.DBusConnection.new_for_address_sync(
+            os.environ["AT_SPI_BUS_ADDRESS"], Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        for iface in node.interfaces:
+            conn.register_object(root, iface, None, lambda *a: GLib.Variant(
+                "s", kit) if a[4] == "ToolkitName" else GLib.Variant("i", 0), None)
+        conn.call_sync("org.a11y.atspi.Registry", root, "org.a11y.atspi.Socket", "Embed",
+                       GLib.Variant("((so))", ((conn.get_unique_name(), root),)), None,
+                       Gio.DBusCallFlags.NONE, -1, None)
+        bus.append(conn)
+        GLib.MainLoop(ctx).run()
+
+    def busy():
+        note("start")
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            pass
+        note("end")
+        if what == "leave":
+            bus[0].close_sync(None)
+    threading.Thread(target=serve, daemon=True).start()
+    on_usr1(busy if what == "main" else lambda: ctx.invoke_full(GLib.PRIORITY_DEFAULT, busy))
+    Gtk.ApplicationWindow(application=app, title="fake", child=Gtk.Label(label="Fake")).present()
+
+
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
-app.connect("activate", {"glyphs": glyphs, "block": block}.get("".join(sys.argv[1:2]), activate))
+app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake}.get(
+    "".join(sys.argv[1:2]), activate))
 app.run([])
