@@ -150,6 +150,27 @@ at the end.
 Turning it on doesn't change the pictures: a libadwaita window comes out
 the same bytes with and without it.
 
+## What wait idle proves
+
+`shotbox wait idle` passes once each program has answered just now, three
+times in a row, on its main thread: it was free then. What it asks, and
+what that proves, by toolkit and session:
+
+| Program | X11 | X11 with `--a11y` | Wayland with `--a11y` |
+|---|---|---|---|
+| GTK 3, GTK 4 | the ping | the ping and the bus | the bus |
+| Qt 5, Qt 6 | the ping | the ping: QtDBus answers the bus while Qt's main thread is busy | can't tell: Qt answers the bus off its main thread |
+| AccessKit (egui, Slint) | the ping, if its window takes one | the same: it answers the bus from a thread of its own | can't tell |
+| Chromium, Firefox, Electron | the browser's own window, by the ping; its page, noted as not checked (it has child processes) | the same; its page noted by its document | an Xwayland window by the ping; else can't tell |
+
+The ping is `_NET_WM_PING`, to each X window that takes one, under
+Xwayland too; the bus is a Get of ChildCount on the program's root,
+asked only of a toolkit known to answer it from its main thread. A page
+runs in a process of its own that nothing from outside reaches, so a
+blocked script isn't seen. A program it can't tell about is named on
+stderr and the rest waited for, unless it's the one `--window` picked,
+or there's nothing else, which fails.
+
 ## Reading the tree
 
 `shotbox a11y` reads the tree with libatspi (PyGObject's `Atspi`), in its

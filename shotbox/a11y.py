@@ -27,6 +27,7 @@ import time
 import unicodedata
 from collections import Counter
 from functools import cache
+from pathlib import Path
 
 from . import picture, wl, x
 from .screen import Screen, SessionError, wait_for, wheel
@@ -1514,10 +1515,37 @@ class Bus:
                           self.GLib.Variant("(ss)", what), None, self.Gio.DBusCallFlags.NONE,
                           round(ANSWER * 1000), None, done, (pid, name))
 
+    def paged(self, name, path):
+        """Whether the program at `name` shows a web page: a node of role
+        DOCUMENT_WEB (95, a bit in the third word of the role set) in its
+        tree. Its UI answers this even while its page is busy. None if it
+        can't be told: no Collection, as in GTK 4's, or no answer."""
+        rule = ([], 1, {}, 1, [0, 0, -2 ** 31, 0], 2, [], 1, False), 1, 1, True
+        try:
+            return bool(self.bus.call_sync(
+                name, path, "org.a11y.atspi.Collection", "GetMatches",
+                self.GLib.Variant("((aiia{ss}iaiiasib)uib)", rule), None,
+                self.Gio.DBusCallFlags.NONE, 1000, None).unpack()[0])
+        except self.GLib.Error:
+            return None
+
     def answered(self):
         while len(self.replies) < self.asked:
             self.GLib.MainContext.default().iteration(True)
         return {pid for pid, ok in self.replies.items() if ok}
+
+
+def started(pid):
+    """Whether process `pid` has a child process."""
+    for d in os.listdir("/proc"):
+        try:
+            # Its parent is the fourth field, after the name in parentheses.
+            stat = d.isdigit() and Path(f"/proc/{d}/stat").read_text()
+            if stat and int(stat.rsplit(")", 1)[1].split()[1]) == pid:
+                return True
+        except (OSError, IndexError, ValueError):
+            pass
+    return False
 
 
 def idle(window=None, timeout=30):
@@ -1565,17 +1593,25 @@ def idle(window=None, timeout=30):
             pinged.setdefault(k, [])
             if pings:
                 pinged[k].append(xid)
+        untold = {}
         for k, ws in programs.items():
             if not pinged[k] and not on_bus(k):
                 who = (f"program {k}" if isinstance(k, int)
                        else f"the program of window {ws[0][1]!r}")
                 kit = k in seen and bus.toolkits[seen[k]]
-                raise SessionError(
-                    f"can't tell whether {who} answers: its window takes no ping"
-                    + ("; start the session with --a11y" if not a11y
-                       else f", and its toolkit, {kit}, isn't known to answer the "
-                            "accessibility bus from its main thread" if kit
-                       else ", and it isn't on the accessibility bus"))
+                untold[k] = (f"can't tell whether {who} answers: its window takes no ping"
+                             + ("; start the session with --a11y, if its toolkit has it"
+                                if not a11y
+                                else f", and its toolkit, {kit}, isn't known to answer the "
+                                     "accessibility bus from its main thread" if kit
+                                else ", and it isn't on the accessibility bus"))
+        # One picked, or nothing else to wait for, can't pass unchecked; the
+        # rest are waited without, and said at the end, as one can join the
+        # bus a round late.
+        if untold and (window or len(untold) == len(programs)):
+            raise SessionError("; ".join(untold.values()))
+        for k in untold:
+            del programs[k]
         # Pings EVERY apart, however long listing the windows took.
         wait(sent + EVERY)
         sent = time.monotonic()
@@ -1592,8 +1628,24 @@ def idle(window=None, timeout=30):
         answered.update(dict.fromkeys(now, time.monotonic()))
         streak = {k: streak.get(k, 0) + 1 if k in now else 0 for k in programs}
         if all(n >= ROUNDS for n in streak.values()) and (programs or not window):
-            return time.monotonic() - began
+            took = time.monotonic() - began
+            sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
+            for k, ws in programs.items():
+                who = (f"program {k} (window {ws[0][1]!r})" if isinstance(k, int)
+                       else f"the program of window {ws[0][1]!r}")
+                page = bus.paged(*apps[k]) if k in apps else None
+                if page:
+                    sys.stderr.write(f"shotbox: {who} answers, but the page in it wasn't "
+                                     "checked: nothing from outside can reach it\n")
+                # No page found, or none asked for (it's off the bus, or kept
+                # its page out of its tree): a browser's pages are its children.
+                elif isinstance(k, int) and started(k):
+                    sys.stderr.write(f"shotbox: {who} answers, but what it started wasn't "
+                                     "checked (a browser's pages, say): nothing from outside "
+                                     "can reach it\n")
+            return took
         if time.monotonic() - began > timeout:
+            sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
             if not programs:
                 raise SessionError(f"gave up waiting for a {x.matcher(window)[1]} after "
                                    f"{timeout:g}s" + screen.there(window))

@@ -4,6 +4,13 @@
 
 ### Added
 
+- `shotbox wait idle [--window RE]` waits until each program with a
+  window shown has answered just now, three times in a row: free on its
+  main thread, which `wait stable` can't tell, as a busy program holds
+  as still as an idle one. It asks by X11's `_NET_WM_PING`, and with
+  `--a11y` GTK programs on the accessibility bus too, on Wayland as well;
+  a browser's page, and a window nothing can ask, are said on stderr not
+  to have been checked. Python has `Screen.wait_idle()`.
 - `shotbox mutate` runs a browser test against small changes to the page
   it tests, each run in a session of its own, to find a test that fails
   on a change that shouldn't matter (BRITTLE: the page at another size,

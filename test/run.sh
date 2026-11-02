@@ -1613,6 +1613,9 @@ EOF
   # Busy past --timeout 1, it's named, by 2 s. On X11 by _NET_WM_PING, and
   # with --a11y by the accessibility bus too; on Wayland by the bus alone,
   # or for an X window, by Xwayland's ping, and else it says it can't tell.
+  # Beside a window that takes no ping (xmessage's), the rest are waited
+  # for and it's named; picked with --window, with another, it fails at
+  # once. No program here is said to have a page or children.
   cat > "$tmp/idle.sh" <<'EOF'
 sb=$1; here=$2; out=$3; shift 3
 for c; do
@@ -1622,15 +1625,18 @@ END
   log=$out.$how.$t
   : > "$log"
   "$here/gtk4_window.py" block "$log" $n $(echo $blocks | tr , ' ') & app=$!
+  msg=; case $how in mixed|pick) xmessage -title plain hi & msg=$!; "$sb" wait window plain >/dev/null ;; esac
   "$sb" wait window gtk4-block >/dev/null
   kill -USR1 $app
   [ $t = 1 ] || { "$sb" wait stable >/dev/null; echo "$(date +%s.%N) stable" >> "$log"; }
   s=$(date +%s%N)
-  if [ $how = cli ]; then "$sb" wait idle --timeout $t
-  else PYTHONPATH="$here/.." python3 -c "import shotbox; print(shotbox.Screen().wait_idle(timeout=$t))"
-  fi > "$log.out" 2>&1
+  case $how in
+    py) PYTHONPATH="$here/.." python3 -c "import shotbox; print(shotbox.Screen().wait_idle(timeout=$t))" ;;
+    pick) "$sb" wait idle --timeout $t --window 'plain|gtk4-block' ;;
+    *) "$sb" wait idle --timeout $t ;;
+  esac > "$log.out" 2>&1
   echo "$(date +%s.%N) idle $? $(( ($(date +%s%N) - s) / 1000000 )) $app $(tail -1 "$log.out")" >> "$log"
-  kill $app; wait $app
+  kill $app $msg; wait $app
 done
 echo end >> "$out"
 EOF
@@ -1639,7 +1645,7 @@ EOF
   xw=$([ -n "$wayland" ] && command -v Xwayland >/dev/null && echo xwayland || true)
   for s in x a11y $wayland $xw; do
     case $s in
-      x) opts= rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1" ;;
+      x) opts= rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1 mixed:1:1,1,1:10 pick:1:1:1" ;;
       a11y) opts=--a11y rows="cli:20:1,1,1:10 cli:1:4:1" ;;
       wl-a11y) opts="--wayland --a11y" rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1" ;;
       xwayland) opts="--wayland --xwayland --env GDK_BACKEND=x11" rows="cli:1:1,1,1:10 cli:1:4:1" ;;
@@ -1656,6 +1662,11 @@ EOF
       late = !$3 || $4 > 2000 || !index($0, "program " $5 " " named) } END { exit late }' \
       "$tmp/idle.$s.cli.1" || bad="$bad $s.timeout"
   done
+  grep -q "^shotbox: can't tell whether the program of window 'plain' answers" "$tmp/idle.x.mixed.10.out" \
+    || bad="$bad mixed"
+  awk '$2 == "idle" { exit !($3 && $4 < 1000 && /can.t tell whether the program of window .plain./) }' \
+    "$tmp/idle.x.pick.1" || bad="$bad pick"
+  ! grep "answers, but" "$tmp"/idle.*.out || bad="$bad noted"
   # A window nothing can ask, said so, with no traceback: a bus that isn't
   # there; on Wayland without --a11y; and with it, a program kept off it.
   refusals="--a11y|AT_SPI_BUS_ADDRESS=unix:path=$tmp/none|can't reach the accessibility bus: "
@@ -2638,6 +2649,31 @@ if grep -q '^ℹ skipped [1-9]' "$tmp/browser.log"; then
     || echo "skip  browser helpers: $why"
 elif ! grep -q '^ℹ fail [1-9]' "$tmp/browser.log"; then
   ok "browser helpers"
+fi
+# wait idle and a browser: Chromium answers, but its page can't be asked,
+# and that's said: by its document with --a11y, by its child processes
+# without, or when it keeps off the bus. Here, where Playwright's Chromium
+# is, run as it is, not by Node.
+chrome=$(ls -d "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | tail -1)
+if [ -n "$chrome" ] && atspi; then
+  said=
+  for c in "--a11y::the page in it wasn't checked" "::what it started wasn't checked" \
+      "--a11y:--disable-renderer-accessibility --disable-platform-accessibility-integration:what it started wasn't checked"; do
+    IFS=: read -r opts flags want <<END
+$c
+END
+    "$sb" run $opts -- sh -c "'$chrome' --no-sandbox $flags --no-first-run \
+        --user-data-dir=\"\$SHOTBOX_SCRATCH/chrome\" 'data:text/html,<title>idle-page</title>hi' \
+        >/dev/null 2>&1 &
+      '$sb' wait window 'idle-page.*' --timeout 60 >/dev/null && '$sb' wait idle" > "$tmp/idle.chrome" 2>&1 \
+      && grep -q "^shotbox: program [0-9]* (window 'idle-page.*') answers, but $want" "$tmp/idle.chrome" \
+      || said="$said $opts $flags: $(cat "$tmp/idle.chrome")"
+  done
+  [ -z "$said" ] && ok "wait idle: a browser answers, and its page is said not to be checked" \
+    || fail "wait idle: a browser:$said"
+else
+  [ "${SHOTBOX_BROWSER-}" = required ] && fail "wait idle: a browser skipped: no Chromium or AT-SPI" \
+    || echo "skip  wait idle: a browser: no Playwright Chromium or AT-SPI"
 fi
 
 #: end

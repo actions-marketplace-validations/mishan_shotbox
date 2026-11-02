@@ -29,7 +29,7 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   crop's corner, or 0, 0; `wait_change` the seconds),
   `wait_idle(window=None)` (as `shotbox wait idle`: each program has
   answered just now, by X's ping and, with `a11y=True`, for GTK, the
-  accessibility bus;
+  accessibility bus, its notes on stderr;
   `wait_window` first, as with nothing shown it returns; the seconds),
   and `until(what,
   test)` for a test of your own; each takes `timeout` (30).

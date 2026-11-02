@@ -26,6 +26,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -322,7 +323,8 @@ class Screen:
         apart. Work it put off (to a timer, a fetch)
         can still keep it busy after. The seconds it took."""
         return self._a11y("idle", "--timeout", str(timeout),
-                          *([f"--window={window}"] if window else []), timeout=90 + timeout)
+                          *([f"--window={window}"] if window else []), timeout=90 + timeout,
+                          notes=True)
 
     def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore, margin=0):
         """wait_match against `ref` (`name` to say), or with None,
@@ -796,11 +798,12 @@ class Screen:
 
     # --- the accessible tree ----------------------------------------------------
 
-    def _a11y(self, *args, timeout=90):
+    def _a11y(self, *args, timeout=90, notes=False):
         """`shotbox a11y WHAT --json ARGS` in the session, for its answer: libatspi
         keeps the first bus it finds for the life of a process, which may
         not be this session's. It has a watchdog of its own; `timeout` is
-        for one that never even gets that far."""
+        for one that never even gets that far. With `notes`, what it says
+        on stderr is passed on."""
         from .__main__ import self_command
         # Options as --name=VALUE, and a name after --: an agent's regex can
         # start with a dash.
@@ -819,6 +822,12 @@ class Screen:
                     if _CANCEL.is_set():
                         raise SessionError(f"shotbox a11y {args[0]}: cancelled") from None
                     self.fail(f"shotbox a11y {args[0]} got no answer in {timeout}s")
+        if notes and proc.returncode:
+            # Its error is its last line; what comes before, notes.
+            *said, err = err.splitlines() or [""]
+            sys.stderr.writelines(f"{line}\n" for line in said)
+        elif notes:
+            sys.stderr.write(err)
         if proc.returncode:
             self.fail(err.strip().removeprefix("shotbox: ") or f"shotbox a11y {args[0]} failed")
         return json.loads(out)
