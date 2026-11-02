@@ -4,6 +4,8 @@ Uses the X tools every distro has (xwininfo, ImageMagick's import and
 convert) rather than a Python X binding, so there's nothing to install.
 """
 
+import ctypes
+import ctypes.util
 import hashlib
 import json
 import os
@@ -787,6 +789,113 @@ class Still:
             self.last, self.since = now, t
             return False
         return t - self.since >= self.quiet
+
+
+class _ClientMessage(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("serial", ctypes.c_ulong), ("send_event", ctypes.c_int),
+                ("display", ctypes.c_void_p), ("window", ctypes.c_ulong),
+                ("message_type", ctypes.c_ulong), ("format", ctypes.c_int),
+                ("l", ctypes.c_long * 5)]
+
+
+class _Event(ctypes.Union):
+    _fields_ = [("xclient", _ClientMessage), ("pad", ctypes.c_long * 24)]
+
+
+class _Error(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("display", ctypes.c_void_p),
+                ("resourceid", ctypes.c_ulong), ("serial", ctypes.c_ulong),
+                ("error_code", ctypes.c_ubyte), ("request_code", ctypes.c_ubyte),
+                ("minor_code", ctypes.c_ubyte)]
+
+
+# Windows an X error was about: one closed while it's pinged, which is no
+# reason to stop. Kept here, as is the handler, which libX11 calls from C.
+_BAD = set()
+_ON_ERROR = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.POINTER(_Error))(
+    lambda d, e: _BAD.add(e.contents.resourceid) or 0)
+
+
+class Pinger:
+    """Asking windows on the display in `env` whether their programs answer,
+    by _NET_WM_PING, which a toolkit answers from its main loop: one that's
+    busy or hung doesn't. libX11 through ctypes, which reads XAUTHORITY's
+    entries as the toolkits do."""
+
+    STRUCTURE, SUBSTRUCTURE, CLIENT_MESSAGE = 1 << 17, 1 << 19, 33
+
+    def __init__(self, env):
+        x11 = self.x11 = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XInternAtom.restype = x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        for f in ("XDefaultRootWindow", "XConnectionNumber", "XPending", "XFlush", "XFree"):
+            getattr(x11, f).argtypes = [ctypes.c_void_p]
+        x11.XSelectInput.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_long]
+        x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long,
+                                   ctypes.POINTER(_Event)]
+        x11.XNextEvent.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Event)]
+        x11.XGetWMProtocols.argtypes = [ctypes.c_void_p, ctypes.c_ulong,
+                                        ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)),
+                                        ctypes.POINTER(ctypes.c_int)]
+        x11.XSetErrorHandler(_ON_ERROR)
+        self.d = x11.XOpenDisplay(env.get("DISPLAY", "").encode())
+        if not self.d:
+            raise RuntimeError(f"can't reach the display {env.get('DISPLAY')}: "
+                               "is the session still up?")
+        self.protocols = x11.XInternAtom(self.d, b"WM_PROTOCOLS", False)
+        self.ping_atom = x11.XInternAtom(self.d, b"_NET_WM_PING", False)
+        self.root = x11.XDefaultRootWindow(self.d)
+        # Qt 5 sends its answer for StructureNotify only, GTK for Substructure.
+        x11.XSelectInput(self.d, self.root, self.STRUCTURE | self.SUBSTRUCTURE)
+        # Stamps unique to this process: another wait's answers aren't ours.
+        self.salt, self.count = (os.getpid() & 0x7FFF) << 16, 0
+        self.sent, self.last = set(), {}
+
+    def takes(self, wid):
+        """Whether window `wid` (a number) lists _NET_WM_PING in its
+        WM_PROTOCOLS; None if it's gone."""
+        got, n = ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_int()
+        _BAD.discard(wid)
+        ok = self.x11.XGetWMProtocols(self.d, wid, ctypes.byref(got), ctypes.byref(n))
+        if wid in _BAD:
+            return None
+        listed = ok and self.ping_atom in got[:n.value]
+        if ok:
+            self.x11.XFree(got)
+        return bool(listed)
+
+    def ping(self, wids):
+        """Ping each of `wids` with this round's stamp, and return it."""
+        self.count = (self.count + 1) & 0xFFFF
+        stamp = self.salt | self.count
+        self.sent.add(stamp)
+        for wid in wids:
+            e = _Event()
+            e.xclient.type, e.xclient.window = self.CLIENT_MESSAGE, wid
+            e.xclient.message_type, e.xclient.format = self.protocols, 32
+            e.xclient.l[:3] = self.ping_atom, stamp, wid
+            # No event mask: it goes to the window's owner.
+            self.x11.XSendEvent(self.d, wid, False, 0, ctypes.byref(e))
+        self.x11.XFlush(self.d)
+        return stamp
+
+    def read(self, until):
+        """Take the answers that come in until `until` (time.monotonic());
+        `last` holds each window's latest: (its stamp, when it came)."""
+        e, fd = _Event(), self.x11.XConnectionNumber(self.d)
+        while True:
+            while self.x11.XPending(self.d):
+                self.x11.XNextEvent(self.d, ctypes.byref(e))
+                c = e.xclient
+                stamp = c.l[1] & 0xFFFFFFFF
+                if (c.type == self.CLIENT_MESSAGE and c.message_type == self.protocols
+                        and c.l[0] == self.ping_atom and stamp in self.sent):
+                    self.last[c.l[2]] = stamp, time.monotonic()
+            left = until - time.monotonic()
+            if left <= 0:
+                return
+            select.select([fd], [], [], left)
 
 
 def montage(images, out, across=True):

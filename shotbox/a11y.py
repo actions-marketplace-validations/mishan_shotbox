@@ -11,8 +11,8 @@ reader sees it, for a session started with --a11y.
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
 refuses to run without it: otherwise libatspi would go looking for the
-desktop's. `record` is the session's announcement recorder; `node` is what
-`shotbox wait node` runs.
+desktop's. `record` is the session's announcement recorder; `node` and
+`idle` are what `shotbox wait node` and `wait idle` run.
 """
 
 import argparse
@@ -27,8 +27,9 @@ import time
 import unicodedata
 from collections import Counter
 from functools import cache
+from pathlib import Path
 
-from . import picture, x
+from . import picture, wl, x
 from .screen import Screen, SessionError, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
@@ -1427,6 +1428,238 @@ def wait_node(pattern, window=None, timeout=10):
         raise SessionError(f"{e}. The nearest: " + ", ".join(
             json.dumps(said[t], ensure_ascii=False) for t in near) if near
             else f"{e}: nothing in the tree comes near it") from None
+
+
+# A program answers a probe within ANSWER, as an idle one does in well under
+# a millisecond, with room for a loaded machine; and is idle once it has,
+# ROUNDS rounds in a row, EVERY seconds apart: one busy with a run of work
+# can answer between two pieces of it.
+ANSWER, ROUNDS, EVERY = 0.05, 3, 0.1
+
+
+class Bus:
+    """The programs on the accessibility bus, and whether each answers there:
+    a Get of its root's ChildCount, which GTK answers from its main loop.
+    Not through libatspi, whose cache answers without asking, and which
+    gives a program it hasn't asked before 15 s; nor Peer.Ping, which GDBus
+    answers on a thread of its own. Only for a toolkit known to answer on
+    its main thread: AccessKit's (egui, Slint) answer from a thread of their
+    own, and QtDBus answers while Qt's main thread is busy."""
+
+    TRUSTED = ("gtk",)    # GTK 4's "GTK", GTK 3's "gtk"
+
+    def __init__(self):
+        why = bindings(*ATSPI)
+        if why:
+            raise SessionError(why)
+        from gi.repository import Gio, GLib
+        self.Gio, self.GLib = Gio, GLib
+        try:
+            self.bus = Gio.DBusConnection.new_for_address_sync(
+                os.environ["AT_SPI_BUS_ADDRESS"],
+                Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+                | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        except GLib.Error as e:
+            raise SessionError(f"can't reach the accessibility bus: {e.message}") from None
+        self.pids, self.toolkits, self.replies, self.asked = {}, {}, {}, 0
+
+    def _call(self, name, path, iface, method, args, reply):
+        return self.bus.call_sync(name, path, iface, method, args, self.GLib.VariantType(reply),
+                                  self.Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+
+    def apps(self):
+        """{pid: (bus name, root)} of each program on the bus now, as the
+        registry has them."""
+        GLib, apps = self.GLib, {}
+        try:
+            listed = self._call("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root",
+                                "org.a11y.atspi.Accessible", "GetChildren", None, "(a(so))")
+        except GLib.Error as e:
+            raise SessionError(f"can't reach the accessibility bus: {e.message}") from None
+        for name, path in listed:
+            try:
+                if name not in self.pids:
+                    self.pids[name] = self._call(
+                        "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                        "GetConnectionUnixProcessID", GLib.Variant("(s)", (name,)), "(u)")
+            except GLib.Error:     # gone since the registry listed it
+                continue
+            apps[self.pids[name]] = name, path
+        return apps
+
+    def trusted(self, name):
+        """Whether the program at bus name `name` answers the bus from its
+        main thread, by its toolkit; None until it's said which that is."""
+        kit = self.toolkits.get(name)
+        return None if kit is None else kit.casefold() in self.TRUSTED
+
+    def ask(self, apps):
+        """Ask each of `apps` ({pid: (bus name, root)}) at once, giving each
+        ANSWER to answer; answered() says which did. One whose toolkit isn't
+        known yet is asked for that, which it answers as it would the rest."""
+        self.replies, self.asked = {}, len(apps)
+
+        def done(bus, result, how):
+            pid, name = how
+            try:
+                got = bus.call_finish(result).unpack()[0]
+                if isinstance(got, str):
+                    self.toolkits[name] = got
+                self.replies[pid] = True
+            except self.GLib.Error:
+                self.replies[pid] = False
+        for pid, (name, path) in apps.items():
+            what = (("org.a11y.atspi.Accessible", "ChildCount") if name in self.toolkits
+                    else ("org.a11y.atspi.Application", "ToolkitName"))
+            self.bus.call(name, path, "org.freedesktop.DBus.Properties", "Get",
+                          self.GLib.Variant("(ss)", what), None, self.Gio.DBusCallFlags.NONE,
+                          round(ANSWER * 1000), None, done, (pid, name))
+
+    def paged(self, name, path):
+        """Whether the program at `name` shows a web page: a node of role
+        DOCUMENT_WEB (95, a bit in the third word of the role set) in its
+        tree. Its UI answers this even while its page is busy. None if it
+        can't be told: no Collection, as in GTK 4's, or no answer."""
+        rule = ([], 1, {}, 1, [0, 0, -2 ** 31, 0], 2, [], 1, False), 1, 1, True
+        try:
+            return bool(self.bus.call_sync(
+                name, path, "org.a11y.atspi.Collection", "GetMatches",
+                self.GLib.Variant("((aiia{ss}iaiiasib)uib)", rule), None,
+                self.Gio.DBusCallFlags.NONE, 1000, None).unpack()[0])
+        except self.GLib.Error:
+            return None
+
+    def answered(self):
+        while len(self.replies) < self.asked:
+            self.GLib.MainContext.default().iteration(True)
+        return {pid for pid, ok in self.replies.items() if ok}
+
+
+def started(pid):
+    """Whether process `pid` has a child process."""
+    for d in os.listdir("/proc"):
+        try:
+            # Its parent is the fourth field, after the name in parentheses.
+            stat = d.isdigit() and Path(f"/proc/{d}/stat").read_text()
+            if stat and int(stat.rsplit(")", 1)[1].split()[1]) == pid:
+                return True
+        except (OSError, IndexError, ValueError):
+            pass
+    return False
+
+
+def idle(window=None, timeout=30):
+    """Wait until each program with a window shown (or one `window` asks
+    for, waiting for one) has answered just now: within ANSWER, ROUNDS
+    rounds in a row, every probe that applies to it, a _NET_WM_PING to each
+    of its X windows that takes one, and with --a11y, the accessibility
+    bus, for a toolkit Bus trusts. The seconds that took."""
+    screen, began = Screen(), time.monotonic()
+    a11y = bool(os.environ.get("AT_SPI_BUS_ADDRESS"))
+    bus = Bus() if a11y else None
+    try:
+        # Under --xwayland, its windows' display.
+        pinger = x.Pinger(screen.env) if screen.env.get("DISPLAY") else None
+    except RuntimeError as e:
+        if not screen.wayland:
+            raise SessionError(str(e)) from None
+        pinger = None
+    wait = pinger.read if pinger else lambda until: time.sleep(max(0, until - time.monotonic()))
+    # Each program seen on the bus during the wait, by pid: its bus name.
+    streak, pids, sent, answered, seen = {}, {}, 0, {}, {}
+
+    def on_bus(k):
+        return k in seen and bus.trusted(seen[k]) is not False
+    while True:
+        programs, pinged = {}, {}
+        if screen.wayland:
+            found = wl.windows(screen.env)
+            more = {w[0]: (w[8], w[9]) for w in found}
+            listed = [(w, *more[w[0]]) for w in wl.shown(screen.env, window, found=found)]
+        else:
+            listed = []
+            for w in x.shown(screen.env, window):
+                if w[0] not in pids:
+                    pids[w[0]] = x.window_pid(screen.env, w[0])
+                listed.append((w, pids[w[0]], int(w[0], 16)))
+        apps = bus.apps() if bus else {}
+        seen.update({k: name for k, (name, _) in apps.items()})
+        for w, pid, xid in listed:
+            pings = pinger.takes(xid) if pinger and xid is not None else False
+            if pings is None:
+                continue
+            k = pid or w[0]
+            programs.setdefault(k, []).append(w)
+            pinged.setdefault(k, [])
+            if pings:
+                pinged[k].append(xid)
+        untold = {}
+        for k, ws in programs.items():
+            if not pinged[k] and not on_bus(k):
+                who = (f"program {k}" if isinstance(k, int)
+                       else f"the program of window {ws[0][1]!r}")
+                kit = k in seen and bus.toolkits[seen[k]]
+                untold[k] = (f"can't tell whether {who} answers: its window takes no ping"
+                             + ("; start the session with --a11y, if its toolkit has it"
+                                if not a11y
+                                else f", and its toolkit, {kit}, isn't known to answer the "
+                                     "accessibility bus from its main thread" if kit
+                                else ", and it isn't on the accessibility bus"))
+        # One picked, or nothing else to wait for, can't pass unchecked; the
+        # rest are waited without, and said at the end, as one can join the
+        # bus a round late.
+        if untold and (window or len(untold) == len(programs)):
+            raise SessionError("; ".join(untold.values()))
+        for k in untold:
+            del programs[k]
+        # Pings at least EVERY apart, however long listing the windows took.
+        wait(sent + EVERY)
+        sent = time.monotonic()
+        if bus:
+            bus.ask({k: apps[k] for k in programs if k in apps and on_bus(k)})
+        stamp = pinger and pinger.ping([xid for xids in pinged.values() for xid in xids])
+        wait(sent + ANSWER)
+        heard = bus.answered() if bus else set()
+        # One with no ping that's left the bus while its window is still
+        # shown can't be heard from, which isn't the same as answering.
+        now = {k for k in programs
+               if all(pinger.last.get(xid, (None,))[0] == stamp for xid in pinged[k])
+               and (k in heard if k in apps and on_bus(k) else pinged[k] or not on_bus(k))}
+        answered.update(dict.fromkeys(now, time.monotonic()))
+        streak = {k: streak.get(k, 0) + 1 if k in now else 0 for k in programs}
+        if all(n >= ROUNDS for n in streak.values()) and (programs or not window):
+            took = time.monotonic() - began
+            sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
+            for k, ws in programs.items():
+                who = (f"program {k} (window {ws[0][1]!r})" if isinstance(k, int)
+                       else f"the program of window {ws[0][1]!r}")
+                page = bus.paged(*apps[k]) if k in apps else None
+                if page:
+                    sys.stderr.write(f"shotbox: {who} answers, but the page in it wasn't "
+                                     "checked: nothing from outside can reach it\n")
+                # No page found, or none asked for (it's off the bus, or kept
+                # its page out of its tree): a browser's pages are its children.
+                elif isinstance(k, int) and started(k):
+                    sys.stderr.write(f"shotbox: {who} answers, but what it started wasn't "
+                                     "checked (a browser's pages, say): nothing from outside "
+                                     "can reach it\n")
+            return took
+        if time.monotonic() - began > timeout:
+            sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
+            if not programs:
+                raise SessionError(f"gave up waiting for a {x.matcher(window)[1]} after "
+                                   f"{timeout:g}s" + screen.there(window))
+            said = []
+            for k, ws in programs.items():
+                if streak[k] < ROUNDS:
+                    w = max(ws, key=lambda w: w[2] * w[3])
+                    said.append((f"program {k} (window {w[1]!r})" if isinstance(k, int)
+                                 else f"the program of window {w[1]!r}")
+                                + (f" didn't answer {ROUNDS} times in a row within {timeout:g}s;"
+                                   f" it last answered {time.monotonic() - answered[k]:.1f}s ago"
+                                   if k in answered
+                                   else f" didn't answer within {timeout:g}s"))
+            raise SessionError("; ".join(said))
 
 
 # How long a node's bounds are to hold before it's taken as still: a few
@@ -3136,6 +3369,7 @@ def read(argv):
     sc.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     nd = sub.add_parser("node")
     nd.add_argument("pattern")
+    il = sub.add_parser("idle")
     for s in (c, sc):
         s.add_argument("--force", action="store_true",
                        help="don't wait for it to be enabled, still and uncovered")
@@ -3154,7 +3388,7 @@ def read(argv):
                     help="also what passes, with its ratio, after what fails")
     ct.add_argument("--strict", action="store_true",
                     help="what isn't measured fails too")
-    for s in (t, lt, w, c, sc, ct, nd):
+    for s in (t, lt, w, c, sc, ct, nd, il):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
@@ -3163,7 +3397,7 @@ def read(argv):
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
                        help="how long to wait for the --window (10), or the node, "
                             "and for a program to answer")
-    for s in (t, lt, w, c, sc, ct, nd):
+    for s in (t, lt, w, c, sc, ct, nd, il):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
     rec = sub.add_parser("record")
@@ -3176,7 +3410,7 @@ def read(argv):
     patient(a.timeout)
     # A tree takes a second or two; a press, its settling time and a tree.
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
-             "the accessible tree")
+             "the display" if a.what == "idle" else "the accessible tree")
     if a.what == "tree":
         # Each window with its program's pid and toolkit, then a node for
         # each program that didn't answer, whose windows aren't there.
@@ -3253,6 +3487,10 @@ def read(argv):
                                               a.force))
         print(json.dumps(public(n)) if a.json else n.line() + (
             f", by its action {json.dumps(n.action)}" if n.get("action") else ""))
+        return 0
+    if a.what == "idle":
+        took = idle(a.window, a.timeout)
+        print(json.dumps(took) if a.json else f"{took:.3f}s")
         return 0
     if a.what == "node":
         n = wait_node(a.pattern, a.window, a.timeout)

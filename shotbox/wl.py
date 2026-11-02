@@ -43,8 +43,9 @@ def _read(s, n):
 
 def windows(env):
     """Every window, Wayland and X alike: (id, name, width, height, x, y,
-    app ids, visible, pid), x and y absolute. A Wayland window's app id is its
-    app_id; an X one's, under Xwayland, its WM_CLASS instance and class."""
+    app ids, visible, pid, X window), x and y absolute. A Wayland window's app
+    id is its app_id; an X one's, under Xwayland, its WM_CLASS instance and
+    class; the X window, under Xwayland, its id there, else None."""
     found = []
 
     def walk(node):
@@ -54,7 +55,8 @@ def windows(env):
             apps = tuple(a for a in (node.get("app_id"), props.get("instance"),
                                      props.get("class")) if a)
             found.append((node["id"], node.get("name") or "", r["width"], r["height"],
-                          r["x"], r["y"], apps, node.get("visible", False), node["pid"]))
+                          r["x"], r["y"], apps, node.get("visible", False), node["pid"],
+                          node.get("window")))
         for child in node.get("nodes", []) + node.get("floating_nodes", []):
             walk(child)
 
@@ -72,11 +74,12 @@ def window_pid(env, wid):
     return next((w[8] for w in windows(env) if w[0] == wid), None)
 
 
-def shown(env, spec=None, sids=()):
+def shown(env, spec=None, sids=(), found=None):
     """As x.shown: the visible windows, with `sids` by the pid sway has
-    for each, a Wayland client's or an Xwayland window's."""
+    for each, a Wayland client's or an Xwayland window's; of `found`, what
+    windows() gave, if it's been asked."""
     test = matcher(spec)[0] if spec else lambda name, apps: True
-    return [w[:7] for w in windows(env) if w[7] and test(w[1], w[6])
+    return [w[:7] for w in (windows(env) if found is None else found) if w[7] and test(w[1], w[6])
             and (not sids or in_sessions(w[8], sids))]
 
 
