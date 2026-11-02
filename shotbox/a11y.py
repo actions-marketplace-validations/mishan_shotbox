@@ -1612,7 +1612,7 @@ def idle(window=None, timeout=30):
             raise SessionError("; ".join(untold.values()))
         for k in untold:
             del programs[k]
-        # Pings EVERY apart, however long listing the windows took.
+        # Pings at least EVERY apart, however long listing the windows took.
         wait(sent + EVERY)
         sent = time.monotonic()
         if bus:
@@ -1658,7 +1658,7 @@ def idle(window=None, timeout=30):
                                 + (f" didn't answer {ROUNDS} times in a row within {timeout:g}s;"
                                    f" it last answered {time.monotonic() - answered[k]:.1f}s ago"
                                    if k in answered
-                                   else f" didn't answer within {timeout:g}s: no answer"))
+                                   else f" didn't answer within {timeout:g}s"))
             raise SessionError("; ".join(said))
 
 

@@ -87,8 +87,8 @@ counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`, `--ignore
 G` in the picture taken), and prints how long it took. `shotbox wait idle
 [--window RE]` waits until each program with a window shown (or the one
 asked for) has answered just now, within 50 ms, three times in a row,
-100 ms apart, which a program busy on its main thread can't. It asks each
-X window (X11's, or Xwayland's) by `_NET_WM_PING`, and with `--a11y` each
+at least 100 ms apart, which a program busy on its main thread can't. It
+asks each X window (X11's, or Xwayland's) by `_NET_WM_PING`, and with `--a11y` each
 GTK program on the accessibility bus too: other toolkits answer the bus
 from another thread (AccessKit's, Qt's) or aren't known to, so for them
 only the ping counts. On Wayland, then, only GTK with `--a11y`, and
@@ -97,9 +97,9 @@ named on stderr and the rest waited for; picked with `--window`, or with
 nothing else to wait for, it fails. A browser's page can't be asked, and
 it says so on stderr ([what it proves](accessibility.md#what-wait-idle-proves)).
 It prints how long it took, or names each program that didn't answer.
-With no window shown yet it has nothing to wait for, and returns: `wait
-window` first. Work put off to a timer or a fetch can still keep a
-program busy after it returns. `wait match --crop G
+Without `--window` and no window shown yet, it has nothing to wait for,
+and returns: `wait window` first. Work put off to a timer or a fetch can
+still keep a program busy after it returns. `wait match --crop G
 --margin PX` looks for the picture up to PX pixels from the crop's place each
 way, as openQA's needles are searched for, for one that moves a little from
 run to run (a canvas, a game), and prints where it matched best too: `0.412s
