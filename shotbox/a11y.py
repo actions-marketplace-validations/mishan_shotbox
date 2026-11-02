@@ -28,7 +28,7 @@ import unicodedata
 from collections import Counter
 from functools import cache
 
-from . import picture, x
+from . import picture, wl, x
 from .screen import Screen, SessionError, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
@@ -1436,38 +1436,161 @@ def wait_node(pattern, window=None, timeout=10):
 ANSWER, ROUNDS, EVERY = 0.05, 3, 0.1
 
 
+class Bus:
+    """The programs on the accessibility bus, and whether each answers there:
+    a Get of its root's ChildCount, which GTK answers from its main loop.
+    Not through libatspi, whose cache answers without asking, and which
+    gives a program it hasn't asked before 15 s; nor Peer.Ping, which GDBus
+    answers on a thread of its own. Only for a toolkit known to answer on
+    its main thread: AccessKit's (egui, Slint) answer from a thread of their
+    own, and QtDBus answers while Qt's main thread is busy."""
+
+    TRUSTED = ("gtk",)    # GTK 4's "GTK", GTK 3's "gtk"
+
+    def __init__(self):
+        why = bindings(*ATSPI)
+        if why:
+            raise SessionError(why)
+        from gi.repository import Gio, GLib
+        self.Gio, self.GLib = Gio, GLib
+        try:
+            self.bus = Gio.DBusConnection.new_for_address_sync(
+                os.environ["AT_SPI_BUS_ADDRESS"],
+                Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+                | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        except GLib.Error as e:
+            raise SessionError(f"can't reach the accessibility bus: {e.message}") from None
+        self.pids, self.toolkits, self.replies, self.asked = {}, {}, {}, 0
+
+    def _call(self, name, path, iface, method, args, reply):
+        return self.bus.call_sync(name, path, iface, method, args, self.GLib.VariantType(reply),
+                                  self.Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+
+    def apps(self):
+        """{pid: (bus name, root)} of each program on the bus now, as the
+        registry has them."""
+        GLib, apps = self.GLib, {}
+        try:
+            listed = self._call("org.a11y.atspi.Registry", "/org/a11y/atspi/accessible/root",
+                                "org.a11y.atspi.Accessible", "GetChildren", None, "(a(so))")
+        except GLib.Error as e:
+            raise SessionError(f"can't reach the accessibility bus: {e.message}") from None
+        for name, path in listed:
+            try:
+                if name not in self.pids:
+                    self.pids[name] = self._call(
+                        "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                        "GetConnectionUnixProcessID", GLib.Variant("(s)", (name,)), "(u)")
+            except GLib.Error:     # gone since the registry listed it
+                continue
+            apps[self.pids[name]] = name, path
+        return apps
+
+    def trusted(self, name):
+        """Whether the program at bus name `name` answers the bus from its
+        main thread, by its toolkit; None until it's said which that is."""
+        kit = self.toolkits.get(name)
+        return None if kit is None else kit.casefold() in self.TRUSTED
+
+    def ask(self, apps):
+        """Ask each of `apps` ({pid: (bus name, root)}) at once, giving each
+        ANSWER to answer; answered() says which did. One whose toolkit isn't
+        known yet is asked for that, which it answers as it would the rest."""
+        self.replies, self.asked = {}, len(apps)
+
+        def done(bus, result, how):
+            pid, name = how
+            try:
+                got = bus.call_finish(result).unpack()[0]
+                if isinstance(got, str):
+                    self.toolkits[name] = got
+                self.replies[pid] = True
+            except self.GLib.Error:
+                self.replies[pid] = False
+        for pid, (name, path) in apps.items():
+            what = (("org.a11y.atspi.Accessible", "ChildCount") if name in self.toolkits
+                    else ("org.a11y.atspi.Application", "ToolkitName"))
+            self.bus.call(name, path, "org.freedesktop.DBus.Properties", "Get",
+                          self.GLib.Variant("(ss)", what), None, self.Gio.DBusCallFlags.NONE,
+                          round(ANSWER * 1000), None, done, (pid, name))
+
+    def answered(self):
+        while len(self.replies) < self.asked:
+            self.GLib.MainContext.default().iteration(True)
+        return {pid for pid, ok in self.replies.items() if ok}
+
+
 def idle(window=None, timeout=30):
     """Wait until each program with a window shown (or one `window` asks
     for, waiting for one) has answered just now: within ANSWER, ROUNDS
-    rounds in a row. The seconds that took."""
+    rounds in a row, every probe that applies to it, a _NET_WM_PING to each
+    of its X windows that takes one, and with --a11y, the accessibility
+    bus, for a toolkit Bus trusts. The seconds that took."""
     screen, began = Screen(), time.monotonic()
+    a11y = bool(os.environ.get("AT_SPI_BUS_ADDRESS"))
+    bus = Bus() if a11y else None
     try:
-        pinger = None if screen.wayland else x.Pinger(screen.env)
+        # Under --xwayland, its windows' display.
+        pinger = x.Pinger(screen.env) if screen.env.get("DISPLAY") else None
     except RuntimeError as e:
-        raise SessionError(str(e)) from None
+        if not screen.wayland:
+            raise SessionError(str(e)) from None
+        pinger = None
     wait = pinger.read if pinger else lambda until: time.sleep(max(0, until - time.monotonic()))
-    streak, pids, sent = {}, {}, 0
+    # Each program seen on the bus during the wait, by pid: its bus name.
+    streak, pids, sent, answered, seen = {}, {}, 0, {}, {}
+
+    def on_bus(k):
+        return k in seen and bus.trusted(seen[k]) is not False
     while True:
-        programs = {}
-        for w in screen.backend.shown(screen.env, window):
-            pings = pinger.takes(int(w[0], 16)) if pinger else False
+        programs, pinged = {}, {}
+        if screen.wayland:
+            found = wl.windows(screen.env)
+            more = {w[0]: (w[8], w[9]) for w in found}
+            listed = [(w, *more[w[0]]) for w in wl.shown(screen.env, window, found=found)]
+        else:
+            listed = []
+            for w in x.shown(screen.env, window):
+                if w[0] not in pids:
+                    pids[w[0]] = x.window_pid(screen.env, w[0])
+                listed.append((w, pids[w[0]], int(w[0], 16)))
+        apps = bus.apps() if bus else {}
+        seen.update({k: name for k, (name, _) in apps.items()})
+        for w, pid, xid in listed:
+            pings = pinger.takes(xid) if pinger and xid is not None else False
             if pings is None:
                 continue
-            if w[0] not in pids:
-                pids[w[0]] = screen.backend.window_pid(screen.env, w[0])
-            pid = pids[w[0]]
-            who = f"program {pid}" if pid else f"the program of window {w[1]!r}"
-            if not pings:
-                raise SessionError(f"can't tell whether {who} answers: its window takes no ping")
-            programs.setdefault(pid or w[0], []).append(w)
+            k = pid or w[0]
+            programs.setdefault(k, []).append(w)
+            pinged.setdefault(k, [])
+            if pings:
+                pinged[k].append(xid)
+        for k, ws in programs.items():
+            if not pinged[k] and not on_bus(k):
+                who = (f"program {k}" if isinstance(k, int)
+                       else f"the program of window {ws[0][1]!r}")
+                kit = k in seen and bus.toolkits[seen[k]]
+                raise SessionError(
+                    f"can't tell whether {who} answers: its window takes no ping"
+                    + ("; start the session with --a11y" if not a11y
+                       else f", and its toolkit, {kit}, isn't known to answer the "
+                            "accessibility bus from its main thread" if kit
+                       else ", and it isn't on the accessibility bus"))
         # Pings EVERY apart, however long listing the windows took.
         wait(sent + EVERY)
         sent = time.monotonic()
-        stamp = pinger and pinger.ping([int(w[0], 16) for ws in programs.values() for w in ws])
+        if bus:
+            bus.ask({k: apps[k] for k in programs if k in apps and on_bus(k)})
+        stamp = pinger and pinger.ping([xid for xids in pinged.values() for xid in xids])
         wait(sent + ANSWER)
-        streak = {k: streak.get(k, 0) + 1 if all(
-            pinger.last.get(int(w[0], 16), (None,))[0] == stamp for w in ws) else 0
-            for k, ws in programs.items()}
+        heard = bus.answered() if bus else set()
+        # One with no ping that's left the bus while its window is still
+        # shown can't be heard from, which isn't the same as answering.
+        now = {k for k in programs
+               if all(pinger.last.get(xid, (None,))[0] == stamp for xid in pinged[k])
+               and (k in heard if k in apps and on_bus(k) else pinged[k] or not on_bus(k))}
+        answered.update(dict.fromkeys(now, time.monotonic()))
+        streak = {k: streak.get(k, 0) + 1 if k in now else 0 for k in programs}
         if all(n >= ROUNDS for n in streak.values()) and (programs or not window):
             return time.monotonic() - began
         if time.monotonic() - began > timeout:
@@ -1478,12 +1601,12 @@ def idle(window=None, timeout=30):
             for k, ws in programs.items():
                 if streak[k] < ROUNDS:
                     w = max(ws, key=lambda w: w[2] * w[3])
-                    last = pinger.last.get(int(w[0], 16))
                     said.append((f"program {k} (window {w[1]!r})" if isinstance(k, int)
                                  else f"the program of window {w[1]!r}")
                                 + (f" didn't answer {ROUNDS} times in a row within {timeout:g}s;"
-                                   f" it last answered {time.monotonic() - last[1]:.1f}s ago"
-                                   if last else f" didn't answer within {timeout:g}s: no answer"))
+                                   f" it last answered {time.monotonic() - answered[k]:.1f}s ago"
+                                   if k in answered
+                                   else f" didn't answer within {timeout:g}s: no answer"))
             raise SessionError("; ".join(said))
 
 

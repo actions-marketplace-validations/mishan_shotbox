@@ -317,8 +317,9 @@ class Screen:
 
     def wait_idle(self, window=None, timeout=30):
         """Wait until each program with a window shown, or with one `window`
-        asks for, has answered just now: a _NET_WM_PING within 50 ms, three
-        times in a row, 100 ms apart. Work it put off (to a timer, a fetch)
+        asks for, has answered just now: a _NET_WM_PING, and with --a11y the
+        accessibility bus, within 50 ms, three times in a row, 100 ms
+        apart. Work it put off (to a timer, a fetch)
         can still keep it busy after. The seconds it took."""
         return self._a11y("idle", "--timeout", str(timeout),
                           *([f"--window={window}"] if window else []), timeout=90 + timeout)

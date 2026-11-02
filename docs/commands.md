@@ -86,12 +86,17 @@ it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`, `--ignore
 G` in the picture taken), and prints how long it took. `shotbox wait idle
 [--window RE]` waits until each program with a window shown (or the one
-asked for) has answered just now: a `_NET_WM_PING` within 50 ms, three
-times in a row, 100 ms apart, which a program busy on its main thread
-can't. It prints how long it took, or names each program that didn't
-answer. With no window shown yet it has nothing to wait for, and returns:
-`wait window` first. It's X11's ping: on Wayland, or for a window that
-takes none, it fails. Work put off to a timer or a fetch can still keep a
+asked for) has answered just now, within 50 ms, three times in a row,
+100 ms apart, which a program busy on its main thread can't. It asks each
+X window (X11's, or Xwayland's) by `_NET_WM_PING`, and with `--a11y` each
+GTK program on the accessibility bus too: other toolkits answer the bus
+from another thread (AccessKit's, Qt's) or aren't known to, so for them
+only the ping counts. On Wayland, then, only GTK with `--a11y`, and
+Xwayland's windows, can be asked (not Qt), and a window nothing can ask
+fails it.
+It prints how long it took, or names each program that didn't answer.
+With no window shown yet it has nothing to wait for, and returns: `wait
+window` first. Work put off to a timer or a fetch can still keep a
 program busy after it returns. `wait match --crop G
 --margin PX` looks for the picture up to PX pixels from the crop's place each
 way, as openQA's needles are searched for, for one that moves a little from

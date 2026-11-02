@@ -1606,21 +1606,22 @@ EOF
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
-  # wait idle, on X11 by _NET_WM_PING, with no --a11y: a program busy on
-  # its main thread for a second three times, free for 90 ms between, less
-  # than a round, isn't idle until the last ends, though the screen holds
-  # still all along, as wait stable shows; from the command line, with 20
-  # windows to list each round, and Python. Busy past --timeout 1, it's
-  # named, by 2 s. On Wayland, with no ping, it says it can't tell.
+  # wait idle: a program busy on its main thread for a second three times,
+  # free for 90 ms between, less than a round, isn't idle until the last
+  # ends, though the screen holds still all along, as wait stable shows;
+  # from the command line, with 20 windows to list each round, and Python.
+  # Busy past --timeout 1, it's named, by 2 s. On X11 by _NET_WM_PING, and
+  # with --a11y by the accessibility bus too; on Wayland by the bus alone,
+  # or for an X window, by Xwayland's ping, and else it says it can't tell.
   cat > "$tmp/idle.sh" <<'EOF'
-sb=$1; here=$2; out=$3
-for c in "cli:20:1 1 1:10" "py:1:1 1 1:10" "cli:1:4:1"; do
+sb=$1; here=$2; out=$3; shift 3
+for c; do
   IFS=: read how n blocks t <<END
 $c
 END
   log=$out.$how.$t
   : > "$log"
-  "$here/gtk4_window.py" block "$log" $n $blocks & app=$!
+  "$here/gtk4_window.py" block "$log" $n $(echo $blocks | tr , ' ') & app=$!
   "$sb" wait window gtk4-block >/dev/null
   kill -USR1 $app
   [ $t = 1 ] || { "$sb" wait stable >/dev/null; echo "$(date +%s.%N) stable" >> "$log"; }
@@ -1633,25 +1634,44 @@ END
 done
 echo end >> "$out"
 EOF
-  : > "$tmp/idle"
-  "$sb" run -- sh "$tmp/idle.sh" "$sb" "$here" "$tmp/idle" >/dev/null 2>&1 || true
   bad=
-  for f in cli.10 py.10; do
-    awk '$2 == "end" { n++; first = first ? first : $1; last = $1 } $2 == "stable" { stable = $1 }
-      $2 == "idle" { idle = n == 3 && stable < first && $1 > last && !$3 && $6 ~ /^[0-9.]+s?$/ }
-      END { exit !idle }' "$tmp/idle.$f" || bad="$bad $f"
+  wayland=$(command -v sway >/dev/null && command -v grim >/dev/null && echo wl-a11y || true)
+  xw=$([ -n "$wayland" ] && command -v Xwayland >/dev/null && echo xwayland || true)
+  for s in x a11y $wayland $xw; do
+    case $s in
+      x) opts= rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1" ;;
+      a11y) opts=--a11y rows="cli:20:1,1,1:10 cli:1:4:1" ;;
+      wl-a11y) opts="--wayland --a11y" rows="cli:20:1,1,1:10 py:1:1,1,1:10 cli:1:4:1" ;;
+      xwayland) opts="--wayland --xwayland --env GDK_BACKEND=x11" rows="cli:1:1,1,1:10 cli:1:4:1" ;;
+    esac
+    : > "$tmp/idle.$s"
+    "$sb" run $opts -- sh "$tmp/idle.sh" "$sb" "$here" "$tmp/idle.$s" $rows >/dev/null 2>&1 || true
+    [ "$(cat "$tmp/idle.$s")" = end ] || bad="$bad $s"
+    for f in "$tmp/idle.$s".*.10; do
+      awk '$2 == "end" { n++; first = first ? first : $1; last = $1 } $2 == "stable" { stable = $1 }
+        $2 == "idle" { idle = n == 3 && stable < first && $1 > last && !$3 && $6 ~ /^[0-9.]+s?$/ }
+        END { exit !idle }' "$f" || bad="$bad ${f#$tmp/idle.}"
+    done
+    awk -v named="(window 'gtk4-block') didn't answer within 1s" '$2 == "idle" {
+      late = !$3 || $4 > 2000 || !index($0, "program " $5 " " named) } END { exit late }' \
+      "$tmp/idle.$s.cli.1" || bad="$bad $s.timeout"
   done
-  awk -v named="(window 'gtk4-block') didn't answer within 1s" '$2 == "idle" {
-    late = !$3 || $4 > 2000 || !index($0, "program " $5 " " named) } END { exit late }' \
-    "$tmp/idle.cli.1" || bad="$bad timeout"
-  if command -v sway >/dev/null && command -v grim >/dev/null; then
-    "$sb" run --wayland -- sh -c "'$here/gtk4_window.py' block /dev/null 1 & app=\$!
-      '$sb' wait window gtk4-block >/dev/null && kill -USR1 \$app && '$sb' wait idle" \
-      > "$tmp/idle.wl" 2>&1 && bad="$bad wayland"
-    grep -q "can't tell whether program [0-9]* answers" "$tmp/idle.wl" || bad="$bad wayland"
-  fi
-  [ "$(cat "$tmp/idle")" = end ] && [ -z "$bad" ] \
-    && ok "wait idle: a program busy on its main thread waited out, one busy too long named, Wayland refused" \
+  # A window nothing can ask, said so, with no traceback: a bus that isn't
+  # there; on Wayland without --a11y; and with it, a program kept off it.
+  refusals="--a11y|AT_SPI_BUS_ADDRESS=unix:path=$tmp/none|can't reach the accessibility bus: "
+  [ -z "$wayland" ] || refusals="$refusals
+--wayland||: its window takes no ping; start the session with --a11y
+--wayland --a11y|GTK_A11Y=none|: its window takes no ping, and it isn't on the accessibility bus"
+  said=$(echo "$refusals" | while IFS='|' read -r opts e want; do
+    "$sb" run $opts -- sh -c "env $e '$here/gtk4_window.py' block /dev/null 1 &
+      '$sb' wait window gtk4-block >/dev/null && env $e '$sb' wait idle" < /dev/null > "$tmp/idle.no" 2>&1 \
+      && echo "$opts: passed"
+    grep -qF "$want" "$tmp/idle.no" && ! grep -q Traceback "$tmp/idle.no" \
+      || echo "$opts: $(cat "$tmp/idle.no")"
+  done)
+  [ -z "$said" ] || bad="$bad refusals: $said"
+  [ -z "$bad" ] \
+    && ok "wait idle: a program busy on its main thread waited out, one busy too long named, by ping and the bus" \
     || { fail "wait idle:$bad"; tail -n 20 "$tmp"/idle.*; }
   # The window's own buttons, out of the Tab order, left out by name.
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \
