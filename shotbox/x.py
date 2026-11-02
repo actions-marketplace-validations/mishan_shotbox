@@ -333,7 +333,8 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
     # two seconds on, which would cut the finishing short.
     proc = subprocess.Popen([sys.executable, "-c", keeper, json.dumps(cmd), str(out),
                              json.dumps(grab), json.dumps(heard), str(size or 0)],
-                            env={**env, "PYTHONPATH": path}, stdin=subprocess.PIPE,
+                            env={**env, "PYTHONPATH": path, "SHOTBOX_FINISHES": "1"},
+                            stdin=subprocess.PIPE,
                             stdout=said, stderr=subprocess.PIPE, start_new_session=True)
     proc.said = said
     return proc

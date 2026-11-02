@@ -199,6 +199,46 @@ esac
 pid=$(cat "$tmp/orphan")
 kill -0 "$pid" 2>/dev/null && { fail "a child left behind outlived the session"; kill "$pid"; } \
   || ok "what a program leaves behind stops with the session"
+# And one in a session of its own, out of the program's group, from the
+# command and from Python.
+"$sb" run -- sh -c "setsid sleep 300 & echo \$! > '$tmp/orphan'; sleep 0.5"
+PYTHONPATH="$here/.." python3 -c "import shotbox, sys
+with shotbox.Session(display=False) as s:
+    s.run(['sh', '-c', 'setsid sleep 300 & echo \$! > ' + sys.argv[1] + '; sleep 0.5'])" "$tmp/orphan2"
+left=$(for f in "$tmp/orphan" "$tmp/orphan2"; do p=$(cat "$f"); ! kill -0 "$p" 2>/dev/null || { echo "$p"; kill "$p"; }; done)
+[ -z "$left" ] && ok "a child in a session of its own stops with the session, from run and Python" \
+  || fail "a child in a session of its own outlived the session: $left"
+# What says it finishes on its own is left to, at a normal end; killed
+# outright, the session's watchdog stops it all the same.
+"$sb" run -- sh -c "SHOTBOX_FINISHES=1 setsid sleep 300 & echo \$! > '$tmp/finishing'; sleep 60" & p=$!
+n=0; until [ -s "$tmp/finishing" ] || [ $n -gt 100 ]; do sleep 0.1; n=$((n + 1)); done
+kill -9 $p; wait $p 2>/dev/null || true
+f=$(cat "$tmp/finishing"); n=0; while kill -0 "$f" 2>/dev/null && [ $n -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+! kill -0 "$f" 2>/dev/null && ok "a session killed outright stops what would finish on its own" \
+  || { fail "a session killed outright left what would finish on its own"; kill "$f"; }
+# And a recording the session's end stops, whose keeper finishes its file
+# in a session of its own for that, finishes it; with --usage, outside the
+# slice the session's end stops.
+if command -v ffmpeg >/dev/null && command -v display >/dev/null && command -v convert >/dev/null; then
+  convert -size 1280x800 xc: +noise Random "$tmp/noise.png"
+  for u in "" --usage; do
+    rm -f "$tmp/bg.gif"
+    "$sb" run $u -- sh -c "display -geometry +0+0 '$tmp/noise.png' & '$sb' wait window '.*noise.*' && { '$sb' record '$tmp/bg.gif' & sleep 8; }" 2> "$tmp/bg.err"
+    n=0; while pgrep -f "keep_recording.*$tmp/bg.gif" >/dev/null && [ $n -lt 1800 ]; do sleep 0.1; n=$((n + 1)); done
+    frames=$(ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames -of csv=p=0 \
+      "$tmp/bg.gif" 2>/dev/null || echo 0)
+    what="a recording finishing as its session ends${u:+ (with $u)}"
+    if k=$(pgrep -f "keep_recording.*$tmp/bg.gif"); then
+      fail "$what was still finishing 3 minutes on"; kill $k
+    elif [ -n "$u" ] && ! grep -q "(cgroup" "$tmp/bg.err"; then
+      echo "skip  $what: no slice of the user's systemd"
+    else
+      [ "${frames:-0}" -ge 20 ] && ok "$what finishes it" || fail "$what: ${frames:-no} frames"
+    fi
+  done
+else
+  echo "skip  a recording finishing as its session ends: no ffmpeg, or no ImageMagick"
+fi
 names=$("$sb" run -- gdbus call --session --dest org.freedesktop.DBus \
   --object-path / --method org.freedesktop.DBus.ListActivatableNames)
 [ "$names" = "(['org.freedesktop.DBus'],)" ] && ok "nothing activatable on the bus" \
@@ -1526,6 +1566,46 @@ assert j['notes'] and all('not shown' in n['note'] for n in j['notes']), j" "$tm
       && ok "a11y: contrast, GTK 4 from 4.14: text where it's found, a stack's too; not a popover or an edge, said" \
       || { fail "a11y: contrast, GTK 4 from 4.14 ($st)"; cat "$tmp/contrast"; }
   fi
+  # A program that doesn't answer, stopped: each command that reads the
+  # tree says so, by 1 s past its timeout, from the command line and
+  # Python, rather than that a window or node isn't there, or that it
+  # found nothing wrong. A window each, stopped just before: half a
+  # minute on, the bus drops it.
+  cat > "$tmp/hung.sh" <<'EOF'
+sb=$1; here=$2; out=$3; app=
+timed() {
+  [ -z "$app" ] || { kill -CONT $app; kill $app; wait $app; }
+  "$here/gtk4_window.py" & app=$!
+  "$sb" wait node Save >/dev/null || { echo "9999 0 no window" >> "$out"; return; }
+  kill -STOP $app
+  s=$(date +%s%N); "$@" > "$out.got" 2>&1; st=$?
+  echo "$(( ($(date +%s%N) - s) / 1000000 )) $st $app $*: $(tail -1 "$out.got")" >> "$out"
+}
+speak=$(command -v orca >/dev/null && echo "a11y speak")
+for w in "" gtk4-old; do
+  for c in "a11y lint" "a11y click Save" "a11y scroll Save 1" "a11y contrast" "a11y tabwalk" \
+      ${speak:+"$speak"} "wait node Save" ${w:+"a11y tree"}; do
+    timed "$sb" $c --timeout 2 ${w:+--window $w}
+  done
+  pw=None; [ -z "$w" ] || pw="'$w'"
+  for c in "wait_node('Save'" "click_node('Save'"; do
+    timed env PYTHONPATH="$here/.." python3 -c "import shotbox; shotbox.Screen().$c, window=$pw, timeout=2)"
+  done
+done
+timed "$sb" a11y tree --timeout 2
+kill -CONT $app; kill $app
+echo end >> "$out"
+EOF
+  : > "$tmp/hung"
+  "$sb" run --a11y -- sh "$tmp/hung.sh" "$sb" "$here" "$tmp/hung" >/dev/null 2>&1 || true
+  # Its tree says so, and goes on: a listing, not a failure; lint and
+  # contrast fail as not all checked.
+  late=$(awk '/^end$/ { next } $1 > 3000 || ($2 == 0) != / a11y tree --timeout 2: / ||
+    / a11y (lint|contrast) --timeout 2: / && $2 != 2 ||
+    !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
+  [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
+    && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
+    || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
   # The window's own buttons, out of the Tab order, left out by name.
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \
     --ignore 'button \"(Minimize|Maximize|Close)\"'" > "$tmp/walk" \

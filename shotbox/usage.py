@@ -12,6 +12,7 @@ them, which the report says.
 
 import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -130,14 +131,58 @@ class Slice:
                 "--scope", "--quiet", f"--slice={self.name}",
                 "--description=a program in a shotbox session", "--", *back, *cmd]
 
+    def _holds(self, pid):
+        try:
+            return f"/{self.name}/" in Path(f"/proc/{pid}/cgroup").read_text()
+        except OSError:
+            return False
+
     def read(self):
         cpu = dict(line.split() for line in (self.dir / "cpu.stat").read_text().splitlines())
         return {"peak": int((self.dir / "memory.peak").read_text()),
                 "cpu": int(cpu["usage_usec"]) / 1e6, "how": "cgroup, with page cache"}
 
-    def close(self):
+    def close(self, finishing=list):
         """Stop the slice, and the session's above it, which systemd keeps
-        after their last scope has gone."""
+        after their last scope has gone. What `finishing()` lists (pids)
+        goes first, each to a scope of its own outside them, to finish as
+        it would without --usage: a recording's keeper and what it starts,
+        or a command entered with --session."""
+        try:
+            self._spare(finishing)
+        finally:
+            self._stop()
+
+    def _spare(self, finishing):
+        # One a call: a pid gone by the time systemd reads it fails the
+        # whole call. Each is looked for until it's out, as what's being
+        # moved starts more.
+        moved, end = set(), time.monotonic() + 2
+        while time.monotonic() < end:
+            inside = {p for p in finishing() if self._holds(p)}
+            if not inside:
+                return
+            for pid in inside - moved:
+                scope = self.name.removesuffix("-programs.slice") + f"-finishing-{pid}.scope"
+                try:
+                    if subprocess.run(["busctl", "--user", "call", "org.freedesktop.systemd1",
+                                       "/org/freedesktop/systemd1",
+                                       "org.freedesktop.systemd1.Manager", "StartTransientUnit",
+                                       "ssa(sv)a(sa(sv))", scope, "fail", "2", "PIDs", "au", "1",
+                                       str(pid), "Description", "s",
+                                       "what a shotbox session left to finish", "0"],
+                                      stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL,
+                                      timeout=max(end - time.monotonic(), 0.1)).returncode == 0:
+                        moved.add(pid)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            time.sleep(0.05)
+        sys.stderr.write("shotbox: what was still finishing as the session ended, a recording "
+                         "say, was stopped with it: busctl --user couldn't move it out of the "
+                         "session's slice\n")
+
+    def _stop(self):
         if self.holder.poll() is None:
             self.holder.kill()
             self.holder.wait()

@@ -113,12 +113,20 @@ class MutationReport:
         return int(bool(self.brittle_runs or self.blind_runs or self.strict and self.unapplied_runs))
 
 
-def merged(reports):
+def looking(r, kind):
+    """Whether report `r` had the change made and still being looked for,
+    not fought and no copy found showing (and a dead target used): what a
+    test that fails then failed on."""
+    return bool(r and r.get("made") is True and r.get("looking") is True and not r.get("fought")
+                and not r.get("shown") and (kind != "dead" or r.get("used") is True))
+
+
+def merged(reports, kind=None):
     """The report of a test whose processes each wrote one: a target any
     saw was seen, and a change any proved is proven, unless one found the
     page fighting it or the target still showing; else the why of one
-    that made the change. What any page couldn't read of a target, by
-    its index, is kept."""
+    that made the change, and before that, one still looking for it.
+    What any page couldn't read of a target, by its index, is kept."""
     reports = [r for r in reports if isinstance(r, dict)]
     if not reports:
         return None
@@ -127,10 +135,16 @@ def merged(reports):
         return {"seen": [any(i < len(r["seen"]) and r["seen"][i] is True for r in reports)
                          for i in range(max(len(r["seen"]) for r in reports))],
                 **({"bad": bad} if bad else {})}
-    for mark in ("fought", "shown", "proven", "made"):
+    for mark in ("fought", "shown", "proven"):
         for r in reports:
             if r.get(mark) is True:
                 return r
+    for r in reports:
+        if looking(r, kind):
+            return r
+    for r in reports:
+        if r.get("made") is True:
+            return r
     return reports[0]
 
 
@@ -166,7 +180,7 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
         raise SessionError(f"confirm={confirm}: a BRITTLE needs at least one rerun to confirm it")
     if timeout is not None and not timeout > 0:
         raise SessionError(f"timeout {timeout:g}: a run needs more than 0 seconds")
-    if isinstance(cmd, str) or not cmd:
+    if not isinstance(cmd, (list, tuple)) or not cmd:
         raise SessionError(f"cmd {cmd!r}: give a list, the program and its arguments")
     try:
         inspect.signature(Session).bind(**session_options)
@@ -206,7 +220,7 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
                 got.append(json.loads(p.read_text()))
             except (OSError, ValueError):
                 pass
-        return ended, took, merged(got), where / "log"
+        return ended, took, merged(got, spec.get("kind")), where / "log"
 
     try:
         say(f"shotbox mutate: {len(runs)} run{'s' * (len(runs) != 1)}, plus 3 clean")
@@ -233,12 +247,10 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
         for r in runs:
             r.ended, r.seconds, got, _ = go(r.label, r.spec, limit)
             r.proven, r.why = bool(got and got.get("proven")), str((got or {}).get("why", ""))
-            # A test that fails on a change that should matter, made and
-            # still being looked for, not fought and no copy found showing,
-            # failed on it, though it died before the look was done.
-            made = bool(got and got.get("made") and got.get("looking") and not got.get("fought")
-                        and not got.get("shown") and (r.spec["kind"] != "dead" or got.get("used")))
-            died = not r.proven and made and r.ended != "pass" and MATTERS[r.spec["kind"]]
+            # A test that fails on a change that should matter, while it's
+            # still looked for, failed on it, though it died first.
+            died = (not r.proven and looking(got, r.spec["kind"]) and r.ended != "pass"
+                    and MATTERS[r.spec["kind"]])
             if died:
                 r.why = "the change was made; the test failed before it was proven"
             confirmed, notes = None, [r.why] if r.why else []

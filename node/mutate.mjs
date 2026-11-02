@@ -214,8 +214,9 @@ export async function mutated (context)
             if (spoiled())
                 return;
             clear = !why;
-            Object.assign(report, why ? { why } : spec.kind === 'dead' && !used ? { why: UNUSED }
-                                                                                : { proven: true, why: '' });
+            /* A copy found showing, for good, as a look later would mark it. */
+            Object.assign(report, why === SHOWN ? { shown: true, why: unfit || SHOWN } : why ? { why }
+                : spec.kind === 'dead' && !used ? { why: UNUSED } : { proven: true, why: '' });
         }
         write(out);
     });

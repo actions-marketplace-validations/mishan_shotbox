@@ -76,10 +76,13 @@ for kind, ended, proven, confirmed, want in [
 
 # What each of a test's processes said, as one: seen or proven by any is
 # so, unless one found the page fighting the change; a why from one that
-# made the change before one that never saw the target.
+# made the change before one that never saw the target, and one still
+# looking for it, which a failure counts as caught, before either.
 GONE = {"proven": False, "made": True, "why": "gone"}
 NEVER = {"proven": False, "why": "never seen"}
-for what, reports, want in [
+LOOKING = {"proven": False, "made": True, "looking": True, "why": "made"}
+USED = {**LOOKING, "used": True}
+for what, reports, want, *kind in [
     ("none", [], None),
     ("not reports", [[True], "x", None], None),
     ("one", [{"seen": [True, False]}], {"seen": [True, False]}),
@@ -92,8 +95,10 @@ for what, reports, want in [
      {"proven": False, "shown": True, "why": "s"}),
     ("made by one", [NEVER, GONE], GONE),
     ("made by none", [NEVER, NEVER], NEVER),
+    ("still looking for one, after one done", [GONE, LOOKING], LOOKING, "hide"),
+    ("dead, used by one still looking, after one not", [LOOKING, USED], USED, "dead"),
 ]:
-    got = merged(reports)
+    got = merged(reports, *kind)
     check(got == want, f"merged, {what}: {got}")
 
 # Targets over random input: a role and any name with something in it, as
@@ -134,6 +139,7 @@ for said, call in [
     ("screen", lambda: mutate(["true"], PAY, screen="1024x768")),
     ("a list", lambda: mutate("node t.mjs", PAY)),
     ("a list", lambda: mutate([], PAY)),
+    ("a list", lambda: mutate(42, PAY)),
 ]:
     try:
         call()

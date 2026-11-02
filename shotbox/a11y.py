@@ -69,6 +69,17 @@ EDGED = ("PUSH_BUTTON", "BUTTON", "TOGGLE_BUTTON", "PUSH_BUTTON_MENU", "ENTRY",
 POLITENESS = {1: "polite", 2: "assertive"}
 
 
+def patient(timeout):
+    """Give each program `timeout` seconds to answer from when it's first
+    asked, up to libatspi's 15: each command is a process that hasn't asked
+    it before. Not longer, or a wait would look only once, at its end."""
+    global PATIENCE
+    PATIENCE = round(min(timeout, 15) * 1000)
+
+
+PATIENCE = 15000
+
+
 def atspi():
     """libatspi, on the session's accessibility bus and nobody else's."""
     if not os.environ.get("AT_SPI_BUS_ADDRESS") or not os.environ.get("SHOTBOX_SCRATCH"):
@@ -85,6 +96,7 @@ def atspi():
             GLib.log_default_handler(domain, level, message)
     GLib.log_set_handler("atspi", GLib.LogLevelFlags.LEVEL_WARNING, quiet)
     Atspi.init()
+    Atspi.set_timeout(800, PATIENCE)
     return Atspi
 
 
@@ -266,11 +278,17 @@ def find_toplevels(Atspi, window=None):
 
     desktop = Atspi.get_desktop(0)
     apps = []
+    QUIET.clear()
     for i in range(desktop.get_child_count()):
         app = desktop.get_child_at_index(i)
         if app is None:
             continue
-        apps.append((app.get_name() or "", i, app))
+        # Asked first: a program that doesn't answer isn't asked its name too.
+        count = app.get_child_count()
+        if count < 0:   # no answer, after libatspi's timeout: busy, or hung
+            QUIET.add(app.get_process_id())
+        else:
+            apps.append((app.get_name() or "", i, app, count))
 
     def picks(got):
         if window.startswith("app="):
@@ -278,10 +296,7 @@ def find_toplevels(Atspi, window=None):
         return x.pattern(window)[0](got)
 
     hits = []
-    for name, _, app in sorted(apps, key=lambda a: a[:2]):
-        count = app.get_child_count()
-        if count < 0:   # no answer, after libatspi's timeout: busy, or hung
-            QUIET.add(app.get_process_id())
+    for name, _, app, count in sorted(apps, key=lambda a: a[:2]):
         tops = [t for t in (app.get_child_at_index(j) for j in range(count))
                 if t is not None]
         names = [t.get_name() or "" for t in tops]
@@ -299,8 +314,14 @@ def find_toplevels(Atspi, window=None):
     return hits
 
 
-# The pids of the programs that didn't answer when their windows were asked for.
+# The pids of the programs that didn't answer when their windows were last asked for.
 QUIET = set()
+
+
+def unanswered():
+    """What to add to a failure while QUIET has programs in it."""
+    pids = ", ".join(map(str, sorted(QUIET)))
+    return f"program{'s' * (len(QUIET) > 1)} {pids} didn't answer: busy, or hung"
 
 
 def origin(Atspi, top, shown):
@@ -683,18 +704,21 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
 
     def press(k, before):
         """Press `k`, if any, and once the focus has left `before` for a
-        node, or after `settle`, the node it's on, or None."""
+        node, or after `settle`, the node it's on, or None. With no `k` or
+        window, None at once if a program doesn't answer: it may have the
+        focus, and won't say so."""
         if k:
             screen.key(k)
         end = time.monotonic() + settle
         while True:
             now = focused(Atspi, window)
             if (now is not None and (before is None or now._id != before._id)
-                    or time.monotonic() > end):
+                    or time.monotonic() > end or not k and now is None and QUIET and not window):
                 return now
             time.sleep(0.05)
 
-    toplevels(Atspi, window, timeout)
+    if window:
+        toplevels(Atspi, window, timeout)
     docs = document and [n.path + "/" for _, n in walk(Atspi, window, timeout)
                          if n._role == Atspi.Role.DOCUMENT_WEB]
     if document and not docs:
@@ -708,6 +732,8 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     start = press(None, None)
     if start is None:
         screen.close()
+        if QUIET and not window:
+            raise SessionError("no node has the focus to begin with")
         return [], "unfocused", [], None
     began = start if writing(Atspi, start) else None
     seen = []
@@ -1578,7 +1604,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     measured, is a note."""
     skip = ignored(ignore, web=True)
     Atspi = atspi()
-    toplevels(Atspi, window, timeout)
+    if window:
+        toplevels(Atspi, window, timeout)
     screen = Screen()
     try:
         raise_window(screen, window)
@@ -3052,9 +3079,18 @@ def record(out):
 
 
 def main(argv):
-    if argv[:1] == ["speak"]:
-        from . import speak
-        return speak.main(argv[1:])
+    try:
+        if argv[:1] == ["speak"]:
+            from . import speak
+            return speak.main(argv[1:])
+        return read(argv)
+    except SessionError as e:
+        if not QUIET:
+            raise
+        raise SessionError(f"{e}; {unanswered()}") from None
+
+
+def read(argv):
     p = argparse.ArgumentParser(prog="shotbox a11y",
                                 description="Inside `shotbox run --a11y`: read the "
                                             "accessible tree, as a screen reader does.")
@@ -3125,7 +3161,8 @@ def main(argv):
                             "goes by the display's, unless its program has a named "
                             "one picked), waiting for it")
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
-                       help="how long to wait for the --window (10), or the node")
+                       help="how long to wait for the --window (10), or the node, "
+                            "and for a program to answer")
     for s in (t, lt, w, c, sc, ct, nd):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
@@ -3136,6 +3173,7 @@ def main(argv):
     if a.what == "record":
         record(a.out)
         return 0
+    patient(a.timeout)
     # A tree takes a second or two; a press, its settling time and a tree.
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
              "the accessible tree")
@@ -3191,6 +3229,10 @@ def main(argv):
         else:
             for n, what in problems + passes + notes + behind:
                 print(f"{n.path}: {what}{placed(n)}")
+        if QUIET and not a.window:
+            sys.stderr.write((said + "\n") * bool(said and not a.json)
+                             + f"shotbox: not all checked: {unanswered()}\n")
+            return 2
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")
             return 2

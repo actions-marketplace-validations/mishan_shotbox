@@ -1491,9 +1491,14 @@ def handle(server, msg):
 MARKS = (b"SHOTBOX_MCP", b"SHOTBOX_SCRATCH", b"XDG_RUNTIME_DIR", b"HOME")
 
 
-def ours(environ, root):
+def ours(environ, root, spare=False):
     """Whether an environment (/proc's, NUL-separated) is a session's under
-    `root`: one of MARKS is `root` or a path in it."""
+    `root`: one of MARKS is `root` or a path in it. With `spare`, not one
+    that ends on its own once the session has: a recording's keeper
+    finishing its file, or a command put in the session from outside with
+    --session."""
+    if spare and b"SHOTBOX_FINISHES=1" in environ.split(b"\0"):
+        return False
     for entry in environ.split(b"\0"):
         key, _, value = entry.partition(b"=")
         if key in MARKS and (value == root or value.startswith(root + b"/")):
@@ -1501,13 +1506,28 @@ def ours(environ, root):
     return False
 
 
-def reap(root, keep=False, grace=5):
+def finishing(root):
+    """The pids of what reap(root, spare=True) leaves to end on its own."""
+    mark, found = str(root).encode(), []
+    for d in Path("/proc").glob("[0-9]*"):
+        try:
+            environ = (d / "environ").read_bytes()
+            if (d.stat().st_uid == os.getuid() and ours(environ, mark)
+                    and not ours(environ, mark, spare=True)):
+                found.append(int(d.name))
+        except OSError:     # gone, or not ours to read
+            continue
+    return found
+
+
+def reap(root, keep=False, grace=5, spare=False):
     """Stop every process of ours that is a session's under `root`, until
     none is left: TERM, so a recording finishes its file, and KILL for what
     hasn't gone `grace` seconds on. Then remove it, but with `keep`. TERM
     goes to a process only once its parent has gone: a recording's keeper
     stops ffmpeg with a TERM of its own, and a second makes it quit with
-    the file unfinished."""
+    the file unfinished. With `spare`, as at a session's own end, what
+    ends on its own is left to (ours())."""
     me, mark = os.getpid(), str(root).encode()
     deadline, told, killing = time.monotonic() + grace, set(), 0
     while killing < 50:
@@ -1516,7 +1536,7 @@ def reap(root, keep=False, grace=5):
             if int(d.name) == me:
                 continue
             try:
-                if d.stat().st_uid == os.getuid() and ours((d / "environ").read_bytes(), mark):
+                if d.stat().st_uid == os.getuid() and ours((d / "environ").read_bytes(), mark, spare):
                     found[int(d.name)] = int((d / "stat").read_text().rsplit(")", 1)[1].split()[1])
             except (OSError, ValueError, IndexError):   # gone, or not ours to read
                 continue

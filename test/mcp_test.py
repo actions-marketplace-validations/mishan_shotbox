@@ -477,6 +477,12 @@ try:
     check(not bad and re.match(r'Clicked (push )?button "Freeze"', said) and "\n- " not in said
           and re.search(r'^! application "" \(pid \d+\) didn\'t answer', said, re.M),
           f"click_element: with changes, a program that stops answering, said ({said})")
+    for args in ({}, {"window": "a11y-test"}):
+        began = time.monotonic()
+        said, bad, _ = tool("click_element", session="z", name="Freeze", timeout=2, **args)
+        took = time.monotonic() - began
+        check(bad and "didn't answer: busy, or hung" in said and took <= 3,
+              f"click_element: a program that doesn't answer, said, in {took:.1f}s ({said})")
     tool("stop_session", session="z")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.

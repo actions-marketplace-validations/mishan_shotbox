@@ -182,8 +182,13 @@ order they give them, so a tree can be committed and diffed.
 
 A program that doesn't answer (busy, or hung) is a line of its own at
 the end, `application "" (pid 1234) didn't answer: busy, or hung`, and
-its windows aren't in the tree; libatspi waits about 15 seconds for it
-first. With `--json`, a window has its program's `pid` and `toolkit`
+its windows aren't in the tree; it's given `--timeout` (10 seconds, 15
+at most) to answer first. Every other `a11y` command, and `wait node`, adds
+`; program 1234 didn't answer: busy, or hung` to the error it gives up
+with, a second past its `--timeout` (0.8 s more for each other program
+that doesn't answer). The bus drops a program that hasn't answered for
+about half a minute, after which it's as one with no accessibility.
+With `--json`, a window has its program's `pid` and `toolkit`
 ("GTK 4.14.5"), and a program that didn't answer is a node with its
 `pid` and `quiet`.
 
@@ -252,7 +257,9 @@ problem inside a scrolled window: it's flagged as itself.
 
 Each problem is a line: the node's path, every step a role and its index
 among its siblings, from the window down, then what's wrong. The exit
-status is 1 if there are any. `--ignore RE` (repeatable) leaves out each
+status is 1 if there are any, and 2, `shotbox: not all checked: program
+1234 didn't answer: busy, or hung`, if without `--window` a program
+didn't answer. `--ignore RE` (repeatable) leaves out each
 line the regex is found in, or would be in with the node's tree line in
 place of its path (`button "": button with no name`): an unnamed node
 that won't be fixed yet, or a toolkit's own (libadwaita's tab bar
@@ -747,8 +754,10 @@ nothing was measured at all and GTK 4's was left out: a window on GTK
 4.14 or later none of whose text was found, `shotbox: nothing measured:
 ...` (text too small to measure, alone, doesn't fail). With `--json` it's 0
 with failures, which the lines say, and 2 when nothing was measured,
-with `--strict` too. `Screen.contrast()` raises
-then, and MCP's `check_contrast` says so as an error.
+with `--strict` too. It's 2 as well, `shotbox: not all checked`, if
+without `--window` a program didn't answer, as for `lint`.
+`Screen.contrast()` raises then, and MCP's `check_contrast` says so as
+an error.
 
 ### GTK 4's positions
 

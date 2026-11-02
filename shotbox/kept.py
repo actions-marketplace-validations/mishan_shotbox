@@ -357,7 +357,7 @@ def enter(name):
     env = find(name)["env"]
     os.utime(env["SHOTBOX_SCRATCH"])   # for idle()
     os.environ.clear()
-    os.environ.update(env)
+    os.environ.update(env, SHOTBOX_FINISHES="1")
 
 
 def main(argv):

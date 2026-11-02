@@ -172,6 +172,9 @@ def speak(keys=None, most=50, window=None, timeout=10, settle=2.0):
     for k in keys or ():
         screen.xt.chord_keys(k)
     a11y.toplevels(Atspi, window, timeout)
+    if not window and a11y.QUIET and a11y.focused(Atspi) is None:
+        screen.close()
+        raise SessionError("no node has the focus to begin with")
     orca = Orca()
     try:
         before = a11y.focused(Atspi, window)
@@ -243,9 +246,10 @@ def main(argv):
                    help="the focus in just this window (its title, a regex matched in full, "
                         "or app=RE for its app id), waiting for it")
     p.add_argument("--timeout", type=float, default=10, metavar="SECS",
-                   help="how long to wait for the --window (10)")
+                   help="how long to wait for the --window (10), and for a program to answer")
     p.add_argument("--json", action="store_true", help="as JSON, for scripts")
     a = p.parse_args(argv)
+    a11y.patient(a.timeout)
     presses = len(a.keys) if a.keys else a.max
     # Orca's start, then a press: its settling time, and a tree.
     a11y.watchdog(120 + a.timeout + presses * 15, "a11y speak")

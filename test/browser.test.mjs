@@ -930,6 +930,14 @@ test('mutated: what it can\'t change or prove, unapplied, and why; a clean run c
             assert.equal(saw, 1);
     }
 
+    /* A copy the first look finds marks the run at once, before a look
+       every half second would, so another of the test's processes still
+       looking can't stand for it. */
+    let early = {};
+
+    await mutation(hide(pay), PAY + BEFORE, { done: (r) => (early = r).why === 'the test could still find it unchanged' });
+    assert.equal(early.shown, true, JSON.stringify(early));
+
     /* Looks that can't be made in time say nothing either way. */
     const { report: busy } = await mutation(hide(pay),
         PAY + script("addEventListener('load', () => setTimeout(() => { for (;;); }, 300))"),
