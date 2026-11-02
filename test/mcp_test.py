@@ -42,6 +42,8 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"daemon = /bin/sh -c '(setsid {here / 'window.py'} daemon &)'\n"
                  f"keys = {here / 'a11y_app.py'} keys\n"
                  f"freeze = {here / 'a11y_app.py'} freeze\n"
+                 f"block = {here / 'gtk4_window.py'} block {tmp / 'block.log'} 1\n"
+                 "plain = xmessage -title plain hi\n"
                  f"ready = {here / 'a11y_app.py'} ready\n"
                  f"fading = {here / 'a11y_app.py'} faint fading\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
@@ -484,6 +486,32 @@ try:
         check(bad and "didn't answer: busy, or hung" in said and took <= 3,
               f"click_element: a program that doesn't answer, said, in {took:.1f}s ({said})")
     tool("stop_session", session="z")
+    # wait_for idle: a program busy on its main thread for a second three
+    # times is waited out, beside a window that takes no ping, which is
+    # said not to be checked; one busy past the timeout is named.
+    tool("start_session", name="i")
+    pid = int(re.search(r"pid (\d+)", tool("spawn_program", session="i", program="block")[0])[1])
+    tool("spawn_program", session="i", program="plain")
+    for w in ("gtk4-block", "plain"):
+        tool("wait_for", session="i", what="window", value=w, timeout=20)
+    os.kill(pid, signal.SIGUSR1)
+    said, bad, _ = tool("wait_for", session="i", what="idle")
+    done = time.time()
+    ends = [float(line.split()[0]) for line in (tmp / "block.log").read_text().splitlines()
+            if line.endswith(" end")]
+    check(not bad and re.match(r"Every program checked answered, after [\d.]+ s\.", said)
+          and "can't tell whether the program of window 'plain' answers" in said
+          and len(ends) == 3 and done > ends[-1],
+          f"wait_for idle: waits out a busy program, and says what it didn't check ({said})")
+    os.kill(pid, signal.SIGUSR1)
+    said, bad, _ = tool("wait_for", session="i", what="idle", timeout=0.5)
+    refused = tool("wait_for", session="i", what="idle", value="1")
+    check(bad and f"program {pid} (window 'gtk4-block') didn't answer" in said
+          and "\ncan't tell whether the program of window 'plain' answers" in said
+          and refused[1] and "takes no value" in refused[0],
+          f"wait_for idle: a program busy past the timeout named, with what it didn't check; "
+          f"a value refused ({said})")
+    tool("stop_session", session="i")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.

@@ -10,7 +10,8 @@
   as still as an idle one. It asks by X11's `_NET_WM_PING`, and with
   `--a11y` GTK programs on the accessibility bus too, on Wayland as well;
   a browser's page, and a window nothing can ask, are said on stderr not
-  to have been checked. Python has `Screen.wait_idle()`.
+  to have been checked. Python has `Screen.wait_idle()`, and MCP
+  `wait_for` idle.
 - `shotbox mutate` runs a browser test against small changes to the page
   it tests, each run in a session of its own, to find a test that fails
   on a change that shouldn't matter (BRITTLE: the page at another size,

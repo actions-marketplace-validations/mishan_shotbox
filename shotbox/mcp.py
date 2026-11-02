@@ -75,7 +75,8 @@ its window. Read get_accessible_tree before clicking: \
 it says what's on screen and what each thing is called, in far fewer tokens than \
 a screenshot, and click_element and scroll_wheel take a name. Use take_screenshot only \
 for what pixels say (colors, layout); record_video for motion and sound. After acting, \
-wait_for stable rather than sleeping, or give the action changes to be told what changed \
+wait_for stable rather than sleeping (idle, for work behind a still screen), or give the \
+action changes to be told what changed \
 in the tree rather than reading it again. check_accessible_names, check_contrast, \
 check_focus_order, get_speech, list_announcements and record_audio check what a person would \
 meet. stop_session when done; every session stops with the server.
@@ -854,6 +855,16 @@ class Server:
                 return f"It matches {value}, after {got.seconds:.3f} s, at {got.x},{got.y}."
             at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore))
             return f"It changed, after {at:.3f} s."
+        if what == "idle":
+            if value is not None:
+                raise Refused("wait_for idle takes no value: it waits for every program it "
+                              "checks to answer")
+            notes = []
+            try:
+                took = s.wait_idle(text(window), timeout, notes)
+            except SessionError as e:
+                raise SessionError("\n".join([str(e), *notes])) from None
+            return "\n".join([f"Every program checked answered, after {took:.3f} s.", *notes])
         if value is None and what != "stable":
             raise Refused(f"wait_for {what} needs a value: what to wait for")
         if what == "window":
@@ -1022,7 +1033,7 @@ PROGRAM = {"type": "string", "description": "Its name in the allow list"}
 CHANGES = {"type": "boolean", "description": "Also say what this changed in the accessible "
            "tree once the screen holds still (not a field's text, nor where things are): "
            "tree lines, + added, - gone, ~ changed"}
-WAITS = ("window", "stable", "announcement", "focus", "node", "match", "change", "line")
+WAITS = ("window", "stable", "idle", "announcement", "focus", "node", "match", "change", "line")
 
 # What the agent knows of each tool is its description: what it's for, what
 # to read in its answer, and what to do instead when it's the wrong one.
@@ -1230,6 +1241,10 @@ TOOLS = [
      "title, size and place. "
      "stable: the screen (or window) unchanged for value seconds (0.5; up to 60), as after "
      "a click, for the repaint. "
+     "idle: no value; each program with a window shown (or window) answered just now, "
+     "three times in a row, so its main thread is free: for work behind a still screen; "
+     "wait_for its window first, as with none shown it has nothing to wait for; answers "
+     "how long it took, and what it couldn't check (a browser's page). "
      "announcement: a regex in what was announced to a screen reader; each is waited for "
      "once. "
      "focus: the name of the node with the keyboard focus, as click_element takes one; "

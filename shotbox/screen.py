@@ -316,15 +316,18 @@ class Screen:
         `ignore`, as wait_match's. The seconds it took."""
         return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)[0]
 
-    def wait_idle(self, window=None, timeout=30):
+    def wait_idle(self, window=None, timeout=30, notes=None):
         """Wait until each program with a window shown, or with one `window`
         asks for, has answered just now: a _NET_WM_PING, and with --a11y the
         accessibility bus, within 50 ms, three times in a row, 100 ms
         apart. Work it put off (to a timer, a fetch)
-        can still keep it busy after. The seconds it took."""
+        can still keep it busy after. The seconds it took. What it couldn't
+        check goes on stderr, or with `notes`, a list, into that."""
+        say = ((lambda line: notes.append(line.removeprefix("shotbox: "))) if notes is not None
+               else lambda line: sys.stderr.write(f"{line}\n"))
         return self._a11y("idle", "--timeout", str(timeout),
                           *([f"--window={window}"] if window else []), timeout=90 + timeout,
-                          notes=True)
+                          notes=say)
 
     def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore, margin=0):
         """wait_match against `ref` (`name` to say), or with None,
@@ -802,8 +805,9 @@ class Screen:
         """`shotbox a11y WHAT --json ARGS` in the session, for its answer: libatspi
         keeps the first bus it finds for the life of a process, which may
         not be this session's. It has a watchdog of its own; `timeout` is
-        for one that never even gets that far. With `notes`, what it says
-        on stderr is passed on."""
+        for one that never even gets that far. With `notes`, each line it
+        says on stderr as shotbox is given to that, but for the error it
+        fails with."""
         from .__main__ import self_command
         # Options as --name=VALUE, and a name after --: an agent's regex can
         # start with a dash.
@@ -822,12 +826,16 @@ class Screen:
                     if _CANCEL.is_set():
                         raise SessionError(f"shotbox a11y {args[0]}: cancelled") from None
                     self.fail(f"shotbox a11y {args[0]} got no answer in {timeout}s")
-        if notes and proc.returncode:
-            # Its error is its last line; what comes before, notes.
-            *said, err = err.splitlines() or [""]
-            sys.stderr.writelines(f"{line}\n" for line in said)
-        elif notes:
-            sys.stderr.write(err)
+        if notes:
+            lines = err.splitlines()
+            # Failing, its error is its last line.
+            if proc.returncode and lines:
+                err = lines.pop()
+            for line in lines:
+                if line.startswith("shotbox: "):
+                    notes(line)
+                else:
+                    sys.stderr.write(f"{line}\n")
         if proc.returncode:
             self.fail(err.strip().removeprefix("shotbox: ") or f"shotbox a11y {args[0]} failed")
         return json.loads(out)
