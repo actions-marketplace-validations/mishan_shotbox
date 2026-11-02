@@ -5,9 +5,13 @@ overlay's clear child, and one in a menu button's popover, open below
 the rest; and a stack shown at its first page, "Gone", then its second,
 whose faint "Here" is at the other end. `glyphs
 TEXT|FONT|PX|WEIGHT|COLOR|BACKGROUND[|SHADOW]...` is a window of those
-labels instead."""
+labels instead. `block LOG N [SECONDS...]` is N windows whose main thread,
+on SIGUSR1, is busy for each of SECONDS (1 1 1), free for 90 ms between,
+writing to LOG when each starts and ends."""
 
+import signal
 import sys
+import time
 
 import gi
 
@@ -66,6 +70,33 @@ def glyphs(app):
     w.present()
 
 
+def block(app):
+    def note(what):
+        with open(sys.argv[2], "a") as f:
+            f.write(f"{time.time():.3f} {what}\n")
+
+    def busy(left):
+        note("start")
+        end = time.monotonic() + left[0]
+        while time.monotonic() < end:
+            pass
+        note("end")
+        if left[1:]:
+            GLib.timeout_add(90, busy, left[1:])
+        return False
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        add = GLibUnix.signal_add
+    except (ImportError, ValueError):   # GLib before 2.80
+        add = GLib.unix_signal_add
+    add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
+        lambda *_: busy([float(s) for s in sys.argv[4:]] or [1, 1, 1]) or True)
+    for _ in range(int(sys.argv[3])):
+        Gtk.ApplicationWindow(application=app, title="gtk4-block",
+                              child=Gtk.Label(label="Busy on SIGUSR1")).present()
+
+
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
-app.connect("activate", glyphs if sys.argv[1:2] == ["glyphs"] else activate)
+app.connect("activate", {"glyphs": glyphs, "block": block}.get("".join(sys.argv[1:2]), activate))
 app.run([])

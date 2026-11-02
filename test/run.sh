@@ -1606,6 +1606,53 @@ EOF
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
+  # wait idle, on X11 by _NET_WM_PING, with no --a11y: a program busy on
+  # its main thread for a second three times, free for 90 ms between, less
+  # than a round, isn't idle until the last ends, though the screen holds
+  # still all along, as wait stable shows; from the command line, with 20
+  # windows to list each round, and Python. Busy past --timeout 1, it's
+  # named, by 2 s. On Wayland, with no ping, it says it can't tell.
+  cat > "$tmp/idle.sh" <<'EOF'
+sb=$1; here=$2; out=$3
+for c in "cli:20:1 1 1:10" "py:1:1 1 1:10" "cli:1:4:1"; do
+  IFS=: read how n blocks t <<END
+$c
+END
+  log=$out.$how.$t
+  : > "$log"
+  "$here/gtk4_window.py" block "$log" $n $blocks & app=$!
+  "$sb" wait window gtk4-block >/dev/null
+  kill -USR1 $app
+  [ $t = 1 ] || { "$sb" wait stable >/dev/null; echo "$(date +%s.%N) stable" >> "$log"; }
+  s=$(date +%s%N)
+  if [ $how = cli ]; then "$sb" wait idle --timeout $t
+  else PYTHONPATH="$here/.." python3 -c "import shotbox; print(shotbox.Screen().wait_idle(timeout=$t))"
+  fi > "$log.out" 2>&1
+  echo "$(date +%s.%N) idle $? $(( ($(date +%s%N) - s) / 1000000 )) $app $(tail -1 "$log.out")" >> "$log"
+  kill $app; wait $app
+done
+echo end >> "$out"
+EOF
+  : > "$tmp/idle"
+  "$sb" run -- sh "$tmp/idle.sh" "$sb" "$here" "$tmp/idle" >/dev/null 2>&1 || true
+  bad=
+  for f in cli.10 py.10; do
+    awk '$2 == "end" { n++; first = first ? first : $1; last = $1 } $2 == "stable" { stable = $1 }
+      $2 == "idle" { idle = n == 3 && stable < first && $1 > last && !$3 && $6 ~ /^[0-9.]+s?$/ }
+      END { exit !idle }' "$tmp/idle.$f" || bad="$bad $f"
+  done
+  awk -v named="(window 'gtk4-block') didn't answer within 1s" '$2 == "idle" {
+    late = !$3 || $4 > 2000 || !index($0, "program " $5 " " named) } END { exit late }' \
+    "$tmp/idle.cli.1" || bad="$bad timeout"
+  if command -v sway >/dev/null && command -v grim >/dev/null; then
+    "$sb" run --wayland -- sh -c "'$here/gtk4_window.py' block /dev/null 1 & app=\$!
+      '$sb' wait window gtk4-block >/dev/null && kill -USR1 \$app && '$sb' wait idle" \
+      > "$tmp/idle.wl" 2>&1 && bad="$bad wayland"
+    grep -q "can't tell whether program [0-9]* answers" "$tmp/idle.wl" || bad="$bad wayland"
+  fi
+  [ "$(cat "$tmp/idle")" = end ] && [ -z "$bad" ] \
+    && ok "wait idle: a program busy on its main thread waited out, one busy too long named, Wayland refused" \
+    || { fail "wait idle:$bad"; tail -n 20 "$tmp"/idle.*; }
   # The window's own buttons, out of the Tab order, left out by name.
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tabwalk --window a11y-test \
     --ignore 'button \"(Minimize|Maximize|Close)\"'" > "$tmp/walk" \

@@ -26,7 +26,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `wait_change(...)` (as `shotbox wait match` and `change`, `ignore` a
   list of `WxH+X+Y` boxes; `wait_match` returns a `Match(seconds, x, y)`,
   x, y where the picture matched: where a `margin` found it, else the
-  crop's corner, or 0, 0; `wait_change` the seconds), and `until(what,
+  crop's corner, or 0, 0; `wait_change` the seconds),
+  `wait_idle(window=None)` (as `shotbox wait idle`: each program has
+  answered just now; `wait_window` first, as with nothing shown it
+  returns; the seconds), and `until(what,
   test)` for a test of your own; each takes `timeout` (30).
 - Input: `key(*chords, hold=None, state=None)`, `type(text)`, `click(x, y,
   window=None, button=1, double=False, hold=None, state=None)`, `move`,

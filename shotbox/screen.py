@@ -315,6 +315,14 @@ class Screen:
         `ignore`, as wait_match's. The seconds it took."""
         return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)[0]
 
+    def wait_idle(self, window=None, timeout=30):
+        """Wait until each program with a window shown, or with one `window`
+        asks for, has answered just now: a _NET_WM_PING within 50 ms, three
+        times in a row, 100 ms apart. Work it put off (to a timer, a fetch)
+        can still keep it busy after. The seconds it took."""
+        return self._a11y("idle", "--timeout", str(timeout),
+                          *([f"--window={window}"] if window else []), timeout=90 + timeout)
+
     def _wait_looks(self, ref, name, window, crop, fuzz, most, timeout, ignore, margin=0):
         """wait_match against `ref` (`name` to say), or with None,
         wait_change: the seconds from the start of the wait to the picture

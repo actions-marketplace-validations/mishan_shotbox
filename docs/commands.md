@@ -84,7 +84,15 @@ it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 [--crop G]` until it looks different from the first picture the wait takes
 (a window still drawing is a picture too: `wait stable` first); each
 counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`, `--ignore
-G` in the picture taken), and prints how long it took. `wait match --crop G
+G` in the picture taken), and prints how long it took. `shotbox wait idle
+[--window RE]` waits until each program with a window shown (or the one
+asked for) has answered just now: a `_NET_WM_PING` within 50 ms, three
+times in a row, 100 ms apart, which a program busy on its main thread
+can't. It prints how long it took, or names each program that didn't
+answer. With no window shown yet it has nothing to wait for, and returns:
+`wait window` first. It's X11's ping: on Wayland, or for a window that
+takes none, it fails. Work put off to a timer or a fetch can still keep a
+program busy after it returns. `wait match --crop G
 --margin PX` looks for the picture up to PX pixels from the crop's place each
 way, as openQA's needles are searched for, for one that moves a little from
 run to run (a canvas, a game), and prints where it matched best too: `0.412s

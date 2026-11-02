@@ -8,7 +8,7 @@
     shotbox stop NAME | shotbox sessions            stop one; list them
     shotbox term [options] -- COMMAND...            a terminal to take pictures of
     shotbox mutate --target T [options] -- TEST...  a browser test against changes to its page
-    shotbox wait window|port|file|ready|stable|announce|node|match|change [ARG]
+    shotbox wait window|port|file|ready|stable|announce|node|match|change|idle [ARG]
     shotbox wait line RE FILE                       (inside a session) wait for it
     shotbox capture OUT.png [--window RE] [--burst N]  (inside a session) take a picture
     shotbox record OUT.mp4|OUT.wav [--seconds S]    (inside a session) take a video, or the sound
@@ -584,11 +584,12 @@ def cmd_wait(argv):
                                             "screen to stop changing, an "
                                             "announcement, a node in the accessible "
                                             "tree, the screen to look like a "
-                                            "picture, or to change, or a line in a "
-                                            "file. match and change say how long they "
+                                            "picture, or to change, a line in a "
+                                            "file, or the programs to answer. match, "
+                                            "change and idle say how long they "
                                             "took; line prints the line.")
     p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
-                                    "node", "match", "change", "line"))
+                                    "node", "match", "change", "line", "idle"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
@@ -603,8 +604,8 @@ def cmd_wait(argv):
                    help="for line: from the top of the file, not from the end it has "
                         "when the wait starts")
     p.add_argument("--window", metavar="RE",
-                   help="for stable, node, match and change: watch this window rather "
-                        "than the display")
+                   help="for stable, node, match, change and idle: watch this window "
+                        "rather than the display")
     p.add_argument("--crop", metavar="WxH+X+Y",
                    help="for match and change: watch just this part of it")
     p.add_argument("--fuzz", metavar="PCT",
@@ -635,6 +636,8 @@ def cmd_wait(argv):
         p.error("--from-start goes with line")
     if a.kind == "change" and a.arg:
         p.error("change takes no ARG: it waits for a change from how it looks now")
+    if a.kind == "idle" and a.arg:
+        p.error("idle takes no ARG: it waits for every program it checks to answer")
     looks = a.kind in ("match", "change")
     if not looks and (a.crop or a.fuzz is not None or a.max is not None or a.ignore):
         p.error("--crop, --fuzz, --max and --ignore go with match and change")
@@ -647,6 +650,9 @@ def cmd_wait(argv):
         return 0
     if a.kind == "node":
         screen.wait_node(a.arg, a.window, a.timeout)
+        return 0
+    if a.kind == "idle":
+        print(f"{screen.wait_idle(a.window, a.timeout):.3f}s")
         return 0
     if not looks:
         screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)

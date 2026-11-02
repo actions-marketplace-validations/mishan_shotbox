@@ -11,8 +11,8 @@ reader sees it, for a session started with --a11y.
 
 Reads the session's own accessibility bus, from AT_SPI_BUS_ADDRESS, and
 refuses to run without it: otherwise libatspi would go looking for the
-desktop's. `record` is the session's announcement recorder; `node` is what
-`shotbox wait node` runs.
+desktop's. `record` is the session's announcement recorder; `node` and
+`idle` are what `shotbox wait node` and `wait idle` run.
 """
 
 import argparse
@@ -1427,6 +1427,64 @@ def wait_node(pattern, window=None, timeout=10):
         raise SessionError(f"{e}. The nearest: " + ", ".join(
             json.dumps(said[t], ensure_ascii=False) for t in near) if near
             else f"{e}: nothing in the tree comes near it") from None
+
+
+# A program answers a probe within ANSWER, as an idle one does in well under
+# a millisecond, with room for a loaded machine; and is idle once it has,
+# ROUNDS rounds in a row, EVERY seconds apart: one busy with a run of work
+# can answer between two pieces of it.
+ANSWER, ROUNDS, EVERY = 0.05, 3, 0.1
+
+
+def idle(window=None, timeout=30):
+    """Wait until each program with a window shown (or one `window` asks
+    for, waiting for one) has answered just now: within ANSWER, ROUNDS
+    rounds in a row. The seconds that took."""
+    screen, began = Screen(), time.monotonic()
+    try:
+        pinger = None if screen.wayland else x.Pinger(screen.env)
+    except RuntimeError as e:
+        raise SessionError(str(e)) from None
+    wait = pinger.read if pinger else lambda until: time.sleep(max(0, until - time.monotonic()))
+    streak, pids, sent = {}, {}, 0
+    while True:
+        programs = {}
+        for w in screen.backend.shown(screen.env, window):
+            pings = pinger.takes(int(w[0], 16)) if pinger else False
+            if pings is None:
+                continue
+            if w[0] not in pids:
+                pids[w[0]] = screen.backend.window_pid(screen.env, w[0])
+            pid = pids[w[0]]
+            who = f"program {pid}" if pid else f"the program of window {w[1]!r}"
+            if not pings:
+                raise SessionError(f"can't tell whether {who} answers: its window takes no ping")
+            programs.setdefault(pid or w[0], []).append(w)
+        # Pings EVERY apart, however long listing the windows took.
+        wait(sent + EVERY)
+        sent = time.monotonic()
+        stamp = pinger and pinger.ping([int(w[0], 16) for ws in programs.values() for w in ws])
+        wait(sent + ANSWER)
+        streak = {k: streak.get(k, 0) + 1 if all(
+            pinger.last.get(int(w[0], 16), (None,))[0] == stamp for w in ws) else 0
+            for k, ws in programs.items()}
+        if all(n >= ROUNDS for n in streak.values()) and (programs or not window):
+            return time.monotonic() - began
+        if time.monotonic() - began > timeout:
+            if not programs:
+                raise SessionError(f"gave up waiting for a {x.matcher(window)[1]} after "
+                                   f"{timeout:g}s" + screen.there(window))
+            said = []
+            for k, ws in programs.items():
+                if streak[k] < ROUNDS:
+                    w = max(ws, key=lambda w: w[2] * w[3])
+                    last = pinger.last.get(int(w[0], 16))
+                    said.append((f"program {k} (window {w[1]!r})" if isinstance(k, int)
+                                 else f"the program of window {w[1]!r}")
+                                + (f" didn't answer {ROUNDS} times in a row within {timeout:g}s;"
+                                   f" it last answered {time.monotonic() - last[1]:.1f}s ago"
+                                   if last else f" didn't answer within {timeout:g}s: no answer"))
+            raise SessionError("; ".join(said))
 
 
 # How long a node's bounds are to hold before it's taken as still: a few
@@ -3136,6 +3194,7 @@ def read(argv):
     sc.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     nd = sub.add_parser("node")
     nd.add_argument("pattern")
+    il = sub.add_parser("idle")
     for s in (c, sc):
         s.add_argument("--force", action="store_true",
                        help="don't wait for it to be enabled, still and uncovered")
@@ -3154,7 +3213,7 @@ def read(argv):
                     help="also what passes, with its ratio, after what fails")
     ct.add_argument("--strict", action="store_true",
                     help="what isn't measured fails too")
-    for s in (t, lt, w, c, sc, ct, nd):
+    for s in (t, lt, w, c, sc, ct, nd, il):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
@@ -3163,7 +3222,7 @@ def read(argv):
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
                        help="how long to wait for the --window (10), or the node, "
                             "and for a program to answer")
-    for s in (t, lt, w, c, sc, ct, nd):
+    for s in (t, lt, w, c, sc, ct, nd, il):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
     rec = sub.add_parser("record")
@@ -3176,7 +3235,7 @@ def read(argv):
     patient(a.timeout)
     # A tree takes a second or two; a press, its settling time and a tree.
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
-             "the accessible tree")
+             "the display" if a.what == "idle" else "the accessible tree")
     if a.what == "tree":
         # Each window with its program's pid and toolkit, then a node for
         # each program that didn't answer, whose windows aren't there.
@@ -3253,6 +3312,10 @@ def read(argv):
                                               a.force))
         print(json.dumps(public(n)) if a.json else n.line() + (
             f", by its action {json.dumps(n.action)}" if n.get("action") else ""))
+        return 0
+    if a.what == "idle":
+        took = idle(a.window, a.timeout)
+        print(json.dumps(took) if a.json else f"{took:.3f}s")
         return 0
     if a.what == "node":
         n = wait_node(a.pattern, a.window, a.timeout)
