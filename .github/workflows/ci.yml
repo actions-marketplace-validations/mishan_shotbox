@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [core, input, a11y, record]
+        part: [core, input, a11y, a11y-2, record, browser, mutate]
     steps:
       - uses: actions/checkout@v5
 
@@ -80,18 +80,18 @@ jobs:
 
       # Playwright, for the helpers that need a browser. The tests skip
       # rather than fail without it, so CI is where they have to run; they
-      # are in core alone, so Chromium is fetched there only, and kept
-      # until Playwright changes. Its packages go in every part: without
-      # them the a11y and input parts fail, so the tests depend on
-      # something they bring.
+      # are in the browser and mutate parts alone, so Chromium is fetched
+      # there only, and kept until Playwright changes. Its packages go in
+      # every part: without them the a11y and input parts fail, so the
+      # tests depend on something they bring.
       - run: npm ci
       - run: npx playwright install-deps chromium
-      - if: matrix.part == 'core'
+      - if: matrix.part == 'browser' || matrix.part == 'mutate'
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ env.image }}-${{ hashFiles('package-lock.json') }}
-      - if: matrix.part == 'core'
+      - if: matrix.part == 'browser' || matrix.part == 'mutate'
         run: npx playwright install chromium
 
       - run: test/run.sh
