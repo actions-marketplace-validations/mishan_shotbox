@@ -88,7 +88,7 @@ def on_usr1(then):
         gi.require_version("GLibUnix", "2.0")
         from gi.repository import GLibUnix
         add = GLibUnix.signal_add
-    except (ImportError, ValueError):   # GLib before 2.80
+    except (ImportError, ValueError, AttributeError):   # older GLib
         add = GLib.unix_signal_add
     add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda *_: then() or True)
 
