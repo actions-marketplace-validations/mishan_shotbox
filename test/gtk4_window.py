@@ -112,6 +112,7 @@ def block(app):
 def fake(app):
     kit, what, seconds = sys.argv[3], sys.argv[4], float(sys.argv[5])
     root, ctx, bus = "/org/a11y/atspi/accessible/root", GLib.MainContext(), []
+    ready = threading.Event()
     node = Gio.DBusNodeInfo.new_for_xml(
         '<node><interface name="org.a11y.atspi.Application"><property name="ToolkitName" '
         'type="s" access="read"/></interface><interface name="org.a11y.atspi.Accessible">'
@@ -130,6 +131,7 @@ def fake(app):
                        GLib.Variant("((so))", ((conn.get_unique_name(), root),)), None,
                        Gio.DBusCallFlags.NONE, -1, None)
         bus.append(conn)
+        ready.set()
         GLib.MainLoop(ctx).run()
 
     def busy():
@@ -141,6 +143,8 @@ def fake(app):
         if what == "leave":
             bus[0].close_sync(None)
     threading.Thread(target=serve, daemon=True).start()
+    # On the bus before its window shows, which is all a test waits for.
+    ready.wait()
     on_usr1(busy if what == "main" else lambda: ctx.invoke_full(GLib.PRIORITY_DEFAULT, busy))
     Gtk.ApplicationWindow(application=app, title="fake", child=Gtk.Label(label="Fake")).present()
 
