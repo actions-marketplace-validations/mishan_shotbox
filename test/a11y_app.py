@@ -64,7 +64,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk, PangoCairo  # noqa: E402
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
 
 def lists():
@@ -200,8 +200,14 @@ def activate(app):
         box.append(pair)
     if "split" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
-        pair.append(Gtk.Label(label="Open File", opacity=0, halign=Gtk.Align.START))
-        side = Gtk.Box(spacing=3)
+        whole = Gtk.Label(label="Open File", opacity=0, halign=Gtk.Align.START)
+        pair.append(whole)
+        # What "Open File" sets between the end of "Open"'s label and its
+        # "F", in whatever font there is, so "File" is drawn where "Open
+        # File" draws it.
+        gap = (whole.create_pango_layout("Open File").index_to_pos(5).x / Pango.SCALE
+               - whole.create_pango_layout("Open").get_pixel_size()[0])
+        side = Gtk.Box(spacing=round(gap))
         for text in ("Open", "File"):
             side.append(Gtk.Label(label=text))
         pair.append(side)

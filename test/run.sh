@@ -1510,8 +1510,7 @@ CASES
           < /dev/null 2>/dev/null || true
       done > "$tmp/contrast"
       grep -q '/label\[1\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
-        && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (another node.s text matches there too: "Open")$' "$tmp/contrast" \
-        && ! grep -q '/panel\[7\]/label\[0\]: text passes' "$tmp/contrast" \
+        && grep -q '/panel\[7\]/label\[0\]: text not measured: GTK 4 reports its position wrong (another node.s text matches there too: "Open")$' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: the other match's own node named; text not taken for pieces of it drawn only there" \
         || { fail "a11y: contrast, GTK 4, Recheck and Open File"; cat "$tmp/contrast"; }
       # A faint "Twin" over an entry holding "Twin", or under it, each
