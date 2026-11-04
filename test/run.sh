@@ -2286,6 +2286,27 @@ set +e; out=$("$sb" compare "$tmp/ref" "$tmp/new" --diff "$tmp/diffs"); st=$?; s
   && ok "compare: directories, picture by picture" || fail "compare dirs: $st $out"
 "$sb" compare "$tmp/ref" "$tmp/new" same off --max 0 --max off=1 >/dev/null \
   && ok "compare: NAMEs, and --max for one" || fail "compare NAME=N"
+# --update: a picture that fails, or has no reference yet, becomes the
+# reference; one the same is left as it was; one with no new picture
+# still fails. Its NAMEs, only those. --diff's page: each failure's
+# reference, new picture and diff, copied beside it.
+rm -rf "$tmp/uref" "$tmp/unew"; cp -a "$tmp/ref" "$tmp/uref"; mkdir "$tmp/unew"
+cp "$tmp/a.png" "$tmp/unew/same.png"; cp "$tmp/d.png" "$tmp/unew/off.png"; cp "$tmp/d.png" "$tmp/unew/added.png"
+touch -d 2001-01-01 "$tmp/uref/same.png"
+st=0; out=$("$sb" compare "$tmp/uref" "$tmp/unew" --update --diff "$tmp/udiffs") || st=$?
+st2=0; "$sb" compare "$tmp/uref" "$tmp/unew" same off added > /dev/null || st2=$?
+rm -rf "$tmp/uref2"; cp -a "$tmp/ref" "$tmp/uref2"
+st3=0; "$sb" compare "$tmp/uref2" "$tmp/unew" off same --update > /dev/null || st3=$?
+[ "$st $st2 $st3" = "1 0 0" ] && [ "$(echo "$out" | sort)" = "$(printf '%s\n' \
+    "added: no $tmp/uref/added.png; added" "differ: gone" "gone: no $tmp/unew/gone.png" \
+    "off: 1 pixels differ, in 1x1 at 0,0; updated; see $tmp/udiffs/off-diff.png" "same: the same" | sort)" ] \
+  && [ "$(stat -c %Y "$tmp/uref/same.png")" = "$(date -d 2001-01-01 +%s)" ] \
+  && cmp -s "$tmp/uref2/off.png" "$tmp/unew/off.png" && [ ! -e "$tmp/uref2/added.png" ] \
+  && cmp -s "$tmp/udiffs/off-ref.png" "$tmp/ref/off.png" && cmp -s "$tmp/udiffs/off-new.png" "$tmp/unew/off.png" \
+  && grep -q 'src="off-ref.png"' "$tmp/udiffs/index.html" && grep -q 'src="off-new.png"' "$tmp/udiffs/index.html" \
+  && grep -q 'src="off-diff.png"' "$tmp/udiffs/index.html" && ! grep -q same "$tmp/udiffs/index.html" \
+  && ok "compare --update: what fails or is new taken, the same left, NAMEs only; --diff's page of failures" \
+  || { fail "compare --update ($st $st2 $st3)"; echo "$out"; }
 set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 [ $st = 2 ] && grep -q "no .*nope.png" "$tmp/err" && ok "compare: a missing picture, said plainly" \
   || fail "compare missing: $st $(cat "$tmp/err")"

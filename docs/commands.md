@@ -486,7 +486,14 @@ further, and where none is under that, it's B where it was.
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
 each, and fails if any differs, is missing, or changed size. `--diff DIR`
-writes `NAME-diff.png` there for each that fails. `--fuzz`, `--max`,
+writes `NAME-diff.png` there for each that fails, beside a copy of each
+side, `NAME-ref.png` and `NAME-new.png`, and `index.html`, a page of the
+failures, each's three side by side and the new one with the reference
+shown on a hover: the directory alone is a CI artifact to look at.
+`--update` makes each new picture that fails the reference, and adds each
+in NEWDIR with none yet (`NAME: ...; updated`, `NAME: no ...; added`),
+leaving those that pass as they were; it fails only for a reference with
+no new picture. `--fuzz`, `--max`,
 `--ignore` and `--margin` take `NAME=VALUE` for one picture, beside a plain
 VALUE for the rest (each `--ignore` adds a box):
 

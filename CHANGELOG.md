@@ -4,6 +4,12 @@
 
 ### Added
 
+- `shotbox compare REFDIR NEWDIR --update` makes each new picture that
+  fails the reference, and adds each with no reference yet, leaving those
+  that pass untouched: a reviewed change is one command. `--diff DIR`
+  also writes `index.html`, each failure's reference, new picture and
+  diff side by side, with copies of both sides, so the directory alone is
+  a CI artifact.
 - `shotbox wait stable --crop G` watches just that part, and `--ignore
   G` (repeatable) leaves out a box, so a page with a clock or a live
   chart can hold still round it; `shoot --wait stable` watches its

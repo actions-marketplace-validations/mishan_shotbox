@@ -40,12 +40,14 @@ session in a lasting one. `shotbox COMMAND --help` for each one's options.
 import argparse
 import contextlib
 import dataclasses
+import html
 import io
 import json
 import math
 import os
 import re
 import shlex
+import shutil
 import signal
 import statistics
 import subprocess
@@ -1310,6 +1312,43 @@ def shifted(at):
     return f", moved {at[0]},{at[1]}" if any(at) else ""
 
 
+def review(out, shown, ref, new):
+    """index.html in `out`: each (name, what was said, whether it has a
+    diff) in `shown`, its reference, new picture and diff side by side,
+    and the two sides in one place, the reference shown on a hover."""
+    def img(src, alt):
+        return f'<img src="{html.escape(src)}" alt="{html.escape(alt)}">'
+    rows = []
+    for name, said, has_diff in shown:
+        sides = [(f"{name}-ref.png", "reference"), (f"{name}-new.png", "new")]
+        cells = [f"<figure>{img(src, alt)}<figcaption>{alt}</figcaption></figure>"
+                 for src, alt in sides if (out / src).exists()]
+        if has_diff:
+            cells.append(f"<figure>{img(f'{name}-diff.png', 'diff')}"
+                         "<figcaption>diff</figcaption></figure>")
+        if all((out / src).exists() for src, _ in sides):
+            cells.append(f'<figure class="flip">{img(sides[1][0], "new")}'
+                         f'{img(sides[0][0], "reference")}'
+                         "<figcaption>new; the reference on a hover</figcaption></figure>")
+        rows.append(f"<section><h2>{html.escape(name)}</h2><p>{html.escape(said)}</p>"
+                    f"<div>{''.join(cells)}</div></section>")
+    (out / "index.html").write_text(f"""<!doctype html>
+<meta charset="utf-8">
+<title>shotbox compare</title>
+<style>
+body {{ font: 15px/1.4 sans-serif; margin: 16px; background: #fff; color: #222 }}
+div {{ display: flex; flex-wrap: wrap; gap: 12px }}
+.dirs {{ overflow-wrap: anywhere; color: #555 }}
+figure {{ margin: 0 }} img {{ max-width: 100%; border: 1px solid #ccc; display: block }}
+.flip {{ display: grid }} .flip img {{ grid-area: 1 / 1 }}
+.flip img + img {{ opacity: 0 }} .flip:hover img + img {{ opacity: 1 }}
+</style>
+<h1>{len(shown) or "None"} failed</h1>
+<p class="dirs">{html.escape(str(ref))} against {html.escape(str(new))}</p>
+{chr(10).join(rows)}
+""")
+
+
 def cmd_compare(argv):
     p = argparse.ArgumentParser(prog="shotbox compare",
                                 description="Count the pixels that differ between two "
@@ -1323,7 +1362,11 @@ def cmd_compare(argv):
                    help="with directories: just these (NAME or NAME.png)")
     p.add_argument("--diff", metavar="OUT",
                    help="write the differences, marked in red; with directories, "
-                        "OUT is a directory, and each picture that fails gets NAME-diff.png")
+                        "OUT is a directory, and each picture that fails gets NAME-diff.png, "
+                        "and a copy of each side, all on a page, OUT/index.html")
+    p.add_argument("--update", action="store_true",
+                   help="with directories: each new picture that fails, or has no "
+                        "reference yet, becomes the reference; those the same are left")
     p.add_argument("--fuzz", action="append", default=[], metavar="[NAME=]PCT",
                    help="colors this close count as the same (0%%); NAME=PCT for one "
                         "picture (repeatable)")
@@ -1381,36 +1424,55 @@ def cmd_compare(argv):
         print(differing(n, box) + shifted(at))
         return 0 if n <= most(None) else 1
 
+    if a.update and not dirs[0]:
+        p.error("--update goes with two directories")
     names = [n.removesuffix(".png") for n in a.names] or sorted(
-        f.stem for f in Path(a.a).glob("*.png"))
+        {f.stem for d in (a.a, a.b)[:1 + a.update] for f in Path(d).glob("*.png")})
     if not names:
         sys.stderr.write(f"shotbox: no pictures in {a.a}\n")
         return 2
     if a.diff:
         Path(a.diff).mkdir(parents=True, exist_ok=True)
-    bad = []
+    bad, shown = [], []
+
+    def failed(name, ref, new, said, diff=None, taken="updated"):
+        """A picture that fails: on the page, with copies of each side taken
+        before --update writes over the reference; then, with --update, the
+        new one is the reference, and said so."""
+        if a.diff:
+            for side, f in (("ref", ref), ("new", new)):
+                if f.exists():
+                    shutil.copyfile(f, Path(a.diff) / f"{name}-{side}.png")
+            shown.append((name, said, diff and diff.exists()))
+        if a.update and new.exists():
+            shutil.copyfile(new, ref)
+            print(f"{name}: {said}; {taken}"
+                  + (f"; see {diff}" if diff else ""))
+        else:
+            print(f"{name}: {said}" + (f"; see {diff}" if diff else ""))
+            bad.append(name)
+
     for name in names:
         ref, new = Path(a.a) / f"{name}.png", Path(a.b) / f"{name}.png"
         missing = [str(f) for f in (ref, new) if not f.exists()]
         if missing:
-            print(f"{name}: no {' or '.join(missing)}")
-            bad.append(name)
+            failed(name, ref, new, f"no {' or '.join(missing)}", taken="added")
             continue
         diff = Path(a.diff) / f"{name}-diff.png" if a.diff else None
         try:
             n, box, at = compare(ref, new, name)
         except ValueError as e:
-            print(f"{name}: {e}")
-            bad.append(name)
+            failed(name, ref, new, str(e))
             continue
         if n > most(name):
             if diff:
                 compare(ref, new, name, diff, at)
-            print(f"{name}: {differing(n, box)}{shifted(at)}" + (f"; see {diff}" if diff else ""))
-            bad.append(name)
+            failed(name, ref, new, f"{differing(n, box)}{shifted(at)}", diff)
         else:
             print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}; allowed'}"
                   + shifted(at))
+    if a.diff:
+        review(Path(a.diff), shown, a.a, a.b)
     if bad:
         print(f"differ: {', '.join(bad)}")
         return 1
