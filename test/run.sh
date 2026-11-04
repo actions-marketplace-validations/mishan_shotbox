@@ -1764,29 +1764,34 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     && ok "a11y: tabwalk, with one thing to take the focus, is round in one" \
     || { fail "a11y: one"; cat "$tmp/walk"; }
   # Two moments' trees, saved or the second live, as diff(1) has it: 1
-  # with what changed, 0 with nothing; 2 where a program didn't answer.
+  # with what changed, 0 with nothing; 2 where a program didn't answer,
+  # whose window --window may have meant.
   "$sb" run --a11y -- sh -c "'$app' notes & '$sb' wait window a11y-test >/dev/null &&
     '$sb' a11y tree --json --window a11y-test > '$tmp/t1' && '$sb' a11y click 'Wrap lines' >/dev/null &&
     '$sb' a11y tree --json --window a11y-test > '$tmp/t2' &&
     { '$sb' a11y diff '$tmp/t1' --window a11y-test; echo \$?; '$sb' a11y diff '$tmp/t1' '$tmp/t2'; echo \$?
       '$sb' a11y diff '$tmp/t2' '$tmp/t2'; echo \$?; }" > "$tmp/diff" 2> "$tmp/diff-err" || true
-  "$sb" run --a11y -- sh -c "'$app' freeze & '$sb' wait window a11y-test >/dev/null &&
-    '$sb' a11y click Freeze >/dev/null && sleep 0.5 && { '$sb' a11y diff '$tmp/t2' --timeout 2; echo \$?; }" \
+  "$sb" run --a11y -- sh -c "'$app' freeze & '$here/window.py' a11y-test &
+    '$sb' wait node Freeze >/dev/null &&
+    '$sb' a11y click Freeze >/dev/null && sleep 0.5 && { '$sb' a11y diff '$tmp/t2' --timeout 2; echo \$?
+      '$sb' a11y diff '$tmp/t2' --window a11y-test --timeout 2; echo \$?; }" \
     > "$tmp/frozen" 2>> "$tmp/diff-err" || true
   changed=$(printf '%s\n' '~ text "Notes" [focusable, editable], was [focusable, focused, editable]' \
     '~ check box "Wrap lines" [focusable, focused], was [focusable, checked]')
   [ "$(cat "$tmp/diff")" = "$(printf '%s\n1\n%s\n1\n0' "$changed" "$changed")" ] \
-    && sed -n 1p "$tmp/frozen" | grep -q "^! application \"\" (pid [0-9]*) didn't answer" \
-    && sed -n 2p "$tmp/frozen" | grep -q '^- frame "a11y-test" .*and [0-9]* inside$' \
-    && [ "$(sed -n '3,$p' "$tmp/frozen")" = 2 ] \
+    && [ "$(grep -x '[0-9]*' "$tmp/frozen" | tr '\n' ' ')" = "2 2 " ] \
+    && [ "$(grep -c "^! application \"\" (pid [0-9]*) didn't answer" "$tmp/frozen")" = 2 ] \
     && ok "a11y: diff: a saved tree against one saved later, or the live one; one against itself; a program that didn't answer" \
     || { fail "a11y: diff"; cat "$tmp/diff" "$tmp/frozen" "$tmp/diff-err"; }
   echo '{"role": "button"}' > "$tmp/not-tree"
   echo '[{"role": "frame", "name": ["w"], "description": "", "states": [], "path": "frame[0]",
     "depth": 0}]' > "$tmp/bad-name"
+  echo '[{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame[0]",
+    "depth": 0, "pid": []}]' > "$tmp/bad-pid"
   bad=
   for r in "$tmp/not-tree|$tmp/not-tree isn't a tree saved by a11y tree --json" \
       "$tmp/bad-name|$tmp/bad-name isn't a tree saved by a11y tree --json" \
+      "$tmp/bad-pid|$tmp/bad-pid isn't a tree saved by a11y tree --json" \
       "$tmp/none|can't read $tmp/none: No such file or directory"; do
     st=0; "$sb" a11y diff "${r%%|*}" "$tmp/t1" > /dev/null 2> "$tmp/err" || st=$?
     [ $st = 2 ] && [ "$(cat "$tmp/err")" = "shotbox: ${r#*|}" ] \

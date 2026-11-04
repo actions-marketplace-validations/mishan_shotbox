@@ -3338,16 +3338,17 @@ def main(argv):
         raise SessionError(f"{e}; {unanswered()}") from None
 
 
-def listed(window, timeout, bounds):
+def listed(window, timeout, bounds, quiet=False):
     """The tree as `a11y tree` has it: each window with its program's pid
     and toolkit, then a node for each program that didn't answer, whose
-    windows aren't there."""
+    windows aren't there; with `window`, only if `quiet`, as one of those
+    may have been the window."""
     nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
                         if not n.depth else {}))
              for n in tree(window, timeout, bounds=bounds)]
     return nodes + [Node(role="application", name="", description="", states=[],
                          path="application", depth=0, pid=pid, quiet=True, bounds=None)
-                    for pid in sorted(QUIET) if not window]
+                    for pid in sorted(QUIET) if quiet or not window]
 
 
 def saved(path):
@@ -3367,7 +3368,7 @@ def saved(path):
                 and all(isinstance(n.get(k), str) for k in ("role", "name", "description", "path"))
                 and isinstance(n.get("states"), list) and all(isinstance(s, str) for s in n["states"])
                 and type(n.get("depth")) is int and n["depth"] >= 0
-                and (not n.get("quiet") or type(n.get("pid")) is int))
+                and (type(n.get("pid")) is int if n.get("quiet") or "pid" in n else True))
     if not (isinstance(t, list) and all(map(node, t)) and (not t or t[0]["depth"] == 0)):
         raise SessionError(f"{path} isn't a tree saved by a11y tree --json")
     return [Node(n) for n in t]
@@ -3472,7 +3473,7 @@ def read(argv):
         # Status 1 is a change, as diff(1) has it, so trouble is 2.
         try:
             said = changes(saved(a.before), saved(a.after) if a.after
-                           else listed(a.window, a.timeout, False))
+                           else listed(a.window, a.timeout, False, quiet=True))
         except SessionError as e:
             sys.stderr.write(f"shotbox: {e}{'; ' + unanswered() if QUIET else ''}\n")
             return 2
