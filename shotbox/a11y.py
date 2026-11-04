@@ -247,7 +247,7 @@ def changes(before, after):
             out.append(f"{mark} {'  ' * above[-1][1]}{n.line()}"
                        + (f", was {w}" if mark == "~" else w))
     return [f"! {n.line()}, so its windows aren't compared"
-            for n in after if n.get("quiet")] + out
+            for n in {n.pid: n for n in before + after if n.get("quiet")}.values()] + out
 
 
 def toplevels(Atspi, window=None, timeout=10):
@@ -3047,13 +3047,13 @@ def alone(Atspi, window, node):
                    for _, n in walk(Atspi, window))
 
 
-def watchdog(seconds, what):
-    """End the process if `what` takes longer than `seconds`: libatspi can
-    wait on a program that never answers, inside C, where nothing in
-    Python gets to run."""
+def watchdog(seconds, what, status=1):
+    """End the process, with `status`, if `what` takes longer than
+    `seconds`: libatspi can wait on a program that never answers, inside
+    C, where nothing in Python gets to run."""
     def gone():
         sys.stderr.write(f"shotbox: {what} got no answer in {seconds:g}s\n")
-        os._exit(1)
+        os._exit(status)
     timer = threading.Timer(seconds, gone)
     timer.daemon = True
     timer.start()
@@ -3338,13 +3338,53 @@ def main(argv):
         raise SessionError(f"{e}; {unanswered()}") from None
 
 
+def listed(window, timeout, bounds, quiet=False):
+    """The tree as `a11y tree` has it: each window with its program's pid
+    and toolkit, then a node for each program that didn't answer, whose
+    windows aren't there; with `window`, only if `quiet`, as one of those
+    may have been the window."""
+    nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
+                        if not n.depth else {}))
+             for n in tree(window, timeout, bounds=bounds)]
+    return nodes + [Node(role="application", name="", description="", states=[],
+                         path="application", depth=0, pid=pid, quiet=True, bounds=None)
+                    for pid in sorted(QUIET) if quiet or not window]
+
+
+def saved(path):
+    """The tree `a11y tree --json` saved to `path`."""
+    try:
+        with open(path) as f:
+            t = json.load(f)
+    except OSError as e:
+        raise SessionError(f"can't read {path}: {e.strerror}") from None
+    except ValueError:
+        t = None
+
+    # As the tree has them, so a file that isn't one is said, not a
+    # traceback taken for a change.
+    def node(n):
+        return (isinstance(n, dict)
+                and all(isinstance(n.get(k), str) for k in ("role", "name", "description", "path"))
+                and isinstance(n.get("states"), list) and all(isinstance(s, str) for s in n["states"])
+                and type(n.get("depth")) is int and n["depth"] >= 0
+                and (type(n.get("pid")) is int if n.get("quiet") or "pid" in n else True))
+    if not (isinstance(t, list) and all(map(node, t)) and (not t or t[0]["depth"] == 0)):
+        raise SessionError(f"{path} isn't a tree saved by a11y tree --json")
+    return [Node(n) for n in t]
+
+
 def read(argv):
     p = argparse.ArgumentParser(prog="shotbox a11y",
                                 description="Inside `shotbox run --a11y`: read the "
                                             "accessible tree, as a screen reader does.")
     sub = p.add_subparsers(dest="what", required=True,
-                           metavar="{tree,lint,tabwalk,click,scroll,contrast,speak}")
+                           metavar="{tree,diff,lint,tabwalk,click,scroll,contrast,speak}")
     t = sub.add_parser("tree", help="the tree, a node a line, indented")
+    df = sub.add_parser("diff", help="what changed from a tree saved with tree --json to "
+                                     "another, or to the live one: 1 if anything did")
+    df.add_argument("before", metavar="BEFORE")
+    df.add_argument("after", metavar="AFTER", nargs="?", help="without it, the live tree")
     lt = sub.add_parser("lint", help="controls, images and focusable nodes with no name")
     ignore = dict(action="append", default=[], metavar="RE",
                   help="not a problem whose line (PATH: WHAT, or the node's tree line: "
@@ -3403,7 +3443,7 @@ def read(argv):
                     help="also what passes, with its ratio, after what fails")
     ct.add_argument("--strict", action="store_true",
                     help="what isn't measured fails too")
-    for s in (t, lt, w, c, sc, ct, nd, il):
+    for s in (t, df, lt, w, c, sc, ct, nd, il):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
@@ -3425,16 +3465,23 @@ def read(argv):
     patient(a.timeout)
     # A tree takes a second or two; a press, its settling time and a tree.
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
-             "the display" if a.what == "idle" else "the accessible tree")
+             "the display" if a.what == "idle" else "the accessible tree",
+             2 if a.what == "diff" else 1)
+    if a.what == "diff":
+        if a.after and a.window:
+            p.error("--window is for the live tree, compared with one file")
+        # Status 1 is a change, as diff(1) has it, so trouble is 2.
+        try:
+            said = changes(saved(a.before), saved(a.after) if a.after
+                           else listed(a.window, a.timeout, False, quiet=True))
+        except SessionError as e:
+            sys.stderr.write(f"shotbox: {e}{'; ' + unanswered() if QUIET else ''}\n")
+            return 2
+        for line in said:
+            print(line)
+        return 2 if any(line.startswith("! ") for line in said) else int(bool(said))
     if a.what == "tree":
-        # Each window with its program's pid and toolkit, then a node for
-        # each program that didn't answer, whose windows aren't there.
-        nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
-                            if not n.depth else {}))
-                 for n in tree(a.window, a.timeout, bounds=a.json)]
-        nodes += [Node(role="application", name="", description="", states=[],
-                       path="application", depth=0, pid=pid, quiet=True, bounds=None)
-                  for pid in sorted(QUIET) if not a.window]
+        nodes = listed(a.window, a.timeout, a.json)
         if a.json:
             print(json.dumps([dict(public(n), depth=n.depth) for n in nodes]))
         else:

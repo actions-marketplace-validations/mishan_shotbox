@@ -4,6 +4,10 @@
 
 ### Added
 
+- `shotbox a11y diff BEFORE [AFTER]` says what changed from a tree
+  saved with `a11y tree --json` to another, or to the live one, as
+  MCP's actions with `changes` say it: status 1 if anything did, 0 if
+  nothing, 2 if it couldn't tell.
 - `shotbox wait idle [--window RE]` waits until each program with a
   window shown has answered just now, three times in a row: free on its
   main thread, which `wait stable` can't tell, as a busy program holds
@@ -61,6 +65,10 @@
   gave up: the recorder looked at the focus again after the rename but
   before its event, and took the new name for the one it already had.
   A focus first looked at that late can still be missed.
+- MCP's actions with `changes`, and `shotbox.a11y.changes()`, said
+  nothing of a program that didn't answer as the tree was read before,
+  only after: what changed in its windows was left out unsaid, and
+  could read as "Nothing changed". It's said either way.
 
 ## 0.10.0 — 2026-10-23
 

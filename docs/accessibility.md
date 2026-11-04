@@ -13,6 +13,9 @@ Inside a session with `--a11y`:
 - **`shotbox a11y tree [--window RE]`** prints the tree, a node a line,
   indented: role, name, description if any, and the states a screen
   reader would say: [Reading the tree](#reading-the-tree).
+- **`shotbox a11y diff BEFORE [AFTER] [--window RE]`** prints what
+  changed from a tree saved with `a11y tree --json` to another, or to
+  the live one: [Reading the tree](#reading-the-tree).
 - **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
   for what has no name to say: [Lint](#lint).
 - **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--document] [--window RE]`**
@@ -217,6 +220,22 @@ Role names are at-spi2-core's, and change between its releases: a push
 button is `push button` before 2.54 and `button` from it. The lint
 compares roles by their enum, not their names, so its rules hold either
 way; a committed tree belongs to one at-spi2-core.
+
+`shotbox a11y diff BEFORE.json [AFTER.json]` says what changed from a
+tree saved with `a11y tree --json` to another, or without AFTER, to the
+live tree (of the `--window`, if given: give the one BEFORE was saved
+with). It's the lines MCP's actions with `changes` give ([What an action
+changed](mcp.md#the-tools)): `+` added, `-` gone, `~` renamed, described otherwise
+or in other states, with `, was` and what it was; where nodes are isn't
+compared. As diff(1) has it, it ends with status 1 if anything changed
+and 0 if nothing did; 2 if it couldn't tell, with a file that isn't a
+tree, or a program that didn't answer, which is a `!` line:
+
+    $ shotbox a11y tree --json --window Editor > before.json
+    $ shotbox a11y click "Wrap lines"
+    $ shotbox a11y diff before.json --window Editor
+    ~ button "Save" [focusable], was [focusable, focused]
+    ~ check box "Wrap lines" [focusable, focused], was [focusable, checked]
 
 ## Where a node is
 
