@@ -88,7 +88,9 @@ class Screen:
         shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
         if self.failed and shown and x.try_capture(self.env, self.failed, self.backend):
             message += f"; the screen then: {self.failed}"
-        raise SessionError(message)
+        e = SessionError(message)
+        e.failed = True
+        raise e
 
     def until(self, what, test, timeout=30, alive=None):
         """Poll `test()` until it returns something true, and return that;
@@ -98,7 +100,8 @@ class Screen:
         try:
             return wait_for(what, test, timeout, alive=alive)
         except SessionError as e:
-            if _CANCEL.is_set():
+            # One the test failed with itself has said all it will.
+            if _CANCEL.is_set() or getattr(e, "failed", False):
                 raise
             self.fail(str(e) + (test.there() if hasattr(test, "there") else ""))
 
@@ -156,11 +159,11 @@ class Screen:
                 found = re.compile(arg)
             except re.error as e:
                 raise SessionError(f"{arg!r} isn't a regex: {e}") from None
+            log = self.env.get("SHOTBOX_ANNOUNCEMENTS")
+            if not log:
+                self.fail("no announcements: start the session with --a11y")
 
             def said():
-                log = self.env.get("SHOTBOX_ANNOUNCEMENTS")
-                if not log:
-                    self.fail("no announcements: start the session with --a11y")
                 if not Path(log).exists():
                     return False
                 lines = Path(log).read_text().splitlines()

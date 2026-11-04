@@ -1916,6 +1916,19 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
       || echo "skip  a11y: speak: no Orca"
   fi
+  # Without --a11y, refused, the screen taken and said once: by wait
+  # announce, and by Python's wait_focus, which polls the tree.
+  set +e; "$sb" run -- sh -c "'$sb' wait announce x --failed '$tmp/no-said.png' 2> '$tmp/no-said'
+    PYTHONPATH='$here/..' python3 -c 'import shotbox
+try:
+    shotbox.Screen(failed=\"$tmp/no-focus.png\").wait_focus(\"x\", timeout=1)
+except shotbox.SessionError as e:
+    print(e)' > '$tmp/no-focus'"; st=$?; set -e
+  [ "$st" = 0 ] && [ "$(cat "$tmp/no-said")" = \
+    "shotbox: no announcements: start the session with --a11y; the screen then: $tmp/no-said.png" ] \
+    && [ "$(grep -o 'the screen then' "$tmp/no-focus" | wc -l)" = 1 ] \
+    && ok "a11y: wait announce and wait_focus without --a11y, said once" \
+    || { fail "a11y: wait announce and wait_focus without --a11y ($st)"; cat "$tmp/no-said" "$tmp/no-focus"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
