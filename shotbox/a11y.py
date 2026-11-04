@@ -1225,8 +1225,9 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
     be named: their names and what they do are the toolkit's, and none
     is a click everywhere. Nodes named exactly
     `name` are taken over those it matches as a regex: a calculator's "."
-    is its button, not any one character. A match inside another (a
-    button's label) is the outer one. The node."""
+    is its button, not any one character. A field is taken over its
+    label, and anything else in that label, that match too; then a match
+    inside another (a button's label) is the outer one. The node."""
     Atspi = atspi()
     (named, note), (as_role, role_note) = x.pattern(name), x.pattern(role or "")
     showing, unshown, late = [], [], []
@@ -1241,11 +1242,22 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
         unshown[:] = [n for n in seen if not n._showing]
         nodes = [n for n in showing if fits(n)]
         nodes = [n for n in nodes if n.name == name] or nodes
-        # A field named by its label is the one of the two that's taken.
+        # A field named by its label is what's taken, not the label nor
+        # what else is in it (Chromium's <label for>), though the field be
+        # inside it (Firefox's <label><input>); and only a label's own, so
+        # a group box naming its controls doesn't pick one of two.
         ids = {n._id for n in nodes}
-        return [n for n in nodes if not any(n.path.startswith(o.path + "/") for o in nodes)
-                and not ids & {f"{t.app.bus_name if t.app else ''}{t.path}"
-                               for t in related(Atspi, n._acc, "LABEL_FOR")}]
+
+        def fields(o):
+            return ids & {f"{t.app.bus_name if t.app else ''}{t.path}"
+                          for t in related(Atspi, o._acc, "LABEL_FOR")} - {o._id}
+
+        def labeling(n):
+            return fields(n) or any((f := fields(o)) and n._id not in f for o in showing
+                                    if o.role == "label" and n.path.startswith(o.path + "/"))
+
+        nodes = [n for n in nodes if not labeling(n)]
+        return [n for n in nodes if not any(n.path.startswith(o.path + "/") for o in nodes)]
 
     def found():
         """The node, where it's clicked (or the action it does, as node_action

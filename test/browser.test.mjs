@@ -424,7 +424,9 @@ test('Chromium on an --a11y session: its tree, a click by name or by its action,
     assert.match(picked[1], /^combo box "Pick" .*, by its action "open"\n$/);
     assert.match(picked[2], /^menu item "Beta" .*, by its action "select"\n$/);
     assert.match(picked[3], /^check box "Agree" .*, by its action "check"\n$/);
-    assert.deepEqual(picked[4], ['Beta', true]);
+    assert.match(picked[4], /^check box "Remember" /);
+    assert.match(picked[5], /^entry "Email" /);
+    assert.deepEqual(picked[6], ['Beta', true, true, 'email']);
     assert.match(below, /after 0\.5s: (push )?button "Below" \[focusable\] matches, but isn't showing$/m);
     assert.match(contrast, /^\S.*paragraph\[\d+\]\/static\[0\]: text 2\.8[45]:1, #999999 on #ffffff.*  <- p "Faint words" in div#intro$/m);
     /* Large text, 18pt or 14pt bold, passes at 3.45:1. */
@@ -593,6 +595,45 @@ test('Firefox on an --a11y session: contrast by the runs of a node\'s own text',
             {
                 assert.match(what, look, `${id} ${list} ${text}`);
             }
+        }
+    }
+    finally
+    {
+        await fs.rm(dir, { recursive: true, force: true });
+    }
+});
+
+test('Firefox on an --a11y session: a check box inside its <label> clicked by its name, by the pointer and by its action',
+     { skip: (spawnSync('sh', ['-c', 'command -v firefox']).status && 'no Firefox') || atspi() },
+     async () =>
+{
+    const shotbox = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin',
+                              'shotbox');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'shotbox-test-'));
+
+    /* Firefox has the label, named as the check box is, round it. */
+    await fs.writeFile(path.join(dir, 'page.html'), `<title>a11y-label</title>
+        <label><input type="checkbox">Agree</label>
+        <label><input type="checkbox">Subscribe</label>`);
+    try
+    {
+        const got = spawnSync(shotbox, ['run', '--a11y', '--', 'sh', '-c', `
+            mkdir "$1/profile"
+            firefox --kiosk --new-instance --profile "$1/profile" --width 800 --height 600 \
+              "file://$1/page.html" 2>/dev/null &
+            "$0" a11y click Agree --window 'a11y-label.*' --timeout 60 &&
+              "$0" a11y click Subscribe --action check --window 'a11y-label.*' &&
+              "$0" a11y tree --window 'a11y-label.*'
+            st=$?; kill $!; exit $st`, shotbox, dir], { encoding: 'utf8' });
+
+        assert.equal(got.status, 0, got.stderr);
+        const [agree, subscribe] = got.stdout.split('\n');
+
+        assert.match(agree, /^check box "Agree" /);
+        assert.match(subscribe, /^check box "Subscribe" .*, by its action "check"$/);
+        for (const name of ['Agree', 'Subscribe'])
+        {
+            assert.match(got.stdout, new RegExp(`^ +check box "${name}" \\[.*\\bchecked\\]$`, 'm'));
         }
     }
     finally
