@@ -768,12 +768,38 @@ class Still:
     """A test for wait_for: true once the display (or the window named
     `name`) has looked the same for `quiet` seconds. For the paint after a
     click, a panel sliding in, a toast going away: anything that has no
-    other sign it's done. `backend`, as for try_capture."""
+    other sign it's done. Only the `box` (width, height, x, y) of it, if
+    given, and not the boxes in `ignore`, in what's taken: a clock.
+    `backend`, as for try_capture."""
 
-    def __init__(self, env, name=None, quiet=0.5, backend=None):
+    def __init__(self, env, name=None, quiet=0.5, backend=None, box=None, ignore=()):
         self.env, self.name, self.quiet = env, name, quiet
         self.backend = backend or sys.modules[__name__]
         self.last, self.since = None, 0.0
+        self.box, self.ignore, self.rows = box, ignore, {}
+
+    def digest(self, window):
+        if not (self.box or self.ignore):
+            return self.backend.fingerprint(self.env, window)
+        got = self.backend.grab(self.env, window, self.box)
+        if not got:     # the slower way
+            fd, path = tempfile.mkstemp(".png", dir=self.env["SHOTBOX_SCRATCH"])
+            os.close(fd)
+            try:
+                self.backend.capture(self.env, path, window=window,
+                                     crop=self.box and "{}x{}+{}+{}".format(*self.box))
+                got = rgb(path)
+            except subprocess.CalledProcessError:   # a window gone meanwhile
+                return None
+            finally:
+                os.unlink(path)
+        w, h, data = got
+        rows = self.rows.get((w, h)) or self.rows.setdefault((w, h), kept(w, h, self.ignore))
+        d = hashlib.sha256()
+        for y, spans in enumerate(rows):
+            for x0, x1 in spans:
+                d.update(data[(y * w + x0) * 3:(y * w + x1) * 3])
+        return d.digest()
 
     def __call__(self):
         window = None
@@ -783,7 +809,7 @@ class Still:
                 self.last = None
                 return False
         # The window's place and size too: one that moves hasn't settled.
-        now = (window[2:] if window else None, self.backend.fingerprint(self.env, window))
+        now = (window[2:] if window else None, self.digest(window))
         t = time.monotonic()
         if now[1] is None or now != self.last:
             self.last, self.since = now, t

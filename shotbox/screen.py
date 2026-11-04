@@ -128,10 +128,12 @@ class Screen:
 
     # --- waiting --------------------------------------------------------------
 
-    def test(self, kind, arg="", window=None):
+    def test(self, kind, arg="", window=None, crop=None, ignore=()):
         """What to say, and what to poll, for a wait: window (a regex for
         its title, or app=RE for its app id), port,
-        file, ready, or stable (seconds; `window` to watch just that one)."""
+        file, ready, or stable (seconds; `window` to watch just that one,
+        `crop` just that part of it, WxH+X+Y, and not the boxes in
+        `ignore`, in what's taken)."""
         if kind == "window":
             def found():
                 return self.backend.find_window(self.env, arg)
@@ -175,7 +177,16 @@ class Screen:
         if kind == "stable":
             quiet = float(arg) if arg else 0.5
             where = f"the window {window!r}" if window else "the display"
-            still = x.Still(self.env, window, quiet, self.backend)
+            box = crop and x.box_of(crop)
+            if crop and not box:
+                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+            skip = [x.box_of(g) for g in ignore]
+            if None in skip:
+                self.fail("what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not "
+                          f"{ignore[skip.index(None)]}")
+            where += f", cropped to {crop}," if crop else ""
+            where += f" but {', '.join(ignore)}," if ignore else ""
+            still = x.Still(self.env, window, quiet, self.backend, box, skip)
             if window:
                 still.there = lambda: self.there(window)
             return f"{where} to hold still for {quiet:g}s", still
@@ -280,11 +291,12 @@ class Screen:
         """Wait for $SHOTBOX_SCRATCH/ready, which `shotbox term` writes."""
         self.until(*self.test("ready"), timeout)
 
-    def wait_stable(self, seconds=0.5, window=None, timeout=30):
-        """Wait until the display, or the window named `window`, has looked
-        the same for `seconds`: for the paint after a click, a panel sliding
-        in, a toast going away."""
-        self.until(*self.test("stable", seconds, window), timeout)
+    def wait_stable(self, seconds=0.5, window=None, timeout=30, crop=None, ignore=()):
+        """Wait until the display, or the window named `window`, cropped
+        to `crop` (WxH+X+Y), has looked the same for `seconds`, but for the
+        boxes (WxH+X+Y, in what's taken) in `ignore`, a clock say: for the
+        paint after a click, a panel sliding in, a toast going away."""
+        self.until(*self.test("stable", seconds, window, crop, ignore), timeout)
 
     def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30,
                    ignore=(), margin=0):

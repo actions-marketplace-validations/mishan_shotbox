@@ -4,6 +4,11 @@
 
 ### Added
 
+- `shotbox wait stable --crop G` watches just that part, and `--ignore
+  G` (repeatable) leaves out a box, so a page with a clock or a live
+  chart can hold still round it; `shoot --wait stable` watches its
+  `--crop`, and takes `--ignore` too. Python's `wait_stable` and MCP's
+  `wait_for` stable take `crop` and `ignore`.
 - `shotbox shoot --wait node:RE` and `--wait announce:RE` wait, in
   order with the other waits, for a showing node with RE in its name or
   text, or for something said to a screen reader, as `wait node` and

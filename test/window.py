@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
-[corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE flash MS, or
+[corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE ticking MS,
+or TITLE flash MS, or
 TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
@@ -25,7 +26,9 @@ a "." and nothing else. With popover, a faint label and a modal popover
 open below it. With wide, a window 1000 pixels wide, a label
 as wide, its text at the right, and below it a button at each end. With
 moving, a faint label that's dark half a second in two, and dark words
-sliding by; with blinking, dark words shown and hidden."""
+sliding by; with blinking, dark words shown and hidden. With ticking, a
+still gray window but for its top right 20x20, black and white by turns
+every MS milliseconds, as a clock is."""
 
 import sys
 import time
@@ -148,6 +151,19 @@ elif sys.argv[2:3] == ["flip"]:
         return True
     GLib.timeout_add(int(sys.argv[3]), flip)
     w.add(square)
+elif sys.argv[2:3] == ["ticking"]:
+    area, black = Gtk.DrawingArea(), [False]
+
+    def draw(a, cr):
+        cr.set_source_rgb(0.5, 0.5, 0.5)
+        cr.paint()
+        cr.set_source_rgb(*[0 if black[0] else 1] * 3)
+        cr.rectangle(a.get_allocated_width() - 20, 0, 20, 20)
+        cr.fill()
+    area.connect("draw", draw)
+    GLib.timeout_add(int(sys.argv[3]), lambda: black.__setitem__(0, not black[0])
+                     or area.queue_draw() or True)
+    w.add(area)
 elif sys.argv[2:3] == ["caret"]:
     # A caret drawn on a timer of its own, as a game's is: a bar 2 by 16
     # after a word, shown and hidden every MS milliseconds.
