@@ -1916,6 +1916,19 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
       || echo "skip  a11y: speak: no Orca"
   fi
+  # Without --a11y, refused, the screen taken and said once: by wait
+  # announce, and by Python's wait_focus, which polls the tree.
+  set +e; "$sb" run -- sh -c "'$sb' wait announce x --failed '$tmp/no-said.png' 2> '$tmp/no-said'
+    PYTHONPATH='$here/..' python3 -c 'import shotbox
+try:
+    shotbox.Screen(failed=\"$tmp/no-focus.png\").wait_focus(\"x\", timeout=1)
+except shotbox.SessionError as e:
+    print(e)' > '$tmp/no-focus'"; st=$?; set -e
+  [ "$st" = 0 ] && [ "$(cat "$tmp/no-said")" = \
+    "shotbox: no announcements: start the session with --a11y; the screen then: $tmp/no-said.png" ] \
+    && [ "$(grep -o 'the screen then' "$tmp/no-focus" | wc -l)" = 1 ] \
+    && ok "a11y: wait announce and wait_focus without --a11y, said once" \
+    || { fail "a11y: wait announce and wait_focus without --a11y ($st)"; cat "$tmp/no-said" "$tmp/no-focus"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
@@ -2507,19 +2520,23 @@ subprocess.run(['convert', '-size', '100x80', '-depth', '8', 'bgra:-', '-alpha',
     # long as it ran.
     if audio; then
       rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
-      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
+      # Each stopped 2 s after it's begun, its file made once ffmpeg has
+      # opened the picture and the sound: starting can take most of 2 s.
+      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "begun() { n=0; until [ -e \"\$1\" ] || [ \$n -ge 300 ]; do
+          sleep 0.1; n=\$((n + 1)); done; sleep 2; }
+        '$here/window.py' beep beep & '$sb' wait window beep &&
         { '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound --strict > '$tmp/$pre-heard'
           [ \$? = 1 ]; } &&
         '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
-        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; } &&
-        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; sleep 2; kill \$r; wait \$r; } &&
-        { { sleep 2; echo go > '$tmp/$pre-go-ev'; } &
+        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; begun '$tmp/$pre-sk.mp4'; kill \$r; wait \$r; } &&
+        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; begun '$tmp/$pre-st.mp4'; kill \$r; wait \$r; } &&
+        { { begun '$tmp/$pre-su.mp4'; echo go > '$tmp/$pre-go-ev'; } &
           '$sb' record '$tmp/$pre-su.mp4' --window beep --sound --seconds 10 --until-line go '$tmp/$pre-go-ev'; } &&
         { '$sb' record '$tmp/$pre-sp0.mp4' --window beep --sound > /dev/null & p=\$!
           '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound --seconds 30 > '$tmp/$pre-heard3' && wait \$p; }" \
         > /dev/null 2>&1 & r=$!
       # Both begun, ffmpeg having opened the picture and the sound, then 2 s.
-      n=0; until [ -e "$tmp/$pre-sp.mp4" ] && [ -e "$tmp/$pre-sp0.mp4" ] || [ $n -ge 600 ]; do
+      n=0; until [ -e "$tmp/$pre-sp.mp4" ] && [ -e "$tmp/$pre-sp0.mp4" ] || [ $n -ge 1800 ]; do
         sleep 0.1; n=$((n + 1)); done; sleep 2
       for p in $(pgrep -u "$(id -u)" -x pipewire); do
         { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/$pre-pw/" && kill "$p"

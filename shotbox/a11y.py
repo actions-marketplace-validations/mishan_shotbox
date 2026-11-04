@@ -3216,6 +3216,9 @@ def record(out):
             left = focus.get("alert")
             # The same focus looked at again keeps the name it was last
             # heard by: read now, it may be a rename whose event is to come.
+            # A focus first looked at only after a rename has that name
+            # already, and the rename isn't heard: libatspi can't say which
+            # came first.
             if acc != focus.get("acc"):
                 focus.update(acc=acc, name=acc.get_name())
             # GTK 4 says nothing of an alert dialog showing: Orca reads it
