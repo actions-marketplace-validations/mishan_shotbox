@@ -1160,6 +1160,27 @@ if atspi; then
   set +e; "$sb" wait node 2>/dev/null; st=$?; "$sb" wait node '' 2>/dev/null; st2=$?; set -e
   [ $st = 2 ] && [ $st2 = 2 ] && ok "a11y: wait node with no regex, or an empty one, is refused" \
     || fail "a11y: wait node with no regex: status $st, $st2"
+  # shoot waits for a node shown three seconds in, or what's announced,
+  # its session given --a11y for them; one never shown, or a program gone
+  # first, said; a node with no regex refused.
+  st=0
+  "$sb" shoot "$tmp/drawn.png" --window a11y-test --wait 'node:Drawn.*tiles$' -- "$app" notes drawing \
+    > /dev/null 2> "$tmp/err" || st=$?
+  "$sb" shoot "$tmp/said.png" --window a11y-test --wait 'announce:Name is taken' -- "$app" alert \
+    > /dev/null 2>> "$tmp/err" || st=$?
+  ! "$sb" shoot "$tmp/never.png" --window a11y-test --wait node:Nevermore --timeout 1 \
+    -- "$app" > /dev/null 2> "$tmp/never" || st=1
+  began=$(date +%s)
+  ! "$sb" shoot "$tmp/gone.png" --wait node:Nevermore -- sh -c "sleep 2; exit 3" \
+    > /dev/null 2> "$tmp/gone" || st=1
+  took=$(($(date +%s) - began))
+  st2=0; "$sb" shoot "$tmp/none.png" --wait node -- true 2>> "$tmp/err" || st2=$?
+  [ $st = 0 ] && [ -s "$tmp/drawn.png" ] && [ -s "$tmp/said.png" ] && [ $st2 = 2 ] \
+    && grep -q "^shotbox: gave up waiting for a node matching 'Nevermore' after 1s" "$tmp/never" \
+    && grep -q "^shotbox: gave up waiting for a node matching 'Nevermore': the program exited (status 3)" "$tmp/gone" \
+    && [ $took -lt 20 ] && grep -q 'node needs a regex' "$tmp/err" \
+    && ok "a11y: shoot --wait node: and announce:, with --a11y given for them; one never shown, or the program gone, said" \
+    || { fail "a11y: shoot --wait node, announce ($st, $st2, ${took}s)"; cat "$tmp/err" "$tmp/never" "$tmp/gone"; }
   # Under a dialog, disabled, moving and under a label, each is said and not
   # clicked (--force clicks the disabled one, which does nothing), then
   # waited for until "Ready" puts each right, and clicked.

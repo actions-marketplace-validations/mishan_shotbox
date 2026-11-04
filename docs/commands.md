@@ -42,11 +42,15 @@ sealed session, waits, takes the picture and stops everything.
   windows there are, the nearest first, with their app ids on Wayland (or
   with `app=RE`): `gave up waiting for a window named 'Text Editor' after
   8s; there are: "Untitled 1 - Text Editor"`, which `.*Text Editor` matches.
-- `--wait window:RE|port:N|file:PATH|ready|stable[:SECS]` waits for more
-  (repeatable, in order). `ready` is `$SHOTBOX_SCRATCH/ready` existing;
-  `shotbox term` writes it. `stable` is the `--window` (or the whole display)
-  looking the same for SECS (0.5): for a program with no other sign it's
-  done drawing.
+- `--wait window:RE|port:N|file:PATH|ready|stable[:SECS]|node:RE|announce:RE`
+  waits for more (repeatable, in order). `ready` is `$SHOTBOX_SCRATCH/ready`
+  existing; `shotbox term` writes it. `stable` is the `--window` (or the
+  whole display) looking the same for SECS (0.5): for a program with no
+  other sign it's done drawing. `node` is a showing node with RE in its
+  name or text, in the `--window` if given, as `wait node` has it: a
+  status line saying a page is drawn, say. `announce` is something said
+  to a screen reader matching RE, as `wait announce` has it. Either gives
+  the session `--a11y`.
 - `--park` moves the pointer out of the way first (see `shotbox park`).
 - `--crop WxH+X+Y`, `--settle SECS` (0.3), `--timeout SECS` (30),
   `--log FILE` for the program's output. If a wait fails or the program

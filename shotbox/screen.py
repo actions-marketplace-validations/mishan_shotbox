@@ -801,13 +801,14 @@ class Screen:
 
     # --- the accessible tree ----------------------------------------------------
 
-    def _a11y(self, *args, timeout=90, notes=False):
+    def _a11y(self, *args, timeout=90, notes=False, alive=None, what=None):
         """`shotbox a11y WHAT --json ARGS` in the session, for its answer: libatspi
         keeps the first bus it finds for the life of a process, which may
         not be this session's. It has a watchdog of its own; `timeout` is
         for one that never even gets that far. With `notes`, each line it
         says on stderr as shotbox is given to that, but for the error it
-        fails with."""
+        fails with. With `alive` (a process), it fails as soon as that
+        exits, saying it gave up waiting for `what`."""
         from .__main__ import self_command
         # Options as --name=VALUE, and a name after --: an agent's regex can
         # start with a dash.
@@ -820,6 +821,11 @@ class Screen:
                 out, err = proc.communicate(timeout=0.2)
                 break
             except subprocess.TimeoutExpired:
+                if alive is not None and alive.poll() is not None:
+                    proc.kill()
+                    proc.communicate()
+                    self.fail(f"gave up waiting for {what}: the program exited "
+                              f"(status {alive.returncode})")
                 if _CANCEL.is_set() or time.monotonic() > end:
                     proc.kill()
                     proc.communicate()
@@ -903,15 +909,17 @@ class Screen:
             return n if n and named(n.name) else None
         return self.until(f"the focus on {name!r}{note}", there, timeout)
 
-    def wait_node(self, pattern, window=None, timeout=30):
+    def wait_node(self, pattern, window=None, timeout=30, alive=None):
         """Wait for a showing node with `pattern`, a regex, found in its name
         or text: a status line saying a page is drawn, say. That node, with
         its text round the match, about 80 characters, as `text` where
-        that's what matched."""
+        that's what matched. With `alive` (a process), fail sooner if it
+        exits."""
         from .a11y import Node
         return Node(self._a11y("node", "--timeout", str(timeout),
                                *([f"--window={window}"] if window else []), "--", pattern,
-                               timeout=90 + timeout))
+                               timeout=90 + timeout, alive=alive,
+                               what=f"a node matching {pattern!r}"))
 
     def a11y_lint(self, window=None, ignore=()):
         """The nodes a screen reader would have no name to say for, each
