@@ -49,6 +49,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
                  f"reader = /bin/sh -c 'cat > /dev/null'\n"
                  f"held = {here / 'held.py'} held {tmp / 'held.log'}\n"
+                 f"ticking = {here / 'window.py'} tick ticking 100\n"
                  f"padread = {here / 'pad_read.py'} {tmp / 'pad.log'}\n"
                  f"tone = paplay {tmp / 'tone.wav'}\n"
                  f"late_tone = /bin/sh -c 'sleep 0.5; exec paplay {tmp / 'tone.wav'}'\n"
@@ -515,6 +516,18 @@ try:
           f"wait_for idle: a program busy past the timeout named, with what it didn't check; "
           f"a value refused ({said})")
     tool("stop_session", session="i")
+    # A clock's corner left out, or cropped off, and the rest holds still.
+    tool("start_session", name="k")
+    tool("spawn_program", session="k", program="ticking")
+    tool("wait_for", session="k", what="window", value="tick", timeout="20")
+    said, bad, _ = tool("wait_for", session="k", what="stable", window="tick", timeout=2)
+    left, bad2, _ = tool("wait_for", session="k", what="stable", window="tick",
+                         ignore=["20x20+180+0"], timeout=5)
+    cut, bad3, _ = tool("wait_for", session="k", what="stable", window="tick",
+                        crop="180x120+0+0", timeout=5)
+    check(bad and not bad2 and not bad3 and left == cut == "It has held still.",
+          f"wait_for: stable, a box left out or a crop holding still ({said}; {left}; {cut})")
+    tool("stop_session", session="k")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.

@@ -876,7 +876,7 @@ class Server:
             return f"{w[1]!r} is up: {w[2]}x{w[3]} at {w[4]},{w[5]}."
         if what == "stable":
             s.wait_stable(number(value, "value", 0, 60) or 0.5, window=text(window),
-                          timeout=timeout)
+                          timeout=timeout, crop=text(crop), ignore=words(ignore))
             return "It has held still."
         if what == "announcement":
             self.a11y_session(session).wait_announce(str(value), timeout=timeout)
@@ -1239,8 +1239,8 @@ TOOLS = [
      "window: a title, exactly or as a regex, app=RE, or the name a program was started "
      "by with spawn_program, for its window whatever its title; answers with the window's "
      "title, size and place. "
-     "stable: the screen (or window) unchanged for value seconds (0.5; up to 60), as after "
-     "a click, for the repaint. "
+     "stable: the screen (or window, cropped to crop, but for the boxes in ignore) unchanged "
+     "for value seconds (0.5; up to 60), as after a click, for the repaint. "
      "idle: no value; each program with a window shown (or window) answered just now, "
      "three times in a row, so its main thread is free: for work behind a still screen; "
      "wait_for its window first, as with no window given and none shown it has nothing to "
@@ -1271,7 +1271,7 @@ TOOLS = [
              "most": {"type": "integer", "minimum": 0,
                       "description": "match, change: pixels past fuzz allowed (0)"},
              "ignore": {"type": "array", "items": {"type": "string"},
-                        "description": "match, change: boxes of the picture to leave out, "
+                        "description": "stable, match, change: boxes of the picture to leave out, "
                         "as a clock or a cursor, each WIDTHxHEIGHT+X+Y"},
              "margin": {"type": "integer", "minimum": 0, "maximum": 32,
                         "description": "match, with crop: pixels the picture may be from "

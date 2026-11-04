@@ -354,6 +354,9 @@ def cmd_shoot(argv):
                         "node:RE (a showing node with RE in its name or text) or "
                         "announce:RE (what was said to a screen reader), which "
                         "give the session --a11y; repeatable, in order")
+    p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
+                   help="for --wait stable: leave out this box, in what's taken (the "
+                        "--crop of the --window, or the display): a clock (repeatable)")
     p.add_argument("--settle", type=float, default=0.3, metavar="SECS",
                    help="then wait this long for the last paint (0.3)")
     p.add_argument("--park", action="store_true",
@@ -376,6 +379,8 @@ def cmd_shoot(argv):
     if not waits and not a.settle:
         p.error("nothing to wait for: give --window, --wait or --settle")
     kinds = [w.partition(":")[0] for w in waits]
+    if a.ignore and "stable" not in kinds:
+        p.error("--ignore goes with --wait stable")
     if any(w in ("node", "node:") for w in waits):
         p.error("node needs a regex to look for: an empty one matches any node")
     a.a11y = a.a11y or "node" in kinds or "announce" in kinds
@@ -447,7 +452,8 @@ def take(a, cmd, waits, out, watch=False):
                 if kind == "node":
                     s.wait_node(arg, a.window, a.timeout, alive=proc)
                 else:
-                    s.until(*s.test(kind, arg, window=a.window), a.timeout, alive=proc)
+                    s.until(*s.test(kind, arg, window=a.window, crop=a.crop, ignore=a.ignore),
+                            a.timeout, alive=proc)
             time.sleep(a.settle)
             if proc.poll() is not None:
                 s.fail(f"the program exited (status {proc.returncode}) "
@@ -616,15 +622,15 @@ def cmd_wait(argv):
                    help="for stable, node, match, change and idle: watch this window "
                         "rather than the display")
     p.add_argument("--crop", metavar="WxH+X+Y",
-                   help="for match and change: watch just this part of it")
+                   help="for stable, match and change: watch just this part of it")
     p.add_argument("--fuzz", metavar="PCT",
                    help="for match and change: colors this close count as the same (0%%)")
     p.add_argument("--max", type=int, metavar="N",
                    help="for match and change: pixels that may differ and still count "
                         "as the same (0)")
     p.add_argument("--ignore", action="append", default=[], metavar="WxH+X+Y",
-                   help="for match and change: leave out this box: a clock, a cursor "
-                        "(repeatable)")
+                   help="for stable, match and change: leave out this box, in what's "
+                        "watched: a clock, a cursor (repeatable)")
     p.add_argument("--margin", type=int, default=0, metavar="PX",
                    help="for match, with --crop: the picture may be up to PX pixels "
                         "from the crop's place each way; say where it matched (0)")
@@ -648,8 +654,10 @@ def cmd_wait(argv):
     if a.kind == "idle" and a.arg:
         p.error("idle takes no ARG: it waits for every program it checks to answer")
     looks = a.kind in ("match", "change")
-    if not looks and (a.crop or a.fuzz is not None or a.max is not None or a.ignore):
-        p.error("--crop, --fuzz, --max and --ignore go with match and change")
+    if not looks and (a.fuzz is not None or a.max is not None):
+        p.error("--fuzz and --max go with match and change")
+    if not looks and a.kind != "stable" and (a.crop or a.ignore):
+        p.error("--crop and --ignore go with stable, match and change")
     if a.margin and a.kind != "match":
         p.error("--margin goes with match")
     screen = inside(display=a.kind not in ("port", "file", "ready", "line"))
@@ -664,7 +672,8 @@ def cmd_wait(argv):
         print(f"{screen.wait_idle(a.window, a.timeout):.3f}s")
         return 0
     if not looks:
-        screen.until(*screen.test(a.kind, a.arg, window=a.window), a.timeout)
+        screen.until(*screen.test(a.kind, a.arg, window=a.window, crop=a.crop,
+                                  ignore=a.ignore), a.timeout)
         return 0
     how = dict(window=a.window, crop=a.crop, fuzz="0%" if a.fuzz is None else a.fuzz,
                most=a.max or 0, timeout=a.timeout, ignore=a.ignore)
