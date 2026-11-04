@@ -460,9 +460,11 @@ nothing else would get to stop it.
 ## Clicking by name
 
 `click NAME` reads the tree, picks the showing nodes named NAME, and
-with the role `--role`, waiting up to `--timeout` for one; drops a match
-inside another (a GTK button's label, inside the button), and a label
-whose field it names, which matches too (the field takes the focus);
+with the role `--role`, waiting up to `--timeout` for one; drops a label
+whose field it names, which matches too (the field takes the focus),
+and anything else inside such a label (Chromium's `<label for>`), but
+not the field itself (Firefox's `<label><input>`), then a match inside
+another (a GTK button's label, inside the button);
 fails if more than one is left, saying which, as tree lines with where
 each is; raises the `--window`; and clicks the middle of its bounds,
 cut to its window's (a node scrolled out of view is still "showing";

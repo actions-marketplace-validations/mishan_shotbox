@@ -9,7 +9,8 @@
  * `accessible`, on the session's accessibility bus, its page's tree read,
  * its live regions heard before that, a button clicked by its name,
  * one pressed by its action, a drop-down's option picked and a check box
- * checked by theirs, a node waited for by its name, one scrolled out of view not, a
+ * checked by theirs, one inside its <label> and a field named by a
+ * <label for> clicked by their names, a node waited for by its name, one scrolled out of view not, a
  * faint paragraph's contrast measured, said with its DOM tag, text and
  * id, and ignored by them, but not a canvas's fallback text, and one
  * behind an aria-modal dialog said apart, but not behind one off the
@@ -199,14 +200,19 @@ try
 
     await form.setContent(`<title>a11y-pick</title><select aria-label="Pick">
         <option>Alpha</option><option>Beta</option></select>
-        <input type="checkbox" aria-label="Agree">`);
+        <input type="checkbox" aria-label="Agree">
+        <label><input type="checkbox" id="remember">Remember</label>
+        <label for="email">Email</label><input id="email">`);
     const pick = (...args) => spawnSync(shotbox, ['a11y', 'click', ...args, '--window',
                                                   'a11y-pick.*'], { encoding: 'utf8' });
     const picked = [pick('Beta', '--action', 'select', '--timeout', '0.5').status,
                     ...[['Pick', 'open'], ['Beta', 'select'], ['Agree', 'check']]
                         .map(([n, a]) => pick(n, '--action', a).stdout),
+                    pick('Remember').stdout, pick('Email').stdout,
                     await form.evaluate(() => [document.querySelector('select').value,
-                                               document.querySelector('input').checked])];
+                                               document.querySelector('input').checked,
+                                               document.getElementById('remember').checked,
+                                               document.activeElement.id])];
     await form.close();
 
     /* The page's Tab order: through the browser's controls, but only
