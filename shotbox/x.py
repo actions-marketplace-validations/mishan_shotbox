@@ -169,6 +169,10 @@ SOUND = {".mp4": ["-c:a", "aac"], ".webm": ["-c:a", "libopus"]}
 # sound back as far as it does, and what's held back when a signal stops
 # it is lost.
 PROMPT = {".mp4": ["-tune", "zerolatency"], ".webm": ["-lag-in-frames", "0"]}
+# For a picture read from a pipe: ffmpeg opens the sound only once it's
+# probed it, which takes frames coming for a second or more, and what plays
+# meanwhile is lost.
+UNPROBED = ["-probesize", "32", "-analyzeduration", "0"]
 # What plays at the session's sink, in its own format, so what plays in
 # that format comes through as is.
 SINK = ["-f", "pulse", "-sample_rate", "48000", "-channels", "2", "-i", "shotbox-sink.monitor"]
@@ -289,8 +293,17 @@ def recording(env, out, box, seconds=None, fps=None, pointer=False, sound=False,
                     "-c", "rawvideo", "-m", "nut", "-f", "pipe:1"]
             # Stamped as they come, by the clock the sound is: wf-recorder's
             # own starts at its first frame.
-            cmd += ["-use_wallclock_as_timestamps", "1"] if sound else []
+            cmd += ["-use_wallclock_as_timestamps", "1", *UNPROBED] if sound else []
             cmd += ["-f", "nut", "-i", "pipe:0"]
+        elif sound:
+            # Frames of its own, stamped as ffmpeg reads them, by the clock
+            # the sound is. rawvideo's -framerate is its time base too: at
+            # FPS, each stamp would be rounded to a frame.
+            grab = [sys.executable, "-c", "import sys; del sys.path[0]; from shotbox.x import feed; "
+                    "sys.exit(feed(*sys.argv[1:]))", str(w), str(h), str(x), str(y), str(fps),
+                    str(int(pointer))]
+            cmd += ["-use_wallclock_as_timestamps", "1", *UNPROBED, "-f", "rawvideo", "-pix_fmt", "bgr0",
+                    "-video_size", f"{w}x{h}", "-framerate", "1000", "-i", "pipe:0"]
         else:
             cmd += ["-f", "x11grab", "-draw_mouse", str(int(pointer)), "-framerate", str(fps),
                     "-video_size", f"{w}x{h}", "-i", f"{env['DISPLAY']}+{x},{y}"]
@@ -427,7 +440,8 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             feed.stdout.close()
         sound = out.suffix.lower() == ".wav"
         pulse = os.environ["PULSE_SERVER"].removeprefix("unix:") if sound or heard else None
-        sock = feed and str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
+        wayland = bool(os.environ.get("SWAYSOCK"))
+        sock = wayland and str(Path(os.environ["XDG_RUNTIME_DIR"], os.environ["WAYLAND_DISPLAY"]))
         # With no progress reported by then, ffmpeg's stuck opening what it
         # records (a sound server whose graph doesn't run, say), and deaf to
         # SIGTERM there.
@@ -452,7 +466,7 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             # ffmpeg sees the signal, and timed, no -shortest ends it there.
             # Not with sway gone: ffmpeg can't stop the picture without it.
             try:
-                proc.wait(timeout=2 if heard and socket_up(sock) else 0)
+                proc.wait(timeout=2 if heard and (not wayland or socket_up(sock)) else 0)
             except subprocess.TimeoutExpired:
                 pass
             # ffmpeg waits on its input, and with sway gone, wf-recorder
@@ -472,7 +486,8 @@ def keep_recording(cmd, out, grab, heard, size="0"):
             tool, said = "ffmpeg", err.decode(errors="replace").strip()
             if feed and feed.returncode > 0:        # what ffmpeg says is only that it had nothing
                 grab_err.seek(0)
-                tool, said = "wf-recorder", grab_err.read().decode(errors="replace").strip()
+                tool = "wf-recorder" if wayland else "shotbox's frames"
+                said = grab_err.read().decode(errors="replace").strip()
                 said = said.rpartition("\n")[2]
             sys.stderr.write(f"{tool} couldn't record: "
                              f"{said or 'it was stopped before it began'}\n")
@@ -643,6 +658,71 @@ def grab(env, window=None, box=None):
         return None
     except XError:          # a window gone, say: the connection's fine
         return None
+
+
+def draw_pointer(frame, width, height, x, y, cursor):
+    """Draw `cursor`, as Display.cursor has it, on `frame`, a bytearray of
+    the display's box (width, height, x, y) four bytes a pixel, blue first:
+    blended as ffmpeg's x11grab blends it, for the same picture."""
+    cx, cy, xhot, yhot, w, h, pixels = cursor
+    left, top = cx - xhot - x, cy - yhot - y
+    for row in range(max(0, -top), min(h, height - top)):
+        for col in range(max(0, -left), min(w, width - left)):
+            i = (row * w + col) * 4
+            a = pixels[i + 3]
+            if a:
+                j = ((top + row) * width + left + col) * 4
+                for k in range(3):
+                    # A cursor whose colors aren't premultiplied goes past 255:
+                    # wrapped, as x11grab's bytes wrap.
+                    frame[j + k] = (pixels[i + k] + (frame[j + k] * (255 - a) + 127) // 255) & 255
+
+
+def feed(width, height, x, y, fps, pointer):
+    """Write the display's box (width, height, x, y) to stdout `fps` times
+    a second, four bytes a pixel, blue first, with the pointer drawn on if
+    `pointer` is "1", for ffmpeg to stamp each frame as it reads it: under
+    load, x11grab's own frames, taken inside ffmpeg, drift from the sound.
+    Late, the next is taken at once, and the schedule kept from there: a
+    frame waiting in the pipe would be stamped late. Until the display or
+    the pipe goes, status 0; 1 if the display can't be opened or its box
+    read, saying why."""
+    from .xtest import Closed, Display, XError
+    width, height, x, y, fps = map(int, (width, height, x, y, fps))
+    try:
+        d = Display()
+    except (OSError, XError) as e:
+        sys.stderr.write(f"can't take the display's frames: {e}\n")
+        return 1
+    first, due = True, time.monotonic()
+    while True:
+        try:
+            frame = d.pixels(d.root, x, y, width, height)
+            if pointer == "1":
+                frame = bytearray(frame)
+                draw_pointer(frame, width, height, x, y, d.cursor())
+        except (Closed, OSError):
+            return 0
+        except XError as e:
+            if first:
+                sys.stderr.write(f"can't take the display's {width}x{height}+{x}+{y}: {e}\n")
+                return 1
+            frame = None        # skipped: the next is taken on time
+        first = False
+        view = memoryview(frame or b"")
+        try:
+            while view:
+                view = view[os.write(1, view):]
+        except BrokenPipeError:
+            return 0
+        due += 1 / fps
+        wait = due - time.monotonic()
+        if wait > 0:
+            # Not time.sleep, which fails under libfaketime 0.9.10 from
+            # Python 3.11, as a --clock session's keeper may run.
+            select.select([], [], [], wait)
+        else:
+            due = time.monotonic()
 
 
 def rgb(path):

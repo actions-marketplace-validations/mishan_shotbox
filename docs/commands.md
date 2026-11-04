@@ -159,7 +159,8 @@ On X11 or Wayland, and it stops the same ways. `shotbox record OUT.mp4
 --sound` (or .webm), in a session with `--audio`, records the picture and
 what plays together, in one file, AAC in an MP4, Opus in a WebM: the
 sound in step with the picture from its first frame, within a frame or
-so, and both `--seconds` long (AAC to its next 21 ms frame, where an
+so (on X11, shotbox takes the frames itself: ffmpeg's own drift from the
+sound on a busy machine), and both `--seconds` long (AAC to its next 21 ms frame, where an
 older ffmpeg doesn't trim it). Then it says what `shotbox listen` would
 of the sound, its level and where it clipped or dropped out, judged by
 `listen`'s `--gap`, `--clipped` and `--quiet`; a silent stretch between
@@ -169,8 +170,8 @@ stops, the recording stops with it, the picture ending with the sound,
 and says so, which `--strict` fails for: a lasting session stopped while
 it records may stop its sound server before its display. Only if the
 process `record` leaves finishing the file is itself killed outright
-(`kill -9`) is nothing left to end the two together: on Wayland, on a
-busy machine, the picture can end a few frames before the sound. The
+(`kill -9`) is nothing left to end the two together: on a busy machine,
+the picture can end a few frames before the sound. The
 sound is heard from a WAV copy, unnamed in TMPDIR, read before `record`
 returns: 11.5 MB a
 minute, on disk and then in memory. Without `--audio`, or as a GIF or
@@ -486,7 +487,14 @@ further, and where none is under that, it's B where it was.
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
 each, and fails if any differs, is missing, or changed size. `--diff DIR`
-writes `NAME-diff.png` there for each that fails. `--fuzz`, `--max`,
+writes `NAME-diff.png` there for each that fails, beside a copy of each
+side, `NAME-ref.png` and `NAME-new.png`, and `index.html`, a page of the
+failures, each's three side by side and the new one with the reference
+shown on a hover: the directory alone is a CI artifact to look at.
+`--update` makes each new picture that fails the reference, and adds each
+in NEWDIR with none yet (`NAME: ...; updated`, `NAME: no ...; added`),
+leaving those that pass as they were; it fails only for a reference with
+no new picture. `--fuzz`, `--max`,
 `--ignore` and `--margin` take `NAME=VALUE` for one picture, beside a plain
 VALUE for the rest (each `--ignore` adds a box):
 

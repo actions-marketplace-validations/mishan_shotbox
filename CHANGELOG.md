@@ -4,6 +4,15 @@
 
 ### Added
 
+- A recipe, in docs/recipes.md: a web app in Chrome, served
+  once in a lasting session and pictured as many times as wanted, with
+  the flags it needs and why, and what it doesn't.
+- `shotbox compare REFDIR NEWDIR --update` makes each new picture that
+  fails the reference, and adds each with no reference yet, leaving those
+  that pass untouched: a reviewed change is one command. `--diff DIR`
+  also writes `index.html`, each failure's reference, new picture and
+  diff side by side, with copies of both sides, so the directory alone is
+  a CI artifact.
 - `shotbox wait stable --crop G` watches just that part, and `--ignore
   G` (repeatable) leaves out a box, so a page with a clock or a live
   chart can hold still round it; `shoot --wait stable` watches its
@@ -38,6 +47,14 @@
 
 ### Fixed
 
+- `record --sound` on X11 drifted from the sound on a busy machine, a
+  tone up to a tenth of a second or more from its flash, and by
+  different amounts within one file: ffmpeg's x11grab took the frames.
+  shotbox takes them itself now, straight from the X server, with the
+  pointer drawn on for `--pointer`, and hands them to ffmpeg raw, as
+  wf-recorder's are on Wayland.
+- `record --sound` on Wayland lost the first second or so of sound:
+  ffmpeg opened the sound only once it had looked over the first frames.
 - A program a session started that left its process group, as `setsid`
   does (a daemon, a test runner's helper, a browser's own launcher),
   kept running after the session ended normally, with `shotbox run`,

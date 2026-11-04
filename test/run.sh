@@ -1916,6 +1916,19 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
       || echo "skip  a11y: speak: no Orca"
   fi
+  # Without --a11y, refused, the screen taken and said once: by wait
+  # announce, and by Python's wait_focus, which polls the tree.
+  set +e; "$sb" run -- sh -c "'$sb' wait announce x --failed '$tmp/no-said.png' 2> '$tmp/no-said'
+    PYTHONPATH='$here/..' python3 -c 'import shotbox
+try:
+    shotbox.Screen(failed=\"$tmp/no-focus.png\").wait_focus(\"x\", timeout=1)
+except shotbox.SessionError as e:
+    print(e)' > '$tmp/no-focus'"; st=$?; set -e
+  [ "$st" = 0 ] && [ "$(cat "$tmp/no-said")" = \
+    "shotbox: no announcements: start the session with --a11y; the screen then: $tmp/no-said.png" ] \
+    && [ "$(grep -o 'the screen then' "$tmp/no-focus" | wc -l)" = 1 ] \
+    && ok "a11y: wait announce and wait_focus without --a11y, said once" \
+    || { fail "a11y: wait announce and wait_focus without --a11y ($st)"; cat "$tmp/no-said" "$tmp/no-focus"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
@@ -2286,6 +2299,42 @@ set +e; out=$("$sb" compare "$tmp/ref" "$tmp/new" --diff "$tmp/diffs"); st=$?; s
   && ok "compare: directories, picture by picture" || fail "compare dirs: $st $out"
 "$sb" compare "$tmp/ref" "$tmp/new" same off --max 0 --max off=1 >/dev/null \
   && ok "compare: NAMEs, and --max for one" || fail "compare NAME=N"
+# --update: a picture that fails (a pixel off, a size changed), or has
+# no reference yet, becomes the reference; one that passes, the same or
+# within --max, is left as it was; one with no new picture still fails.
+# Its NAMEs, only those. --diff's page: each failure's reference, new
+# picture and diff, copied beside it, an earlier run's copies gone. Not
+# for two pictures, nor into a directory compared.
+rm -rf "$tmp/uref" "$tmp/unew"; cp -a "$tmp/ref" "$tmp/uref"; mkdir "$tmp/unew"
+cp "$tmp/a.png" "$tmp/uref/near.png"; cp "$tmp/a.png" "$tmp/uref/big.png"; cp "$tmp/a.png" "$tmp/uref/a#b.png"
+for f in same added near a#b; do cp "$tmp/d.png" "$tmp/unew/$f.png"; done
+cp "$tmp/a.png" "$tmp/unew/same.png"; cp "$tmp/d.png" "$tmp/unew/off.png"
+convert "$tmp/a.png" -resize 200% "$tmp/unew/big.png"
+touch -d 2001-01-01 "$tmp/uref/same.png" "$tmp/uref/near.png"
+st=0; out=$("$sb" compare "$tmp/uref" "$tmp/unew" --update --max near=1 --diff "$tmp/udiffs") || st=$?
+st2=0; "$sb" compare "$tmp/uref" "$tmp/unew" same off added big a#b > /dev/null || st2=$?
+rm -rf "$tmp/uref2"; cp -a "$tmp/ref" "$tmp/uref2"
+st3=0; "$sb" compare "$tmp/uref2" "$tmp/unew" off same --update > /dev/null || st3=$?
+cmp -s "$tmp/uref2/off.png" "$tmp/unew/off.png" || st3="$st3, off not taken"
+cp "$tmp/udiffs/index.html" "$tmp/upage.html"; rm "$tmp/uref2/off.png"
+"$sb" compare "$tmp/uref2" "$tmp/unew" off --diff "$tmp/udiffs" > /dev/null || :
+st4=0; "$sb" compare "$tmp/a.png" "$tmp/d.png" --update 2> /dev/null || st4=$?
+st5=0; "$sb" compare "$tmp/uref" "$tmp/unew" --diff "$tmp/unew" 2> /dev/null || st5=$?
+[ "$st $st2 $st3 $st4 $st5" = "1 0 0 2 2" ] && [ "$(echo "$out" | sort)" = "$(printf '%s\n' \
+    "a#b: 1 pixels differ, in 1x1 at 0,0; updated; see $tmp/udiffs/a#b-diff.png" \
+    "added: no $tmp/uref/added.png; added" "big: not the same size: $(identify -format %wx%h "$tmp/a.png") and $(identify -format %wx%h "$tmp/unew/big.png"); updated" "differ: gone" "gone: no $tmp/unew/gone.png" \
+    "near: 1 pixels differ, in 1x1 at 0,0; allowed" \
+    "off: 1 pixels differ, in 1x1 at 0,0; updated; see $tmp/udiffs/off-diff.png" "same: the same" | sort)" ] \
+  && [ "$(stat -c %Y "$tmp/uref/same.png" "$tmp/uref/near.png" | sort -u)" = "$(date -d 2001-01-01 +%s)" ] \
+  && cmp -s "$tmp/uref/big.png" "$tmp/unew/big.png" \
+  && cmp -s "$tmp/udiffs/a#b-ref.png" "$tmp/a.png" && cmp -s "$tmp/udiffs/a#b-new.png" "$tmp/d.png" \
+  && [ "$(grep -o 'src="[^"]*"' "$tmp/upage.html" | sort | tr '\n' ' ')" = "$(printf 'src="%s" ' \
+       a%23b-diff.png a%23b-new.png a%23b-new.png a%23b-ref.png a%23b-ref.png added-new.png \
+       big-new.png big-new.png big-ref.png big-ref.png gone-ref.png \
+       off-diff.png off-new.png off-new.png off-ref.png off-ref.png)" ] \
+  && [ ! -e "$tmp/udiffs/off-ref.png" ] && [ -s "$tmp/udiffs/off-new.png" ] \
+  && ok "compare --update: what fails or is new taken, what passes left, NAMEs only; --diff's page of failures" \
+  || { fail "compare --update ($st $st2 $st3 $st4 $st5)"; echo "$out"; grep -o 'src="[^"]*"' "$tmp/upage.html"; }
 set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 [ $st = 2 ] && grep -q "no .*nope.png" "$tmp/err" && ok "compare: a missing picture, said plainly" \
   || fail "compare missing: $st $(cat "$tmp/err")"
@@ -2335,8 +2384,32 @@ for i, s in enumerate(sound):
             onsets.append(i / 48000)
         last = i
 flashes = [t for (t, white), (_, was) in zip(frames[1:], frames) if white and not was]
-print(" ".join(f"{a - v:.3f}" for v in flashes for a in onsets if abs(a - v) < 0.5))
+# A flash with no tone by it is "-", but for one whose tone, up to 0.1 s
+# late, the sound may end before.
+print(" ".join(next((f"{a - v:.3f}" for a in onsets if abs(a - v) < 0.5), "-")
+               for v in flashes if v < len(sound) / 48000 - 0.1))
 PY
+  # The pointer drawn on a box straight from the X server, as x11grab
+  # draws it: the entry's text cursor, its edges see-through, cut down the
+  # middle by the box's left edge, once GTK has put it up. Skipped where
+  # the machine's cursor theme has no see-through edges to blend.
+  rm -f "$tmp/ptr-plain"
+  "$sb" run -- sh -c "'$here/window.py' ptr '$tmp/ptr.log' & '$sb' wait window ptr && '$sb' move 95 60 && sleep 0.5 &&
+    ffmpeg -loglevel error -y -f x11grab -draw_mouse 1 -video_size 100x80 -i \$DISPLAY+95,30 -frames:v 1 '$tmp/ptr-ff.png' &&
+    PYTHONPATH='$here/..' python3 -c \"import subprocess
+from shotbox.x import draw_pointer
+from shotbox.xtest import Display
+with Display() as d:
+    frame, c = bytearray(d.pixels(d.root, 95, 30, 100, 80)), d.cursor()
+if not any(0 < a < 255 for a in c[6][3::4]):
+    open('$tmp/ptr-plain', 'w').close()
+    raise SystemExit
+draw_pointer(frame, 100, 80, 95, 30, c)
+subprocess.run(['convert', '-size', '100x80', '-depth', '8', 'bgra:-', '-alpha', 'off', '$tmp/ptr.png'], input=frame, check=True)\"" \
+    > "$tmp/ptr-out" 2>&1 && { [ -e "$tmp/ptr-plain" ] || "$sb" compare "$tmp/ptr-ff.png" "$tmp/ptr.png" >> "$tmp/ptr-out" 2>&1; } \
+    && if [ -e "$tmp/ptr-plain" ]; then echo "skip  the pointer drawn as x11grab draws it: no see-through edges in this cursor theme"
+       else ok "the pointer drawn on a picture from the X server, as x11grab draws it"; fi \
+    || { fail "the pointer drawn as x11grab draws it"; cat "$tmp/ptr-out"; }
   # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
   records() {
     opt=$1 pre=$2 say=$3
@@ -2447,37 +2520,73 @@ PY
     # long as it ran.
     if audio; then
       rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
-      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
+      # Each stopped 2 s after it's begun, its file made once ffmpeg has
+      # opened the picture and the sound: starting can take most of 2 s.
+      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "begun() { n=0; until [ -e \"\$1\" ] || [ \$n -ge 300 ]; do
+          sleep 0.1; n=\$((n + 1)); done; sleep 2; }
+        '$here/window.py' beep beep & '$sb' wait window beep &&
         { '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound --strict > '$tmp/$pre-heard'
           [ \$? = 1 ]; } &&
         '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
-        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; } &&
-        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; sleep 2; kill \$r; wait \$r; } &&
-        { { sleep 2; echo go > '$tmp/$pre-go-ev'; } &
+        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; begun '$tmp/$pre-sk.mp4'; kill \$r; wait \$r; } &&
+        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; begun '$tmp/$pre-st.mp4'; kill \$r; wait \$r; } &&
+        { { begun '$tmp/$pre-su.mp4'; echo go > '$tmp/$pre-go-ev'; } &
           '$sb' record '$tmp/$pre-su.mp4' --window beep --sound --seconds 10 --until-line go '$tmp/$pre-go-ev'; } &&
-        : > '$tmp/$pre-go' && { '$sb' record '$tmp/$pre-sp0.mp4' --window beep --sound > /dev/null & p=\$!
+        { '$sb' record '$tmp/$pre-sp0.mp4' --window beep --sound > /dev/null & p=\$!
           '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound --seconds 30 > '$tmp/$pre-heard3' && wait \$p; }" \
         > /dev/null 2>&1 & r=$!
-      n=0; until [ -e "$tmp/$pre-go" ] || [ $n -ge 600 ]; do sleep 0.1; n=$((n + 1)); done; sleep 2
+      # Both begun, ffmpeg having opened the picture and the sound, then 2 s.
+      n=0; until [ -e "$tmp/$pre-sp.mp4" ] && [ -e "$tmp/$pre-sp0.mp4" ] || [ $n -ge 1800 ]; do
+        sleep 0.1; n=$((n + 1)); done; sleep 2
       for p in $(pgrep -u "$(id -u)" -x pipewire); do
         { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/$pre-pw/" && kill "$p"
       done
-      wait $r \
-        && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-sp.mp4" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-st.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-su.mp4" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-sp0.mp4" >> "$tmp/$pre-av" \
-        && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | awk '$1 == "h264" && $2 == 3 && $3 == "aac" &&
-             $4 >= 3 && $4 < 3.022 && $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
-        && [ "$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < (NR == 2 || NR == 5 ? 0.003 : 0.01)' | wc -l)" = 5 ] \
-        && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
-        && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -Eq "gaps? of silence" "$tmp/$pre-heard" \
-        && ! grep -q gap "$tmp/$pre-heard2" && grep -q "^the sound server stopped" "$tmp/$pre-heard3" \
-        && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
-        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2" "$tmp/$pre-heard3"; }
+      why=; wait $r || no "a step failed ($?)"
+      : > "$tmp/$pre-av"
+      for f in s.mp4 s.webm sk.mp4 sp.mp4 st.mp4 su.mp4 sp0.mp4; do
+        # Its two lines, or two in their place, so each later line is still its file's.
+        python3 "$tmp/av.py" "$tmp/$pre-$f" > "$tmp/$pre-av1" 2>&1 && cat "$tmp/$pre-av1" >> "$tmp/$pre-av" \
+          || { no "$f not read: $(tail -n 1 "$tmp/$pre-av1")"; printf '%s unread\n\n' "$f" >> "$tmp/$pre-av"; }
+      done
+      got=$(sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ')
+      echo "$got" | awk '$1 == "h264" && $2 == 3 && $3 == "aac" && $4 >= 3 && $4 < 3.022 &&
+        $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
+        || no "timed: $got, not h264 3 aac 3 to 3.022 vp9 2.000 opus 2.000"
+      # Killed, stopped early, by a line, and by the PipeWire going, twice.
+      long=$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '{ most = NR == 2 || NR == 5 ? 0.055 : 0.1 }
+        !($1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < most ^ 2) { print $0 " (h264 and aac, the picture past 1.4 s, the two within " most " s)" }')
+      [ -z "$long" ] || no "picture and sound not as long: $long"
+      offs=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF && $1 != "-"')
+      mute=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | grep -c '^-$') || :
+      [ "$mute" = 0 ] || no "$mute flashes with no tone by them"
+      far=$(echo "$offs" | awk '$1 ^ 2 >= 0.01' | tr '\n' ' ')
+      [ -z "$far" ] || no "tones this far from their flashes, past 0.1 s: $far(of $(echo $offs))"
+      [ "$(echo "$offs" | grep -c .)" -ge 3 ] || no "$(echo "$offs" | grep -c .) tones by their flashes, not 3 or more"
+      grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -Eq "gaps? of silence" "$tmp/$pre-heard" \
+        || no "--strict's gaps not said"
+      ! grep -q gap "$tmp/$pre-heard2" || no "a gap said past --gap"
+      grep -q "^the sound server stopped" "$tmp/$pre-heard3" || no "the sound server stopping not said"
+      [ -z "$why" ] && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
+        || { fail "$say --sound: ${why#; }"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2" "$tmp/$pre-heard3"; }
     fi
   }
   records "" rec record
+  # --sound --pointer: the pointer in the picture, where it is (100,60 less
+  # its hotspot, whatever size the cursor theme makes it), and nothing else
+  # changed.
+  if audio; then
+    "$sb" run --audio -- sh -c "'$here/window.py' ptr '$tmp/ptr.log' & '$sb' wait window ptr && '$sb' move 100 60 &&
+      sleep 0.5 && PYTHONPATH='$here/..' python3 -c 'from shotbox.xtest import Display
+x, y, xhot, yhot, w, h, _ = Display().cursor(); print(x - xhot, y - yhot, x - xhot + w, y - yhot + h)' > '$tmp/rec-ptr-box' &&
+      '$sb' record '$tmp/rec-pp.mp4' --window ptr --seconds 1 --sound --pointer &&
+      '$sb' record '$tmp/rec-p0.mp4' --window ptr --seconds 1 --sound" > "$tmp/rec-ptr" 2>&1 \
+      && for f in pp p0; do ffmpeg -loglevel error -y -ss 0.5 -i "$tmp/rec-$f.mp4" -frames:v 1 "$tmp/rec-$f.png"; done \
+      && c=$("$sb" compare "$tmp/rec-pp.png" "$tmp/rec-p0.png" --fuzz 10% 2>&1 || :) \
+      && echo "$c" | awk -v box="$(cat "$tmp/rec-ptr-box")" '{ split(box, b, " "); split($5, s, "x"); split($7, at, ",") }
+        !(/pixels differ, in/ && at[1] >= b[1] && at[2] >= b[2] && at[1] + s[1] <= b[3] && at[2] + s[2] <= b[4]) { exit 1 }' \
+      && ok "record --sound --pointer: the pointer drawn where it is, and only there" \
+      || { fail "record --sound --pointer: ${c-}"; cat "$tmp/rec-ptr"; }
+  fi
   # Run from where another shotbox is, the keeper is still this one.
   mkdir -p "$tmp/other/shotbox"; : > "$tmp/other/shotbox/__init__.py"
   echo 'raise ImportError("the other shotbox")' > "$tmp/other/shotbox/x.py"
