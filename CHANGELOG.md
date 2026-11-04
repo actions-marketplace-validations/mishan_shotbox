@@ -4,6 +4,20 @@
 
 ### Added
 
+- `shotbox wait stable --crop G` watches just that part, and `--ignore
+  G` (repeatable) leaves out a box, so a page with a clock or a live
+  chart can hold still round it; `shoot --wait stable` watches its
+  `--crop`, and takes `--ignore` too. Python's `wait_stable` and MCP's
+  `wait_for` stable take `crop` and `ignore`.
+- `shotbox shoot --wait node:RE` and `--wait announce:RE` wait, in
+  order with the other waits, for a showing node with RE in its name or
+  text, or for something said to a screen reader, as `wait node` and
+  `wait announce` do: a one-shot picture of a page once a line says
+  it's drawn. Either gives the session `--a11y`.
+- `shotbox a11y diff BEFORE [AFTER]` says what changed from a tree
+  saved with `a11y tree --json` to another, or to the live one, as
+  MCP's actions with `changes` say it: status 1 if anything did, 0 if
+  nothing, 2 if it couldn't tell.
 - `shotbox wait idle [--window RE]` waits until each program with a
   window shown has answered just now, three times in a row: free on its
   main thread, which `wait stable` can't tell, as a busy program holds
@@ -61,6 +75,10 @@
   gave up: the recorder looked at the focus again after the rename but
   before its event, and took the new name for the one it already had.
   A focus first looked at that late can still be missed.
+- MCP's actions with `changes`, and `shotbox.a11y.changes()`, said
+  nothing of a program that didn't answer as the tree was read before,
+  only after: what changed in its windows was left out unsaid, and
+  could read as "Nothing changed". It's said either way.
 
 ## 0.10.0 — 2026-10-23
 

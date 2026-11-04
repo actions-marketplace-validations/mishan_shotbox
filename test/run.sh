@@ -648,6 +648,28 @@ set +e
 st=$?; set -e
 [ $st != 0 ] && grep -q "hold still" "$tmp/err" && [ -s "$tmp/busy.png" ] \
   && ok "stable gives up on a busy screen, with a picture of it" || fail "busy: status $st"
+# A clock's corner left out, or cropped off, and the rest holds still; a
+# crop with it in doesn't. As shoot's waits too. A box that isn't one, or a
+# crop off the window or display, said.
+tick="$here/window.py tick ticking 100"
+st=0; "$sb" run -- sh -c "$tick & '$sb' wait window tick >/dev/null &&
+  '$sb' wait stable --window tick --ignore 20x20+180+0 --timeout 5 &&
+  '$sb' wait stable --window tick --crop 180x120+0+0 --timeout 5 &&
+  ! '$sb' wait stable --window tick --crop 200x40+0+0 --timeout 2 2>/dev/null &&
+  ! '$sb' wait stable --window tick --ignore 0x5+1+1 2> '$tmp/bad' &&
+  ! '$sb' wait stable --window tick --crop 100x100+150+0 --timeout 1 2>> '$tmp/bad' &&
+  ! '$sb' wait stable --crop 100x100+5000+0 2>> '$tmp/bad'" > "$tmp/err" 2>&1 || st=$?
+st2=0; "$sb" shoot "$tmp/tick.png" --window tick --wait stable --ignore 20x20+180+0 --timeout 5 \
+  -- $tick > /dev/null 2>> "$tmp/err" || st2=$?
+st3=0; "$sb" shoot "$tmp/tick.png" --window tick --wait stable --crop 180x120+0+0 --timeout 5 \
+  -- $tick > /dev/null 2>> "$tmp/err" || st3=$?
+[ "$st$st2$st3" = 000 ] \
+  && [ "$(sed 's/; the screen then: .*//' "$tmp/bad")" = "$(printf '%s\n' \
+       "shotbox: what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x5+1+1" \
+       "shotbox: gave up waiting for the window 'tick', cropped to 100x100+150+0, to hold still for 0.5s after 1s; the crop isn't inside the window, 200x120" \
+       "shotbox: the crop 100x100+5000+0 isn't inside the 1280x800 display")" ] \
+  && ok "stable: a box left out, or a crop, holds still where the rest changes; shoot's too" \
+  || { fail "stable --ignore, --crop ($st $st2 $st3)"; cat "$tmp/err" "$tmp/bad"; }
 
 # match: the window as it was pictured, how long that took; one the same
 # size that looks different, given up on; another size, said; and options
@@ -1160,6 +1182,27 @@ if atspi; then
   set +e; "$sb" wait node 2>/dev/null; st=$?; "$sb" wait node '' 2>/dev/null; st2=$?; set -e
   [ $st = 2 ] && [ $st2 = 2 ] && ok "a11y: wait node with no regex, or an empty one, is refused" \
     || fail "a11y: wait node with no regex: status $st, $st2"
+  # shoot waits for a node shown three seconds in, or what's announced,
+  # its session given --a11y for them; one never shown, or a program gone
+  # first, said; a node with no regex refused.
+  st=0
+  "$sb" shoot "$tmp/drawn.png" --window a11y-test --wait 'node:Drawn.*tiles$' -- "$app" notes drawing \
+    > /dev/null 2> "$tmp/err" || st=$?
+  "$sb" shoot "$tmp/said.png" --window a11y-test --wait 'announce:Name is taken' -- "$app" alert \
+    > /dev/null 2>> "$tmp/err" || st=$?
+  ! "$sb" shoot "$tmp/never.png" --window a11y-test --wait node:Nevermore --timeout 1 \
+    -- "$app" > /dev/null 2> "$tmp/never" || st=1
+  began=$(date +%s)
+  ! "$sb" shoot "$tmp/gone.png" --wait node:Nevermore -- sh -c "sleep 2; exit 3" \
+    > /dev/null 2> "$tmp/gone" || st=1
+  took=$(($(date +%s) - began))
+  st2=0; "$sb" shoot "$tmp/none.png" --wait node -- true 2>> "$tmp/err" || st2=$?
+  [ $st = 0 ] && [ -s "$tmp/drawn.png" ] && [ -s "$tmp/said.png" ] && [ $st2 = 2 ] \
+    && grep -q "^shotbox: gave up waiting for a node matching 'Nevermore' after 1s" "$tmp/never" \
+    && grep -q "^shotbox: gave up waiting for a node matching 'Nevermore': the program exited (status 3)" "$tmp/gone" \
+    && [ $took -lt 20 ] && grep -q 'node needs a regex' "$tmp/err" \
+    && ok "a11y: shoot --wait node: and announce:, with --a11y given for them; one never shown, or the program gone, said" \
+    || { fail "a11y: shoot --wait node, announce ($st, $st2, ${took}s)"; cat "$tmp/err" "$tmp/never" "$tmp/gone"; }
   # Under a dialog, disabled, moving and under a label, each is said and not
   # clicked (--force clicks the disabled one, which does nothing), then
   # waited for until "Ready" puts each right, and clicked.
@@ -1763,6 +1806,44 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     && [ "$(tail -1 "$tmp/walk")" = "round again after 1" ] \
     && ok "a11y: tabwalk, with one thing to take the focus, is round in one" \
     || { fail "a11y: one"; cat "$tmp/walk"; }
+  # Two moments' trees, saved or the second live, as diff(1) has it: 1
+  # with what changed, 0 with nothing; 2 where a program didn't answer,
+  # whose window --window may have meant.
+  "$sb" run --a11y -- sh -c "'$app' notes & '$sb' wait window a11y-test >/dev/null &&
+    '$sb' a11y tree --json --window a11y-test > '$tmp/t1' && '$sb' a11y click 'Wrap lines' >/dev/null &&
+    '$sb' a11y tree --json --window a11y-test > '$tmp/t2' &&
+    { '$sb' a11y diff '$tmp/t1' --window a11y-test; echo \$?; '$sb' a11y diff '$tmp/t1' '$tmp/t2'; echo \$?
+      '$sb' a11y diff '$tmp/t2' '$tmp/t2'; echo \$?; }" > "$tmp/diff" 2> "$tmp/diff-err" || true
+  "$sb" run --a11y -- sh -c "'$app' freeze & '$here/window.py' a11y-test &
+    '$sb' wait node Freeze >/dev/null &&
+    '$sb' a11y click Freeze >/dev/null && sleep 0.5 && { '$sb' a11y diff '$tmp/t2' --timeout 2; echo \$?
+      '$sb' a11y diff '$tmp/t2' --window a11y-test --timeout 2; echo \$?; }" \
+    > "$tmp/frozen" 2>> "$tmp/diff-err" || true
+  changed=$(printf '%s\n' '~ text "Notes" [focusable, editable], was [focusable, focused, editable]' \
+    '~ check box "Wrap lines" [focusable, focused], was [focusable, checked]')
+  [ "$(cat "$tmp/diff")" = "$(printf '%s\n1\n%s\n1\n0' "$changed" "$changed")" ] \
+    && [ "$(grep -x '[0-9]*' "$tmp/frozen" | tr '\n' ' ')" = "2 2 " ] \
+    && [ "$(grep -c "^! application \"\" (pid [0-9]*) didn't answer" "$tmp/frozen")" = 2 ] \
+    && ok "a11y: diff: a saved tree against one saved later, or the live one; one against itself; a program that didn't answer" \
+    || { fail "a11y: diff"; cat "$tmp/diff" "$tmp/frozen" "$tmp/diff-err"; }
+  echo '{"role": "button"}' > "$tmp/not-tree"
+  echo '[{"role": "frame", "name": ["w"], "description": "", "states": [], "path": "frame[0]",
+    "depth": 0}]' > "$tmp/bad-name"
+  echo '[{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame[0]",
+    "depth": 0, "pid": []}]' > "$tmp/bad-pid"
+  bad=
+  for r in "$tmp/not-tree|$tmp/not-tree isn't a tree saved by a11y tree --json" \
+      "$tmp/bad-name|$tmp/bad-name isn't a tree saved by a11y tree --json" \
+      "$tmp/bad-pid|$tmp/bad-pid isn't a tree saved by a11y tree --json" \
+      "$tmp/none|can't read $tmp/none: No such file or directory"; do
+    st=0; "$sb" a11y diff "${r%%|*}" "$tmp/t1" > /dev/null 2> "$tmp/err" || st=$?
+    [ $st = 2 ] && [ "$(cat "$tmp/err")" = "shotbox: ${r#*|}" ] \
+      || { bad=1; fail "a11y: diff ${r%%|*} ($st)"; cat "$tmp/err"; }
+  done
+  st=0; "$sb" a11y diff "$tmp/t1" "$tmp/t1" --window a11y-test > /dev/null 2> "$tmp/err" || st=$?
+  [ $st = 2 ] && grep -q -- '--window is for the live tree' "$tmp/err" \
+    || { bad=1; fail "a11y: diff, two files and --window ($st)"; cat "$tmp/err"; }
+  [ -z "$bad" ] && ok "a11y: diff: a file that isn't a tree, or isn't there, or --window with two files, said, 2"
   # A button Tab can't reach is said, and fails only when asked.
   set +e
   "$sb" run --a11y -- sh -c "'$app' unfocusable & '$sb' a11y tabwalk --window a11y-test &&

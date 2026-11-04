@@ -128,10 +128,12 @@ class Screen:
 
     # --- waiting --------------------------------------------------------------
 
-    def test(self, kind, arg="", window=None):
+    def test(self, kind, arg="", window=None, crop=None, ignore=()):
         """What to say, and what to poll, for a wait: window (a regex for
         its title, or app=RE for its app id), port,
-        file, ready, or stable (seconds; `window` to watch just that one)."""
+        file, ready, or stable (seconds; `window` to watch just that one,
+        `crop` just that part of it, WxH+X+Y, and not the boxes in
+        `ignore`, in what's taken)."""
         if kind == "window":
             def found():
                 return self.backend.find_window(self.env, arg)
@@ -175,9 +177,25 @@ class Screen:
         if kind == "stable":
             quiet = float(arg) if arg else 0.5
             where = f"the window {window!r}" if window else "the display"
-            still = x.Still(self.env, window, quiet, self.backend)
+            box = crop and x.box_of(crop)
+            if crop and not box:
+                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+            skip = [x.box_of(g) for g in ignore]
+            if None in skip:
+                self.fail("what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not "
+                          f"{ignore[skip.index(None)]}")
+            # As match's: the display's size doesn't change, so a crop off it
+            # never fits; a window's may, still coming up.
+            if box and not window:
+                wide, high = self.backend.root_size(self.env)
+                if box[0] + box[2] > wide or box[1] + box[3] > high:
+                    self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
+            where += f", cropped to {crop}," if crop else ""
+            where += f" but {', '.join(ignore)}," if ignore else ""
+            still = x.Still(self.env, window, quiet, self.backend, box, skip)
             if window:
-                still.there = lambda: self.there(window)
+                still.there = lambda: (f"; the crop isn't inside the window, {still.small}"
+                                       if still.small else self.there(window))
             return f"{where} to hold still for {quiet:g}s", still
         raise SessionError(f"don't know how to wait for {kind!r} "
                            "(window, port, file, ready, stable or announce)")
@@ -280,11 +298,12 @@ class Screen:
         """Wait for $SHOTBOX_SCRATCH/ready, which `shotbox term` writes."""
         self.until(*self.test("ready"), timeout)
 
-    def wait_stable(self, seconds=0.5, window=None, timeout=30):
-        """Wait until the display, or the window named `window`, has looked
-        the same for `seconds`: for the paint after a click, a panel sliding
-        in, a toast going away."""
-        self.until(*self.test("stable", seconds, window), timeout)
+    def wait_stable(self, seconds=0.5, window=None, timeout=30, crop=None, ignore=()):
+        """Wait until the display, or the window named `window`, cropped
+        to `crop` (WxH+X+Y), has looked the same for `seconds`, but for the
+        boxes (WxH+X+Y, in what's taken) in `ignore`, a clock say: for the
+        paint after a click, a panel sliding in, a toast going away."""
+        self.until(*self.test("stable", seconds, window, crop, ignore), timeout)
 
     def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30,
                    ignore=(), margin=0):
@@ -801,13 +820,14 @@ class Screen:
 
     # --- the accessible tree ----------------------------------------------------
 
-    def _a11y(self, *args, timeout=90, notes=False):
+    def _a11y(self, *args, timeout=90, notes=False, alive=None, what=None):
         """`shotbox a11y WHAT --json ARGS` in the session, for its answer: libatspi
         keeps the first bus it finds for the life of a process, which may
         not be this session's. It has a watchdog of its own; `timeout` is
         for one that never even gets that far. With `notes`, each line it
         says on stderr as shotbox is given to that, but for the error it
-        fails with."""
+        fails with. With `alive` (a process), it fails as soon as that
+        exits, saying it gave up waiting for `what`."""
         from .__main__ import self_command
         # Options as --name=VALUE, and a name after --: an agent's regex can
         # start with a dash.
@@ -820,6 +840,11 @@ class Screen:
                 out, err = proc.communicate(timeout=0.2)
                 break
             except subprocess.TimeoutExpired:
+                if alive is not None and alive.poll() is not None:
+                    proc.kill()
+                    proc.communicate()
+                    self.fail(f"gave up waiting for {what}: the program exited "
+                              f"(status {alive.returncode})")
                 if _CANCEL.is_set() or time.monotonic() > end:
                     proc.kill()
                     proc.communicate()
@@ -903,15 +928,17 @@ class Screen:
             return n if n and named(n.name) else None
         return self.until(f"the focus on {name!r}{note}", there, timeout)
 
-    def wait_node(self, pattern, window=None, timeout=30):
+    def wait_node(self, pattern, window=None, timeout=30, alive=None):
         """Wait for a showing node with `pattern`, a regex, found in its name
         or text: a status line saying a page is drawn, say. That node, with
         its text round the match, about 80 characters, as `text` where
-        that's what matched."""
+        that's what matched. With `alive` (a process), fail sooner if it
+        exits."""
         from .a11y import Node
         return Node(self._a11y("node", "--timeout", str(timeout),
                                *([f"--window={window}"] if window else []), "--", pattern,
-                               timeout=90 + timeout))
+                               timeout=90 + timeout, alive=alive,
+                               what=f"a node matching {pattern!r}"))
 
     def a11y_lint(self, window=None, ignore=()):
         """The nodes a screen reader would have no name to say for, each

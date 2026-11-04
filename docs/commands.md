@@ -42,11 +42,17 @@ sealed session, waits, takes the picture and stops everything.
   windows there are, the nearest first, with their app ids on Wayland (or
   with `app=RE`): `gave up waiting for a window named 'Text Editor' after
   8s; there are: "Untitled 1 - Text Editor"`, which `.*Text Editor` matches.
-- `--wait window:RE|port:N|file:PATH|ready|stable[:SECS]` waits for more
-  (repeatable, in order). `ready` is `$SHOTBOX_SCRATCH/ready` existing;
-  `shotbox term` writes it. `stable` is the `--window` (or the whole display)
-  looking the same for SECS (0.5): for a program with no other sign it's
-  done drawing.
+- `--wait window:RE|port:N|file:PATH|ready|stable[:SECS]|node:RE|announce:RE`
+  waits for more (repeatable, in order). `ready` is `$SHOTBOX_SCRATCH/ready`
+  existing; `shotbox term` writes it. `stable` is the `--window` (or the
+  whole display) looking the same for SECS (0.5): for a program with no
+  other sign it's done drawing; it watches just the `--crop`, if given,
+  and leaves out each `--ignore WxH+X+Y` box in that (repeatable): a
+  clock. `node` is a showing node with RE in its
+  name or text, in the `--window` if given, as `wait node` has it: a
+  status line saying a page is drawn, say. `announce` is something said
+  to a screen reader matching RE, as `wait announce` has it. Either gives
+  the session `--a11y`.
 - `--park` moves the pointer out of the way first (see `shotbox park`).
 - `--crop WxH+X+Y`, `--settle SECS` (0.3), `--timeout SECS` (30),
   `--log FILE` for the program's output. If a wait fails or the program
@@ -78,7 +84,9 @@ and exits with its status. For scripts that take several pictures: inside,
 `shotbox wait window|port|file|ready|stable ARG` and `shotbox capture OUT.png
 [--window RE] [--crop G] [--park] [--vision KIND]` work on the session's
 display. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
-click, in place of a sleep. `shotbox wait match REF.png [--window RE] [--crop
+click, in place of a sleep; with `--crop G` it watches just that part,
+and with `--ignore G` (repeatable, in what's watched) leaves out a box
+that never holds still, a clock or a live chart. `shotbox wait match REF.png [--window RE] [--crop
 G]` waits until it looks like a picture, for a screen with no other sign
 it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 [--crop G]` until it looks different from the first picture the wait takes
