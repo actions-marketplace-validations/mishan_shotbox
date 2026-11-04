@@ -718,7 +718,9 @@ def feed(width, height, x, y, fps, pointer):
         due += 1 / fps
         wait = due - time.monotonic()
         if wait > 0:
-            time.sleep(wait)
+            # Not time.sleep, which fails under libfaketime 0.9.10 from
+            # Python 3.11, as a --clock session's keeper may run.
+            select.select([], [], [], wait)
         else:
             due = time.monotonic()
 
