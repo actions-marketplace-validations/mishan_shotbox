@@ -2465,7 +2465,9 @@ PY
       why=; wait $r || no "a step failed ($?)"
       : > "$tmp/$pre-av"
       for f in s.mp4 s.webm sk.mp4 sp.mp4 st.mp4 su.mp4 sp0.mp4; do
-        python3 "$tmp/av.py" "$tmp/$pre-$f" >> "$tmp/$pre-av" 2>&1 || no "$f not read"
+        # Its two lines, or two in their place, so each later line is still its file's.
+        python3 "$tmp/av.py" "$tmp/$pre-$f" > "$tmp/$pre-av1" 2>&1 && cat "$tmp/$pre-av1" >> "$tmp/$pre-av" \
+          || { no "$f not read: $(tail -n 1 "$tmp/$pre-av1")"; printf '%s unread\n\n' "$f" >> "$tmp/$pre-av"; }
       done
       got=$(sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ')
       echo "$got" | awk '$1 == "h264" && $2 == 3 && $3 == "aac" && $4 >= 3 && $4 < 3.022 &&
@@ -2473,7 +2475,7 @@ PY
         || no "timed: $got, not h264 3 aac 3 to 3.022 vp9 2.000 opus 2.000"
       # Killed, stopped early, by a line, and by the PipeWire going, twice.
       long=$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '{ most = NR == 2 || NR == 5 ? 0.055 : 0.1 }
-        !($1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < most ^ 2) { print $0 " (" most " s at most)" }')
+        !($1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < most ^ 2) { print $0 " (h264 and aac, the picture past 1.4 s, the two within " most " s)" }')
       [ -z "$long" ] || no "picture and sound not as long: $long"
       offs=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk NF)
       far=$(echo "$offs" | awk '$1 ^ 2 >= 0.01' | tr '\n' ' ')
