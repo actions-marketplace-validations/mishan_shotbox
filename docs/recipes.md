@@ -230,6 +230,55 @@ Drive what it shows from its state where it can be (the URL's hash,
 say) rather than by input, or wait for it to say it's drawn before
 sending more. Run with Firefox 158.
 
+## A web app in Chrome
+
+A dashboard in Chrome, served once in a lasting session and pictured
+twice, as it opens and after a click on its Week button, in the dark.
+A `site/` like the one above holds it; its `<p role="status">` says
+`Drawn today` once it's drawn, and `Drawn week` after a click on Week:
+
+```
+shotbox start --name dash --net loopback --a11y --dark
+shotbox spawn --session dash -- python3 -m http.server 8000 --bind 127.0.0.1 --directory site
+shotbox --session dash wait port 8000
+shotbox spawn --session dash -- google-chrome --no-first-run --app=http://127.0.0.1:8000/ \
+  --window-size=1281,801 --window-position=0,0
+shotbox --session dash wait node '^Drawn today$' --timeout 60
+shotbox --session dash capture today.png
+shotbox --session dash a11y click Week
+shotbox --session dash wait node '^Drawn week$'
+shotbox --session dash capture week.png
+shotbox stop dash
+```
+
+The server is started first and waited for with `wait port`, so the
+browser's first request finds it. The page's status line says what it
+drew once it has, `Drawn today`, then `Drawn week`: waiting for the
+second by name, not for `Drawn` again, keeps the wait from passing on
+the first's while the click is still on its way. Each `capture` is a
+picture of the one browser, as many as wanted, without starting it
+again.
+
+`--no-first-run` is the one flag it can't do without: a new profile
+otherwise opens Chrome's terms of service, over a window that hasn't
+loaded the page. `--app` shows the page alone, with no tabs, address
+bar or sign-in button. With no window manager the window is 1050x780 at
+10,10, the rest of the screen black; `--window-size` and
+`--window-position` fill it, at one pixel more each way than the
+screen (1281,801 for 1280x800), since Chrome makes the window a pixel
+short of what it's asked for: at 1280,800 it leaves a black line at the
+right and foot.
+
+The profile goes in the session's home, `~/.config/google-chrome`,
+new each run and gone with the session, so `--user-data-dir` isn't
+needed, and nor is `--no-default-browser-check`: a new profile doesn't
+ask. `--dark` alone makes the page dark: Chrome follows the session's
+color scheme, so a page's `prefers-color-scheme: dark` styles apply,
+without `--force-dark-mode`. Its pages' accessible tree is there with
+`--a11y`, which `wait node` and `a11y click` read. Run with Chrome 157,
+and Playwright's Chrome for Testing 153, which needs `--no-first-run`
+too; a distribution's Chromium wasn't tried.
+
 ## A game smoke test
 
 Start it, press start, walk, jump, and check it got each and played
