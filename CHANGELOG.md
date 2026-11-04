@@ -4,6 +4,9 @@
 
 ### Added
 
+- A recipe, in docs/recipes.md: a web app in Chromium or Chrome, served
+  once in a lasting session and pictured as many times as wanted, with
+  the flags it needs and why, and what it doesn't.
 - `shotbox compare REFDIR NEWDIR --update` makes each new picture that
   fails the reference, and adds each with no reference yet, leaving those
   that pass untouched: a reviewed change is one command. `--diff DIR`
