@@ -649,19 +649,25 @@ st=$?; set -e
 [ $st != 0 ] && grep -q "hold still" "$tmp/err" && [ -s "$tmp/busy.png" ] \
   && ok "stable gives up on a busy screen, with a picture of it" || fail "busy: status $st"
 # A clock's corner left out, or cropped off, and the rest holds still; a
-# crop with it in doesn't. As shoot's waits too. A box that isn't one, said.
+# crop with it in doesn't. As shoot's waits too. A box that isn't one, or a
+# crop off the window or display, said.
 tick="$here/window.py tick ticking 100"
 st=0; "$sb" run -- sh -c "$tick & '$sb' wait window tick >/dev/null &&
   '$sb' wait stable --window tick --ignore 20x20+180+0 --timeout 5 &&
   '$sb' wait stable --window tick --crop 180x120+0+0 --timeout 5 &&
   ! '$sb' wait stable --window tick --crop 200x40+0+0 --timeout 2 2>/dev/null &&
-  ! '$sb' wait stable --window tick --ignore 0x5+1+1 2> '$tmp/bad'" > "$tmp/err" 2>&1 || st=$?
+  ! '$sb' wait stable --window tick --ignore 0x5+1+1 2> '$tmp/bad' &&
+  ! '$sb' wait stable --window tick --crop 100x100+150+0 --timeout 1 2>> '$tmp/bad' &&
+  ! '$sb' wait stable --crop 100x100+5000+0 2>> '$tmp/bad'" > "$tmp/err" 2>&1 || st=$?
 st2=0; "$sb" shoot "$tmp/tick.png" --window tick --wait stable --ignore 20x20+180+0 --timeout 5 \
   -- $tick > /dev/null 2>> "$tmp/err" || st2=$?
 st3=0; "$sb" shoot "$tmp/tick.png" --window tick --wait stable --crop 180x120+0+0 --timeout 5 \
   -- $tick > /dev/null 2>> "$tmp/err" || st3=$?
 [ "$st$st2$st3" = 000 ] \
-  && [ "$(cat "$tmp/bad")" = "shotbox: what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x5+1+1" ] \
+  && [ "$(sed 's/; the screen then: .*//' "$tmp/bad")" = "$(printf '%s\n' \
+       "shotbox: what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x5+1+1" \
+       "shotbox: gave up waiting for the window 'tick', cropped to 100x100+150+0, to hold still for 0.5s after 1s; the crop isn't inside the window, 200x120" \
+       "shotbox: the crop 100x100+5000+0 isn't inside the 1280x800 display")" ] \
   && ok "stable: a box left out, or a crop, holds still where the rest changes; shoot's too" \
   || { fail "stable --ignore, --crop ($st $st2 $st3)"; cat "$tmp/err" "$tmp/bad"; }
 

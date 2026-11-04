@@ -184,11 +184,18 @@ class Screen:
             if None in skip:
                 self.fail("what to ignore is WIDTHxHEIGHT+X+Y, at least 1x1, not "
                           f"{ignore[skip.index(None)]}")
+            # As match's: the display's size doesn't change, so a crop off it
+            # never fits; a window's may, still coming up.
+            if box and not window:
+                wide, high = self.backend.root_size(self.env)
+                if box[0] + box[2] > wide or box[1] + box[3] > high:
+                    self.fail(f"the crop {crop} isn't inside the {wide}x{high} display")
             where += f", cropped to {crop}," if crop else ""
             where += f" but {', '.join(ignore)}," if ignore else ""
             still = x.Still(self.env, window, quiet, self.backend, box, skip)
             if window:
-                still.there = lambda: self.there(window)
+                still.there = lambda: (f"; the crop isn't inside the window, {still.small}"
+                                       if still.small else self.there(window))
             return f"{where} to hold still for {quiet:g}s", still
         raise SessionError(f"don't know how to wait for {kind!r} "
                            "(window, port, file, ready, stable or announce)")

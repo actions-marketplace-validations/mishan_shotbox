@@ -777,6 +777,7 @@ class Still:
         self.backend = backend or sys.modules[__name__]
         self.last, self.since = None, 0.0
         self.box, self.ignore, self.rows = box, ignore, {}
+        self.small = None   # the window's size, where the box isn't inside it
 
     def digest(self, window):
         if not (self.box or self.ignore):
@@ -806,6 +807,12 @@ class Still:
         if self.name:
             window = self.backend.find_window(self.env, self.name)
             if not window:
+                self.last = None
+                return False
+            box = self.box
+            fits = not box or (box[0] + box[2] <= window[2] and box[1] + box[3] <= window[3])
+            self.small = None if fits else f"{window[2]}x{window[3]}"
+            if not fits:
                 self.last = None
                 return False
         # The window's place and size too: one that moves hasn't settled.
