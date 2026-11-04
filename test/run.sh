@@ -1769,10 +1769,10 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     '$sb' a11y tree --json --window a11y-test > '$tmp/t1' && '$sb' a11y click 'Wrap lines' >/dev/null &&
     '$sb' a11y tree --json --window a11y-test > '$tmp/t2' &&
     { '$sb' a11y diff '$tmp/t1' --window a11y-test; echo \$?; '$sb' a11y diff '$tmp/t1' '$tmp/t2'; echo \$?
-      '$sb' a11y diff '$tmp/t2' '$tmp/t2'; echo \$?; }" > "$tmp/diff" 2>&1 || true
+      '$sb' a11y diff '$tmp/t2' '$tmp/t2'; echo \$?; }" > "$tmp/diff" 2> "$tmp/diff-err" || true
   "$sb" run --a11y -- sh -c "'$app' freeze & '$sb' wait window a11y-test >/dev/null &&
     '$sb' a11y click Freeze >/dev/null && sleep 0.5 && { '$sb' a11y diff '$tmp/t2' --timeout 2; echo \$?; }" \
-    > "$tmp/frozen" 2>&1 || true
+    > "$tmp/frozen" 2>> "$tmp/diff-err" || true
   changed=$(printf '%s\n' '~ text "Notes" [focusable, editable], was [focusable, focused, editable]' \
     '~ check box "Wrap lines" [focusable, focused], was [focusable, checked]')
   [ "$(cat "$tmp/diff")" = "$(printf '%s\n1\n%s\n1\n0' "$changed" "$changed")" ] \
@@ -1780,7 +1780,7 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     && sed -n 2p "$tmp/frozen" | grep -q '^- frame "a11y-test" .*and [0-9]* inside$' \
     && [ "$(sed -n '3,$p' "$tmp/frozen")" = 2 ] \
     && ok "a11y: diff: a saved tree against one saved later, or the live one; one against itself; a program that didn't answer" \
-    || { fail "a11y: diff"; cat "$tmp/diff" "$tmp/frozen"; }
+    || { fail "a11y: diff"; cat "$tmp/diff" "$tmp/frozen" "$tmp/diff-err"; }
   echo '{"role": "button"}' > "$tmp/not-tree"
   echo '[{"role": "frame", "name": ["w"], "description": "", "states": [], "path": "frame[0]",
     "depth": 0}]' > "$tmp/bad-name"
