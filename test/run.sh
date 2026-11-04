@@ -2286,6 +2286,42 @@ set +e; out=$("$sb" compare "$tmp/ref" "$tmp/new" --diff "$tmp/diffs"); st=$?; s
   && ok "compare: directories, picture by picture" || fail "compare dirs: $st $out"
 "$sb" compare "$tmp/ref" "$tmp/new" same off --max 0 --max off=1 >/dev/null \
   && ok "compare: NAMEs, and --max for one" || fail "compare NAME=N"
+# --update: a picture that fails (a pixel off, a size changed), or has
+# no reference yet, becomes the reference; one that passes, the same or
+# within --max, is left as it was; one with no new picture still fails.
+# Its NAMEs, only those. --diff's page: each failure's reference, new
+# picture and diff, copied beside it, an earlier run's copies gone. Not
+# for two pictures, nor into a directory compared.
+rm -rf "$tmp/uref" "$tmp/unew"; cp -a "$tmp/ref" "$tmp/uref"; mkdir "$tmp/unew"
+cp "$tmp/a.png" "$tmp/uref/near.png"; cp "$tmp/a.png" "$tmp/uref/big.png"; cp "$tmp/a.png" "$tmp/uref/a#b.png"
+for f in same added near a#b; do cp "$tmp/d.png" "$tmp/unew/$f.png"; done
+cp "$tmp/a.png" "$tmp/unew/same.png"; cp "$tmp/d.png" "$tmp/unew/off.png"
+convert "$tmp/a.png" -resize 200% "$tmp/unew/big.png"
+touch -d 2001-01-01 "$tmp/uref/same.png" "$tmp/uref/near.png"
+st=0; out=$("$sb" compare "$tmp/uref" "$tmp/unew" --update --max near=1 --diff "$tmp/udiffs") || st=$?
+st2=0; "$sb" compare "$tmp/uref" "$tmp/unew" same off added big a#b > /dev/null || st2=$?
+rm -rf "$tmp/uref2"; cp -a "$tmp/ref" "$tmp/uref2"
+st3=0; "$sb" compare "$tmp/uref2" "$tmp/unew" off same --update > /dev/null || st3=$?
+cmp -s "$tmp/uref2/off.png" "$tmp/unew/off.png" || st3="$st3, off not taken"
+cp "$tmp/udiffs/index.html" "$tmp/upage.html"; rm "$tmp/uref2/off.png"
+"$sb" compare "$tmp/uref2" "$tmp/unew" off --diff "$tmp/udiffs" > /dev/null || :
+st4=0; "$sb" compare "$tmp/a.png" "$tmp/d.png" --update 2> /dev/null || st4=$?
+st5=0; "$sb" compare "$tmp/uref" "$tmp/unew" --diff "$tmp/unew" 2> /dev/null || st5=$?
+[ "$st $st2 $st3 $st4 $st5" = "1 0 0 2 2" ] && [ "$(echo "$out" | sort)" = "$(printf '%s\n' \
+    "a#b: 1 pixels differ, in 1x1 at 0,0; updated; see $tmp/udiffs/a#b-diff.png" \
+    "added: no $tmp/uref/added.png; added" "big: not the same size: $(identify -format %wx%h "$tmp/a.png") and $(identify -format %wx%h "$tmp/unew/big.png"); updated" "differ: gone" "gone: no $tmp/unew/gone.png" \
+    "near: 1 pixels differ, in 1x1 at 0,0; allowed" \
+    "off: 1 pixels differ, in 1x1 at 0,0; updated; see $tmp/udiffs/off-diff.png" "same: the same" | sort)" ] \
+  && [ "$(stat -c %Y "$tmp/uref/same.png" "$tmp/uref/near.png" | sort -u)" = "$(date -d 2001-01-01 +%s)" ] \
+  && cmp -s "$tmp/uref/big.png" "$tmp/unew/big.png" \
+  && cmp -s "$tmp/udiffs/a#b-ref.png" "$tmp/a.png" && cmp -s "$tmp/udiffs/a#b-new.png" "$tmp/d.png" \
+  && [ "$(grep -o 'src="[^"]*"' "$tmp/upage.html" | sort | tr '\n' ' ')" = "$(printf 'src="%s" ' \
+       a%23b-diff.png a%23b-new.png a%23b-new.png a%23b-ref.png a%23b-ref.png added-new.png \
+       big-new.png big-new.png big-ref.png big-ref.png gone-ref.png \
+       off-diff.png off-new.png off-new.png off-ref.png off-ref.png)" ] \
+  && [ ! -e "$tmp/udiffs/off-ref.png" ] && [ -s "$tmp/udiffs/off-new.png" ] \
+  && ok "compare --update: what fails or is new taken, what passes left, NAMEs only; --diff's page of failures" \
+  || { fail "compare --update ($st $st2 $st3 $st4 $st5)"; echo "$out"; grep -o 'src="[^"]*"' "$tmp/upage.html"; }
 set +e; "$sb" compare "$tmp/a.png" "$tmp/nope.png" 2> "$tmp/err"; st=$?; set -e
 [ $st = 2 ] && grep -q "no .*nope.png" "$tmp/err" && ok "compare: a missing picture, said plainly" \
   || fail "compare missing: $st $(cat "$tmp/err")"
