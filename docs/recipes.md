@@ -230,12 +230,12 @@ Drive what it shows from its state where it can be (the URL's hash,
 say) rather than by input, or wait for it to say it's drawn before
 sending more. Run with Firefox 158.
 
-## A web app in Chromium or Chrome
+## A web app in Chrome
 
 A dashboard in Chrome, served once in a lasting session and pictured
 twice, as it opens and after a click on its Week button, in the dark.
-As above, `site/` holds it, and its `<p role="status">` says when it's
-drawn:
+A `site/` like the one above holds it; its `<p role="status">` says
+`Drawn today` once it's drawn, and `Drawn week` after a click on Week:
 
 ```
 shotbox start --name dash --net loopback --a11y --dark
@@ -266,8 +266,8 @@ bar or sign-in button. With no window manager the window is 1050x780 at
 10,10, the rest of the screen black; `--window-size` and
 `--window-position` fill it, at one pixel more each way than the
 screen (1281,801 for 1280x800), since Chrome makes the window a pixel
-short of what it's asked for, and leaves a black line at the right and
-foot.
+short of what it's asked for: at 1280,800 it leaves a black line at the
+right and foot.
 
 The profile goes in the session's home, `~/.config/google-chrome`,
 new each run and gone with the session, so `--user-data-dir` isn't
@@ -275,8 +275,9 @@ needed, and nor is `--no-default-browser-check`: a new profile doesn't
 ask. `--dark` alone makes the page dark: Chrome follows the session's
 color scheme, so a page's `prefers-color-scheme: dark` styles apply,
 without `--force-dark-mode`. Its pages' accessible tree is there with
-`--a11y`, which `wait node` and `a11y click` read; Chromium's works the
-same, as `chromium`. Run with Chrome 157.
+`--a11y`, which `wait node` and `a11y click` read. Run with Chrome 157,
+and Playwright's Chrome for Testing 153, which needs `--no-first-run`
+too; a distribution's Chromium wasn't tried.
 
 ## A game smoke test
 
