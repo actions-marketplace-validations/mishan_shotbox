@@ -1939,13 +1939,13 @@ except shotbox.SessionError as e:
     ! '$sb' capture '$tmp/tw-b.png' --window tw --tree --burst 2 2> '$tmp/tw-b'" > "$tmp/tw-out" 2>&1 \
     && "$sb" run -- sh -c "! '$sb' capture '$tmp/tw-no.png' --tree 2> '$tmp/tw-no'" \
     && for t in "" --twice; do "$sb" shoot "$tmp/tw-s$t.png" --window tw --tree $t -- "$here/window.py" tw /dev/null corner \
-         > /dev/null 2>> "$tmp/tw-out" && grep -q '"role": "button"' "$tmp/tw-s$t.json" || break; done \
+         > /dev/null 2>> "$tmp/tw-out" && grep -Eq '"role": "(push )?button"' "$tmp/tw-s$t.json" || break; done \
     && [ -e "$tmp/tw-s--twice.json" ] && grep -q "goes with one picture" "$tmp/tw-b" \
     && python3 -c "import json, sys
 want, got = (json.load(open(f)) for f in sys.argv[1:3])
 for n in want:
     n['bounds'] = n['bounds'] and [n['bounds'][0] - 10, n['bounds'][1] - 5, *n['bounds'][2:]]
-sys.exit(want != got or not any(n['role'] == 'button' for n in got))" "$tmp/tw-tree.json" "$tmp/tw.json" \
+sys.exit(want != got or not any(n['role'] in ('button', 'push button') for n in got))" "$tmp/tw-tree.json" "$tmp/tw.json" \
     && [ "$(identify -format %wx%h "$tmp/tw.png")" = 60x30 ] && [ ! -e "$tmp/tw-b-1.png" ] \
     && grep -q "start the session with --a11y" "$tmp/tw-no" && [ ! -e "$tmp/tw-no.png" ] && [ ! -e "$tmp/tw-no.json" ] \
     && ok "a11y: capture --tree: the tree beside the picture, in its pixels, cropped" \
@@ -2381,9 +2381,9 @@ rm "$tmp/tr/ref.json"; st3=0; moved=$("$sb" compare "$tmp/tr/ref.png" "$tmp/tr/m
 cp "$tmp/tr/ref.png" "$tmp/tr-ref/x.png"; tree "$tmp/tr-ref/x.json" 0 0
 cp "$tmp/tr/new.png" "$tmp/tr-new/x.png"; tree "$tmp/tr-new/x.json" 12 12
 # A reference's tree, the new picture having none, goes with it; a file
-# there that isn't a tree stays.
+# there that isn't a tree stays, the new picture's tree or not.
 for y in y z; do cp "$tmp/tr/ref.png" "$tmp/tr-ref/$y.png"; cp "$tmp/tr/new.png" "$tmp/tr-new/$y.png"; done
-tree "$tmp/tr-ref/y.json" 0 0; echo '{}' > "$tmp/tr-ref/z.json"
+tree "$tmp/tr-ref/y.json" 0 0; echo '{}' > "$tmp/tr-ref/z.json"; tree "$tmp/tr-new/z.json" 12 12
 st4=0; dirs=$("$sb" compare "$tmp/tr-ref" "$tmp/tr-new" x --update) || st4=$?
 "$sb" compare "$tmp/tr-ref" "$tmp/tr-new" y z --update > /dev/null
 said="$(printf '%s\n' '  50 pixels, in 10x5 at 12,12: button "Save"' '  9 pixels, in 3x3 at 150,80: in no node')"
@@ -2391,7 +2391,7 @@ said="$(printf '%s\n' '  50 pixels, in 10x5 at 12,12: button "Save"' '  9 pixels
   && [ "$one" = "$(printf '59 pixels differ, in 141x71 at 12,12\n%s' "$said")" ] && [ "$two" = "$one" ] \
   && [ "$moved" = "$(printf '59 pixels differ, in 141x71 at 12,12, moved 2,1\n%s' "$said")" ] \
   && [ "$dirs" = "$(printf 'x: 59 pixels differ, in 141x71 at 12,12; updated\n%s' "$said")" ] \
-  && cmp -s "$tmp/tr-ref/x.json" "$tmp/tr-new/x.json" && [ ! -e "$tmp/tr-ref/y.json" ] && [ -e "$tmp/tr-ref/z.json" ] \
+  && cmp -s "$tmp/tr-ref/x.json" "$tmp/tr-new/x.json" && [ ! -e "$tmp/tr-ref/y.json" ] && [ "$(cat "$tmp/tr-ref/z.json")" = '{}' ] \
   && ok "compare: a tree beside a picture names what each region that differs is in" \
   || { fail "compare, named by a tree ($st $st2 $st3 $st4)"; printf '%s\n--\n' "$one" "$two" "$moved" "$dirs"; }
 

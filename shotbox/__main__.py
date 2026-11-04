@@ -1504,11 +1504,12 @@ def cmd_compare(argv):
         if a.update and new.exists():
             shutil.copyfile(new, ref)
             # The tree beside it, if it has one, goes with it, and the
-            # reference's own, which isn't its any more, goes.
+            # reference's own, which isn't its any more, goes; a file
+            # there that isn't a tree stays.
             with contextlib.suppress(SessionError):
                 a11y.saved(ref.with_suffix(".json"))
                 ref.with_suffix(".json").unlink()
-            if new.with_suffix(".json").exists():
+            if new.with_suffix(".json").exists() and not ref.with_suffix(".json").exists():
                 shutil.copyfile(new.with_suffix(".json"), ref.with_suffix(".json"))
             print(f"{name}: {said}; {taken}"
                   + (f"; see {diff}" if diff else "") + below)
