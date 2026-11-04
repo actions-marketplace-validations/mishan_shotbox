@@ -2520,13 +2520,17 @@ subprocess.run(['convert', '-size', '100x80', '-depth', '8', 'bgra:-', '-alpha',
     # long as it ran.
     if audio; then
       rm -rf "$tmp/$pre-pw"; mkdir "$tmp/$pre-pw"
-      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "'$here/window.py' beep beep & '$sb' wait window beep &&
+      # Each stopped 2 s after it's begun, its file made once ffmpeg has
+      # opened the picture and the sound: starting can take most of 2 s.
+      TMPDIR=$tmp/$pre-pw "$sb" run $opt --audio -- sh -c "begun() { n=0; until [ -e \"\$1\" ] || [ \$n -ge 300 ]; do
+          sleep 0.1; n=\$((n + 1)); done; sleep 2; }
+        '$here/window.py' beep beep & '$sb' wait window beep &&
         { '$sb' record '$tmp/$pre-s.mp4' --window beep --seconds 3 --sound --strict > '$tmp/$pre-heard'
           [ \$? = 1 ]; } &&
         '$sb' record '$tmp/$pre-s.webm' --window beep --seconds 2 --sound --strict --gap 1000 > '$tmp/$pre-heard2' &&
-        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; sleep 2; kill \$r; wait \$r; } &&
-        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; sleep 2; kill \$r; wait \$r; } &&
-        { { sleep 2; echo go > '$tmp/$pre-go-ev'; } &
+        { '$sb' record '$tmp/$pre-sk.mp4' --window beep --sound & r=\$!; begun '$tmp/$pre-sk.mp4'; kill \$r; wait \$r; } &&
+        { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; begun '$tmp/$pre-st.mp4'; kill \$r; wait \$r; } &&
+        { { begun '$tmp/$pre-su.mp4'; echo go > '$tmp/$pre-go-ev'; } &
           '$sb' record '$tmp/$pre-su.mp4' --window beep --sound --seconds 10 --until-line go '$tmp/$pre-go-ev'; } &&
         { '$sb' record '$tmp/$pre-sp0.mp4' --window beep --sound > /dev/null & p=\$!
           '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound --seconds 30 > '$tmp/$pre-heard3' && wait \$p; }" \
