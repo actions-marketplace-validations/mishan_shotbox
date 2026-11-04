@@ -55,6 +55,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import wave
 from pathlib import Path
 
@@ -1317,7 +1318,7 @@ def review(out, shown, ref, new):
     diff) in `shown`, its reference, new picture and diff side by side,
     and the two sides in one place, the reference shown on a hover."""
     def img(src, alt):
-        return f'<img src="{html.escape(src)}" alt="{html.escape(alt)}">'
+        return f'<img src="{html.escape(urllib.parse.quote(src))}" alt="{html.escape(alt)}">'
     rows = []
     for name, said, has_diff in shown:
         sides = [(f"{name}-ref.png", "reference"), (f"{name}-new.png", "new")]
@@ -1343,7 +1344,7 @@ figure {{ margin: 0 }} img {{ max-width: 100%; border: 1px solid #ccc; display: 
 .flip {{ display: grid }} .flip img {{ grid-area: 1 / 1 }}
 .flip img + img {{ opacity: 0 }} .flip:hover img + img {{ opacity: 1 }}
 </style>
-<h1>{len(shown) or "None"} failed</h1>
+<h1>{len(shown) or "Nothing"} failed</h1>
 <p class="dirs">{html.escape(str(ref))} against {html.escape(str(new))}</p>
 {chr(10).join(rows)}
 """)
@@ -1366,7 +1367,7 @@ def cmd_compare(argv):
                         "and a copy of each side, all on a page, OUT/index.html")
     p.add_argument("--update", action="store_true",
                    help="with directories: each new picture that fails, or has no "
-                        "reference yet, becomes the reference; those the same are left")
+                        "reference yet, becomes the reference; those that pass are left")
     p.add_argument("--fuzz", action="append", default=[], metavar="[NAME=]PCT",
                    help="colors this close count as the same (0%%); NAME=PCT for one "
                         "picture (repeatable)")
@@ -1409,6 +1410,11 @@ def cmd_compare(argv):
     dirs = Path(a.a).is_dir(), Path(a.b).is_dir()
     if dirs[0] != dirs[1]:
         p.error("compare two images, or two directories")
+    if a.update and not dirs[0]:
+        p.error("--update goes with two directories")
+    # Its pictures would be compared, and with --update taken, next time.
+    if dirs[0] and a.diff and Path(a.diff).resolve() in (Path(a.a).resolve(), Path(a.b).resolve()):
+        p.error("--diff's directory is one of those compared: give one of its own")
     if not dirs[0]:
         if a.names:
             p.error("NAMEs go with two directories")
@@ -1424,8 +1430,6 @@ def cmd_compare(argv):
         print(differing(n, box) + shifted(at))
         return 0 if n <= most(None) else 1
 
-    if a.update and not dirs[0]:
-        p.error("--update goes with two directories")
     names = [n.removesuffix(".png") for n in a.names] or sorted(
         {f.stem for d in (a.a, a.b)[:1 + a.update] for f in Path(d).glob("*.png")})
     if not names:
@@ -1441,8 +1445,10 @@ def cmd_compare(argv):
         new one is the reference, and said so."""
         if a.diff:
             for side, f in (("ref", ref), ("new", new)):
+                copy = Path(a.diff) / f"{name}-{side}.png"
+                copy.unlink(missing_ok=True)    # an earlier run's
                 if f.exists():
-                    shutil.copyfile(f, Path(a.diff) / f"{name}-{side}.png")
+                    shutil.copyfile(f, copy)
             shown.append((name, said, diff and diff.exists()))
         if a.update and new.exists():
             shutil.copyfile(new, ref)
