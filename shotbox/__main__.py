@@ -375,9 +375,10 @@ def cmd_shoot(argv):
         waits.insert(0, "window:" + a.window)
     if not waits and not a.settle:
         p.error("nothing to wait for: give --window, --wait or --settle")
-    if "node:" in waits:
+    kinds = [w.partition(":")[0] for w in waits]
+    if any(w in ("node", "node:") for w in waits):
         p.error("node needs a regex to look for: an empty one matches any node")
-    a.a11y = a.a11y or any(w.startswith(("node:", "announce:")) for w in waits)
+    a.a11y = a.a11y or "node" in kinds or "announce" in kinds
     if not a.twice and (a.fuzz is not None or a.max is not None):
         p.error("--fuzz and --max go with --twice")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -444,7 +445,7 @@ def take(a, cmd, waits, out, watch=False):
             for spec in waits:
                 kind, _, arg = spec.partition(":")
                 if kind == "node":
-                    s.wait_node(arg, a.window, a.timeout)
+                    s.wait_node(arg, a.window, a.timeout, alive=proc)
                 else:
                     s.until(*s.test(kind, arg, window=a.window), a.timeout, alive=proc)
             time.sleep(a.settle)
