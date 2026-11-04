@@ -39,10 +39,17 @@ def home():
     first, or can write to, is refused."""
     base = os.environ.get("XDG_RUNTIME_DIR")
     d = Path(base) / "shotbox" if base else Path(f"/tmp/shotbox-{os.getuid()}")
+    # No falling back to /tmp: that would split one user's sessions between
+    # two places, and stop and sessions would miss some.
+    if base and not os.path.isdir(base):
+        raise SessionError(f"XDG_RUNTIME_DIR is {base}, which isn't a directory: unset it, "
+                           "or point it at your runtime directory")
     try:
         d.mkdir(mode=0o700)
     except FileExistsError:
         pass
+    except OSError as e:
+        raise SessionError(f"can't make {d}: {e.strerror}") from None
     st = os.lstat(d)
     if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
         raise SessionError(f"{d} isn't a directory of your own that only you can use; "
