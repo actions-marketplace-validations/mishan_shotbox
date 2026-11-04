@@ -20,15 +20,24 @@ permissions:
 jobs:
   # test/run.sh's parts, at once: a part of it each, on its own runner,
   # so the ones that time what's on the screen aren't crowded by the rest.
+  # Ubuntu's LTS releases are named rather than ubuntu-latest, so a new
+  # image doesn't change what's tested under a push: 24.04 for all of it,
+  # the GTK, libadwaita and Orca an LTS user has, and 26.04 for the
+  # accessibility checks, where most of what tells releases apart is.
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.part }}${{ matrix.os != 'ubuntu-24.04' && format(', {0}', matrix.os) || '' }})
+    runs-on: ${{ matrix.os }}
     # A hung session would hold the runner for GitHub's six hours; record,
     # the slowest, has taken 27 minutes on busy runners.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04]
         part: [core, input, a11y, a11y-2, record, browser, mutate]
+        include:
+          - {os: ubuntu-26.04, part: a11y}
+          - {os: ubuntu-26.04, part: a11y-2}
     steps:
       - uses: actions/checkout@v5
 
@@ -53,8 +62,8 @@ jobs:
       # screen, a monospace font for the terminal, and GTK 4
       # and libadwaita for the accessibility checks' window, and PipeWire,
       # WirePlumber and pactl for --audio, libfaketime for --clock, and
-      # Orca for a11y speak: Ubuntu 24.04's is 46.1, one of those it's
-      # been checked with.
+      # Orca for a11y speak: Ubuntu 24.04's is 46.1 and 26.04's 50.3, two
+      # of those it's been checked with.
       - name: Install what shotbox runs
         run: |
           mkdir -p ~/apt/partial
@@ -112,7 +121,7 @@ jobs:
   # The Action, as another project's job would use it: from a runner with
   # nothing of shotbox's on it, each feature it installs for, sandboxed.
   action:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -146,7 +155,7 @@ jobs:
   # speak on its own, so a11y alone is tried above without Orca, and here
   # speak brings what a11y does: Orca starts from what the Action installed.
   action-speak:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
@@ -164,7 +173,7 @@ jobs:
   # README says, so `term --shoot` can start itself again from an install
   # rather than a checkout), and the npm tarball in a fresh project.
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
