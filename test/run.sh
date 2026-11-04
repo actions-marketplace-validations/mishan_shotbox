@@ -23,6 +23,28 @@ audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null &&
 atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
   && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; }
 app=$here/a11y_app.py
+# What's still running of the sessions whose scratch dirs are under $a11y.
+ours_a11y() {
+  for p in $(pgrep -u "$(id -u)" .); do
+    { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$a11y/" && echo "$p"
+  done
+  true
+}
+# Node's tests that need a browser, test/NAME.test.mjs: Playwright's
+# Chromium, from `npm install && npx playwright install chromium`, or they
+# skip, unless SHOTBOX_BROWSER=required.
+browser() {
+  node --test --test-reporter=spec "$here/$1.test.mjs" >"$tmp/$1.log" 2>&1 || {
+    fail "$2"; cat "$tmp/$1.log"; }
+  if grep -q '^ℹ skipped [1-9]' "$tmp/$1.log"; then
+    # CI says it has to run, so there a skip is a failure.
+    why=$(grep -m1 -o 'no Playwright[^)]*)\|no ffmpeg\|no at-spi[^)]*)' "$tmp/$1.log")
+    [ "${SHOTBOX_BROWSER-}" = required ] && fail "$2 skipped: $why" \
+      || echo "skip  $2: $why"
+  elif ! grep -q '^ℹ fail [1-9]' "$tmp/$1.log"; then
+    ok "$2"
+  fi
+}
 
 #: part core
 # One version: the Python package's, the Node package's and its lockfile's,
@@ -294,6 +316,18 @@ kill -0 $other 2>/dev/null && [ ! -e "$d/$kept.json" ] \
   && ok "stop: a session that's gone, forgotten, and its pid left alone" \
   || fail "stop: killed $other, someone else's"
 kill $other 2>/dev/null || true
+# A runtime dir that isn't there, as after a logout, or one you can't
+# make a dir in, as under su, said by each command that keeps sessions.
+bad=
+for c in sessions "sessions --stale" "start --name $kept-xdg" "stop $kept-xdg"; do
+  for r in "$tmp/gone|XDG_RUNTIME_DIR is $tmp/gone, which isn't a directory: unset it, or point it at your runtime directory" \
+      "/|can't make /shotbox: Permission denied"; do
+    st=0; XDG_RUNTIME_DIR=${r%%|*} "$sb" $c > /dev/null 2> "$tmp/err" || st=$?
+    [ $st = 1 ] && [ "$(cat "$tmp/err")" = "shotbox: ${r#*|}" ] \
+      || { bad=1; fail "$c, with XDG_RUNTIME_DIR=${r%%|*} ($st)"; cat "$tmp/err"; }
+  done
+done
+[ -z "$bad" ] && ok "sessions, start and stop: a runtime dir that isn't there, or can't hold theirs, said"
 # Killed outright, a run's watchdog stops what's left of its session and
 # removes its scratch dir: a session's started in it too, and a recording
 # is finished first; with --keep, the dir stays. Killed with it, as a whole
@@ -1060,12 +1094,6 @@ if atspi; then
   a11y=$tmp/a11y
   mkdir -p "$a11y"
   export TMPDIR=$a11y
-  ours_a11y() {
-    for p in $(pgrep -u "$(id -u)" .); do
-      { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$a11y/" && echo "$p"
-    done
-    true
-  }
   a11y_tree() {
     "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y tree --window a11y-test"
   }
@@ -1494,8 +1522,7 @@ CASES
           < /dev/null 2>/dev/null || true
       done > "$tmp/contrast"
       grep -q '/label\[1\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast" \
-        && grep -q '/label\[0\]: text not measured: GTK 4 reports its position wrong (another node.s text matches there too: "Open")$' "$tmp/contrast" \
-        && ! grep -q '/panel\[7\]/label\[0\]: text passes' "$tmp/contrast" \
+        && grep -q '/panel\[7\]/label\[0\]: text not measured: GTK 4 reports its position wrong (another node.s text matches there too: "Open")$' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: the other match's own node named; text not taken for pieces of it drawn only there" \
         || { fail "a11y: contrast, GTK 4, Recheck and Open File"; cat "$tmp/contrast"; }
       # A faint "Twin" over an entry holding "Twin", or under it, each
@@ -1606,6 +1633,19 @@ EOF
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
+  [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
+    || fail "a11y: left running: $(ours_a11y)"
+  unset TMPDIR
+else
+  [ "${SHOTBOX_A11Y-}" = required ] && fail "a11y skipped: no GTK 4, libadwaita or at-spi2-core" \
+    || echo "skip  a11y: no GTK 4, libadwaita or at-spi2-core"
+fi
+
+#: part a11y-2
+if atspi; then
+  a11y=$tmp/a11y
+  mkdir -p "$a11y"
+  export TMPDIR=$a11y
   # wait idle: a program busy on its main thread for a second three times,
   # free for 90 ms between, less than a round, isn't idle until the last
   # ends, though the screen holds still all along, as wait stable shows;
@@ -2652,19 +2692,11 @@ else
   echo "skip  the declarations: no TypeScript (npm install)"
 fi
 
-# And the ones that need a browser: Playwright's Chromium, from
-# `npm install && npx playwright install chromium`, or they skip, unless
-# SHOTBOX_BROWSER=required.
-node --test --test-reporter=spec "$here"/browser.test.mjs >"$tmp/browser.log" 2>&1 || {
-  fail "browser helpers"; cat "$tmp/browser.log"; }
-if grep -q '^ℹ skipped [1-9]' "$tmp/browser.log"; then
-  # CI says it has to run, so there a skip is a failure.
-  why=$(grep -m1 -o 'no Playwright[^)]*)\|no ffmpeg\|no at-spi[^)]*)' "$tmp/browser.log")
-  [ "${SHOTBOX_BROWSER-}" = required ] && fail "browser helpers skipped: $why" \
-    || echo "skip  browser helpers: $why"
-elif ! grep -q '^ℹ fail [1-9]' "$tmp/browser.log"; then
-  ok "browser helpers"
-fi
+#: part mutate
+browser mutate "mutated, in a browser"
+
+#: part browser
+browser browser "browser helpers"
 # wait idle and a browser: Chromium answers, but its page can't be asked,
 # and that's said: by its document with --a11y, by its child processes
 # without, or when it keeps off the bus. Here, where Playwright's Chromium

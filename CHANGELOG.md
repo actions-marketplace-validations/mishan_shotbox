@@ -45,6 +45,17 @@
   (Python's and MCP's raise), rather than finding nothing wrong. Each
   ends a second past its `--timeout`: libatspi gave such a program 15
   seconds first, so `tree` and `lint` took 16 with `--timeout 2`.
+- With `XDG_RUNTIME_DIR` set to a directory that isn't there, as after a
+  logout, or one you can't make a directory in, as under `su`, `start`,
+  `stop` and `sessions` ended in a traceback. They now say so:
+  `XDG_RUNTIME_DIR is /run/user/1000, which isn't a directory: unset it,
+  or point it at your runtime directory`, or `can't make
+  /run/user/1000/shotbox: Permission denied`.
+- `a11y click` couldn't click a Firefox check box inside its `<label>`
+  by name, with the pointer or `--action`: Firefox puts a label of the
+  same name round it, and each ruled the other out. Nor a Chromium field
+  named by a `<label for>`, whose text in the label matched too. The
+  field is clicked.
 
 ## 0.10.0 — 2026-10-23
 
