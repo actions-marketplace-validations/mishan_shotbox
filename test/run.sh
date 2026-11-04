@@ -1160,6 +1160,19 @@ if atspi; then
   set +e; "$sb" wait node 2>/dev/null; st=$?; "$sb" wait node '' 2>/dev/null; st2=$?; set -e
   [ $st = 2 ] && [ $st2 = 2 ] && ok "a11y: wait node with no regex, or an empty one, is refused" \
     || fail "a11y: wait node with no regex: status $st, $st2"
+  # shoot waits for a node shown three seconds in, or what's announced,
+  # its session given --a11y for them; a node with no regex is refused.
+  st=0; began=$(date +%s)
+  "$sb" shoot "$tmp/drawn.png" --window a11y-test --wait 'node:Drawn.*tiles$' -- "$app" notes drawing \
+    > /dev/null 2> "$tmp/err" || st=$?
+  took=$(($(date +%s) - began))
+  "$sb" shoot "$tmp/said.png" --window a11y-test --wait 'announce:Name is taken' -- "$app" alert \
+    > /dev/null 2>> "$tmp/err" || st=$?
+  st2=0; "$sb" shoot "$tmp/none.png" --wait node: -- true 2>> "$tmp/err" || st2=$?
+  [ $st = 0 ] && [ $took -ge 3 ] && [ -s "$tmp/drawn.png" ] && [ -s "$tmp/said.png" ] && [ $st2 = 2 ] \
+    && grep -q 'node needs a regex' "$tmp/err" \
+    && ok "a11y: shoot --wait node: and announce:, with --a11y given for them; node: with no regex refused" \
+    || { fail "a11y: shoot --wait node, announce ($st, ${took}s, $st2)"; cat "$tmp/err"; }
   # Under a dialog, disabled, moving and under a label, each is said and not
   # clicked (--force clicks the disabled one, which does nothing), then
   # waited for until "Ready" puts each right, and clicked.

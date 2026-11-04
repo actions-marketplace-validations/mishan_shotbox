@@ -349,9 +349,11 @@ def cmd_shoot(argv):
     p.add_argument("--wait", action="append", default=[], metavar="WHAT",
                    help="wait for window:RE, port:N, file:PATH, ready (the "
                         "program touched $SHOTBOX_SCRATCH/ready, as `shotbox "
-                        "term` does after its steps), or stable[:SECS] (the "
-                        "--window, or the display, unchanged for SECS, 0.5); "
-                        "repeatable, in order")
+                        "term` does after its steps), stable[:SECS] (the "
+                        "--window, or the display, unchanged for SECS, 0.5), "
+                        "node:RE (a showing node with RE in its name or text) or "
+                        "announce:RE (what was said to a screen reader), which "
+                        "give the session --a11y; repeatable, in order")
     p.add_argument("--settle", type=float, default=0.3, metavar="SECS",
                    help="then wait this long for the last paint (0.3)")
     p.add_argument("--park", action="store_true",
@@ -373,6 +375,9 @@ def cmd_shoot(argv):
         waits.insert(0, "window:" + a.window)
     if not waits and not a.settle:
         p.error("nothing to wait for: give --window, --wait or --settle")
+    if "node:" in waits:
+        p.error("node needs a regex to look for: an empty one matches any node")
+    a.a11y = a.a11y or any(w.startswith(("node:", "announce:")) for w in waits)
     if not a.twice and (a.fuzz is not None or a.max is not None):
         p.error("--fuzz and --max go with --twice")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -438,7 +443,10 @@ def take(a, cmd, waits, out, watch=False):
         try:
             for spec in waits:
                 kind, _, arg = spec.partition(":")
-                s.until(*s.test(kind, arg, window=a.window), a.timeout, alive=proc)
+                if kind == "node":
+                    s.wait_node(arg, a.window, a.timeout)
+                else:
+                    s.until(*s.test(kind, arg, window=a.window), a.timeout, alive=proc)
             time.sleep(a.settle)
             if proc.poll() is not None:
                 s.fail(f"the program exited (status {proc.returncode}) "

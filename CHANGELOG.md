@@ -4,6 +4,11 @@
 
 ### Added
 
+- `shotbox shoot --wait node:RE` and `--wait announce:RE` wait, in
+  order with the other waits, for a showing node with RE in its name or
+  text, or for something said to a screen reader, as `wait node` and
+  `wait announce` do: a one-shot picture of a page once a line says
+  it's drawn. Either gives the session `--a11y`.
 - `shotbox a11y diff BEFORE [AFTER]` says what changed from a tree
   saved with `a11y tree --json` to another, or to the live one, as
   MCP's actions with `changes` say it: status 1 if anything did, 0 if
