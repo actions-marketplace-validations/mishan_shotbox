@@ -24,7 +24,7 @@
     shotbox latency move X1 Y1 X2 Y2 --watch G      (inside a session) how fast it follows
     shotbox flicker [--window RE] [--crop G]        (inside a session) find what flickers
     shotbox pad press|stick|trigger|neutral ...     (inside a session) work a gamepad
-    shotbox a11y tree|lint|tabwalk|click|contrast   (inside a session) the accessible tree
+    shotbox a11y tree|diff|lint|tabwalk|click|contrast   (inside a session) the accessible tree
     shotbox mcp [--allow FILE]                      sessions for an agent, over MCP (stdio)
     shotbox doctor                                  what's here of what each command needs
     shotbox --version                               which shotbox this is

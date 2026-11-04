@@ -4,6 +4,10 @@
 
 ### Added
 
+- `shotbox a11y diff BEFORE [AFTER]` says what changed from a tree
+  saved with `a11y tree --json` to another, or to the live one, as
+  MCP's actions with `changes` say it: status 1 if anything did, 0 if
+  nothing, 2 if it couldn't tell.
 - `shotbox wait idle [--window RE]` waits until each program with a
   window shown has answered just now, three times in a row: free on its
   main thread, which `wait stable` can't tell, as a busy program holds
