@@ -2462,19 +2462,29 @@ PY
       for p in $(pgrep -u "$(id -u)" -x pipewire); do
         { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/$pre-pw/" && kill "$p"
       done
-      wait $r \
-        && python3 "$tmp/av.py" "$tmp/$pre-s.mp4" > "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-s.webm" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-sk.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-sp.mp4" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-st.mp4" >> "$tmp/$pre-av" && python3 "$tmp/av.py" "$tmp/$pre-su.mp4" >> "$tmp/$pre-av" \
-        && python3 "$tmp/av.py" "$tmp/$pre-sp0.mp4" >> "$tmp/$pre-av" \
-        && sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ' | awk '$1 == "h264" && $2 == 3 && $3 == "aac" &&
-             $4 >= 3 && $4 < 3.022 && $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
-        && [ "$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '$1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < (NR == 2 || NR == 5 ? 0.003 : 0.01)' | wc -l)" = 5 ] \
-        && sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF { n++ } $1 ^ 2 >= 0.01 { bad = 1 } END { exit bad || n < 3 }' \
-        && grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -Eq "gaps? of silence" "$tmp/$pre-heard" \
-        && ! grep -q gap "$tmp/$pre-heard2" && grep -q "^the sound server stopped" "$tmp/$pre-heard3" \
-        && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
-        || { fail "$say --sound"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2" "$tmp/$pre-heard3"; }
+      why=; wait $r || no "a step failed ($?)"
+      : > "$tmp/$pre-av"
+      for f in s.mp4 s.webm sk.mp4 sp.mp4 st.mp4 su.mp4 sp0.mp4; do
+        python3 "$tmp/av.py" "$tmp/$pre-$f" >> "$tmp/$pre-av" 2>&1 || no "$f not read"
+      done
+      got=$(sed -n '1p;3p' "$tmp/$pre-av" | tr '\n' ' ')
+      echo "$got" | awk '$1 == "h264" && $2 == 3 && $3 == "aac" && $4 >= 3 && $4 < 3.022 &&
+        $5 " " $6 " " $7 " " $8 == "vp9 2.000 opus 2.000" { ok = 1 } END { exit !ok }' \
+        || no "timed: $got, not h264 3 aac 3 to 3.022 vp9 2.000 opus 2.000"
+      # Killed, stopped early, by a line, and by the PipeWire going, twice.
+      long=$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '{ most = NR == 2 || NR == 5 ? 0.055 : 0.1 }
+        !($1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < most ^ 2) { print $0 " (" most " s at most)" }')
+      [ -z "$long" ] || no "picture and sound not as long: $long"
+      offs=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk NF)
+      far=$(echo "$offs" | awk '$1 ^ 2 >= 0.01' | tr '\n' ' ')
+      [ -z "$far" ] || no "tones this far from their flashes, past 0.1 s: $far(of $(echo $offs))"
+      [ "$(echo "$offs" | grep -c .)" -ge 3 ] || no "$(echo "$offs" | grep -c .) tones by their flashes, not 3 or more"
+      grep -q "^3.000s, 48000 Hz, 2 channels: peak " "$tmp/$pre-heard" && grep -Eq "gaps? of silence" "$tmp/$pre-heard" \
+        || no "--strict's gaps not said"
+      ! grep -q gap "$tmp/$pre-heard2" || no "a gap said past --gap"
+      grep -q "^the sound server stopped" "$tmp/$pre-heard3" || no "the sound server stopping not said"
+      [ -z "$why" ] && ok "$say --sound: picture and sound in one file, each as long, in step; listened to" \
+        || { fail "$say --sound: ${why#; }"; cat "$tmp/$pre-av" "$tmp/$pre-heard" "$tmp/$pre-heard2" "$tmp/$pre-heard3"; }
     fi
   }
   records "" rec record
