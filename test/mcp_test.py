@@ -193,7 +193,10 @@ for before, after, want, what in (
          "changes in two windows the same, each under which it is"),
         (window + hung, window + [quiet],
          ["! application \"\" (pid 7) didn't answer: busy, or hung, so its windows aren't "
-          "compared"], "a program that didn't answer, not its windows gone")):
+          "compared"], "a program that didn't answer, not its windows gone"),
+        (window + [quiet], window + hung,
+         ["! application \"\" (pid 7) didn't answer: busy, or hung, so its windows aren't "
+          "compared"], "a program that didn't answer before, not its windows added")):
     got = mcp.tree_changes(before, after)
     check(got == want, f"what changed in the tree: {what} ({got})")
 

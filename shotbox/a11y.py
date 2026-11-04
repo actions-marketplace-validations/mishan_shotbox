@@ -247,7 +247,7 @@ def changes(before, after):
             out.append(f"{mark} {'  ' * above[-1][1]}{n.line()}"
                        + (f", was {w}" if mark == "~" else w))
     return [f"! {n.line()}, so its windows aren't compared"
-            for n in after if n.get("quiet")] + out
+            for n in {n.pid: n for n in before + after if n.get("quiet")}.values()] + out
 
 
 def toplevels(Atspi, window=None, timeout=10):

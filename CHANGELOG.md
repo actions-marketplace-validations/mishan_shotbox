@@ -65,6 +65,10 @@
   gave up: the recorder looked at the focus again after the rename but
   before its event, and took the new name for the one it already had.
   A focus first looked at that late can still be missed.
+- MCP's actions with `changes`, and `shotbox.a11y.changes()`, said
+  nothing of a program that didn't answer as the tree was read before,
+  only after: what changed in its windows was left out unsaid, and
+  could read as "Nothing changed". It's said either way.
 
 ## 0.10.0 — 2026-10-23
 
