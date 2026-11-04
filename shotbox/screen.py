@@ -1075,18 +1075,29 @@ class Screen:
         (a dialog) gets neither by itself."""
         self.backend.focus(self.env, self.window(name))
 
-    def capture(self, out, window=None, crop=None, park=False, vision=None):
+    def capture(self, out, window=None, crop=None, park=False, vision=None, tree=False):
         """A picture of the display, or of the window named `window`, to
         `out` (a PNG), then cropped (WxH+X+Y). With `park`, the pointer
         goes out of the way first, so nothing shows its hover. With
         `vision` (protanopia, deuteranopia, tritanopia or gray), it's as
-        someone with that color vision sees it."""
+        someone with that color vision sees it. With `tree`, what a screen
+        reader sees there goes beside it, OUT.json, as a11y_tree has it but
+        its bounds in the picture's pixels: what compare names a change by."""
         if park:
             self.park()
+        if tree:
+            from .a11y import Node
+            if crop and not x.box_of(crop):
+                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+            dx, dy = x.box_of(crop)[2:] if crop else (0, 0)
+            nodes = [Node(n, bounds=[b[0] - dx, b[1] - dy, *b[2:]]) if (b := n.get("bounds")) else n
+                     for n in self.a11y_tree(window)]
         self.backend.capture(self.env, out, window=self.window(window) if window else None,
                              crop=crop)
         if vision:
             x.vision(out, out, vision)
+        if tree:
+            Path(out).with_suffix(".json").write_text(json.dumps(nodes, ensure_ascii=False))
         return Path(out)
 
     def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,

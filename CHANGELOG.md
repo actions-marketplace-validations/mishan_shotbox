@@ -4,6 +4,13 @@
 
 ### Added
 
+- `shotbox capture --tree` (with `--a11y`) and `shoot --tree` write the
+  accessible tree beside the picture, `OUT.json`, its bounds in the
+  picture's pixels; `compare`, given pictures with one, says what each
+  part that differs is in, on `--diff`'s page too: `412 pixels, in 80x24
+  at 12,40: button "Save"`. `--update` takes the tree with the picture,
+  and removes the reference's own if the new picture has none. Python's
+  `capture` takes `tree=True`.
 - A recipe, in docs/recipes.md: a web app in Chrome, served
   once in a lasting session and pictured as many times as wanted, with
   the flags it needs and why, and what it doesn't.

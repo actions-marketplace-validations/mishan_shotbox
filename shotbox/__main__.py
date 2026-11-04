@@ -365,6 +365,7 @@ def cmd_shoot(argv):
     p.add_argument("--park", action="store_true",
                    help="move the pointer out of the way before the picture")
     vision_option(p)
+    tree_option(p)
     p.add_argument("--timeout", type=float, default=30, metavar="SECS",
                    help="give up on a wait after this long (30)")
     p.add_argument("--log", metavar="FILE", help="keep the command's output here")
@@ -386,7 +387,7 @@ def cmd_shoot(argv):
         p.error("--ignore goes with --wait stable")
     if any(w in ("node", "node:") for w in waits):
         p.error("node needs a regex to look for: an empty one matches any node")
-    a.a11y = a.a11y or "node" in kinds or "announce" in kinds
+    a.a11y = a.a11y or a.tree or "node" in kinds or "announce" in kinds
     if not a.twice and (a.fuzz is not None or a.max is not None):
         p.error("--fuzz and --max go with --twice")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -434,6 +435,8 @@ def twice(a, cmd, waits):
             return 1
         diff.unlink(missing_ok=True)
         os.replace(pics[0], out)
+        if a.tree:
+            os.replace(pics[0].with_suffix(".json"), out.with_suffix(".json"))
     print(a.out)
     return 0
 
@@ -466,7 +469,8 @@ def take(a, cmd, waits, out, watch=False):
             crop = a.crop
             if not crop and (s.scratch / "crop").exists():
                 crop = (s.scratch / "crop").read_text().strip()
-            s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision)
+            s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision,
+                      tree=a.tree)
             # Tiles of 4, so a caret of 7 pixels fills one; a look held
             # up to a second, three times, is one GTK holds for 800 ms.
             blink = watch and next((f for f in s.flicker(2.5, window=a.window, crop=crop, tile=4,
@@ -688,6 +692,12 @@ def cmd_wait(argv):
     return 0
 
 
+def tree_option(p):
+    p.add_argument("--tree", action="store_true",
+                   help="what a screen reader sees there, beside it as OUT.json, its "
+                        "bounds in the picture's pixels: compare names what changed by it")
+
+
 def cmd_capture(argv):
     p = argparse.ArgumentParser(prog="shotbox capture",
                                 description="Inside `shotbox run`: screenshot the display "
@@ -704,12 +714,16 @@ def cmd_capture(argv):
                    help="with --burst: start one every SECS (default: as fast as they come)")
     p.add_argument("--sheet", metavar="FILE",
                    help="with --burst: all the pictures in rows of four here too")
+    tree_option(p)
     a = p.parse_args(argv)
     if a.burst is None:
         if a.every or a.sheet:
             p.error("--every and --sheet go with --burst")
-        inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision)
+        inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision,
+                         tree=a.tree)
         return 0
+    if a.tree:
+        p.error("--tree goes with one picture, not --burst")
     taken = inside().burst(a.out, a.burst, every=a.every, window=a.window, crop=a.crop,
                            park=a.park, vision=a.vision, sheet=a.sheet)
     for path, at in taken:
@@ -1313,6 +1327,39 @@ def shifted(at):
     return f", moved {at[0]},{at[1]}" if any(at) else ""
 
 
+def named(ref, new, at, fuzz, ignore, margin):
+    """Where `new` differs from `ref`, a line each region, naming what a
+    screen reader sees there: the smallest node whose bounds hold it all,
+    in the tree beside the new picture (`capture --tree`), or else the
+    reference's. Nothing without a tree; ten at most, and how many more."""
+    for side, shift in ((new, at), (ref, (0, 0))):
+        tree = Path(side).with_suffix(".json")
+        if tree.exists():
+            break
+    else:
+        return []
+    try:
+        nodes = [n for n in a11y.saved(tree) if isinstance(n.get("bounds"), list)
+                 and len(n["bounds"]) == 4 and all(type(v) is int for v in n["bounds"])
+                 and n["bounds"][2] > 0 and n["bounds"][3] > 0]
+    except SessionError as e:
+        return [f"  (no names: {e})"]
+    lines = []
+    found = x.regions(ref, new, fuzz=fuzz, ignore=ignore, margin=margin, at=at)
+    for n, (w, h, rx, ry) in found[:10]:
+        # The new picture's tree is where it was before it moved to match.
+        rx, ry = rx + shift[0], ry + shift[1]
+        holds = [d for d in nodes if d.bounds[0] <= rx and d.bounds[1] <= ry
+                 and rx + w <= d.bounds[0] + d.bounds[2] and ry + h <= d.bounds[1] + d.bounds[3]]
+        node = min(holds, key=lambda d: (d.bounds[2] * d.bounds[3], -d.depth), default=None)
+        lines.append(f"  {n} pixels, in {w}x{h} at {rx - shift[0]},{ry - shift[1]}: "
+                     + (f"{node.role} {json.dumps(node.name, ensure_ascii=False)}" if node
+                        else "in no node"))
+    if len(found) > 10:
+        lines.append(f"  and {len(found) - 10} more")
+    return lines
+
+
 def review(out, shown, ref, new):
     """index.html in `out`: each (name, what was said, whether it has a
     diff) in `shown`, its reference, new picture and diff side by side,
@@ -1339,7 +1386,7 @@ def review(out, shown, ref, new):
 <style>
 body {{ font: 15px/1.4 sans-serif; margin: 16px; background: #fff; color: #222 }}
 div {{ display: flex; flex-wrap: wrap; gap: 12px }}
-.dirs {{ overflow-wrap: anywhere; color: #555 }}
+.dirs {{ overflow-wrap: anywhere; color: #555 }} p {{ white-space: pre-line }}
 figure {{ margin: 0 }} img {{ max-width: 100%; border: 1px solid #ccc; display: block }}
 .flip {{ display: grid }} .flip img {{ grid-area: 1 / 1 }}
 .flip img + img {{ opacity: 0 }} .flip:hover img + img {{ opacity: 1 }}
@@ -1407,6 +1454,10 @@ def cmd_compare(argv):
             at = x.moved(ref, new, most=most(name), **how) if how["margin"] else (0, 0)
         return *x.compare(ref, new, diff=diff, box=True, at=at, **how), at
 
+    def regions(ref, new, name, at):
+        return "".join(f"\n{line}" for line in named(ref, new, at, fuzz(name), ignore(name),
+                                                     int(per_name(a.margin, name, 0))))
+
     dirs = Path(a.a).is_dir(), Path(a.b).is_dir()
     if dirs[0] != dirs[1]:
         p.error("compare two images, or two directories")
@@ -1427,7 +1478,7 @@ def cmd_compare(argv):
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
-        print(differing(n, box) + shifted(at))
+        print(differing(n, box) + shifted(at) + (regions(a.a, a.b, None, at) if n > most(None) else ""))
         return 0 if n <= most(None) else 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
@@ -1439,23 +1490,30 @@ def cmd_compare(argv):
         Path(a.diff).mkdir(parents=True, exist_ok=True)
     bad, shown = [], []
 
-    def failed(name, ref, new, said, diff=None, taken="updated"):
+    def failed(name, ref, new, said, diff=None, taken="updated", below=""):
         """A picture that fails: on the page, with copies of each side taken
         before --update writes over the reference; then, with --update, the
-        new one is the reference, and said so."""
+        new one is the reference, and said so, and `below` after it."""
         if a.diff:
             for side, f in (("ref", ref), ("new", new)):
                 copy = Path(a.diff) / f"{name}-{side}.png"
                 copy.unlink(missing_ok=True)    # an earlier run's
                 if f.exists():
                     shutil.copyfile(f, copy)
-            shown.append((name, said, diff and diff.exists()))
+            shown.append((name, said + below, diff and diff.exists()))
         if a.update and new.exists():
             shutil.copyfile(new, ref)
+            # The tree beside it, if it has one, goes with it, and the
+            # reference's own, which isn't its any more, goes.
+            with contextlib.suppress(SessionError):
+                a11y.saved(ref.with_suffix(".json"))
+                ref.with_suffix(".json").unlink()
+            if new.with_suffix(".json").exists():
+                shutil.copyfile(new.with_suffix(".json"), ref.with_suffix(".json"))
             print(f"{name}: {said}; {taken}"
-                  + (f"; see {diff}" if diff else ""))
+                  + (f"; see {diff}" if diff else "") + below)
         else:
-            print(f"{name}: {said}" + (f"; see {diff}" if diff else ""))
+            print(f"{name}: {said}" + (f"; see {diff}" if diff else "") + below)
             bad.append(name)
 
     for name in names:
@@ -1473,7 +1531,8 @@ def cmd_compare(argv):
         if n > most(name):
             if diff:
                 compare(ref, new, name, diff, at)
-            failed(name, ref, new, f"{differing(n, box)}{shifted(at)}", diff)
+            failed(name, ref, new, f"{differing(n, box)}{shifted(at)}", diff,
+                   below=regions(ref, new, name, at))
         else:
             print(f"{name}: {'the same' if n == 0 else f'{differing(n, box)}; allowed'}"
                   + shifted(at))
