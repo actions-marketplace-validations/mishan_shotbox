@@ -56,6 +56,11 @@
   same name round it, and each ruled the other out. Nor a Chromium field
   named by a `<label for>`, whose text in the label matched too. The
   field is clicked.
+- The focus renamed just as its window came up ("Check" to "Checked")
+  was sometimes not announced under load, so `wait announce` for it
+  gave up: the recorder looked at the focus again after the rename but
+  before its event, and took the new name for the one it already had.
+  A focus first looked at that late can still be missed.
 
 ## 0.10.0 — 2026-10-23
 

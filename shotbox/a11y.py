@@ -3214,7 +3214,10 @@ def record(out):
     def went(acc):
         try:
             left = focus.get("alert")
-            focus.update(acc=acc, name=acc.get_name())
+            # The same focus looked at again keeps the name it was last
+            # heard by: read now, it may be a rename whose event is to come.
+            if acc != focus.get("acc"):
+                focus.update(acc=acc, name=acc.get_name())
             # GTK 4 says nothing of an alert dialog showing: Orca reads it
             # as the focus goes into it, as it does any dialog, and again
             # each time it comes back. A page's alerts are its live regions.
