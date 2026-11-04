@@ -3047,13 +3047,13 @@ def alone(Atspi, window, node):
                    for _, n in walk(Atspi, window))
 
 
-def watchdog(seconds, what):
-    """End the process if `what` takes longer than `seconds`: libatspi can
-    wait on a program that never answers, inside C, where nothing in
-    Python gets to run."""
+def watchdog(seconds, what, status=1):
+    """End the process, with `status`, if `what` takes longer than
+    `seconds`: libatspi can wait on a program that never answers, inside
+    C, where nothing in Python gets to run."""
     def gone():
         sys.stderr.write(f"shotbox: {what} got no answer in {seconds:g}s\n")
-        os._exit(1)
+        os._exit(status)
     timer = threading.Timer(seconds, gone)
     timer.daemon = True
     timer.start()
@@ -3359,8 +3359,16 @@ def saved(path):
         raise SessionError(f"can't read {path}: {e.strerror}") from None
     except ValueError:
         t = None
-    keys = {"role", "name", "description", "states", "path", "depth"}
-    if not (isinstance(t, list) and all(isinstance(n, dict) and keys <= n.keys() for n in t)):
+
+    # As the tree has them, so a file that isn't one is said, not a
+    # traceback taken for a change.
+    def node(n):
+        return (isinstance(n, dict)
+                and all(isinstance(n.get(k), str) for k in ("role", "name", "description", "path"))
+                and isinstance(n.get("states"), list) and all(isinstance(s, str) for s in n["states"])
+                and type(n.get("depth")) is int and n["depth"] >= 0
+                and (not n.get("quiet") or type(n.get("pid")) is int))
+    if not (isinstance(t, list) and all(map(node, t)) and (not t or t[0]["depth"] == 0)):
         raise SessionError(f"{path} isn't a tree saved by a11y tree --json")
     return [Node(n) for n in t]
 
@@ -3456,7 +3464,8 @@ def read(argv):
     patient(a.timeout)
     # A tree takes a second or two; a press, its settling time and a tree.
     watchdog(60 + a.timeout + (a.max * 5 if a.what == "tabwalk" else 0),
-             "the display" if a.what == "idle" else "the accessible tree")
+             "the display" if a.what == "idle" else "the accessible tree",
+             2 if a.what == "diff" else 1)
     if a.what == "diff":
         if a.after and a.window:
             p.error("--window is for the live tree, compared with one file")
@@ -3465,7 +3474,7 @@ def read(argv):
             said = changes(saved(a.before), saved(a.after) if a.after
                            else listed(a.window, a.timeout, False))
         except SessionError as e:
-            sys.stderr.write(f"shotbox: {e}\n")
+            sys.stderr.write(f"shotbox: {e}{'; ' + unanswered() if QUIET else ''}\n")
             return 2
         for line in said:
             print(line)

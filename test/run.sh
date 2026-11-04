@@ -1776,13 +1776,17 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
   changed=$(printf '%s\n' '~ text "Notes" [focusable, editable], was [focusable, focused, editable]' \
     '~ check box "Wrap lines" [focusable, focused], was [focusable, checked]')
   [ "$(cat "$tmp/diff")" = "$(printf '%s\n1\n%s\n1\n0' "$changed" "$changed")" ] \
-    && head -1 "$tmp/frozen" | grep -q "^! application \"\" (pid [0-9]*) didn't answer" \
-    && [ "$(tail -1 "$tmp/frozen")" = 2 ] \
+    && sed -n 1p "$tmp/frozen" | grep -q "^! application \"\" (pid [0-9]*) didn't answer" \
+    && sed -n 2p "$tmp/frozen" | grep -q '^- frame "a11y-test" .*and [0-9]* inside$' \
+    && [ "$(sed -n '3,$p' "$tmp/frozen")" = 2 ] \
     && ok "a11y: diff: a saved tree against one saved later, or the live one; one against itself; a program that didn't answer" \
     || { fail "a11y: diff"; cat "$tmp/diff" "$tmp/frozen"; }
   echo '{"role": "button"}' > "$tmp/not-tree"
+  echo '[{"role": "frame", "name": ["w"], "description": "", "states": [], "path": "frame[0]",
+    "depth": 0}]' > "$tmp/bad-name"
   bad=
   for r in "$tmp/not-tree|$tmp/not-tree isn't a tree saved by a11y tree --json" \
+      "$tmp/bad-name|$tmp/bad-name isn't a tree saved by a11y tree --json" \
       "$tmp/none|can't read $tmp/none: No such file or directory"; do
     st=0; "$sb" a11y diff "${r%%|*}" "$tmp/t1" > /dev/null 2> "$tmp/err" || st=$?
     [ $st = 2 ] && [ "$(cat "$tmp/err")" = "shotbox: ${r#*|}" ] \

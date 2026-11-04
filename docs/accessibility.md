@@ -234,6 +234,7 @@ tree, or a program that didn't answer, which is a `!` line:
     $ shotbox a11y tree --json --window Editor > before.json
     $ shotbox a11y click "Wrap lines"
     $ shotbox a11y diff before.json --window Editor
+    ~ button "Save" [focusable], was [focusable, focused]
     ~ check box "Wrap lines" [focusable, focused], was [focusable, checked]
 
 ## Where a node is
