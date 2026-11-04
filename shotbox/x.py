@@ -645,6 +645,24 @@ def grab(env, window=None, box=None):
         return None
 
 
+def draw_pointer(frame, width, height, x, y, cursor):
+    """Draw `cursor`, as Display.cursor has it, on `frame`, a bytearray of
+    the display's box (width, height, x, y) four bytes a pixel, blue first:
+    blended as ffmpeg's x11grab blends it, for the same picture."""
+    cx, cy, xhot, yhot, w, h, pixels = cursor
+    left, top = cx - xhot - x, cy - yhot - y
+    for row in range(max(0, -top), min(h, height - top)):
+        for col in range(max(0, -left), min(w, width - left)):
+            i = (row * w + col) * 4
+            a = pixels[i + 3]
+            if a:
+                j = ((top + row) * width + left + col) * 4
+                for k in range(3):
+                    # A cursor whose colors aren't premultiplied goes past 255:
+                    # wrapped, as x11grab's bytes wrap.
+                    frame[j + k] = (pixels[i + k] + (frame[j + k] * (255 - a) + 127) // 255) & 255
+
+
 def rgb(path):
     """A picture's (width, height, RGB bytes), as grab has them."""
     w, h = map(int, size_of(path).split("x"))

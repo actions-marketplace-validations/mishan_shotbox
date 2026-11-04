@@ -2373,6 +2373,22 @@ for i, s in enumerate(sound):
 flashes = [t for (t, white), (_, was) in zip(frames[1:], frames) if white and not was]
 print(" ".join(f"{a - v:.3f}" for v in flashes for a in onsets if abs(a - v) < 0.5))
 PY
+  # The pointer drawn on a box straight from the X server, as x11grab
+  # draws it: the entry's text cursor, its edges see-through, cut down the
+  # middle by the box's left edge, once GTK has put it up.
+  "$sb" run -- sh -c "'$here/window.py' ptr '$tmp/ptr.log' & '$sb' wait window ptr && '$sb' move 95 60 && sleep 0.5 &&
+    ffmpeg -loglevel error -y -f x11grab -draw_mouse 1 -video_size 100x80 -i \$DISPLAY+95,30 -frames:v 1 '$tmp/ptr-ff.png' &&
+    PYTHONPATH='$here/..' python3 -c \"import subprocess
+from shotbox.x import draw_pointer
+from shotbox.xtest import Display
+with Display() as d:
+    frame, c = bytearray(d.pixels(d.root, 95, 30, 100, 80)), d.cursor()
+assert any(0 < a < 255 for a in c[6][3::4]), 'a cursor with no see-through edges'
+draw_pointer(frame, 100, 80, 95, 30, c)
+subprocess.run(['convert', '-size', '100x80', '-depth', '8', 'bgra:-', '-alpha', 'off', '$tmp/ptr.png'], input=frame, check=True)\"" \
+    > "$tmp/ptr-out" 2>&1 && "$sb" compare "$tmp/ptr-ff.png" "$tmp/ptr.png" >> "$tmp/ptr-out" 2>&1 \
+    && ok "the pointer drawn on a picture from the X server, as x11grab draws it" \
+    || { fail "the pointer drawn as x11grab draws it"; cat "$tmp/ptr-out"; }
   # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
   records() {
     opt=$1 pre=$2 say=$3
