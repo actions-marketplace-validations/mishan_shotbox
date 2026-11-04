@@ -99,6 +99,7 @@ class Display:
         # The root's size: after it, a colormap, two pixels and an event mask.
         self.width, self.height = struct.unpack_from("<HH", more, at + 20) if screens else (0, 0)
         self.xtest = self._extension(b"XTEST")
+        self.xfixes = None
         self.keymap = self._keymap()
 
     # --- the wire -------------------------------------------------------------
@@ -131,20 +132,40 @@ class Display:
                     return body
             # anything else is an event; nobody asked for it
 
-    def image(self, drawable, x, y, width, height):
+    def pixels(self, drawable, x, y, width, height):
         """The pixels of a rectangle of `drawable` (a window's id, or the
-        root's), as red, green, blue bytes, a row at a time from the top:
-        or XError if some of it isn't on the screen, or it isn't 24-bit
-        color four bytes a pixel, least significant first, as Xvfb's is."""
+        root's) as the wire has them, blue, green, red and an unused byte
+        each, a row at a time from the top: or XError if some of it isn't
+        on the screen, or it isn't 24-bit color four bytes a pixel, least
+        significant first, as Xvfb's is."""
         self._request(struct.pack("<BBHIhhHHI", 73, 2, 5, drawable, x, y, width, height,
                                   0xFFFFFFFF))     # GetImage, as a ZPixmap
         reply = self._reply()
-        data = bytearray(reply[32:])
+        data = memoryview(reply)[32:]
         if not self.lsb_first or reply[1] != 24 or len(data) != width * height * 4:
             raise XError(f"a {reply[1]}-bit picture, {len(data)} bytes for {width}x{height}")
+        return data
+
+    def image(self, drawable, x, y, width, height):
+        """The pixels as `pixels` has them, as red, green, blue bytes."""
+        data = bytearray(self.pixels(drawable, x, y, width, height))
         del data[3::4]      # each pixel's fourth byte, unused
         data[0::3], data[2::3] = data[2::3], data[0::3]    # blue, green, red on the wire
         return bytes(data)
+
+    def cursor(self):
+        """The pointer's picture, as XFixes has it: (x, y, x hotspot, y
+        hotspot, width, height, pixels), the pixels four bytes each, blue,
+        green, red and alpha, the colors already multiplied by alpha."""
+        if self.xfixes is None:
+            self.xfixes = self._extension(b"XFIXES")
+            # Asked for before any other: the server answers as that version.
+            self._request(struct.pack("<BBHII", self.xfixes, 0, 3, 4, 0))   # QueryVersion
+            self._reply()
+        self._request(struct.pack("<BBH", self.xfixes, 4, 1))      # GetCursorImage
+        reply = self._reply()
+        x, y, w, h, xhot, yhot = struct.unpack_from("<hhHHHH", reply, 8)
+        return x, y, xhot, yhot, w, h, reply[32:32 + w * h * 4]
 
     def sync(self):
         """Wait until the server has handled everything sent so far."""

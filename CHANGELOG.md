@@ -47,6 +47,14 @@
 
 ### Fixed
 
+- `record --sound` on X11 drifted from the sound on a busy machine, a
+  tone up to a tenth of a second or more from its flash, and by
+  different amounts within one file: ffmpeg's x11grab took the frames.
+  shotbox takes them itself now, straight from the X server, with the
+  pointer drawn on for `--pointer`, and hands them to ffmpeg raw, as
+  wf-recorder's are on Wayland.
+- `record --sound` on Wayland lost the first second or so of sound:
+  ffmpeg opened the sound only once it had looked over the first frames.
 - A program a session started that left its process group, as `setsid`
   does (a daemon, a test runner's helper, a browser's own launcher),
   kept running after the session ended normally, with `shotbox run`,

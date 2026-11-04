@@ -2371,8 +2371,32 @@ for i, s in enumerate(sound):
             onsets.append(i / 48000)
         last = i
 flashes = [t for (t, white), (_, was) in zip(frames[1:], frames) if white and not was]
-print(" ".join(f"{a - v:.3f}" for v in flashes for a in onsets if abs(a - v) < 0.5))
+# A flash with no tone by it is "-", but for one whose tone, up to 0.1 s
+# late, the sound may end before.
+print(" ".join(next((f"{a - v:.3f}" for a in onsets if abs(a - v) < 0.5), "-")
+               for v in flashes if v < len(sound) / 48000 - 0.1))
 PY
+  # The pointer drawn on a box straight from the X server, as x11grab
+  # draws it: the entry's text cursor, its edges see-through, cut down the
+  # middle by the box's left edge, once GTK has put it up. Skipped where
+  # the machine's cursor theme has no see-through edges to blend.
+  rm -f "$tmp/ptr-plain"
+  "$sb" run -- sh -c "'$here/window.py' ptr '$tmp/ptr.log' & '$sb' wait window ptr && '$sb' move 95 60 && sleep 0.5 &&
+    ffmpeg -loglevel error -y -f x11grab -draw_mouse 1 -video_size 100x80 -i \$DISPLAY+95,30 -frames:v 1 '$tmp/ptr-ff.png' &&
+    PYTHONPATH='$here/..' python3 -c \"import subprocess
+from shotbox.x import draw_pointer
+from shotbox.xtest import Display
+with Display() as d:
+    frame, c = bytearray(d.pixels(d.root, 95, 30, 100, 80)), d.cursor()
+if not any(0 < a < 255 for a in c[6][3::4]):
+    open('$tmp/ptr-plain', 'w').close()
+    raise SystemExit
+draw_pointer(frame, 100, 80, 95, 30, c)
+subprocess.run(['convert', '-size', '100x80', '-depth', '8', 'bgra:-', '-alpha', 'off', '$tmp/ptr.png'], input=frame, check=True)\"" \
+    > "$tmp/ptr-out" 2>&1 && { [ -e "$tmp/ptr-plain" ] || "$sb" compare "$tmp/ptr-ff.png" "$tmp/ptr.png" >> "$tmp/ptr-out" 2>&1; } \
+    && if [ -e "$tmp/ptr-plain" ]; then echo "skip  the pointer drawn as x11grab draws it: no see-through edges in this cursor theme"
+       else ok "the pointer drawn on a picture from the X server, as x11grab draws it"; fi \
+    || { fail "the pointer drawn as x11grab draws it"; cat "$tmp/ptr-out"; }
   # The same on X11 and on Wayland: records [--wayland] PREFIX LABEL.
   records() {
     opt=$1 pre=$2 say=$3
@@ -2491,10 +2515,12 @@ PY
         { '$sb' record '$tmp/$pre-st.mp4' --window beep --sound --seconds 10 & r=\$!; sleep 2; kill \$r; wait \$r; } &&
         { { sleep 2; echo go > '$tmp/$pre-go-ev'; } &
           '$sb' record '$tmp/$pre-su.mp4' --window beep --sound --seconds 10 --until-line go '$tmp/$pre-go-ev'; } &&
-        : > '$tmp/$pre-go' && { '$sb' record '$tmp/$pre-sp0.mp4' --window beep --sound > /dev/null & p=\$!
+        { '$sb' record '$tmp/$pre-sp0.mp4' --window beep --sound > /dev/null & p=\$!
           '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound --seconds 30 > '$tmp/$pre-heard3' && wait \$p; }" \
         > /dev/null 2>&1 & r=$!
-      n=0; until [ -e "$tmp/$pre-go" ] || [ $n -ge 600 ]; do sleep 0.1; n=$((n + 1)); done; sleep 2
+      # Both begun, ffmpeg having opened the picture and the sound, then 2 s.
+      n=0; until [ -e "$tmp/$pre-sp.mp4" ] && [ -e "$tmp/$pre-sp0.mp4" ] || [ $n -ge 600 ]; do
+        sleep 0.1; n=$((n + 1)); done; sleep 2
       for p in $(pgrep -u "$(id -u)" -x pipewire); do
         { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/$pre-pw/" && kill "$p"
       done
@@ -2513,7 +2539,9 @@ PY
       long=$(sed -n '5p;7p;9p;11p;13p' "$tmp/$pre-av" | awk '{ most = NR == 2 || NR == 5 ? 0.055 : 0.1 }
         !($1 == "h264" && $3 == "aac" && $2 > 1.4 && ($2 - $4) ^ 2 < most ^ 2) { print $0 " (h264 and aac, the picture past 1.4 s, the two within " most " s)" }')
       [ -z "$long" ] || no "picture and sound not as long: $long"
-      offs=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk NF)
+      offs=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | awk 'NF && $1 != "-"')
+      mute=$(sed -n '2p;4p;6p' "$tmp/$pre-av" | tr ' ' '\n' | grep -c '^-$') || :
+      [ "$mute" = 0 ] || no "$mute flashes with no tone by them"
       far=$(echo "$offs" | awk '$1 ^ 2 >= 0.01' | tr '\n' ' ')
       [ -z "$far" ] || no "tones this far from their flashes, past 0.1 s: $far(of $(echo $offs))"
       [ "$(echo "$offs" | grep -c .)" -ge 3 ] || no "$(echo "$offs" | grep -c .) tones by their flashes, not 3 or more"
@@ -2526,6 +2554,22 @@ PY
     fi
   }
   records "" rec record
+  # --sound --pointer: the pointer in the picture, where it is (100,60 less
+  # its hotspot, whatever size the cursor theme makes it), and nothing else
+  # changed.
+  if audio; then
+    "$sb" run --audio -- sh -c "'$here/window.py' ptr '$tmp/ptr.log' & '$sb' wait window ptr && '$sb' move 100 60 &&
+      sleep 0.5 && PYTHONPATH='$here/..' python3 -c 'from shotbox.xtest import Display
+x, y, xhot, yhot, w, h, _ = Display().cursor(); print(x - xhot, y - yhot, x - xhot + w, y - yhot + h)' > '$tmp/rec-ptr-box' &&
+      '$sb' record '$tmp/rec-pp.mp4' --window ptr --seconds 1 --sound --pointer &&
+      '$sb' record '$tmp/rec-p0.mp4' --window ptr --seconds 1 --sound" > "$tmp/rec-ptr" 2>&1 \
+      && for f in pp p0; do ffmpeg -loglevel error -y -ss 0.5 -i "$tmp/rec-$f.mp4" -frames:v 1 "$tmp/rec-$f.png"; done \
+      && c=$("$sb" compare "$tmp/rec-pp.png" "$tmp/rec-p0.png" --fuzz 10% 2>&1 || :) \
+      && echo "$c" | awk -v box="$(cat "$tmp/rec-ptr-box")" '{ split(box, b, " "); split($5, s, "x"); split($7, at, ",") }
+        !(/pixels differ, in/ && at[1] >= b[1] && at[2] >= b[2] && at[1] + s[1] <= b[3] && at[2] + s[2] <= b[4]) { exit 1 }' \
+      && ok "record --sound --pointer: the pointer drawn where it is, and only there" \
+      || { fail "record --sound --pointer: ${c-}"; cat "$tmp/rec-ptr"; }
+  fi
   # Run from where another shotbox is, the keeper is still this one.
   mkdir -p "$tmp/other/shotbox"; : > "$tmp/other/shotbox/__init__.py"
   echo 'raise ImportError("the other shotbox")' > "$tmp/other/shotbox/x.py"
