@@ -316,6 +316,18 @@ kill -0 $other 2>/dev/null && [ ! -e "$d/$kept.json" ] \
   && ok "stop: a session that's gone, forgotten, and its pid left alone" \
   || fail "stop: killed $other, someone else's"
 kill $other 2>/dev/null || true
+# A runtime dir that isn't there, as after a logout, or one you can't
+# make a dir in, as under su, said by each command that keeps sessions.
+bad=
+for c in sessions "sessions --stale" "start --name $kept-xdg" "stop $kept-xdg"; do
+  for r in "$tmp/gone|XDG_RUNTIME_DIR is $tmp/gone, which isn't a directory: unset it, or point it at your runtime directory" \
+      "/|can't make /shotbox: Permission denied"; do
+    st=0; XDG_RUNTIME_DIR=${r%%|*} "$sb" $c > /dev/null 2> "$tmp/err" || st=$?
+    [ $st = 1 ] && [ "$(cat "$tmp/err")" = "shotbox: ${r#*|}" ] \
+      || { bad=1; fail "$c, with XDG_RUNTIME_DIR=${r%%|*} ($st)"; cat "$tmp/err"; }
+  done
+done
+[ -z "$bad" ] && ok "sessions, start and stop: a runtime dir that isn't there, or can't hold theirs, said"
 # Killed outright, a run's watchdog stops what's left of its session and
 # removes its scratch dir: a session's started in it too, and a recording
 # is finished first; with --keep, the dir stays. Killed with it, as a whole
