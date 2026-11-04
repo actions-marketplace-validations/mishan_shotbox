@@ -87,10 +87,10 @@ class Screen:
         to `failed` if it's set, and saying where."""
         shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
         if self.failed and shown and x.try_capture(self.env, self.failed, self.backend):
-            message += f"; the screen then: {self.failed}"
-        e = SessionError(message)
-        e.failed = True
-        raise e
+            e = SessionError(f"{message}; the screen then: {self.failed}")
+            e.failed = True
+            raise e
+        raise SessionError(message)
 
     def until(self, what, test, timeout=30, alive=None):
         """Poll `test()` until it returns something true, and return that;
@@ -100,7 +100,7 @@ class Screen:
         try:
             return wait_for(what, test, timeout, alive=alive)
         except SessionError as e:
-            # One the test failed with itself has said all it will.
+            # One the test failed with, its picture taken, has said all it will.
             if _CANCEL.is_set() or getattr(e, "failed", False):
                 raise
             self.fail(str(e) + (test.there() if hasattr(test, "there") else ""))

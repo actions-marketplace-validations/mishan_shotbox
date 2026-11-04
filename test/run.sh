@@ -2536,7 +2536,7 @@ subprocess.run(['convert', '-size', '100x80', '-depth', '8', 'bgra:-', '-alpha',
           '$sb' record '$tmp/$pre-sp.mp4' --window beep --sound --seconds 30 > '$tmp/$pre-heard3' && wait \$p; }" \
         > /dev/null 2>&1 & r=$!
       # Both begun, ffmpeg having opened the picture and the sound, then 2 s.
-      n=0; until [ -e "$tmp/$pre-sp.mp4" ] && [ -e "$tmp/$pre-sp0.mp4" ] || [ $n -ge 600 ]; do
+      n=0; until [ -e "$tmp/$pre-sp.mp4" ] && [ -e "$tmp/$pre-sp0.mp4" ] || [ $n -ge 1800 ]; do
         sleep 0.1; n=$((n + 1)); done; sleep 2
       for p in $(pgrep -u "$(id -u)" -x pipewire); do
         { tr '\0' '\n' < "/proc/$p/environ"; } 2>/dev/null | grep -q "^XDG_RUNTIME_DIR=$tmp/$pre-pw/" && kill "$p"
