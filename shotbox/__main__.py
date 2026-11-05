@@ -1552,11 +1552,12 @@ def cmd_compare(argv):
     # A node only some pictures show is left out where it's there; one no
     # picture's tree has is a mistake, said before anything is updated.
     for node in a.ignore_node:
-        trees = [t for d in (a.a, a.b) for name in names
-                 if (t := Path(d) / f"{name}.json").exists()]
         try:
-            # Each read, so one that isn't a tree is said before anything's updated.
-            if not any(map(x.boxed, x.picked(node, [n for t in trees for n in a11y.saved(t)]))):
+            # Each read, so one that isn't a tree is said before anything's
+            # updated; then the name picked a pair at a time, as node_boxes does.
+            pairs = [[n for d in (a.a, a.b) if (t := Path(d) / f"{name}.json").exists()
+                      for n in a11y.saved(t)] for name in names]
+            if not any(any(map(x.boxed, x.picked(node, pair))) for pair in pairs):
                 sys.stderr.write(f"shotbox: no node named {node!r}{x.pattern(node)[1]} in the trees beside "
                                  "the pictures (capture --tree)\n")
                 return 2

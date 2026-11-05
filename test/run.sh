@@ -2462,6 +2462,13 @@ cmp -s "$tmp/in-ref/a.png" "$tmp/in/ref.png"; st9=$?
 cp "$tmp/in/ref.png" "$tmp/in-ref/c.png"; cp "$tmp/in/new.png" "$tmp/in-new/c.png"; echo '{"not": "a tree"}' > "$tmp/in-new/c.json"
 "$sb" compare "$tmp/in-ref" "$tmp/in-new" --ignore-node 12:01 --update 2> "$tmp/in/bad" > /dev/null; st10=$?
 cmp -s "$tmp/in-ref/a.png" "$tmp/in/ref.png" && cmp -s "$tmp/in-ref/c.png" "$tmp/in/ref.png"; st11=$?
+# The name picked a pair at a time: one pair's a.c, without bounds, isn't
+# what another's abc is named by.
+mkdir -p "$tmp/pp-ref" "$tmp/pp-new"
+for n in p q; do cp "$tmp/in/ref.png" "$tmp/pp-ref/$n.png"; cp "$tmp/in/new.png" "$tmp/pp-new/$n.png"; done
+printf '[{"role": "label", "name": "a.c", "description": "", "states": [], "path": "label[0]", "bounds": null, "depth": 0}]' > "$tmp/pp-new/p.json"
+printf '[{"role": "label", "name": "abc", "description": "", "states": [], "path": "label[0]", "bounds": [150, 80, 3, 3], "depth": 0}]' > "$tmp/pp-new/q.json"
+"$sb" compare "$tmp/pp-ref" "$tmp/pp-new" --ignore-node a.c > "$tmp/in/pp" 2>&1; st14=$?
 "$sb" compare "$tmp/in/ref.png" "$tmp/in/moved.png" --ignore-node Nope 2> "$tmp/in/nope"; st4=$?
 "$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node 12:01 2> "$tmp/in/none"; st5=$?; set -e
 # A node named exactly so is the one left out, not others the name, as a
@@ -2475,7 +2482,8 @@ cp "$tmp/in/ref.png" "$tmp/ex-ref/e.png"; cp "$tmp/in/new.png" "$tmp/in/new.json
 set +e; "$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node '1.:01' 2> "$tmp/in/unb"; st12=$?
 "$sb" compare "$tmp/ex-ref" "$tmp/ex-new" --ignore-node '1.:01' 2>> "$tmp/in/unb" > /dev/null; st13=$?; set -e; rm "$tmp/in/new.json"
 left='  50 pixels, in 10x5 at 12,12: frame "w"'
-[ "$st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 $st10 $st11 $st12 $st13" = "1 1 1 2 2 0 1 2 0 2 0 2 2" ] \
+[ "$st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 $st10 $st11 $st12 $st13 $st14" = "1 1 1 2 2 0 1 2 0 2 0 2 2 1" ] \
+  && grep -qx 'q: 50 pixels differ, in 10x5 at 12,12' "$tmp/in/pp" \
   && grep -q "c.json isn't a tree saved by a11y tree --json" "$tmp/in/bad" && [ "$(grep -c "no node named '1.:01'" "$tmp/in/unb")" = 2 ] \
   && [ "$noise" = "0 pixels differ, moved 7,6" ] && [ "$(echo "$exact" | head -1)" = "59 pixels differ, in 141x71 at 12,12" ] \
   && [ "$(echo "$dirs" | head -2)" = "$(printf 'a: 50 pixels differ, in 10x5 at 12,12\n%s' "$left")" ] \
@@ -2483,8 +2491,8 @@ left='  50 pixels, in 10x5 at 12,12: frame "w"'
   && [ "$two" = "$one" ] && [ "$moved" = "$(printf '50 pixels differ, in 10x5 at 12,12, moved 2,1\n%s' "$left")" ] \
   && grep -q "no node named 'Nope' in $tmp/in/moved.json" "$tmp/in/nope" && grep -q "needs a tree beside" "$tmp/in/none" \
   && ok "compare --ignore-node: a node left out where a tree beside either picture has it" \
-  || { fail "compare --ignore-node ($st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 ${st10-} ${st11-} ${st12-} ${st13-})"; printf '%s\n' "$one" "$two" "$moved" "$noise" "$dirs" "$exact"
-       cat "$tmp/in/nope" "$tmp/in/none" "$tmp/in/typo" "$tmp/in/unb"; }
+  || { fail "compare --ignore-node ($st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 ${st10-} ${st11-} ${st12-} ${st13-} ${st14-})"; printf '%s\n' "$one" "$two" "$moved" "$noise" "$dirs" "$exact"
+       cat "$tmp/in/nope" "$tmp/in/none" "$tmp/in/typo" "$tmp/in/unb" "$tmp/in/pp"; }
 
 # A burst: five pictures a tenth of a second apart, numbered, and a sheet
 # of them in rows of four.
