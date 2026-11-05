@@ -309,7 +309,7 @@ class Screen:
         self.until(*self.test("stable", seconds, window, crop, ignore), timeout)
 
     def wait_match(self, ref, window=None, crop=None, fuzz="0%", most=0, timeout=30,
-                   ignore=(), margin=0):
+                   ignore=(), margin=0, ignore_node=(), click=None):
         """Wait until the display, or the window named `window`, cropped
         (WxH+X+Y), looks like the picture `ref`: `most` pixels or fewer
         differ by more than `fuzz`, as `shotbox compare` counts, but for
@@ -318,7 +318,11 @@ class Screen:
         `margin`, the picture may be up to that many pixels from the crop's
         place each way, and is found where it matches best. A Match: the
         seconds it took, and x, y, its top left corner, as the crop's is
-        (the crop's own without a margin, 0, 0 without a crop)."""
+        (the crop's own without a margin, 0, 0 without a crop). With
+        `ignore_node`, names, each node so named is left out too, where the
+        tree has it as the wait starts. With `click`, True or (x, y) in the
+        picture, it's clicked there once it matches: at its middle for
+        True, as for a canvas or a game that has no tree to click by."""
         # png: so a name like msl:FILE is a file, not ImageMagick's coder.
         try:
             x.size_of(f"png:{ref}")
@@ -328,15 +332,71 @@ class Screen:
             self.fail(f"a margin is a whole number of pixels, not {margin!r}")
         if margin and not crop:
             self.fail("a margin goes with a crop: where the picture is looked for")
-        return Match(*self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most, timeout,
-                                       ignore, margin))
+        if click:
+            w, h = map(int, x.size_of(f"png:{ref}").split("x"))
+            cx, cy = (w // 2, h // 2) if click is True else (
+                click if isinstance(click, tuple) and len(click) == 2 else (-1, -1))
+            if not (type(cx) is int and type(cy) is int and 0 <= cx < w and 0 <= cy < h):
+                self.fail(f"click is True or (x, y) in the {w}x{h} picture, not {click!r}")
+        began = time.monotonic()
+        # Grown by the margin each way: the picture's place is still to be
+        # found, and what's in it moves with it.
+        boxes = self.node_boxes(ignore_node, window, crop, timeout, margin)
+        with self._timed(timeout):
+            got = Match(*self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most,
+                                          max(0, timeout - (time.monotonic() - began)),
+                                          [*ignore, *boxes], margin))
+        if click:
+            self.click(got.x + cx, got.y + cy, window=window)
+        return got
 
-    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30, ignore=()):
+    def wait_change(self, window=None, crop=None, fuzz="0%", most=0, timeout=30, ignore=(),
+                    ignore_node=()):
         """Wait until the display, or the window named `window`, cropped,
         looks different from the first picture the wait takes: more than
         `most` pixels differ by more than `fuzz`, but for those in
-        `ignore`, as wait_match's. The seconds it took."""
-        return self._wait_looks(None, None, window, crop, fuzz, most, timeout, ignore)[0]
+        `ignore` and `ignore_node`, as wait_match's. The seconds it took."""
+        began = time.monotonic()
+        boxes = self.node_boxes(ignore_node, window, crop, timeout)
+        with self._timed(timeout):
+            return self._wait_looks(None, None, window, crop, fuzz, most,
+                                    max(0, timeout - (time.monotonic() - began)),
+                                    [*ignore, *boxes])[0]
+
+    @contextlib.contextmanager
+    def _timed(self, timeout):
+        """A wait given what's left of `timeout` says it gave up after all of it."""
+        try:
+            yield
+        except SessionError as e:
+            said = SessionError(re.sub(r"^(gave up .*?after )[\d.e-]+s",
+                                       lambda m: f"{m[1]}{timeout:g}s", str(e)))
+            said.failed = getattr(e, "failed", False)     # its picture taken, for until
+            raise said from None
+
+    def node_boxes(self, names, window=None, crop=None, timeout=30, grow=0):
+        """Where the nodes named each of `names` are, exactly or else as a
+        regex matched in full, in what's taken of the window or display,
+        cropped, grown by `grow` each way: WxH+X+Y each, cut to what's in
+        it; the window waited for up to `timeout` first. Failing for a name
+        no node with bounds has."""
+        if not names:
+            return []
+        if window:
+            self.wait_window(window, timeout)
+        offset = x.box_of(crop)[2:] if crop and x.box_of(crop) else (0, 0)
+        nodes = self.a11y_tree(window)
+        boxes = []
+        for name in names:
+            found = [n.bounds for n in x.picked(name, nodes) if x.boxed(n)]
+            if not found:
+                self.fail(f"no node named {name!r}{x.pattern(name)[1]} to leave out")
+            for bx, by, bw, bh in found:
+                bx, by, bw, bh = bx - offset[0] - grow, by - offset[1] - grow, bw + 2 * grow, bh + 2 * grow
+                bw, bh = bw + min(bx, 0), bh + min(by, 0)
+                if bw > 0 and bh > 0:
+                    boxes.append(f"{bw}x{bh}+{max(bx, 0)}+{max(by, 0)}")
+        return boxes
 
     def wait_idle(self, window=None, timeout=30, notes=None):
         """Wait until each program with a window shown, or with one `window`

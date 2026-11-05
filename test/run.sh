@@ -1951,6 +1951,32 @@ sys.exit(want != got or not any(n['role'] in ('button', 'push button') for n in 
     && grep -q "start the session with --a11y" "$tmp/tw-no" && [ ! -e "$tmp/tw-no.png" ] && [ ! -e "$tmp/tw-no.json" ] \
     && ok "a11y: capture --tree: the tree beside the picture, in its pixels, cropped" \
     || { fail "a11y: capture --tree"; cat "$tmp/tw-out" "$tmp/tw-no"; }
+  # --ignore-node: the clock left out where it is as the wait starts, the
+  # window holds still, and the whole of it matches; without, it changes.
+  # --click: at X,Y in the picture (4,4: not on Go), or at its middle (Go's
+  # own picture), once matched; Go clicked once. A node no one has, said.
+  : > "$tmp/clk.log"
+  "$sb" run --a11y -- sh -c "'$here/window.py' clk clock '$tmp/clk.log' & '$sb' wait window clk >/dev/null &&
+    '$sb' wait change --window clk --timeout 2 > /dev/null &&
+    ! '$sb' wait change --window clk --ignore-node '[0-9.]+ s' --timeout 2 2> '$tmp/clk-still' &&
+    go=\$('$sb' a11y tree --window clk --json | python3 -c 'import json, sys
+print(\"{2}x{3}+{0}+{1}\".format(*next(n for n in json.load(sys.stdin) if n[\"name\"] == \"Go\")[\"bounds\"]))') &&
+    '$sb' capture '$tmp/clk-all.png' --window clk && '$sb' capture '$tmp/clk-go.png' --window clk --crop \$go &&
+    '$sb' wait match '$tmp/clk-all.png' --window clk --ignore-node '[0-9.]+ s' --click 4,4 --timeout 5 > /dev/null &&
+    '$sb' wait match '$tmp/clk-go.png' --window clk --crop \$go --click --timeout 5 > /dev/null && sleep 0.5 &&
+    ! '$sb' wait change --window clk --ignore-node Nope --timeout 1 2> '$tmp/clk-err' &&
+    ! '$sb' wait match '$tmp/clk-go.png' --window clk --click 999,1 --timeout 1 2>> '$tmp/clk-err'" > "$tmp/clk-out" 2>&1 \
+    && [ "$(cat "$tmp/clk.log")" = clicked ] && grep -q "no node named 'Nope' to leave out" "$tmp/clk-err" \
+    && grep -q "^shotbox: gave up waiting for the window 'clk' to change after 2s$" "$tmp/clk-still" \
+    && grep -q "click is True or (x, y) in the [0-9]*x[0-9]* picture, not (999, 1)" "$tmp/clk-err" \
+    && ok "a11y: wait match and change --ignore-node, a clock left out; wait match --click, where it matched" \
+    || { fail "a11y: wait --ignore-node and --click"; cat "$tmp/clk-out" "$tmp/clk.log" "$tmp/clk-err"; }
+  # A node with nothing in it, 0 pixels tall, is no node to leave out.
+  ! "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' empty & '$sb' wait window gtk4-empty >/dev/null &&
+    '$sb' wait change --window gtk4-empty --ignore-node Nothing --timeout 2" > "$tmp/empty-out" 2>&1 \
+    && grep -q "no node named 'Nothing' to leave out" "$tmp/empty-out" \
+    && ok "a11y: wait --ignore-node: a node 0 pixels tall, said to be none" \
+    || { fail "a11y: wait --ignore-node, a node 0 pixels tall"; cat "$tmp/empty-out"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
@@ -2400,6 +2426,73 @@ said="$(printf '%s\n' '  50 pixels, in 10x5 at 12,12: button "Save"' '  9 pixels
   && [ ! -e "$tmp/tr-ref/v.json" ] && [ -L "$tmp/tr-ref/w.json" ] && [ ! -e "$tmp/tr/gone.json" ] \
   && ok "compare: a tree beside a picture names what each region that differs is in" \
   || { fail "compare, named by a tree ($st $st2 $st3 $st4)"; printf '%s\n--\n' "$one" "$two" "$moved" "$dirs"; }
+
+# compare --ignore-node: the node's box, from the tree beside the new
+# picture or the reference, left out; moved to match (--margin), where the
+# new tree has it, moved back. No such node, or no tree, said (status 2).
+mkdir -p "$tmp/in"
+convert -size 200x100 xc:white -fill gray -draw "rectangle 60,60 70,70" "$tmp/in/ref.png"
+convert "$tmp/in/ref.png" -fill black -draw "rectangle 12,12 21,16" -draw "rectangle 150,80 152,82" "$tmp/in/new.png"
+convert "$tmp/in/new.png" -roll +2+1 "$tmp/in/moved.png"
+clock() {   # clock FILE X Y: a frame, and a label "12:01" 3x3 at X,Y
+  printf '[{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 200, 100], "depth": 0},
+    {"role": "label", "name": "12:01", "description": "", "states": [], "path": "frame/label[0]", "bounds": [%s, %s, 3, 3], "depth": 1}]' "$2" "$3" > "$1"; }
+clock "$tmp/in/new.json" 150 80; clock "$tmp/in/moved.json" 152 81
+st=0; one=$("$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node '[0-9]+:[0-9]+') || st=$?
+mv "$tmp/in/new.json" "$tmp/in/ref.json"
+st2=0; two=$("$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node '12:01') || st2=$?
+rm "$tmp/in/ref.json"
+st3=0; moved=$("$sb" compare "$tmp/in/ref.png" "$tmp/in/moved.png" --margin 3 --ignore-node '12:01') || st3=$?
+# Moved, the new tree alone: the clock left out round where it is while
+# the move is looked for, so a clock too big to be outvoted doesn't hide it.
+convert -size 100x100 xc: +noise Random -fill black -draw "rectangle 40,40 59,59" "$tmp/in/nref.png"
+convert "$tmp/in/nref.png" -fill white -draw "rectangle 40,40 59,59" -roll +7+6 "$tmp/in/nnew.png"
+printf '[{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 100, 100], "depth": 0},
+  {"role": "label", "name": "c", "description": "", "states": [], "path": "frame/label[0]", "bounds": [47, 46, 20, 20], "depth": 1}]' > "$tmp/in/nnew.json"
+st6=0; noise=$("$sb" compare "$tmp/in/nref.png" "$tmp/in/nnew.png" --margin 8 --ignore-node c) || st6=$?
+# In directories, a pair whose trees lack the node leaves nothing out; a
+# name no tree has is said before anything is updated.
+mkdir -p "$tmp/in-ref" "$tmp/in-new"
+for n in a b; do cp "$tmp/in/ref.png" "$tmp/in-ref/$n.png"; cp "$tmp/in/new.png" "$tmp/in-new/$n.png"; done
+clock "$tmp/in-new/a.json" 150 80; cp "$tmp/in-ref/b.png" "$tmp/in-new/b.png"
+st7=0; dirs=$("$sb" compare "$tmp/in-ref" "$tmp/in-new" --ignore-node 12:01) || st7=$?
+set +e; "$sb" compare "$tmp/in-ref" "$tmp/in-new" --ignore-node Typo --update 2> "$tmp/in/typo"; st8=$?
+cmp -s "$tmp/in-ref/a.png" "$tmp/in/ref.png"; st9=$?
+# Nor a tree that isn't one: said before anything is updated.
+cp "$tmp/in/ref.png" "$tmp/in-ref/c.png"; cp "$tmp/in/new.png" "$tmp/in-new/c.png"; echo '{"not": "a tree"}' > "$tmp/in-new/c.json"
+"$sb" compare "$tmp/in-ref" "$tmp/in-new" --ignore-node 12:01 --update 2> "$tmp/in/bad" > /dev/null; st10=$?
+cmp -s "$tmp/in-ref/a.png" "$tmp/in/ref.png" && cmp -s "$tmp/in-ref/c.png" "$tmp/in/ref.png"; st11=$?
+# The name picked a pair at a time: one pair's a.c, without bounds, isn't
+# what another's abc is named by.
+mkdir -p "$tmp/pp-ref" "$tmp/pp-new"
+for n in p q; do cp "$tmp/in/ref.png" "$tmp/pp-ref/$n.png"; cp "$tmp/in/new.png" "$tmp/pp-new/$n.png"; done
+printf '[{"role": "label", "name": "a.c", "description": "", "states": [], "path": "label[0]", "bounds": null, "depth": 0}]' > "$tmp/pp-new/p.json"
+printf '[{"role": "label", "name": "abc", "description": "", "states": [], "path": "label[0]", "bounds": [150, 80, 3, 3], "depth": 0}]' > "$tmp/pp-new/q.json"
+"$sb" compare "$tmp/pp-ref" "$tmp/pp-new" --ignore-node a.c > "$tmp/in/pp" 2>&1; st14=$?
+"$sb" compare "$tmp/in/ref.png" "$tmp/in/moved.png" --ignore-node Nope 2> "$tmp/in/nope"; st4=$?
+"$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node 12:01 2> "$tmp/in/none"; st5=$?; set -e
+# A node named exactly so is the one left out, not others the name, as a
+# regex, also matches.
+printf '[{"role": "label", "name": "1.:01", "description": "", "states": [], "path": "label[0]", "bounds": [0, 0, 3, 3], "depth": 0},
+  {"role": "label", "name": "12:01", "description": "", "states": [], "path": "label[1]", "bounds": [150, 80, 3, 3], "depth": 0}]' > "$tmp/in/new.json"
+exact=$("$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node '1.:01') || true
+# Nor, that node having no bounds, others: it's said, alone or in directories.
+sed -i 's/"bounds": \[0, 0, 3, 3\]/"bounds": null/' "$tmp/in/new.json"; mkdir -p "$tmp/ex-ref" "$tmp/ex-new"
+cp "$tmp/in/ref.png" "$tmp/ex-ref/e.png"; cp "$tmp/in/new.png" "$tmp/in/new.json" "$tmp/ex-new/"; mv "$tmp/ex-new/new.png" "$tmp/ex-new/e.png"; mv "$tmp/ex-new/new.json" "$tmp/ex-new/e.json"
+set +e; "$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node '1.:01' 2> "$tmp/in/unb"; st12=$?
+"$sb" compare "$tmp/ex-ref" "$tmp/ex-new" --ignore-node '1.:01' 2>> "$tmp/in/unb" > /dev/null; st13=$?; set -e; rm "$tmp/in/new.json"
+left='  50 pixels, in 10x5 at 12,12: frame "w"'
+[ "$st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 $st10 $st11 $st12 $st13 $st14" = "1 1 1 2 2 0 1 2 0 2 0 2 2 1" ] \
+  && grep -qx 'q: 50 pixels differ, in 10x5 at 12,12' "$tmp/in/pp" \
+  && grep -q "c.json isn't a tree saved by a11y tree --json" "$tmp/in/bad" && [ "$(grep -c "no node named '1.:01'" "$tmp/in/unb")" = 2 ] \
+  && [ "$noise" = "0 pixels differ, moved 7,6" ] && [ "$(echo "$exact" | head -1)" = "59 pixels differ, in 141x71 at 12,12" ] \
+  && [ "$(echo "$dirs" | head -2)" = "$(printf 'a: 50 pixels differ, in 10x5 at 12,12\n%s' "$left")" ] \
+  && echo "$dirs" | grep -qx "b: the same" && grep -q "no node named 'Typo' in the trees" "$tmp/in/typo" && [ "$one" = "$(printf '50 pixels differ, in 10x5 at 12,12\n%s' "$left")" ] \
+  && [ "$two" = "$one" ] && [ "$moved" = "$(printf '50 pixels differ, in 10x5 at 12,12, moved 2,1\n%s' "$left")" ] \
+  && grep -q "no node named 'Nope' in $tmp/in/moved.json" "$tmp/in/nope" && grep -q "needs a tree beside" "$tmp/in/none" \
+  && ok "compare --ignore-node: a node left out where a tree beside either picture has it" \
+  || { fail "compare --ignore-node ($st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 ${st10-} ${st11-} ${st12-} ${st13-} ${st14-})"; printf '%s\n' "$one" "$two" "$moved" "$noise" "$dirs" "$exact"
+       cat "$tmp/in/nope" "$tmp/in/none" "$tmp/in/typo" "$tmp/in/unb" "$tmp/in/pp"; }
 
 # A burst: five pictures a tenth of a second apart, numbered, and a sheet
 # of them in rows of four.
