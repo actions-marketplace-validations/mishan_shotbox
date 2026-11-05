@@ -1709,6 +1709,8 @@ for w in "" gtk4-old; do
   done
 done
 timed "$sb" a11y tree --timeout 2
+# A wait leaving a node out reads the tree once, in what's left of its time.
+timed "$sb" wait change --ignore-node Save --window gtk4-old --timeout 2
 # --window picks the window of one that answers, and one that doesn't.
 python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import GLib, Gtk
 Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & other=$!
@@ -1866,8 +1868,9 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     '$sb' a11y tree --json --window a11y-test > '$tmp/t2' &&
     { '$sb' a11y diff '$tmp/t1' --window a11y-test; echo \$?; '$sb' a11y diff '$tmp/t1' '$tmp/t2'; echo \$?
       '$sb' a11y diff '$tmp/t2' '$tmp/t2'; echo \$?; }" > "$tmp/diff" 2> "$tmp/diff-err" || true
-  "$sb" run --a11y -- sh -c "'$app' freeze & '$here/window.py' a11y-test &
-    '$sb' wait node Freeze >/dev/null &&
+  # The other a11y-test window is on the bus before the one frozen comes.
+  "$sb" run --a11y -- sh -c "'$here/window.py' a11y-test & '$sb' a11y tree --window a11y-test >/dev/null
+    '$app' freeze & '$sb' wait node Freeze >/dev/null &&
     '$sb' a11y click Freeze >/dev/null && sleep 0.5 && { '$sb' a11y diff '$tmp/t2' --timeout 2; echo \$?
       '$sb' a11y diff '$tmp/t2' --window a11y-test --timeout 2; echo \$?; }" \
     > "$tmp/frozen" 2>> "$tmp/diff-err" || true

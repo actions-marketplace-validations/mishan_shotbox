@@ -2,8 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- Color at a terminal: `mutate`'s verdicts (BRITTLE yellow, BLIND red,
+  robust and caught green), `compare`'s differences between two
+  pictures and what they're in, `a11y lint` and `contrast`'s node paths
+  and notes, and what `a11y speak` heard. Into a pipe or a file, and
+  with `--json`, the text is plain as it was; `NO_COLOR` keeps a
+  terminal plain and `FORCE_COLOR` colors anywhere, a command given
+  `--session` taking the caller's.
+
 ### Fixed
 
+- `wait match` and `wait change` with `--ignore-node` (Python's
+  `ignore_node`, MCP's) read the tree for the nodes' boxes with ten
+  seconds of their own, whatever was left of the wait's `--timeout`: a
+  program that didn't answer held a two-second wait for about ten. The
+  read now gets what's left.
+- The GitHub Action's `apt-get` printed nothing while it fetched, and
+  waited on a mirror that had stopped sending: an install has sat
+  silent for eight minutes. It says each fetch, and gives up on a
+  connection after 30 s and tries again, three times.
 - MCP's progress for a long call could go on ticking for the requests
   after it, as `notifications/progress` with their tokens (or none):
   its thread followed the server on to the next request. Each call's

@@ -382,10 +382,11 @@ class Screen:
         no node with bounds has."""
         if not names:
             return []
+        began = time.monotonic()
         if window:
             self.wait_window(window, timeout)
         offset = x.box_of(crop)[2:] if crop and x.box_of(crop) else (0, 0)
-        nodes = self.a11y_tree(window)
+        nodes = self.a11y_tree(window, timeout - (time.monotonic() - began))
         boxes = []
         for name in names:
             found = [n.bounds for n in x.picked(name, nodes) if x.boxed(n)]
@@ -959,14 +960,18 @@ class Screen:
                                       said, flags=re.M)) from None
         return self._windowed([n], window, at)[0]
 
-    def a11y_tree(self, window=None):
+    def a11y_tree(self, window=None, timeout=10):
         """Every node a screen reader sees, depth first: dicts (and
         attributes) of role, name, description, states, path, depth, and
         bounds, [x, y, width, height]: on the screen, or with `window`, in
-        that window's x,y; or None where they can't be told."""
+        that window's x,y; or None where they can't be told. The window,
+        and a program slow to answer, are waited for up to `timeout`."""
         from .a11y import Node
+        # A little, at least: none at all would count every program as not answering.
+        timeout = max(timeout, 0.1)
         return self._windowed([Node(n) for n in self._a11y(
-            "tree", *([f"--window={window}"] if window else []))], window)
+            "tree", f"--timeout={timeout:g}", *([f"--window={window}"] if window else []),
+            timeout=90 + timeout)], window)
 
     def find(self, role=None, name=None, window=None):
         """The nodes with this role ("button") and named `name`: those
