@@ -341,8 +341,8 @@ class Screen:
         began = time.monotonic()
         # Grown by the margin each way: the picture's place is still to be
         # found, and what's in it moves with it.
-        boxes = self.node_boxes(ignore_node, window, crop, timeout, margin)
         with self._timed(timeout):
+            boxes = self.node_boxes(ignore_node, window, crop, timeout, margin)
             got = Match(*self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most,
                                           max(0, timeout - (time.monotonic() - began)),
                                           [*ignore, *boxes], margin))
@@ -357,8 +357,8 @@ class Screen:
         `most` pixels differ by more than `fuzz`, but for those in
         `ignore` and `ignore_node`, as wait_match's. The seconds it took."""
         began = time.monotonic()
-        boxes = self.node_boxes(ignore_node, window, crop, timeout)
         with self._timed(timeout):
+            boxes = self.node_boxes(ignore_node, window, crop, timeout)
             return self._wait_looks(None, None, window, crop, fuzz, most,
                                     max(0, timeout - (time.monotonic() - began)),
                                     [*ignore, *boxes])[0]
@@ -967,7 +967,7 @@ class Screen:
         that window's x,y; or None where they can't be told. The window,
         and a program slow to answer, are waited for up to `timeout`."""
         from .a11y import Node
-        # A little, at least: none at all would count every program as not answering.
+        # A wait whose time is all gone still looks once, as wait_for does.
         timeout = max(timeout, 0.1)
         return self._windowed([Node(n) for n in self._a11y(
             "tree", f"--timeout={timeout:g}", *([f"--window={window}"] if window else []),

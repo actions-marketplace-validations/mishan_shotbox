@@ -1728,6 +1728,7 @@ EOF
     / a11y (lint|contrast) --timeout 2: / && $2 != 2 ||
     !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
+    && grep -q " wait change .* after 2s; program " "$tmp/hung" \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
   [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
