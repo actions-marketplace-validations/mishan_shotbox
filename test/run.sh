@@ -2454,6 +2454,37 @@ said="$(printf '%s\n' '  50 pixels, in 10x5 at 12,12: button "Save"' '  9 pixels
   && ok "compare: a tree beside a picture names what each region that differs is in" \
   || { fail "compare, named by a tree ($st $st2 $st3 $st4)"; printf '%s\n--\n' "$one" "$two" "$moved" "$dirs"; }
 
+# GTK 4 says where a widget is without its containers' padding, so text
+# can sit partly outside its own node: named by the one child of the
+# smallest node holding it that has most of it, and no other much of it;
+# split between two children, by the node holding both.
+mkdir -p "$tmp/gk"
+convert -size 100x80 xc:white "$tmp/gk/ref.png"
+convert "$tmp/gk/ref.png" -fill black -draw "rectangle 40,40 59,49" "$tmp/gk/new.png"
+kids() {   # kids FILE CHILD CHILD: a frame, a panel "p", and two children in it
+  printf '[{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 100, 80], "depth": 0},
+    {"role": "panel", "name": "p", "description": "", "states": [], "path": "frame/panel[0]", "bounds": [30, 30, 60, 30], "depth": 1},
+    %s, %s]' "$2" "$3" > "$1"; }
+kid() { printf '{"role": "%s", "name": "%s", "description": "", "states": [], "path": "frame/panel[0]/%s[%s]", "bounds": [%s], "depth": 2}' "$@"; }
+kids "$tmp/gk/new.json" "$(kid label Status label 0 '38, 36, 22, 10')" "$(kid button Go button 1 '62, 40, 10, 10')"
+gk1=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+kids "$tmp/gk/new.json" "$(kid button A button 0 '30, 30, 22, 30')" "$(kid button B button 1 '52, 30, 38, 30')"
+gk2=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+# Nor is a change round a child, as a frame's, named by what's inside it.
+convert "$tmp/gk/ref.png" -fill none -stroke black -draw "rectangle 35,35 64,54" "$tmp/gk/ring.png"
+kids "$tmp/gk/ring.json" "$(kid list Files list 0 '37, 37, 26, 16')" "$(kid button Go button 1 '80, 70, 5, 5')"
+gk3=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/ring.png" | tail -1) || true
+# Nor is a child of a twin window, the same path, taken for the window's own.
+kids "$tmp/gk/new.json" "$(kid label Status label 0 '38, 36, 22, 10')" \
+  '{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 100, 80], "depth": 0},
+  {"role": "panel", "name": "q", "description": "", "states": [], "path": "frame/panel[0]", "bounds": [70, 0, 30, 20], "depth": 1},
+  {"role": "label", "name": "Other", "description": "", "states": [], "path": "frame/panel[0]/label[0]", "bounds": [41, 40, 30, 10], "depth": 2}'
+gk4=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+[ "$gk1" = '  200 pixels, in 20x10 at 40,40: label "Status"' ] && [ "$gk2" = '  200 pixels, in 20x10 at 40,40: panel "p"' ] \
+  && [ "$gk3" = '  208 pixels, in 31x21 at 35,35: panel "p"' ] && [ "$gk4" = "$gk1" ] \
+  && ok "compare: a region partly outside its node, as GTK 4 places it, named by it; split, by what holds both" \
+  || { fail "compare, GTK 4's places"; printf '%s\n' "$gk1" "$gk2" "$gk3" "$gk4"; }
+
 # compare --ignore-node: the node's box, from the tree beside the new
 # picture or the reference, left out; moved to match (--margin), where the
 # new tree has it, moved back. No such node, or no tree, said (status 2).
