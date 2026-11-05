@@ -1509,8 +1509,11 @@ def cmd_compare(argv):
             with contextlib.suppress(SessionError):
                 a11y.saved(ref.with_suffix(".json"))
                 ref.with_suffix(".json").unlink()
-            if new.with_suffix(".json").exists() and not ref.with_suffix(".json").exists():
-                shutil.copyfile(new.with_suffix(".json"), ref.with_suffix(".json"))
+            # Not through a link left there, to wherever it points.
+            if not os.path.lexists(ref.with_suffix(".json")):
+                with contextlib.suppress(SessionError):
+                    a11y.saved(new.with_suffix(".json"))
+                    shutil.copyfile(new.with_suffix(".json"), ref.with_suffix(".json"))
             print(f"{name}: {said}; {taken}"
                   + (f"; see {diff}" if diff else "") + below)
         else:

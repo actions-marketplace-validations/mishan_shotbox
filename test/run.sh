@@ -1938,9 +1938,10 @@ except shotbox.SessionError as e:
     '$sb' capture '$tmp/tw.png' --window tw --crop 60x30+10+5 --tree &&
     ! '$sb' capture '$tmp/tw-b.png' --window tw --tree --burst 2 2> '$tmp/tw-b'" > "$tmp/tw-out" 2>&1 \
     && "$sb" run -- sh -c "! '$sb' capture '$tmp/tw-no.png' --tree 2> '$tmp/tw-no'" \
-    && for t in "" --twice; do "$sb" shoot "$tmp/tw-s$t.png" --window tw --tree $t -- "$here/window.py" tw /dev/null corner \
-         > /dev/null 2>> "$tmp/tw-out" && grep -Eq '"role": "(push )?button"' "$tmp/tw-s$t.json" || break; done \
-    && [ -e "$tmp/tw-s--twice.json" ] && grep -q "goes with one picture" "$tmp/tw-b" \
+    && "$sb" shoot "$tmp/tw-s.png" --window tw --tree -- "$here/window.py" tw /dev/null corner > /dev/null 2>> "$tmp/tw-out" \
+    && "$sb" shoot "$tmp/tw-t.png" --window tw --tree --twice -- "$here/window.py" tw /dev/null corner > /dev/null 2>> "$tmp/tw-out" \
+    && grep -Eq '"role": "(push )?button"' "$tmp/tw-s.json" && grep -Eq '"role": "(push )?button"' "$tmp/tw-t.json" \
+    && grep -q "goes with one picture" "$tmp/tw-b" \
     && python3 -c "import json, sys
 want, got = (json.load(open(f)) for f in sys.argv[1:3])
 for n in want:
@@ -2384,14 +2385,19 @@ cp "$tmp/tr/new.png" "$tmp/tr-new/x.png"; tree "$tmp/tr-new/x.json" 12 12
 # there that isn't a tree stays, the new picture's tree or not.
 for y in y z; do cp "$tmp/tr/ref.png" "$tmp/tr-ref/$y.png"; cp "$tmp/tr/new.png" "$tmp/tr-new/$y.png"; done
 tree "$tmp/tr-ref/y.json" 0 0; echo '{}' > "$tmp/tr-ref/z.json"; tree "$tmp/tr-new/z.json" 12 12
+# Nor is a new one that isn't a tree taken, nor a tree written through a
+# link left beside the reference.
+for v in v w; do cp "$tmp/tr/ref.png" "$tmp/tr-ref/$v.png"; cp "$tmp/tr/new.png" "$tmp/tr-new/$v.png"; done
+echo '{}' > "$tmp/tr-new/v.json"; tree "$tmp/tr-new/w.json" 12 12; ln -sfn "$tmp/tr/gone.json" "$tmp/tr-ref/w.json"
 st4=0; dirs=$("$sb" compare "$tmp/tr-ref" "$tmp/tr-new" x --update) || st4=$?
-"$sb" compare "$tmp/tr-ref" "$tmp/tr-new" y z --update > /dev/null
+"$sb" compare "$tmp/tr-ref" "$tmp/tr-new" v w y z --update > /dev/null
 said="$(printf '%s\n' '  50 pixels, in 10x5 at 12,12: button "Save"' '  9 pixels, in 3x3 at 150,80: in no node')"
 [ "$st $st2 $st3 $st4" = "1 1 1 0" ] \
   && [ "$one" = "$(printf '59 pixels differ, in 141x71 at 12,12\n%s' "$said")" ] && [ "$two" = "$one" ] \
   && [ "$moved" = "$(printf '59 pixels differ, in 141x71 at 12,12, moved 2,1\n%s' "$said")" ] \
   && [ "$dirs" = "$(printf 'x: 59 pixels differ, in 141x71 at 12,12; updated\n%s' "$said")" ] \
   && cmp -s "$tmp/tr-ref/x.json" "$tmp/tr-new/x.json" && [ ! -e "$tmp/tr-ref/y.json" ] && [ "$(cat "$tmp/tr-ref/z.json")" = '{}' ] \
+  && [ ! -e "$tmp/tr-ref/v.json" ] && [ -L "$tmp/tr-ref/w.json" ] && [ ! -e "$tmp/tr/gone.json" ] \
   && ok "compare: a tree beside a picture names what each region that differs is in" \
   || { fail "compare, named by a tree ($st $st2 $st3 $st4)"; printf '%s\n--\n' "$one" "$two" "$moved" "$dirs"; }
 
