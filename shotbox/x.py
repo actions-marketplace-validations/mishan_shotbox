@@ -36,6 +36,13 @@ def pattern(spec):
     return (lambda name: name == spec or rx.fullmatch(name) is not None), ""
 
 
+def boxed(node):
+    """Whether a node's bounds are a box with something in it."""
+    b = node.get("bounds")
+    return (isinstance(b, list) and len(b) == 4 and all(type(v) is int for v in b)
+            and b[2] > 0 and b[3] > 0)
+
+
 def picked(spec, items, name=lambda n: n.name):
     """Of `items`, those named `spec` exactly, if any, else those pattern()
     matches: a name that's also a regex, "a.c", not taken for "abc" too."""

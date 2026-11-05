@@ -388,7 +388,7 @@ class Screen:
         nodes = self.a11y_tree(window)
         boxes = []
         for name in names:
-            found = [n.bounds for n in x.picked(name, nodes) if n.get("bounds")]
+            found = [n.bounds for n in x.picked(name, nodes) if x.boxed(n)]
             if not found:
                 self.fail(f"no node named {name!r}{x.pattern(name)[1]} to leave out")
             for bx, by, bw, bh in found:

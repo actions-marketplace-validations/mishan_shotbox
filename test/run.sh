@@ -1971,6 +1971,12 @@ print(\"{2}x{3}+{0}+{1}\".format(*next(n for n in json.load(sys.stdin) if n[\"na
     && grep -q "click is True or (x, y) in the [0-9]*x[0-9]* picture, not (999, 1)" "$tmp/clk-err" \
     && ok "a11y: wait match and change --ignore-node, a clock left out; wait match --click, where it matched" \
     || { fail "a11y: wait --ignore-node and --click"; cat "$tmp/clk-out" "$tmp/clk.log" "$tmp/clk-err"; }
+  # A node with nothing in it, 0 pixels tall, is no node to leave out.
+  ! "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' empty & '$sb' wait window gtk4-empty >/dev/null &&
+    '$sb' wait change --window gtk4-empty --ignore-node Nothing --timeout 2" > "$tmp/empty-out" 2>&1 \
+    && grep -q "no node named 'Nothing' to leave out" "$tmp/empty-out" \
+    && ok "a11y: wait --ignore-node: a node 0 pixels tall, said to be none" \
+    || { fail "a11y: wait --ignore-node, a node 0 pixels tall"; cat "$tmp/empty-out"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&
