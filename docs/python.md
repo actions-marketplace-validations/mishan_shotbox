@@ -22,9 +22,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `wait_port(n)`, `wait_file(path)`, `wait_ready()`,
   `wait_line(re, path, from_start=False)` (returns the line),
   `wait_stable(secs=0.5, window=None, crop=None, ignore=())`, `wait_match(ref, window=None,
-  crop=None, fuzz="0%", most=0, ignore=(), margin=0)` and
+  crop=None, fuzz="0%", most=0, ignore=(), margin=0, ignore_node=(), click=None)` and
   `wait_change(...)` (as `shotbox wait match` and `change`, `ignore` a
-  list of `WxH+X+Y` boxes; `wait_match` returns a `Match(seconds, x, y)`,
+  list of `WxH+X+Y` boxes, `ignore_node` of nodes' names, `click` True or
+  (x, y) in the picture; `wait_match` returns a `Match(seconds, x, y)`,
   x, y where the picture matched: where a `margin` found it, else the
   crop's corner, or 0, 0; `wait_change` the seconds),
   `wait_idle(window=None, timeout=30, notes=None)` (as `shotbox wait idle`:

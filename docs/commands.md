@@ -98,7 +98,15 @@ it's up (a boot, a login screen), and `shotbox wait change [--window RE]
 [--crop G]` until it looks different from the first picture the wait takes
 (a window still drawing is a picture too: `wait stable` first); each
 counts pixels as `shotbox compare` does (`--fuzz PCT%`, `--max`, `--ignore
-G` in the picture taken), and prints how long it took. `shotbox wait idle
+G` in the picture taken), and prints how long it took. With `--a11y`,
+`--ignore-node NAME` (repeatable; exactly, else a regex in full) leaves out
+each node so named where the tree has it as the wait starts (the window
+waited for first, the node already there), a clock or a spinner, without
+coordinates that drift with the layout; with `--margin`, grown by it each
+way, as what's in the picture moves with it. `wait match
+--click [X,Y]` then clicks where it matched, at the picture's middle or at
+X,Y in it, as openQA's `assert_and_click` does: for a canvas or a game,
+with no tree to click by. `shotbox wait idle
 [--window RE]` waits until each program with a window shown (or the one
 asked for) has answered just now, within 50 ms, three times in a row,
 at least 100 ms apart, which a program busy on its main thread can't. It
@@ -482,6 +490,12 @@ regression test. `--ignore WxH+X+Y` (repeatable) leaves out a box, as
 `flicker`'s does, that changes from run to run, a clock or a cursor, as
 openQA's exclude areas and Playwright's `mask` do, rather than a `--fuzz`
 loose enough to hide real changes; the diff shows it filled magenta.
+`--ignore-node NAME` (repeatable) leaves out the node so named where a
+tree beside either picture has it (`capture --tree`), the new one's moved
+back with `--margin`: a clock, wherever the layout puts it. With
+directories, a picture whose trees lack it leaves nothing out, so a clock
+only some screens show needs no list of them; a name no tree has is
+refused before anything is compared or updated.
 `--margin PX` compares B where it matches A best, up to PX pixels off each
 way, and says how far it moved (`0 pixels differ, moved 2,-1`), passing or
 failing; a band PX wide round the edge, where what moved in or out was, is

@@ -835,7 +835,7 @@ class Server:
 
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
                  fuzz=None, most=None, file=None, from_start=False, ignore=None,
-                 margin=None):
+                 margin=None, ignore_node=None, click=False):
         s = self.session(session)
         if what not in WAITS:
             raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
@@ -843,6 +843,12 @@ class Server:
         # Each call holds the server till it's done: not for long.
         timeout = number(timeout, "timeout", 0, 300)
         timeout = 10 if timeout is None else timeout
+        if ignore_node and what not in ("match", "change"):
+            raise Refused("ignore_node goes with match and change")
+        if flag(click) and what != "match":
+            raise Refused("click goes with match")
+        # A name with a space is one name, not two.
+        ignore_node = [ignore_node] if isinstance(ignore_node, str) else words(ignore_node)
         if what in ("match", "change"):
             fuzz = f"{number(fuzz, 'fuzz', 0, 100) or 0:.6f}".rstrip("0").rstrip(".") + "%"
             most = int(number(most, "most", 0) or 0)
@@ -851,9 +857,11 @@ class Server:
                 raise Refused("margin goes with match")
             if what == "match":
                 got = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
-                                   timeout, words(ignore), margin)
-                return f"It matches {value}, after {got.seconds:.3f} s, at {got.x},{got.y}."
-            at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore))
+                                   timeout, words(ignore), margin, ignore_node, flag(click))
+                return (f"It matches {value}, after {got.seconds:.3f} s, at {got.x},{got.y}"
+                        + (", and was clicked at its middle." if flag(click) else "."))
+            at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore),
+                               ignore_node)
             return f"It changed, after {at:.3f} s."
         if what == "idle":
             if value is not None:
@@ -1276,6 +1284,12 @@ TOOLS = [
              "margin": {"type": "integer", "minimum": 0, "maximum": 32,
                         "description": "match, with crop: pixels the picture may be from "
                         "the crop's place each way, up to 32; answers where it matched (0)"},
+             "ignore_node": {"type": "array", "items": {"type": "string"},
+                             "description": "match, change: nodes to leave out, by name "
+                             "(exactly, else a regex in full), where they are as the wait "
+                             "starts: a clock, a spinner. Needs an a11y session"},
+             "click": {"type": "boolean", "description": "match: then click its middle, for "
+                       "a canvas or a game with no tree to click by"},
              "file": {"type": "string", "description": "line's, by its path from the allow "
                       "file's directory"},
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},

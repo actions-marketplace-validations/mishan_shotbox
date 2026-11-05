@@ -4,6 +4,15 @@
 
 ### Added
 
+- `--ignore-node NAME` leaves out a node by its name, where there's a
+  tree: `compare`'s from the tree beside either picture, `wait match` and
+  `wait change`'s from the live one as the wait starts; a clock or a
+  spinner needn't be given as coordinates that drift with the layout.
+  Python's `wait_match` and `wait_change` take `ignore_node`, MCP's
+  `wait_for` `ignore_node`.
+- `wait match --click [X,Y]` clicks where the picture matched, at its
+  middle or at X,Y in it, for a canvas or a game with no tree to click
+  by; Python's `wait_match(click=)`, MCP's `wait_for` match with `click`.
 - `shotbox capture --tree` (with `--a11y`) and `shoot --tree` write the
   accessible tree beside the picture, `OUT.json`, its bounds in the
   picture's pixels; `compare`, given pictures with one, says what each

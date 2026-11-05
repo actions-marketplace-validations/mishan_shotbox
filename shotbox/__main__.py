@@ -641,6 +641,13 @@ def cmd_wait(argv):
     p.add_argument("--margin", type=int, default=0, metavar="PX",
                    help="for match, with --crop: the picture may be up to PX pixels "
                         "from the crop's place each way; say where it matched (0)")
+    p.add_argument("--ignore-node", action="append", default=[], metavar="NAME",
+                   help="for match and change: leave out the node so named (exactly, "
+                        "else a regex in full), where it is as the wait starts (needs "
+                        "--a11y; repeatable)")
+    p.add_argument("--click", nargs="?", const="", metavar="X,Y",
+                   help="for match: then click where it matched, at its middle, or X,Y in "
+                        "the picture")
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
@@ -648,6 +655,8 @@ def cmd_wait(argv):
     # Intermixed, so `line --from-start RE FILE` reads RE and FILE on
     # Python 3.12.3 too, whose parse_args settles both before the option.
     a = p.parse_intermixed_args(argv)
+    if a.click and not re.fullmatch(r"\d+,\d+", a.click):
+        p.error(f"--click is X,Y in the picture, not {a.click} (the picture goes before --click)")
     if a.kind == "match" and not a.arg:
         p.error("match needs the picture to look like")
     if a.kind == "node" and not a.arg:
@@ -667,6 +676,11 @@ def cmd_wait(argv):
         p.error("--crop and --ignore go with stable, match and change")
     if a.margin and a.kind != "match":
         p.error("--margin goes with match")
+    if a.ignore_node and not looks:
+        p.error("--ignore-node goes with match and change")
+    if a.click is not None and a.kind != "match":
+        p.error("--click goes with match")
+    click = a.click is not None and (tuple(map(int, a.click.split(","))) if a.click else True)
     screen = inside(display=a.kind not in ("port", "file", "ready", "line"))
     screen.failed = a.failed or screen.failed
     if a.kind == "line":
@@ -683,11 +697,11 @@ def cmd_wait(argv):
                                   ignore=a.ignore), a.timeout)
         return 0
     how = dict(window=a.window, crop=a.crop, fuzz="0%" if a.fuzz is None else a.fuzz,
-               most=a.max or 0, timeout=a.timeout, ignore=a.ignore)
+               most=a.max or 0, timeout=a.timeout, ignore=a.ignore, ignore_node=a.ignore_node)
     if a.kind == "change":
         print(f"{screen.wait_change(**how):.3f}s")
     else:
-        got = screen.wait_match(a.arg, margin=a.margin, **how)
+        got = screen.wait_match(a.arg, margin=a.margin, click=click, **how)
         print(f"{got.seconds:.3f}s" + (f" at {got.x},{got.y}" if a.margin else ""))
     return 0
 
@@ -1327,6 +1341,48 @@ def shifted(at):
     return f", moved {at[0]},{at[1]}" if any(at) else ""
 
 
+def bounded(tree):
+    """The nodes with bounds in the tree saved at `tree`, or SessionError."""
+    return [n for n in a11y.saved(tree) if isinstance(n.get("bounds"), list)
+            and len(n["bounds"]) == 4 and all(type(v) is int for v in n["bounds"])
+            and n["bounds"][2] > 0 and n["bounds"][3] > 0]
+
+
+def node_boxes(ref, new, names, at, grow=0, strict=True):
+    """Where the nodes named each of `names` (exactly, else as a regex in
+    full) are, in the trees beside `ref` and `new`, the new one's moved
+    back by `at` and grown by `grow` each way (where it moved to is still
+    to be found): in each, so one that moved is left out at both places.
+    Boxes (width, height, x, y), cut to the picture's corner. ValueError
+    for no tree, or a name neither tree has; unless not `strict`, when
+    those leave nothing out."""
+    if not names:
+        return []
+    trees = [(t, shift, g) for side, shift, g in ((ref, (0, 0), 0), (new, at, grow))
+             if (t := Path(side).with_suffix(".json")).exists()]
+    if not trees and not strict:
+        return []
+    if not trees:
+        raise ValueError(f"--ignore-node needs a tree beside {ref} or {new} (capture --tree)")
+    try:
+        nodes = [(n, shift, g) for t, shift, g in trees for n in bounded(t)]
+    except SessionError as e:
+        raise ValueError(str(e)) from None
+    boxes = []
+    for name in names:
+        match, note = x.pattern(name)
+        found = [(n.bounds, shift, g) for n, shift, g in nodes if match(n.name)]
+        if not found and strict:
+            raise ValueError(f"no node named {name!r}{note} in "
+                             + " or ".join(str(t) for t, *_ in trees))
+        for (bx, by, bw, bh), (dx, dy), g in found:
+            bx, by, bw, bh = bx - dx - g, by - dy - g, bw + 2 * g, bh + 2 * g
+            bw, bh = bw + min(bx, 0), bh + min(by, 0)
+            if bw > 0 and bh > 0:
+                boxes.append((bw, bh, max(bx, 0), max(by, 0)))
+    return boxes
+
+
 def named(ref, new, at, fuzz, ignore, margin):
     """Where `new` differs from `ref`, a line each region, naming what a
     screen reader sees there: the smallest node whose bounds hold it all,
@@ -1339,9 +1395,7 @@ def named(ref, new, at, fuzz, ignore, margin):
     else:
         return []
     try:
-        nodes = [n for n in a11y.saved(tree) if isinstance(n.get("bounds"), list)
-                 and len(n["bounds"]) == 4 and all(type(v) is int for v in n["bounds"])
-                 and n["bounds"][2] > 0 and n["bounds"][3] > 0]
+        nodes = bounded(tree)
     except SessionError as e:
         return [f"  (no names: {e})"]
     lines = []
@@ -1423,6 +1477,10 @@ def cmd_compare(argv):
     p.add_argument("--ignore", action="append", default=[], metavar="[NAME=]WxH+X+Y",
                    help="leave out this box: a clock, a cursor; NAME=WxH+X+Y for one "
                         "picture (repeatable)")
+    p.add_argument("--ignore-node", action="append", default=[], metavar="NODE",
+                   help="leave out the node so named (exactly, else a regex in full), "
+                        "where the tree beside either picture has it (capture --tree; "
+                        "repeatable)")
     p.add_argument("--margin", action="append", default=[], metavar="[NAME=]PX",
                    help="B may have moved up to PX pixels each way: compare it where it "
                         "matches best, but for a band PX wide round the edge (0); NAME=PX "
@@ -1448,15 +1506,20 @@ def cmd_compare(argv):
     def compare(ref, new, name, diff=None, at=None):
         """compare's count and box where `new` matches best within the
         margin, and how far it moved to (`at`, if that's known)."""
-        how = dict(fuzz=fuzz(name), ignore=ignore(name),
-                   margin=int(per_name(a.margin, name, 0)))
+        margin = int(per_name(a.margin, name, 0))
+        how = dict(fuzz=fuzz(name), margin=margin, ignore=ignore(name) + node_boxes(
+            ref, new, a.ignore_node, (0, 0), margin, strict=not dirs[0]))
         if at is None:
-            at = x.moved(ref, new, most=most(name), **how) if how["margin"] else (0, 0)
+            at = x.moved(ref, new, most=most(name), **how) if margin else (0, 0)
+        how["ignore"] = ignore(name) + node_boxes(ref, new, a.ignore_node, at,
+                                                  strict=not dirs[0])
         return *x.compare(ref, new, diff=diff, box=True, at=at, **how), at
 
     def regions(ref, new, name, at):
-        return "".join(f"\n{line}" for line in named(ref, new, at, fuzz(name), ignore(name),
-                                                     int(per_name(a.margin, name, 0))))
+        return "".join(f"\n{line}" for line in named(
+            ref, new, at, fuzz(name),
+            ignore(name) + node_boxes(ref, new, a.ignore_node, at, strict=not dirs[0]),
+            int(per_name(a.margin, name, 0))))
 
     dirs = Path(a.a).is_dir(), Path(a.b).is_dir()
     if dirs[0] != dirs[1]:
@@ -1486,6 +1549,21 @@ def cmd_compare(argv):
     if not names:
         sys.stderr.write(f"shotbox: no pictures in {a.a}\n")
         return 2
+    # A node only some pictures show is left out where it's there; one no
+    # picture's tree has is a mistake, said before anything is updated.
+    for node in a.ignore_node:
+        match, note = x.pattern(node)
+        trees = [t for d in (a.a, a.b) for name in names
+                 if (t := Path(d) / f"{name}.json").exists()]
+        try:
+            # Each read, so one that isn't a tree is said before anything's updated.
+            if not any(match(n.name) for n in [n for t in trees for n in bounded(t)]):
+                sys.stderr.write(f"shotbox: no node named {node!r}{note} in the trees beside "
+                                 "the pictures (capture --tree)\n")
+                return 2
+        except SessionError as e:
+            sys.stderr.write(f"shotbox: {e}\n")
+            return 2
     if a.diff:
         Path(a.diff).mkdir(parents=True, exist_ok=True)
     bad, shown = [], []

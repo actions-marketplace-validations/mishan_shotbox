@@ -44,6 +44,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"freeze = {here / 'a11y_app.py'} freeze\n"
                  f"block = {here / 'gtk4_window.py'} block {tmp / 'block.log'} 1\n"
                  "plain = xmessage -title plain hi\n"
+                 f"clock = {here / 'window.py'} clk clock {tmp / 'clk.log'}\n"
                  f"ready = {here / 'a11y_app.py'} ready\n"
                  f"fading = {here / 'a11y_app.py'} faint fading\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
@@ -528,6 +529,23 @@ try:
     check(bad and not bad2 and not bad3 and left == cut == "It has held still.",
           f"wait_for: stable, a box left out or a crop holding still ({said}; {left}; {cut})")
     tool("stop_session", session="k")
+    # A clock left out by its node's name, and the rest holds still and
+    # matches; the match then clicked at its middle, on Go.
+    tool("start_session", name="c")
+    tool("spawn_program", session="c", program="clock")
+    tool("wait_for", session="c", what="window", value="clk", timeout="20")
+    said, bad, _ = tool("wait_for", session="c", what="change", window="clk", timeout=2)
+    left, bad2, _ = tool("wait_for", session="c", what="change", window="clk",
+                         ignore_node=["[0-9.]+ s"], timeout=2)
+    _, _, content = tool("take_screenshot", session="c", window="clk")
+    (tmp / "clk.png").write_bytes(base64.b64decode(next(c for c in content if c["type"] == "image")["data"]))
+    hit, bad3, _ = tool("wait_for", session="c", what="match", value="clk.png", window="clk",
+                        ignore_node=["[0-9.]+ s"], click=True, timeout=5)
+    time.sleep(0.5)
+    check(not bad and bad2 and not bad3 and hit.endswith(", and was clicked at its middle.")
+          and (tmp / "clk.log").read_text() == "clicked\n",
+          f"wait_for: change and match, a clock left out by name; a match clicked ({said}; {left}; {hit})")
+    tool("stop_session", session="c")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.
