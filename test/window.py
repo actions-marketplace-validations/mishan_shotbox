@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE ticking MS,
-or TITLE flash MS, or
+or TITLE flash MS, or TITLE clock LOG, or
 TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
@@ -151,6 +151,21 @@ elif sys.argv[2:3] == ["flip"]:
         return True
     GLib.timeout_add(int(sys.argv[3]), flip)
     w.add(square)
+elif sys.argv[2:3] == ["clock"]:
+    # A label counting the seconds, a tenth at a time, as a clock does, above
+    # a Go button that writes "clicked" to LOG.
+    box, clock, go, n = Gtk.Box(orientation=Gtk.Orientation.VERTICAL), Gtk.Label(), Gtk.Button(label="Go"), [0]
+
+    def tick():
+        n[0] += 1
+        clock.set_text(f"{n[0] // 10}.{n[0] % 10} s")
+        return True
+    tick()
+    GLib.timeout_add(100, tick)
+    go.connect("clicked", lambda b: open(sys.argv[3], "a").write("clicked\n"))
+    box.pack_start(clock, False, False, 8)
+    box.pack_start(go, False, False, 8)
+    w.add(box)
 elif sys.argv[2:3] == ["ticking"]:
     area, black = Gtk.DrawingArea(), [False]
 
