@@ -369,8 +369,10 @@ class Screen:
         try:
             yield
         except SessionError as e:
-            raise SessionError(re.sub(r"^(gave up .*?after )[\d.e-]+s",
-                                      lambda m: f"{m[1]}{timeout:g}s", str(e))) from None
+            said = SessionError(re.sub(r"^(gave up .*?after )[\d.e-]+s",
+                                       lambda m: f"{m[1]}{timeout:g}s", str(e)))
+            said.failed = getattr(e, "failed", False)     # its picture taken, for until
+            raise said from None
 
     def node_boxes(self, names, window=None, crop=None, timeout=30, grow=0):
         """Where the nodes named each of `names` are, exactly or else as a
@@ -383,13 +385,12 @@ class Screen:
         if window:
             self.wait_window(window, timeout)
         offset = x.box_of(crop)[2:] if crop and x.box_of(crop) else (0, 0)
-        nodes = [n for n in self.a11y_tree(window) if n.get("bounds")]
+        nodes = self.a11y_tree(window)
         boxes = []
         for name in names:
-            named, note = x.pattern(name)
-            found = [n.bounds for n in nodes if named(n.name)]
+            found = [n.bounds for n in x.picked(name, nodes) if x.boxed(n)]
             if not found:
-                self.fail(f"no node named {name!r}{note} to leave out")
+                self.fail(f"no node named {name!r}{x.pattern(name)[1]} to leave out")
             for bx, by, bw, bh in found:
                 bx, by, bw, bh = bx - offset[0] - grow, by - offset[1] - grow, bw + 2 * grow, bh + 2 * grow
                 bw, bh = bw + min(bx, 0), bh + min(by, 0)

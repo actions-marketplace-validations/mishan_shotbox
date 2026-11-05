@@ -542,10 +542,21 @@ try:
     (tmp / "clk.png").write_bytes(base64.b64decode(next(c for c in content if c["type"] == "image")["data"]))
     hit, bad3, _ = tool("wait_for", session="c", what="match", value="clk.png", window="clk",
                         ignore_node=["[0-9.]+ s"], click=True, timeout=5)
+    # Clicked, Go has a focus ring: pictured again.
+    tool("wait_for", session="c", what="stable", window="clk", ignore=["200x40+0+0"], timeout=5)
+    _, _, content = tool("take_screenshot", session="c", window="clk")
+    (tmp / "clk2.png").write_bytes(base64.b64decode(next(c for c in content if c["type"] == "image")["data"]))
+    at, bad4, _ = tool("wait_for", session="c", what="match", value="clk2.png", window="clk",
+                       ignore_node=["[0-9.]+ s"], click=[4, 60], timeout=5)
+    odd, bad5, _ = tool("wait_for", session="c", what="match", value="clk2.png", window="clk",
+                        click="sideways", timeout=5)
     time.sleep(0.5)
     check(not bad and bad2 and not bad3 and hit.endswith(", and was clicked at its middle.")
-          and (tmp / "clk.log").read_text() == "clicked\n",
-          f"wait_for: change and match, a clock left out by name; a match clicked ({said}; {left}; {hit})")
+          and not bad4 and at.endswith(", and was clicked at 4,60 in it.")
+          and bad5 and "not 'sideways'" in odd
+          and (tmp / "clk.log").read_text() == "clicked\nclicked\n",
+          f"wait_for: change and match, a clock left out by name; a match clicked at its "
+          f"middle or [x, y]; click neither, refused ({said}; {left}; {hit}; {at}; {odd})")
     tool("stop_session", session="c")
     # A node in a state, with a value, so many of them, and one gone.
     tool("start_session", name="l")

@@ -199,6 +199,17 @@ def flag(v):
     return v in (True, 1) or str(v).lower() in ("true", "yes", "1")
 
 
+def clicked(v):
+    """wait_for's click: True for the picture's middle, (x, y) in it, or False."""
+    if isinstance(v, (list, tuple)) and len(v) == 2 and all(type(c) is int for c in v):
+        return tuple(v)
+    if v in (None, False, 0) or str(v).lower() in ("false", "no", "0", ""):
+        return False
+    if flag(v):
+        return True
+    raise Refused(f"click is true, for the picture's middle, or [x, y] in it, not {v!r}")
+
+
 def words(v):
     """A list, or text split at commas and spaces: `"Tab Tab"`, `["Tab", "Tab"]`."""
     if v is None:
@@ -848,7 +859,8 @@ class Server:
         timeout = 10 if timeout is None else timeout
         if ignore_node and what not in ("match", "change"):
             raise Refused("ignore_node goes with match and change")
-        if flag(click) and what != "match":
+        click = clicked(click)
+        if click and what != "match":
             raise Refused("click goes with match")
         # A name with a space is one name, not two.
         ignore_node = [ignore_node] if isinstance(ignore_node, str) else words(ignore_node)
@@ -860,9 +872,10 @@ class Server:
                 raise Refused("margin goes with match")
             if what == "match":
                 got = s.wait_match(self.reference(value), text(window), text(crop), fuzz, most,
-                                   timeout, words(ignore), margin, ignore_node, flag(click))
+                                   timeout, words(ignore), margin, ignore_node, click)
                 return (f"It matches {value}, after {got.seconds:.3f} s, at {got.x},{got.y}"
-                        + (", and was clicked at its middle." if flag(click) else "."))
+                        + (", and was clicked at its middle." if click is True else
+                           f", and was clicked at {click[0]},{click[1]} in it." if click else "."))
             at = s.wait_change(text(window), text(crop), fuzz, most, timeout, words(ignore),
                                ignore_node)
             return f"It changed, after {at:.3f} s."
@@ -1304,8 +1317,10 @@ TOOLS = [
                              "description": "match, change: nodes to leave out, by name "
                              "(exactly, else a regex in full), where they are as the wait "
                              "starts: a clock, a spinner. Needs an a11y session"},
-             "click": {"type": "boolean", "description": "match: then click its middle, for "
-                       "a canvas or a game with no tree to click by"},
+             "click": {"type": ["boolean", "array"], "items": {"type": "integer"},
+                       "minItems": 2, "maxItems": 2,
+                       "description": "match: then click its middle (true), or [x, y] in the "
+                       "picture, for a canvas or a game with no tree to click by"},
              "states": {"type": "array", "items": {"type": "string"},
                         "description": "node: states it's in too: enabled, focused, checked, "
                         "expanded or another the tree says, or not-STATE"},

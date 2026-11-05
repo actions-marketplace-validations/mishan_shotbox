@@ -11,7 +11,9 @@ writing to LOG when each starts and ends. `fake LOG KIT WHAT SECONDS` is a
 window whose program is on the accessibility bus as AccessKit's are, by
 toolkit KIT, answering it from a thread of its own; on SIGUSR1, its main
 thread is busy for SECONDS (WHAT main), or its bus thread is (bus), or
-that, then it leaves the bus (leave)."""
+that, then it leaves the bus (leave). `empty` is a window, gtk4-empty, of a
+button and below it a group named Nothing with nothing in it, 0 pixels
+tall."""
 
 import os
 import signal
@@ -57,6 +59,17 @@ def activate(app):
         stack.set_visible_child(here)
         menu.popup()
     GLib.timeout_add(300, later)
+
+
+def empty(app):
+    w = Gtk.ApplicationWindow(application=app, title="gtk4-empty")
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    nothing = Gtk.Box(accessible_role=Gtk.AccessibleRole.GROUP)
+    nothing.update_property([Gtk.AccessibleProperty.LABEL], ["Nothing"])
+    box.append(Gtk.Button(label="Go"))
+    box.append(nothing)
+    w.set_child(box)
+    w.present()
 
 
 def glyphs(app):
@@ -150,6 +163,6 @@ def fake(app):
 
 
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
-app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake}.get(
+app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake, "empty": empty}.get(
     "".join(sys.argv[1:2]), activate))
 app.run([])
