@@ -1361,9 +1361,7 @@ def shifted(at):
 
 def bounded(tree):
     """The nodes with bounds in the tree saved at `tree`, or SessionError."""
-    return [n for n in a11y.saved(tree) if isinstance(n.get("bounds"), list)
-            and len(n["bounds"]) == 4 and all(type(v) is int for v in n["bounds"])
-            and n["bounds"][2] > 0 and n["bounds"][3] > 0]
+    return [n for n in a11y.saved(tree) if x.boxed(n)]
 
 
 def node_boxes(ref, new, names, at, grow=0, strict=True):
@@ -1383,15 +1381,17 @@ def node_boxes(ref, new, names, at, grow=0, strict=True):
     if not trees:
         raise ValueError(f"--ignore-node needs a tree beside {ref} or {new} (capture --tree)")
     try:
-        nodes = [(n, shift, g) for t, shift, g in trees for n in bounded(t)]
+        # Picked before the bounds are looked at: a node named exactly so,
+        # without bounds, isn't left for another its name matches as a regex.
+        nodes = [(n, shift, g) for t, shift, g in trees for n in a11y.saved(t)]
     except SessionError as e:
         raise ValueError(str(e)) from None
     boxes = []
     for name in names:
-        match, note = x.pattern(name)
-        found = [(n.bounds, shift, g) for n, shift, g in nodes if match(n.name)]
+        found = [(n.bounds, shift, g) for n, shift, g in x.picked(name, nodes, lambda t: t[0].name)
+                 if x.boxed(n)]
         if not found and strict:
-            raise ValueError(f"no node named {name!r}{note} in "
+            raise ValueError(f"no node named {name!r}{x.pattern(name)[1]} in "
                              + " or ".join(str(t) for t, *_ in trees))
         for (bx, by, bw, bh), (dx, dy), g in found:
             bx, by, bw, bh = bx - dx - g, by - dy - g, bw + 2 * g, bh + 2 * g
@@ -1570,13 +1570,13 @@ def cmd_compare(argv):
     # A node only some pictures show is left out where it's there; one no
     # picture's tree has is a mistake, said before anything is updated.
     for node in a.ignore_node:
-        match, note = x.pattern(node)
-        trees = [t for d in (a.a, a.b) for name in names
-                 if (t := Path(d) / f"{name}.json").exists()]
         try:
-            # Each read, so one that isn't a tree is said before anything's updated.
-            if not any(match(n.name) for n in [n for t in trees for n in bounded(t)]):
-                sys.stderr.write(f"shotbox: no node named {node!r}{note} in the trees beside "
+            # Each read, so one that isn't a tree is said before anything's
+            # updated; then the name picked a pair at a time, as node_boxes does.
+            pairs = [[n for d in (a.a, a.b) if (t := Path(d) / f"{name}.json").exists()
+                      for n in a11y.saved(t)] for name in names]
+            if not any(any(map(x.boxed, x.picked(node, pair))) for pair in pairs):
+                sys.stderr.write(f"shotbox: no node named {node!r}{x.pattern(node)[1]} in the trees beside "
                                  "the pictures (capture --tree)\n")
                 return 2
         except SessionError as e:
