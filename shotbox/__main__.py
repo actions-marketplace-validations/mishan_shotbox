@@ -1587,7 +1587,7 @@ def cmd_compare(argv):
         if n <= most(None):
             print(differing(n, box) + shifted(at))
             return 0
-        # Only one pair's lines: the directories' go on --diff's page too.
+        # One pair's alone: the directories' lines go on --diff's HTML page too.
         print(differing(n, box).replace(f"{n} pixels differ", color.paint(
             sys.stdout, f"{n} pixels differ", "fail"), 1) + shifted(at)
             + regions(a.a, a.b, None, at, lambda s: color.paint(sys.stdout, s, "name")))

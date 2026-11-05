@@ -3,6 +3,8 @@
 # the Node helpers. Needs what shotbox needs: Xvfb, xauth, dbus-daemon,
 # ImageMagick, and PyGObject with VTE for the terminal.
 set -eu
+# The tests that want color ask for it; the rest read plain text.
+unset NO_COLOR FORCE_COLOR
 # SHOTBOX_PART=NAME runs only what follows each "#: part NAME", besides
 # what's before the first part and after "#: end": CI runs each part at
 # once, on runners of their own.
@@ -1175,6 +1177,18 @@ if atspi; then
   "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y lint --window a11y-test" > "$tmp/lintc" || true
   grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lintc" \
     && ok "a11y: lint, at a terminal, dims each node's path" || { fail "a11y: lint's color"; cat -v "$tmp/lintc"; }
+  # Through --session, the caller's FORCE_COLOR and NO_COLOR hold, though
+  # the session's own environment has neither.
+  cs=color$$
+  "$sb" start --a11y --name "$cs" >/dev/null && "$sb" spawn --session "$cs" -- "$app" >/dev/null \
+    && "$sb" --session "$cs" wait window a11y-test >/dev/null || true
+  FORCE_COLOR=1 "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lints" || true
+  NO_COLOR=1 FORCE_COLOR=1 "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lintn" || true
+  "$sb" stop "$cs" || true
+  grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lints" \
+    && grep -q '/image\[5\]: image with no name' "$tmp/lintn" && ! grep -q "$esc" "$tmp/lintn" \
+    && ok "a11y: lint through --session takes the caller's FORCE_COLOR and NO_COLOR" \
+    || { fail "a11y: color through --session"; cat -v "$tmp/lints" "$tmp/lintn"; }
   "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
     && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
   "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' a11y lint --window fields &&

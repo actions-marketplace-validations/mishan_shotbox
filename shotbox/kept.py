@@ -363,8 +363,10 @@ def enter(name):
     puts the command it runs."""
     env = find(name)["env"]
     os.utime(env["SHOTBOX_SCRATCH"])   # for idle()
+    # Whether this command's own output is colored is the caller's to say.
+    color = {k: os.environ[k] for k in ("NO_COLOR", "FORCE_COLOR") if k in os.environ}
     os.environ.clear()
-    os.environ.update(env, SHOTBOX_FINISHES="1")
+    os.environ.update(env, SHOTBOX_FINISHES="1", **color)
 
 
 def main(argv):

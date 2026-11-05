@@ -12,7 +12,7 @@ def on(stream):
         return False
     if os.environ.get("FORCE_COLOR"):
         return True
-    return os.environ.get("TERM") != "dumb" and stream.isatty()
+    return os.environ.get("TERM") != "dumb" and getattr(stream, "isatty", lambda: False)()
 
 
 def paint(stream, text, style):
