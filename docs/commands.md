@@ -54,6 +54,8 @@ sealed session, waits, takes the picture and stops everything.
   to a screen reader matching RE, as `wait announce` has it. Either gives
   the session `--a11y`.
 - `--park` moves the pointer out of the way first (see `shotbox park`).
+- `--tree` writes the tree beside OUT, as `capture --tree` does, and gives
+  the session `--a11y`.
 - `--crop WxH+X+Y`, `--settle SECS` (0.3), `--timeout SECS` (30),
   `--log FILE` for the program's output. If a wait fails or the program
   dies, it says which, shows the program's last output, and leaves a
@@ -81,9 +83,13 @@ sealed session, waits, takes the picture and stops everything.
 
 **`shotbox run [options] -- COMMAND...`** runs a command in a sealed session
 and exits with its status. For scripts that take several pictures: inside,
-`shotbox wait window|port|file|ready|stable ARG` and `shotbox capture OUT.png
-[--window RE] [--crop G] [--park] [--vision KIND]` work on the session's
-display. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
+`shotbox wait window|port|file|ready|stable ARG` and `shotbox capture
+OUT.png [--window RE] [--crop G] [--park] [--vision KIND] [--tree]` work
+on the session's display; `--tree`, with `--a11y`, writes what a screen
+reader sees there beside the picture, `OUT.json`, as `a11y tree --json`
+would, but its bounds in the picture's pixels, for `compare` to name a
+change by. A picture taken again without it keeps the tree it had, which
+no longer goes with it. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
 click, in place of a sleep; with `--crop G` it watches just that part,
 and with `--ignore G` (repeatable, in what's watched) leaves out a box
 that never holds still, a clock or a live chart. `shotbox wait match REF.png [--window RE] [--crop
@@ -484,6 +490,17 @@ picture, and up to 2 s for one that fails with more than a hundredth of it
 differing at 16 pixels each way; past a hundredth a place isn't counted
 further, and where none is under that, it's B where it was.
 
+With a tree beside a picture, `B.json` (or else `A.json`), as `capture
+--tree` and `shoot --tree` write it in a session with `--a11y`, one that
+fails says what each part that differs is in, a line each: the smallest
+node whose bounds hold all of it, so a change reads as the control it's
+in. Pixels within a few of each other are one part; ten are said at most.
+
+```
+412 pixels differ, in 80x24 at 12,40
+  412 pixels, in 80x24 at 12,40: button "Save"
+```
+
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
 REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
 each, and fails if any differs, is missing, or changed size. `--diff DIR`
@@ -493,8 +510,9 @@ failures, each's three side by side and the new one with the reference
 shown on a hover: the directory alone is a CI artifact to look at.
 `--update` makes each new picture that fails the reference, and adds each
 in NEWDIR with none yet (`NAME: ...; updated`, `NAME: no ...; added`),
-leaving those that pass as they were; it fails only for a reference with
-no new picture. `--fuzz`, `--max`,
+leaving those that pass as they were, and takes the tree beside each, if
+it has one, removing the reference's own tree if not; it fails only for
+a reference with no new picture. `--fuzz`, `--max`,
 `--ignore` and `--margin` take `NAME=VALUE` for one picture, beside a plain
 VALUE for the rest (each `--ignore` adds a box):
 

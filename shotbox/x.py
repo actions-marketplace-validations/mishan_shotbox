@@ -725,6 +725,44 @@ def feed(width, height, x, y, fps, pointer):
             due = time.monotonic()
 
 
+def regions(a, b, fuzz="0%", ignore=(), margin=0, at=(0, 0), gap=8):
+    """Where two images differ, as compare counts it, in regions: pixels
+    fewer than `gap` apart are one, and some up to twice that. Each one's
+    count and box, (width, height, x, y), the most first."""
+    differs, shifted, _, _ = _differs(a, b, fuzz, ignore, margin, at)
+    width = int(size_of(a).split("x")[0])
+    mask = subprocess.run([*differs, "-depth", "8", "gray:-"], input=shifted,
+                          capture_output=True, check=True).stdout
+    # Each cell gap on a side that something differs in: its count and box.
+    cells = {}
+    for y in range(len(mask) // width):
+        row = mask[y * width:(y + 1) * width]
+        x = row.find(255)
+        while x >= 0:
+            c = cells.setdefault((x // gap, y // gap), [0, x, y, x, y])
+            c[0] += 1
+            c[1:] = min(c[1], x), min(c[2], y), max(c[3], x), max(c[4], y)
+            x = row.find(255, x + 1)
+    # Cells touching, corners too, are one region.
+    found, seen = [], set()
+    for start in cells:
+        if start in seen:
+            continue
+        seen.add(start)
+        todo, n, x0, y0, x1, y1 = [start], 0, *cells[start][1:]
+        while todo:
+            cx, cy = todo.pop()
+            c = cells[cx, cy]
+            n += c[0]
+            x0, y0, x1, y1 = min(x0, c[1]), min(y0, c[2]), max(x1, c[3]), max(y1, c[4])
+            for nb in ((cx + i, cy + j) for i in (-1, 0, 1) for j in (-1, 0, 1)):
+                if nb in cells and nb not in seen:
+                    seen.add(nb)
+                    todo.append(nb)
+        found.append((n, (x1 - x0 + 1, y1 - y0 + 1, x0, y0)))
+    return sorted(found, key=lambda r: -r[0])
+
+
 def rgb(path):
     """A picture's (width, height, RGB bytes), as grab has them."""
     w, h = map(int, size_of(path).split("x"))
@@ -1038,14 +1076,10 @@ def size_of(path):
     return out.strip()
 
 
-def compare(a, b, diff=None, fuzz="0%", box=False, ignore=(), margin=0, at=(0, 0)):
-    """How many pixels differ between two images (0 means the same): pixels
-    where any channel differs by more than `fuzz`, but for those in the
-    boxes in `ignore`, (width, height, x, y), and in a band `margin`
-    pixels wide round the edge, with b's moved by -`at` (moved's). With
-    `diff`, also writes an image with the differences marked in red, and
-    what's left out magenta. With `box`, the count and the box they're
-    in, (width, height, x, y), or None."""
+def _differs(a, b, fuzz, ignore, margin, at):
+    """convert's arguments for where a and b differ, as compare counts it,
+    white there and black elsewhere, and its input, with the boxes left
+    out filled; or ValueError if they aren't the same size."""
     size = size_of(a)
     if size != size_of(b):
         raise ValueError(f"not the same size: {size} and {size_of(b)}")
@@ -1062,16 +1096,28 @@ def compare(a, b, diff=None, fuzz="0%", box=False, ignore=(), margin=0, at=(0, 0
     # The per-pixel difference, its largest channel, then on or off. Counted
     # by hand: compare's own AE metric weighs pixels differently from one
     # ImageMagick release to the next.
+    # sRGB: ImageMagick reads a gray PNG, as it writes any picture with no
+    # color in it, as one channel, and would count only that.
+    return ([*CONVERT, str(a), str(b), "-colorspace", "sRGB", "-alpha", "off",
+             "-fill", "black", *boxes, "-compose", "difference",
+             "-composite", "-separate", "-evaluate-sequence", "max", "-threshold", fuzz],
+            shifted, b, boxes)
+
+
+def compare(a, b, diff=None, fuzz="0%", box=False, ignore=(), margin=0, at=(0, 0)):
+    """How many pixels differ between two images (0 means the same): pixels
+    where any channel differs by more than `fuzz`, but for those in the
+    boxes in `ignore`, (width, height, x, y), and in a band `margin`
+    pixels wide round the edge, with b's moved by -`at` (moved's). With
+    `diff`, also writes an image with the differences marked in red, and
+    what's left out magenta. With `box`, the count and the box they're
+    in, (width, height, x, y), or None."""
+    differs, shifted, b, boxes = _differs(a, b, fuzz, ignore, margin, at)
     out = subprocess.run(
-        # sRGB: ImageMagick reads a gray PNG, as it writes any picture with
-        # no color in it, as one channel, and would count only that.
-        [*CONVERT, str(a), str(b), "-colorspace", "sRGB", "-alpha", "off",
-         "-fill", "black", *boxes, "-compose", "difference",
-         "-composite", "-separate", "-evaluate-sequence", "max",
-         # A black border so the box (%@, what -trim would keep) is found
-         # around what differs even when a corner does; -quiet, since with
-         # nothing in the box it warns.
-         "-threshold", fuzz, "-bordercolor", "black", "-border", "1", "-quiet",
+        # A black border so the box (%@, what -trim would keep) is found
+        # around what differs even when a corner does; -quiet, since with
+        # nothing in the box it warns.
+        [*differs, "-bordercolor", "black", "-border", "1", "-quiet",
          # -precision: else a million or more is said rounded, 1.04e+06.
          "-precision", "16", "-format", "%[fx:round(mean*w*h)] %@", "info:"],
         input=shifted, capture_output=True, check=True).stdout.decode().split()
