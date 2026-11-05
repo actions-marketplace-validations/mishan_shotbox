@@ -46,13 +46,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      # The packages' downloads, kept until the runner's image changes; when
-      # this file does, the last ones, so only what's new is fetched.
-      - run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+      # The packages' downloads, kept until the runner's image changes; each
+      # week, and when this file changes, the last ones, so only what's new
+      # is fetched and then kept.
+      - run: |
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+          echo "week=$(date +%G-%V)" >> "$GITHUB_ENV"
       - uses: actions/cache@v6
         with:
           path: ~/apt/*.deb
-          key: apt-${{ env.image }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          key: apt-${{ env.image }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ env.week }}
           restore-keys: apt-${{ env.image }}-
 
       # The README's list, and what the tests use besides: GTK 3 for the
@@ -133,12 +136,13 @@ jobs:
       # mirror has run out the install's 10 minutes fetching them all.
       - run: |
           echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+          echo "week=$(date +%G-%V)" >> "$GITHUB_ENV"
           mkdir -p ~/apt/partial
           echo "Dir::Cache::Archives \"$HOME/apt\";" | sudo tee /etc/apt/apt.conf.d/90cached
       - uses: actions/cache@v6
         with:
           path: ~/apt/*.deb
-          key: apt-${{ github.job }}-${{ env.image }}-${{ hashFiles('action.yml') }}
+          key: apt-${{ github.job }}-${{ env.image }}-${{ hashFiles('action.yml') }}-${{ env.week }}
           restore-keys: apt-${{ github.job }}-${{ env.image }}-
       - uses: ./
         timeout-minutes: 10
@@ -179,12 +183,13 @@ jobs:
       # mirror has run out the install's 10 minutes fetching them all.
       - run: |
           echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+          echo "week=$(date +%G-%V)" >> "$GITHUB_ENV"
           mkdir -p ~/apt/partial
           echo "Dir::Cache::Archives \"$HOME/apt\";" | sudo tee /etc/apt/apt.conf.d/90cached
       - uses: actions/cache@v6
         with:
           path: ~/apt/*.deb
-          key: apt-${{ github.job }}-${{ env.image }}-${{ hashFiles('action.yml') }}
+          key: apt-${{ github.job }}-${{ env.image }}-${{ hashFiles('action.yml') }}-${{ env.week }}
           restore-keys: apt-${{ github.job }}-${{ env.image }}-
       - uses: ./
         timeout-minutes: 10
