@@ -14,6 +14,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from . import color
 from .screen import SessionError
 from .session import Session, kill_group
 
@@ -47,6 +48,10 @@ def target(spec):
         raise SessionError(f"target {spec!r}: its name is empty")
     return {"by": by, **({"role": role} if role else {}),
             **({"name": name} if m[1] else {"re": m[2]})}
+
+
+# Each verdict's color at a terminal; the rest (robust, caught) passed.
+SHADES = {"BRITTLE": "warn", "BLIND": "fail", "UNAPPLIED": "dim", "inconclusive": "dim"}
 
 
 def verdict(kind, ended, proven, confirmed=None):
@@ -191,6 +196,9 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
         raise SessionError(f"--save {save}: it has files in it already, which a run's "
                            "own could be mistaken for")
     say = (lambda s: print(s, file=out, flush=True)) if out else (lambda s: None)
+
+    def shade(text, style):
+        return color.paint(out, text, style) if out else text
     new_session = _new_session or (lambda: Session(**session_options))
     # Absolute, for a test that changes directory before it reports.
     work = Path(save).resolve() if save else Path(tempfile.mkdtemp(prefix="shotbox-mutate-"))
@@ -225,7 +233,7 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
     try:
         say(f"shotbox mutate: {len(runs)} run{'s' * (len(runs) != 1)}, plus 3 clean")
         firsts = [go("clean", clean, timeout) for _ in range(2)]
-        say("clean      " + "  ".join(e for e, *_ in firsts)
+        say("clean      " + "  ".join(shade(e, "pass" if e == "pass" else "fail") for e, *_ in firsts)
             + f"  ({max(t for _, t, *_ in firsts):.1f} s)")
         for ended, _, got, log in firsts:
             if ended != "pass":
@@ -263,15 +271,15 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
                     notes.append(f"clean rerun {said(e)}")
                     confirmed = e == "pass"
             r.verdict = verdict(r.spec["kind"], r.ended, r.proven or died, confirmed)
-            say(f"{r.label:<30}  {said(r.ended):<7}  {r.verdict}"
+            say(f"{r.label:<30}  {said(r.ended):<7}  {shade(r.verdict, SHADES.get(r.verdict, 'pass'))}"
                 + (f"  ({', '.join(notes)})" if notes else ""))
         control = go("control", clean, limit)[0]
         rep = MutationReport(runs, [e for e, *_ in firsts], control, control != "pass", strict)
         say(f"control    {said(control)}"
             + ("  (findings are suspect: something outside the session, files or "
                "the network, changed between runs)" if rep.suspect else ""))
-        say(f"{len(rep.brittle_runs) + len(rep.blind_runs)} brittle or blind of {len(runs)}; "
-            f"{len(rep.unapplied_runs)} unapplied")
+        say(shade(f"{len(rep.brittle_runs) + len(rep.blind_runs)} brittle or blind of "
+                  f"{len(runs)}; {len(rep.unapplied_runs)} unapplied", "bold"))
         return rep
     finally:
         if not save:

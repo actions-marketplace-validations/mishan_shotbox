@@ -29,6 +29,7 @@ trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+esc=$(printf '\033')
 audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
   && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; }
@@ -839,6 +840,14 @@ sys.exit(not (got == want and list(got) == list(want) and j["control"] == "pass"
               "--target 'button \"Brittle\"' --kinds size,move,hide,number "
               f"--only 'move button \"Brittle\"' -- python3 {sys.argv[2]} good"))
 PY
+# At a terminal: each verdict in its color, the count bold, how to
+# reproduce one dim.
+(cd "$tmp" && FORCE_COLOR=1 "$sb" mutate --target 'button "Brittle"' --kinds move,hide \
+  -- python3 "$tmp/fake.py" good > "$tmp/mc" 2>&1) || true
+grep -q "  ${esc}\[33mBRITTLE${esc}\[0m" "$tmp/mc" && grep -q "  ${esc}\[31mBLIND${esc}\[0m" "$tmp/mc" \
+  && grep -q "^${esc}\[1m2 brittle or blind of 2; 0 unapplied${esc}\[0m$" "$tmp/mc" \
+  && grep -q "^${esc}\[2mreproduce: shotbox mutate " "$tmp/mc" \
+  && ok "mutate: colored at a terminal" || { fail "mutate's color"; cat -v "$tmp/mc"; }
 # A test that fails on a change made but not yet looked at, as one that
 # dies at once leaves it: caught, unless fought, still showing, dead and
 # unused, or looked at and not proven.
@@ -1157,6 +1166,9 @@ if atspi; then
     && grep -q '/panel\[6\]: focusable panel with no name$' "$tmp/lint" \
     && ok "a11y: lint finds the icon button, the image and the drawing area with no name" \
     || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
+  "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y lint --window a11y-test" > "$tmp/lintc" || true
+  grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lintc" \
+    && ok "a11y: lint, at a terminal, dims each node's path" || { fail "a11y: lint's color"; cat -v "$tmp/lintc"; }
   "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
     && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
   "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' a11y lint --window fields &&
@@ -1928,6 +1940,10 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
       && grep -q '^stopped before Tab in a text view' "$tmp/notes" && [ ! -s "$tmp/typed" ] \
       && ok "a11y: speak: what Orca says, of buttons named and not, a mnemonic, two lines; slow, and not in a text view" \
       || { fail "a11y: speak"; cat "$tmp/speak" "$tmp/named" "$tmp/slow" "$tmp/notes" "$tmp/typed"; }
+    "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y speak --window a11y-test --keys Tab" \
+      > "$tmp/speakc" || true
+    grep -q "  says ${esc}\[36m\".*\"${esc}\[0m$" "$tmp/speakc" \
+      && ok "a11y: speak, at a terminal, colors what's said" || { fail "a11y: speak's color"; cat -v "$tmp/speakc"; }
   else
     [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
       || echo "skip  a11y: speak: no Orca"
@@ -2490,10 +2506,19 @@ kids "$tmp/gk/new.json" "$(kid label Status label 0 '38, 36, 22, 10')" \
   {"role": "panel", "name": "q", "description": "", "states": [], "path": "frame/panel[0]", "bounds": [70, 0, 30, 20], "depth": 1},
   {"role": "label", "name": "Other", "description": "", "states": [], "path": "frame/panel[0]/label[0]", "bounds": [41, 40, 30, 10], "depth": 2}'
 gk4=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+# Colored for a person at a terminal, as FORCE_COLOR stands in for here;
+# not in a pipe, nor with NO_COLOR, whatever else says.
+FORCE_COLOR=1 "$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" > "$tmp/gk/color" || true
+gkn=$(NO_COLOR=1 FORCE_COLOR=1 "$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
 [ "$gk1" = '  200 pixels, in 20x10 at 40,40: label "Status"' ] && [ "$gk2" = '  200 pixels, in 20x10 at 40,40: panel "p"' ] \
   && [ "$gk3" = '  208 pixels, in 31x21 at 35,35: panel "p"' ] && [ "$gk4" = "$gk1" ] \
   && ok "compare: a region partly outside its node, as GTK 4 places it, named by it; split, by what holds both" \
   || { fail "compare, GTK 4's places"; printf '%s\n' "$gk1" "$gk2" "$gk3" "$gk4"; }
+[ "$(head -1 "$tmp/gk/color")" = "${esc}[31m200 pixels differ${esc}[0m, in 20x10 at 40,40" ] \
+  && [ "$(tail -1 "$tmp/gk/color")" = "  200 pixels, in 20x10 at 40,40: ${esc}[36mlabel \"Status\"${esc}[0m" ] \
+  && [ "$gkn" = "$gk1" ] \
+  && ok "compare: colored at a terminal, not in a pipe or with NO_COLOR" \
+  || { fail "compare's color"; cat -v "$tmp/gk/color"; echo "$gkn" | cat -v; }
 
 # compare --ignore-node: the node's box, from the tree beside the new
 # picture or the reference, left out; moved to match (--margin), where the

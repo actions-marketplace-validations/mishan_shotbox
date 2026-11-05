@@ -29,7 +29,7 @@ from collections import Counter
 from functools import cache
 from pathlib import Path
 
-from . import picture, wl, x
+from . import color, picture, wl, x
 from .screen import Screen, SessionError, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
@@ -3638,16 +3638,16 @@ def read(argv):
                               "behind": [dict(public(n), behind=what) for n, what in behind]}))
         else:
             for n, what in problems + passes + notes + behind:
-                print(f"{n.path}: {what}{placed(n)}")
+                print(f"{color.paint(sys.stdout, n.path, 'dim')}: {what}{placed(n)}")
         if QUIET and not a.window:
-            sys.stderr.write((said + "\n") * bool(said and not a.json)
+            sys.stderr.write((color.paint(sys.stderr, said, "warn") + "\n") * bool(said and not a.json)
                              + f"shotbox: not all checked: {unanswered()}\n")
             return 2
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")
             return 2
         if said and not a.json:
-            sys.stderr.write(said + "\n")
+            sys.stderr.write(color.paint(sys.stderr, said, "warn") + "\n")
         return 1 if problems and not a.json else 0
     if a.what in ("click", "scroll"):
         if a.what == "click" and a.name is None:
