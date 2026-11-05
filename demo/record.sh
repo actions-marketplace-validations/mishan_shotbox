@@ -1,5 +1,5 @@
 #!/bin/sh
-# Records the README's demo into OUT-DIR: demo.mp4 and demo.gif, a scene
+# record.sh OUT-DIR [SCENE]: the README's demo, demo.mp4 and demo.gif, a scene
 # each from a11y.play, pictures.play, sound.play, flicker.play, pad.play
 # and mutate.play, then a closing card with LOGO (docs/logo.png). With
 # SCENE, just that one, as OUT-DIR/SCENE.mp4, to check it before a take.

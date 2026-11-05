@@ -64,8 +64,8 @@ jobs:
       # WirePlumber and pactl for --audio, libfaketime for --clock, and
       # Orca for a11y speak: Ubuntu 24.04's is 46.1 and 26.04's 50.3, two
       # of those it's been checked with.
-      # Each install here takes under a minute: a stalled apt fails in
-      # 10, not at the job's 45.
+      # Each install takes a minute or two at most: a stalled apt fails
+      # in 10, not at the job's 45.
       - name: Install what shotbox runs
         timeout-minutes: 10
         run: |
@@ -102,6 +102,7 @@ jobs:
       # tests depend on something they bring.
       - run: npm ci
       - run: npx playwright install-deps chromium
+        timeout-minutes: 10
       - if: matrix.part == 'browser' || matrix.part == 'mutate'
         uses: actions/cache@v6
         with:
