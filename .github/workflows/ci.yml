@@ -64,7 +64,10 @@ jobs:
       # WirePlumber and pactl for --audio, libfaketime for --clock, and
       # Orca for a11y speak: Ubuntu 24.04's is 46.1 and 26.04's 50.3, two
       # of those it's been checked with.
+      # Each install here takes under a minute: a stalled apt fails in
+      # 10, not at the job's 45.
       - name: Install what shotbox runs
+        timeout-minutes: 10
         run: |
           mkdir -p ~/apt/partial
           # For every apt-get, so Playwright's install-deps below is kept too.
@@ -126,6 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./
+        timeout-minutes: 10
         with:
           a11y: true
           wayland: true
@@ -160,6 +164,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./
+        timeout-minutes: 10
         with:
           speak: true
       - name: Use it
@@ -183,6 +188,7 @@ jobs:
           node-version: 22
 
       - name: Install what shotbox runs
+        timeout-minutes: 10
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
