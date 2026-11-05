@@ -10,14 +10,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shotbox"
 dynamic = ["version"]
-description = "Reproducible screenshots and accessibility checks of real programs in a sealed X11 or Wayland session, with an MCP server for agents"
+description = "Eyes, ears and hands on a real graphical program in a sealed X11 or Wayland session: screenshots, accessibility checks, sound, input and mutation testing, for an AI agent over MCP, a script or CI"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Misha Nasledov", email = "misha@nasledov.com" }]
 requires-python = ">=3.9"
 keywords = ["screenshots", "accessibility", "a11y", "at-spi", "wcag", "mcp", "xvfb", "wayland", "sway",
-            "visual-regression", "testing", "gtk"]
+            "visual-regression", "testing", "gtk", "mutation-testing"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -31,6 +31,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/mishan/shotbox"
+Documentation = "https://github.com/mishan/shotbox/tree/main/docs"
 Changelog = "https://github.com/mishan/shotbox/blob/main/CHANGELOG.md"
 Issues = "https://github.com/mishan/shotbox/issues"
 
