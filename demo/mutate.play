@@ -1,0 +1,7 @@
+record ${OUT} --seconds 20 &
+0.3   focus shotbox-term
+0.3   type "cat checkout.test.mjs"
+0.6   key Return
+3.5   type "shotbox mutate --target 'button /Pay .*/' --kinds move,number -- node checkout.test.mjs"
+4.5   key Return
+wait line --from-start "brittle or blind of" term.log
