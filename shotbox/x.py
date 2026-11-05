@@ -36,6 +36,13 @@ def pattern(spec):
     return (lambda name: name == spec or rx.fullmatch(name) is not None), ""
 
 
+def picked(spec, items, name=lambda n: n.name):
+    """Of `items`, those named `spec` exactly, if any, else those pattern()
+    matches: a name that's also a regex, "a.c", not taken for "abc" too."""
+    test = pattern(spec)[0]
+    return [i for i in items if name(i) == spec] or [i for i in items if test(name(i))]
+
+
 def matcher(spec):
     """What a window is asked for by: its name (its title), as pattern()
     matches one, or app=RE for its app id: a Wayland window's app_id,

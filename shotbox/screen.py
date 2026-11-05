@@ -388,10 +388,9 @@ class Screen:
         nodes = [n for n in self.a11y_tree(window) if n.get("bounds")]
         boxes = []
         for name in names:
-            named, note = x.pattern(name)
-            found = [n.bounds for n in nodes if named(n.name)]
+            found = [n.bounds for n in x.picked(name, nodes)]
             if not found:
-                self.fail(f"no node named {name!r}{note} to leave out")
+                self.fail(f"no node named {name!r}{x.pattern(name)[1]} to leave out")
             for bx, by, bw, bh in found:
                 bx, by, bw, bh = bx - offset[0] - grow, by - offset[1] - grow, bw + 2 * grow, bh + 2 * grow
                 bw, bh = bw + min(bx, 0), bh + min(by, 0)

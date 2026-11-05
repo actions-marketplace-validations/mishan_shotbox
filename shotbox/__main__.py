@@ -1370,10 +1370,9 @@ def node_boxes(ref, new, names, at, grow=0, strict=True):
         raise ValueError(str(e)) from None
     boxes = []
     for name in names:
-        match, note = x.pattern(name)
-        found = [(n.bounds, shift, g) for n, shift, g in nodes if match(n.name)]
+        found = [(n.bounds, shift, g) for n, shift, g in x.picked(name, nodes, lambda t: t[0].name)]
         if not found and strict:
-            raise ValueError(f"no node named {name!r}{note} in "
+            raise ValueError(f"no node named {name!r}{x.pattern(name)[1]} in "
                              + " or ".join(str(t) for t, *_ in trees))
         for (bx, by, bw, bh), (dx, dy), g in found:
             bx, by, bw, bh = bx - dx - g, by - dy - g, bw + 2 * g, bh + 2 * g

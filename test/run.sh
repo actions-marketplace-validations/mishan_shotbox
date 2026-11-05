@@ -2458,16 +2458,21 @@ cp "$tmp/in/ref.png" "$tmp/in-ref/c.png"; cp "$tmp/in/new.png" "$tmp/in-new/c.pn
 cmp -s "$tmp/in-ref/a.png" "$tmp/in/ref.png" && cmp -s "$tmp/in-ref/c.png" "$tmp/in/ref.png"; st11=$?
 "$sb" compare "$tmp/in/ref.png" "$tmp/in/moved.png" --ignore-node Nope 2> "$tmp/in/nope"; st4=$?
 "$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node 12:01 2> "$tmp/in/none"; st5=$?; set -e
+# A node named exactly so is the one left out, not others the name, as a
+# regex, also matches.
+printf '[{"role": "label", "name": "1.:01", "description": "", "states": [], "path": "label[0]", "bounds": [0, 0, 3, 3], "depth": 0},
+  {"role": "label", "name": "12:01", "description": "", "states": [], "path": "label[1]", "bounds": [150, 80, 3, 3], "depth": 0}]' > "$tmp/in/new.json"
+exact=$("$sb" compare "$tmp/in/ref.png" "$tmp/in/new.png" --ignore-node '1.:01') || true; rm "$tmp/in/new.json"
 left='  50 pixels, in 10x5 at 12,12: frame "w"'
 [ "$st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 $st10 $st11" = "1 1 1 2 2 0 1 2 0 2 0" ] \
   && grep -q "c.json isn't a tree saved by a11y tree --json" "$tmp/in/bad" \
-  && [ "$noise" = "0 pixels differ, moved 7,6" ] \
+  && [ "$noise" = "0 pixels differ, moved 7,6" ] && [ "$(echo "$exact" | head -1)" = "59 pixels differ, in 141x71 at 12,12" ] \
   && [ "$(echo "$dirs" | head -2)" = "$(printf 'a: 50 pixels differ, in 10x5 at 12,12\n%s' "$left")" ] \
   && echo "$dirs" | grep -qx "b: the same" && grep -q "no node named 'Typo' in the trees" "$tmp/in/typo" && [ "$one" = "$(printf '50 pixels differ, in 10x5 at 12,12\n%s' "$left")" ] \
   && [ "$two" = "$one" ] && [ "$moved" = "$(printf '50 pixels differ, in 10x5 at 12,12, moved 2,1\n%s' "$left")" ] \
   && grep -q "no node named 'Nope' in $tmp/in/moved.json" "$tmp/in/nope" && grep -q "needs a tree beside" "$tmp/in/none" \
   && ok "compare --ignore-node: a node left out where a tree beside either picture has it" \
-  || { fail "compare --ignore-node ($st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 ${st10-} ${st11-})"; printf '%s\n' "$one" "$two" "$moved" "$noise" "$dirs"
+  || { fail "compare --ignore-node ($st $st2 $st3 $st4 $st5 $st6 $st7 $st8 $st9 ${st10-} ${st11-})"; printf '%s\n' "$one" "$two" "$moved" "$noise" "$dirs" "$exact"
        cat "$tmp/in/nope" "$tmp/in/none" "$tmp/in/typo"; }
 
 # A burst: five pictures a tenth of a second apart, numbered, and a sheet
