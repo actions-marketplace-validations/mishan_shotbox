@@ -369,8 +369,10 @@ class Screen:
         try:
             yield
         except SessionError as e:
-            raise SessionError(re.sub(r"^(gave up .*?after )[\d.e-]+s",
-                                      lambda m: f"{m[1]}{timeout:g}s", str(e))) from None
+            said = SessionError(re.sub(r"^(gave up .*?after )[\d.e-]+s",
+                                       lambda m: f"{m[1]}{timeout:g}s", str(e)))
+            said.failed = getattr(e, "failed", False)     # its picture taken, for until
+            raise said from None
 
     def node_boxes(self, names, window=None, crop=None, timeout=30, grow=0):
         """Where the nodes named each of `names` are, exactly or else as a
