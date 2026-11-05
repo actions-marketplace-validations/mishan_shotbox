@@ -117,6 +117,41 @@ something, a sound device or a runtime dir mounted in, say;
 `SHOTBOX_SANDBOX: off` in the job's `env` says that's meant ([What's
 sealed](sealed.md)).
 
+### Pictures CI can't retake
+
+Some pictures can't be taken again in CI: a theme on Windows in a VM,
+a real desktop. They go stale silently when what drew them changes.
+A file beside them can hold a hash of each one's inputs, the files it
+shows and the script that takes it, so CI fails when an input changes
+and the picture doesn't:
+
+```sh
+#!/bin/sh -e
+# tools/sources.sh [--check]: each picture's inputs, hashed, kept in
+# docs/pictures/sources; with --check, fail if any has changed since
+cd "$(git rev-parse --show-toplevel)"
+sources() {   # PICTURE INPUT...
+  name=$1; shift
+  echo "$name $(cat "$@" | sha256sum | cut -c1-16)"
+}
+now=$(mktemp)
+{
+  sources windows-dark.png theme/windows/*.json tools/vm-shoot.sh
+  sources windows-light.png theme/windows/*.json tools/vm-shoot.sh
+} > "$now"
+if [ "${1-}" = --check ]; then
+  diff docs/pictures/sources "$now" \
+    || { echo "retake the pictures above: what draws them changed" >&2; exit 1; }
+else
+  mv "$now" docs/pictures/sources
+fi
+```
+
+Run it with no argument after retaking the pictures, and commit
+`sources` with them; `tools/sources.sh --check` in CI does the rest.
+A glob's files come in a fixed order, so the hash changes only when
+they do.
+
 ## An accessibility audit
 
 What a screen reader hears, what can't be read, and where Tab goes:
