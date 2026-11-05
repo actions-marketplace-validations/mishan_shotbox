@@ -683,7 +683,13 @@ and later's, whose text is measured where it's found
   control, that says how it measures with the pointer over it too,
   since some are drawn only then (a tab's close button). An image of one
   color passes, and a node that says it has no size, which isn't drawn
-  ([Lint](#lint)), is left out.
+  ([Lint](#lint)), is left out. Chromium's screen-reader-only text (the
+  usual `position: absolute; clip: rect(0 0 0 0); width: 1px; height:
+  1px; overflow: hidden`) fails as not seen: Chromium gives it the
+  bounds, states and character extents of text that's drawn, so nothing
+  in the tree tells it from text the color of its background, a real
+  failure (Firefox leaves it out). Leave each such node out by its tree
+  line, `--ignore '"Skip to content".*not seen'`.
 - **Edges**, with `--edges RATIO`: a button, entry, spin button or combo
   box, against what's round it. The color most of a band two pixels
   outside is, against the color, of those making up a fifth or more of a
