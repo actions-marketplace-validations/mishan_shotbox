@@ -1465,6 +1465,13 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
 
     looked = []
 
+    def quiet_owns(window):
+        """Whether a window `window` picks on the screen may be a program's
+        that didn't answer, and hold more."""
+        screen = Screen()
+        return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
+                   for w in screen.backend.shown(screen.env, window))
+
     def there():
         try:
             # Once it's been looked in, the window is asked for at once:
@@ -1476,8 +1483,7 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
                 return not QUIET or not Screen().find_window(window)
             raise
         looked.append(True)
-        # A program that didn't answer may hold more.
-        whole = not QUIET or window
+        whole = not QUIET or window and not quiet_owns(window)
         shown.clear()
         ok = []
         for n in seen:

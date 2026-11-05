@@ -225,7 +225,8 @@ at most) to answer first. Every other `a11y` command, and `wait node`, adds
 `; program 1234 didn't answer: busy, or hung` to the error it gives up
 with, a second past its `--timeout` (0.8 s more for each other program
 that doesn't answer). With one not answering, `wait gone` and `--count`
-pass only with `--window`: its nodes might be any of them. The bus drops a program that hasn't answered for
+pass only with a `--window` none of whose windows on the screen is
+that program's: its nodes might be any of them. The bus drops a program that hasn't answered for
 about half a minute, after which it's as one with no accessibility.
 With `--json`, a window has its program's `pid` and `toolkit`
 ("GTK 4.14.5"), and a program that didn't answer is a node with its
