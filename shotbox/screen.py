@@ -385,10 +385,10 @@ class Screen:
         if window:
             self.wait_window(window, timeout)
         offset = x.box_of(crop)[2:] if crop and x.box_of(crop) else (0, 0)
-        nodes = [n for n in self.a11y_tree(window) if n.get("bounds")]
+        nodes = self.a11y_tree(window)
         boxes = []
         for name in names:
-            found = [n.bounds for n in x.picked(name, nodes)]
+            found = [n.bounds for n in x.picked(name, nodes) if n.get("bounds")]
             if not found:
                 self.fail(f"no node named {name!r}{x.pattern(name)[1]} to leave out")
             for bx, by, bw, bh in found:
