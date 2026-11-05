@@ -275,7 +275,7 @@ def mutate(cmd, targets, kinds=None, confirm=1, timeout=None, only=None, save=No
                 + (f"  ({', '.join(notes)})" if notes else ""))
         control = go("control", clean, limit)[0]
         rep = MutationReport(runs, [e for e, *_ in firsts], control, control != "pass", strict)
-        say(f"control    {said(control)}"
+        say(f"control    {shade(said(control), 'pass' if control == 'pass' else 'fail')}"
             + ("  (findings are suspect: something outside the session, files or "
                "the network, changed between runs)" if rep.suspect else ""))
         say(shade(f"{len(rep.brittle_runs) + len(rep.blind_runs)} brittle or blind of "

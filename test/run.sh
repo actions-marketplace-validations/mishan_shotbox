@@ -850,6 +850,7 @@ PY
 (cd "$tmp" && FORCE_COLOR=1 "$sb" mutate --target 'button "Brittle"' --kinds move,hide \
   -- python3 "$tmp/fake.py" good > "$tmp/mc" 2>&1) || true
 grep -q "  ${esc}\[33mBRITTLE${esc}\[0m" "$tmp/mc" && grep -q "  ${esc}\[31mBLIND${esc}\[0m" "$tmp/mc" \
+  && grep -q "^control    ${esc}\[32mpass${esc}\[0m$" "$tmp/mc" \
   && grep -q "^${esc}\[1m2 brittle or blind of 2; 0 unapplied${esc}\[0m$" "$tmp/mc" \
   && grep -q "^${esc}\[2mreproduce: shotbox mutate " "$tmp/mc" \
   && ok "mutate: colored at a terminal" || { fail "mutate's color"; cat -v "$tmp/mc"; }
