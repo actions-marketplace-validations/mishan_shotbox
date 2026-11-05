@@ -1471,17 +1471,25 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
             # gone, it's gone with what was in it.
             seen[:] = [n for _, n in walk(Atspi, window, 0 if looked and gone else timeout)]
         except SessionError:
+            # Left out for not answering, it may still be on the screen.
             if looked and gone:
-                return True
+                return not QUIET or not Screen().find_window(window)
             raise
         looked.append(True)
-        shown[:] = [n for n in seen if n._showing and matches(n)]
+        # A program that didn't answer may hold more.
+        whole = not QUIET or window
+        shown.clear()
+        ok = []
+        for n in seen:
+            if n._showing and matches(n):
+                shown.append(n)
+                if not gone and why_not(n) is None:
+                    if count is None:
+                        return n
+                    ok.append(n)
         if gone:
-            return not shown
-        ok = [n for n in shown if why_not(n) is None]
-        if count is not None:
-            return (ok,) if len(ok) == count else None
-        return ok[0] if ok else None
+            return not shown and whole
+        return (ok,) if len(ok) == count and whole else None
 
     detail = "".join(f", {st}" for st in states) + (
         f", its value {value!r}{value_note}" if value is not None else "")
@@ -1497,6 +1505,8 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
     except SessionError as e:
         if not str(e).startswith(f"gave up waiting for {what}"):
             raise
+        if gone and not shown:
+            raise SessionError(str(e)) from None
         if gone:
             raise SessionError(f"{e}: still there, {shown[0].line()}"
                                + (f", and {len(shown) - 1} more" if len(shown) > 1 else "")) from None

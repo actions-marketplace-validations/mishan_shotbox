@@ -567,10 +567,14 @@ try:
     full, bad2, _ = tool("wait_for", session="l", what="node", value="Progress", node_value="100")
     rows, bad3, _ = tool("wait_for", session="l", what="node", value="^Row [0-9]$", count=5)
     refused, bad5, _ = tool("wait_for", session="l", what="window", value="ld", count=1)
+    counts = [tool("wait_for", session="l", what="node", value="^Row", count=c, timeout="1")[:2]
+           for c in (2.5, -1)]
     check(not (bad or bad2 or bad3 or bad4) and bad5 and "go with node" in refused
+          and all(bad and "whole number" in said for said, bad in counts)
           and re.match(r'It\'s there: (push )?button "Save"', on) and rows.startswith("5 there\n")
           and rows.count("label \"Row") == 5 and gone == "Nothing showing matches 'Loading' now.",
-          f"wait_for: node in a state, with a value, so many; gone ({on}; {full}; {rows}; {gone})")
+          f"wait_for: node in a state, with a value, so many, but not 2.5 or -1; gone "
+          f"({on}; {full}; {rows}; {gone}; {counts})")
     tool("stop_session", session="l")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.

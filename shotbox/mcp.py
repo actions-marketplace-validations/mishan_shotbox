@@ -910,7 +910,7 @@ class Server:
                                                       window=text(window))
             return f"The focus is on {n.line()}."
         if what == "node":
-            count = None if count is None else int(number(count, "count", 0))
+            count = within(count, "count", 0, math.inf, whole=True)
             got = self.a11y_session(session).wait_node(
                 str(value), text(window), timeout, states=words(states),
                 value=None if node_value is None else str(node_value), count=count)

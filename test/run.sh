@@ -1654,7 +1654,7 @@ timed() {
 speak=$(command -v orca >/dev/null && echo "a11y speak")
 for w in "" gtk4-old; do
   for c in "a11y lint" "a11y click Save" "a11y scroll Save 1" "a11y contrast" "a11y tabwalk" \
-      ${speak:+"$speak"} "wait node Save" ${w:+"a11y tree"}; do
+      ${speak:+"$speak"} "wait node Save" "wait gone Save" ${w:+"a11y tree"}; do
     timed "$sb" $c --timeout 2 ${w:+--window $w}
   done
   pw=None; [ -z "$w" ] || pw="'$w'"
