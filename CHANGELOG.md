@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — 2026-11-05
+
+`shotbox mutate` runs a browser test against small changes to its page,
+to find a test that breaks on one that shouldn't matter or passes on
+one that should. `wait node` waits for a node's state, value or count,
+and `wait gone` for one to go; `wait idle` waits until each program
+answers, free on its main thread. `capture --tree` saves the tree
+beside a picture, so `compare` says what each change is in;
+`--ignore-node` leaves out a clock by its name, and `compare --update`
+takes a reviewed change in one command. `a11y diff` says what changed
+between two trees, and `shoot` waits for a node or an announcement.
+`record --sound` keeps picture and sound in step on X11. A session's
+end now stops what it started that left its process group, and `a11y
+lint` and `contrast` fail, rather than pass, when a program doesn't
+answer the accessibility bus: see the changes to check.
+
+### Changes to check when upgrading
+
+- **A session's end stops what it started that left its process
+  group**, as `setsid` does (a daemon, a test runner's helper, a
+  browser's own launcher), as a session killed outright already did.
+  That covers `shotbox run`, `exec`, `shoot`, `stop`, MCP's
+  `stop_session`, Python's `Session` and each run of `shotbox mutate`.
+  It also stops a lasting session started from inside it (`shotbox
+  start` within `shotbox run`). Such a program kept running after the
+  session ended. A recording's keeper finishing its file is spared, and
+  so is a command put in the session from outside with `--session`.
+- **A program that doesn't answer the accessibility bus (busy, or hung)
+  fails a check rather than passing it.** `a11y lint` and `a11y
+  contrast` without `--window` fail with status 2, `not all checked`
+  (Python's raise, MCP's say so as an error), rather than finding
+  nothing wrong. Every `a11y` and `wait node` command that gives up adds
+  `; program 1234 didn't answer: busy, or hung` to its error, which
+  alone read as a window, node or focus not being there. Each gives
+  such a program its `--timeout` (15 s at most) to answer, not
+  libatspi's 15 s: `tree` and `lint` took 16 s with `--timeout 2`, and
+  with `a11y`'s default `--timeout` of 10, a program slower than that to
+  answer now counts as not answering.
 
 ### Added
 
@@ -24,9 +61,11 @@
   accessible tree beside the picture, `OUT.json`, its bounds in the
   picture's pixels; `compare`, given pictures with one, says what each
   part that differs is in, on `--diff`'s page too: `412 pixels, in 80x24
-  at 12,40: button "Save"`. `--update` takes the tree with the picture,
-  and removes the reference's own if the new picture has none. Python's
-  `capture` takes `tree=True`.
+  at 12,40: button "Save"`, and a change in text GTK 4 draws partly
+  outside its widget is named by that widget, not the panel round it.
+  `--update` takes the tree with the picture, and removes the
+  reference's own if the new picture has none. Python's `capture` takes
+  `tree=True`.
 - A recipe, in docs/recipes.md: a web app in Chrome, served
   once in a lasting session and pictured as many times as wanted, with
   the flags it needs and why, and what it doesn't.
@@ -78,27 +117,11 @@
   wf-recorder's are on Wayland.
 - `record --sound` on Wayland lost the first second or so of sound:
   ffmpeg opened the sound only once it had looked over the first frames.
-- A program a session started that left its process group, as `setsid`
-  does (a daemon, a test runner's helper, a browser's own launcher),
-  kept running after the session ended normally, with `shotbox run`,
-  `exec`, `stop`, Python's `Session` and each run of `shotbox mutate`.
-  The session now stops whatever is still marked as its own, as it
-  already did when killed outright, a lasting session started inside it
-  too; but not a recording's keeper finishing its file, nor a command
-  put in it from outside with `--session`.
 - With `--usage`, a recording still finishing its file as its session
-  ended was cut off, leaving an empty or unfinished file and no error: the session's
-  slice was stopped with the recording's keeper in it. The keeper, and
-  what it started, now go to a scope of their own first, and finish as
-  they do without `--usage`.
-- A program that doesn't answer the accessibility bus (busy, or hung)
-  is said not to by every `a11y` and `wait node` command that gives up,
-  `; program 1234 didn't answer: busy, or hung`, not taken for a window
-  that isn't there, a node that isn't, or no focus; `lint` and
-  `contrast` without `--window` fail with status 2, not all checked
-  (Python's and MCP's raise), rather than finding nothing wrong. Each
-  ends a second past its `--timeout`: libatspi gave such a program 15
-  seconds first, so `tree` and `lint` took 16 with `--timeout 2`.
+  ended was cut off, leaving an empty or unfinished file and no error:
+  the session's slice was stopped with the recording's keeper in it.
+  The keeper, and what it started, now go to a scope of their own
+  first, and finish as they do without `--usage`.
 - With `XDG_RUNTIME_DIR` set to a directory that isn't there, as after a
   logout, or one you can't make a directory in, as under `su`, `start`,
   `stop` and `sessions` ended in a traceback. They now say so:
@@ -115,6 +138,9 @@
   gave up: the recorder looked at the focus again after the rename but
   before its event, and took the new name for the one it already had.
   A focus first looked at that late can still be missed.
+- With `--failed` and without `--a11y`, `wait announce` and Python's
+  `wait_focus`, giving up, said the screen twice (`the screen then: F;
+  the screen then: F`) and took the `--failed` picture twice. Once now.
 - MCP's actions with `changes`, and `shotbox.a11y.changes()`, said
   nothing of a program that didn't answer as the tree was read before,
   only after: what changed in its windows was left out unsaid, and
