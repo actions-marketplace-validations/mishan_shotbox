@@ -1179,18 +1179,20 @@ if atspi; then
   "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y lint --window a11y-test" > "$tmp/lintc" || true
   grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lintc" \
     && ok "a11y: lint, at a terminal, dims each node's path" || { fail "a11y: lint's color"; cat -v "$tmp/lintc"; }
-  # Through --session, the caller's FORCE_COLOR and NO_COLOR hold, though
-  # the session's own environment has neither.
+  # Through --session, the caller's FORCE_COLOR and NO_COLOR hold, set or
+  # not, whatever the session itself was started with.
   cs=color$$
-  "$sb" start --a11y --name "$cs" >/dev/null && "$sb" spawn --session "$cs" -- "$app" >/dev/null \
+  "$sb" start --a11y --env FORCE_COLOR=1 --name "$cs" >/dev/null && "$sb" spawn --session "$cs" -- "$app" >/dev/null \
     && "$sb" --session "$cs" wait window a11y-test >/dev/null || true
   FORCE_COLOR=1 "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lints" || true
   NO_COLOR=1 FORCE_COLOR=1 "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lintn" || true
+  "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lintp" || true
   "$sb" stop "$cs" || true
   grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lints" \
     && grep -q '/image\[5\]: image with no name' "$tmp/lintn" && ! grep -q "$esc" "$tmp/lintn" \
-    && ok "a11y: lint through --session takes the caller's FORCE_COLOR and NO_COLOR" \
-    || { fail "a11y: color through --session"; cat -v "$tmp/lints" "$tmp/lintn"; }
+    && grep -q '/image\[5\]: image with no name' "$tmp/lintp" && ! grep -q "$esc" "$tmp/lintp" \
+    && ok "a11y: lint through --session takes the caller's FORCE_COLOR and NO_COLOR, not the session's" \
+    || { fail "a11y: color through --session"; cat -v "$tmp/lints" "$tmp/lintn" "$tmp/lintp"; }
   "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
     && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
   "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' a11y lint --window fields &&
