@@ -3,14 +3,33 @@
 # the Node helpers. Needs what shotbox needs: Xvfb, xauth, dbus-daemon,
 # ImageMagick, and PyGObject with VTE for the terminal.
 set -eu
+# The tests that want color ask for it; the rest read plain text.
+unset NO_COLOR FORCE_COLOR
 # SHOTBOX_PART=NAME runs only what follows each "#: part NAME", besides
 # what's before the first part and after "#: end": CI runs each part at
 # once, on runners of their own.
+[ -z "${SHOTBOX_PART-}" ] || [ -z "${SHOTBOX_LINES-}" ] \
+  || { echo "SHOTBOX_PART or SHOTBOX_LINES, not both" >&2; exit 2; }
 if [ -n "${SHOTBOX_PART-}" ]; then
   p=$SHOTBOX_PART; unset SHOTBOX_PART
   grep -qx "#: part $p" "$0" || { echo "no part $p in $0" >&2; exit 2; }
   exec sh -c "$(awk -v p="$p" '/^#: part / { parted = 1; on = $3 == p; next }
     /^#: end$/ { on = 1; next } !parted || on' "$0")" "$0"
+fi
+# SHOTBOX_LINES=FROM-TO runs only those lines of this file, besides
+# what's before the first part and after "#: end": one test, watched
+# failing without the rest of its part.
+if [ -n "${SHOTBOX_LINES-}" ]; then
+  l=$SHOTBOX_LINES; unset SHOTBOX_LINES
+  echo "$l" | grep -qx '[0-9][0-9]*-[0-9][0-9]*' && [ "${l%-*}" -le "${l#*-}" ] \
+    || { echo "SHOTBOX_LINES is FROM-TO, not $l" >&2; exit 2; }
+  # A range with no test in it would pass, as one mistyped would: a test
+  # is an ok or fail, or a browser() run, past the setup that defines them.
+  awk -v a="${l%-*}" -v b="${l#*-}" '/^#: part / { parted = 1 }
+    parted && NR >= a + 0 && NR <= b + 0 && /(^|[ ;&|{(])(ok|fail|browser) [a-z"]/ { t = 1 }
+    END { exit !t }' "$0" || { echo "SHOTBOX_LINES: no test in lines $l" >&2; exit 2; }
+  exec sh -c "$(awk -v a="${l%-*}" -v b="${l#*-}" '/^#: part / { parted = 1 }
+    /^#: end$/ { ended = 1 } !parted || ended || NR >= a + 0 && NR <= b + 0' "$0")" "$0"
 fi
 here=$(cd "$(dirname "$0")" && pwd)
 sb=$here/../bin/shotbox
@@ -19,6 +38,7 @@ trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+esc=$(printf '\033')
 audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
   && { [ -x /usr/libexec/at-spi-bus-launcher ] || [ -x /usr/lib/at-spi2-core/at-spi-bus-launcher ]; }; }
@@ -829,6 +849,15 @@ sys.exit(not (got == want and list(got) == list(want) and j["control"] == "pass"
               "--target 'button \"Brittle\"' --kinds size,move,hide,number "
               f"--only 'move button \"Brittle\"' -- python3 {sys.argv[2]} good"))
 PY
+# At a terminal: each verdict in its color, the count bold, how to
+# reproduce one dim.
+(cd "$tmp" && FORCE_COLOR=1 "$sb" mutate --target 'button "Brittle"' --kinds move,hide \
+  -- python3 "$tmp/fake.py" good > "$tmp/mc" 2>&1) || true
+grep -q "  ${esc}\[33mBRITTLE${esc}\[0m" "$tmp/mc" && grep -q "  ${esc}\[31mBLIND${esc}\[0m" "$tmp/mc" \
+  && grep -q "^control    ${esc}\[32mpass${esc}\[0m$" "$tmp/mc" \
+  && grep -q "^${esc}\[1m2 brittle or blind of 2; 0 unapplied${esc}\[0m$" "$tmp/mc" \
+  && grep -q "^${esc}\[2mreproduce: shotbox mutate " "$tmp/mc" \
+  && ok "mutate: colored at a terminal" || { fail "mutate's color"; cat -v "$tmp/mc"; }
 # A test that fails on a change made but not yet looked at, as one that
 # dies at once leaves it: caught, unless fought, still showing, dead and
 # unused, or looked at and not proven.
@@ -1147,6 +1176,23 @@ if atspi; then
     && grep -q '/panel\[6\]: focusable panel with no name$' "$tmp/lint" \
     && ok "a11y: lint finds the icon button, the image and the drawing area with no name" \
     || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
+  "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y lint --window a11y-test" > "$tmp/lintc" || true
+  grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lintc" \
+    && ok "a11y: lint, at a terminal, dims each node's path" || { fail "a11y: lint's color"; cat -v "$tmp/lintc"; }
+  # Through --session, the caller's FORCE_COLOR and NO_COLOR hold, set or
+  # not, whatever the session itself was started with.
+  cs=color$$
+  "$sb" start --a11y --env FORCE_COLOR=1 --name "$cs" >/dev/null && "$sb" spawn --session "$cs" -- "$app" >/dev/null \
+    && "$sb" --session "$cs" wait window a11y-test >/dev/null || true
+  FORCE_COLOR=1 "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lints" || true
+  NO_COLOR=1 FORCE_COLOR=1 "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lintn" || true
+  "$sb" --session "$cs" a11y lint --window a11y-test > "$tmp/lintp" || true
+  "$sb" stop "$cs" || true
+  grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lints" \
+    && grep -q '/image\[5\]: image with no name' "$tmp/lintn" && ! grep -q "$esc" "$tmp/lintn" \
+    && grep -q '/image\[5\]: image with no name' "$tmp/lintp" && ! grep -q "$esc" "$tmp/lintp" \
+    && ok "a11y: lint through --session takes the caller's FORCE_COLOR and NO_COLOR, not the session's" \
+    || { fail "a11y: color through --session"; cat -v "$tmp/lints" "$tmp/lintn" "$tmp/lintp"; }
   "$sb" run --a11y -- sh -c "'$app' fixed & '$sb' a11y lint --window a11y-test" > "$tmp/lint" \
     && ok "a11y: lint passes them named" || { fail "a11y: lint, named"; cat "$tmp/lint"; }
   "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' a11y lint --window fields &&
@@ -1654,7 +1700,7 @@ timed() {
 speak=$(command -v orca >/dev/null && echo "a11y speak")
 for w in "" gtk4-old; do
   for c in "a11y lint" "a11y click Save" "a11y scroll Save 1" "a11y contrast" "a11y tabwalk" \
-      ${speak:+"$speak"} "wait node Save" ${w:+"a11y tree"}; do
+      ${speak:+"$speak"} "wait node Save" "wait gone Save" ${w:+"a11y tree"}; do
     timed "$sb" $c --timeout 2 ${w:+--window $w}
   done
   pw=None; [ -z "$w" ] || pw="'$w'"
@@ -1663,6 +1709,14 @@ for w in "" gtk4-old; do
   done
 done
 timed "$sb" a11y tree --timeout 2
+# A wait leaving a node out reads the tree once, in what's left of its time.
+timed "$sb" wait change --ignore-node Save --window gtk4-old --timeout 2
+# --window picks the window of one that answers, and one that doesn't.
+python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import GLib, Gtk
+Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & other=$!
+"$sb" wait window gtk4-other >/dev/null
+timed "$sb" wait gone Save --window 'gtk4-(old|other)' --timeout 2
+kill $other
 kill -CONT $app; kill $app
 echo end >> "$out"
 EOF
@@ -1674,6 +1728,7 @@ EOF
     / a11y (lint|contrast) --timeout 2: / && $2 != 2 ||
     !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
+    && grep -q " wait change .* after 2s; program " "$tmp/hung" \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
   [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
@@ -1814,8 +1869,9 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
     '$sb' a11y tree --json --window a11y-test > '$tmp/t2' &&
     { '$sb' a11y diff '$tmp/t1' --window a11y-test; echo \$?; '$sb' a11y diff '$tmp/t1' '$tmp/t2'; echo \$?
       '$sb' a11y diff '$tmp/t2' '$tmp/t2'; echo \$?; }" > "$tmp/diff" 2> "$tmp/diff-err" || true
-  "$sb" run --a11y -- sh -c "'$app' freeze & '$here/window.py' a11y-test &
-    '$sb' wait node Freeze >/dev/null &&
+  # The other a11y-test window is on the bus before the one frozen comes.
+  "$sb" run --a11y -- sh -c "'$here/window.py' a11y-test & '$sb' a11y tree --window a11y-test >/dev/null
+    '$app' freeze & '$sb' wait node Freeze >/dev/null &&
     '$sb' a11y click Freeze >/dev/null && sleep 0.5 && { '$sb' a11y diff '$tmp/t2' --timeout 2; echo \$?
       '$sb' a11y diff '$tmp/t2' --window a11y-test --timeout 2; echo \$?; }" \
     > "$tmp/frozen" 2>> "$tmp/diff-err" || true
@@ -1912,6 +1968,10 @@ sys.exit(not any(n['name'] == 'Page 2' for n in t)
       && grep -q '^stopped before Tab in a text view' "$tmp/notes" && [ ! -s "$tmp/typed" ] \
       && ok "a11y: speak: what Orca says, of buttons named and not, a mnemonic, two lines; slow, and not in a text view" \
       || { fail "a11y: speak"; cat "$tmp/speak" "$tmp/named" "$tmp/slow" "$tmp/notes" "$tmp/typed"; }
+    "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y speak --window a11y-test --keys Tab" \
+      > "$tmp/speakc" || true
+    grep -q "  says ${esc}\[36m\".*\"${esc}\[0m$" "$tmp/speakc" \
+      && ok "a11y: speak, at a terminal, colors what's said" || { fail "a11y: speak's color"; cat -v "$tmp/speakc"; }
   else
     [ "${SHOTBOX_ORCA-}" = required ] && fail "a11y: speak skipped: no Orca" \
       || echo "skip  a11y: speak: no Orca"
@@ -1971,6 +2031,27 @@ print(\"{2}x{3}+{0}+{1}\".format(*next(n for n in json.load(sys.stdin) if n[\"na
     && grep -q "click is True or (x, y) in the [0-9]*x[0-9]* picture, not (999, 1)" "$tmp/clk-err" \
     && ok "a11y: wait match and change --ignore-node, a clock left out; wait match --click, where it matched" \
     || { fail "a11y: wait --ignore-node and --click"; cat "$tmp/clk-out" "$tmp/clk.log" "$tmp/clk-err"; }
+  # wait node --state, --value and --count, and wait gone, on a window
+  # loading for a second; each giving up says what it saw.
+  "$sb" run --a11y -- sh -c "'$here/window.py' ld loading & '$sb' wait window ld >/dev/null &&
+    '$sb' wait gone Loading --window ld --timeout 5 && '$sb' wait node '^Save\$' --state enabled --timeout 5 && '$sb' wait node Remember --state checked --timeout 5 &&
+    '$sb' wait node Progress --value 100 --timeout 5 && '$sb' wait node '^Row [0-9]\$' --count 5 --timeout 5 > '$tmp/ld-rows' &&
+    { '$here/window.py' bye & p=\$!; '$sb' wait window bye >/dev/null; { sleep 1; kill \$p; } &
+      '$sb' wait gone bye --window bye --timeout 5; } &&
+    ! '$sb' wait node '^Row' --count 7 --timeout 1 2> '$tmp/ld-err' &&
+    ! '$sb' wait node '^Save\$' --state not-enabled --timeout 1 2>> '$tmp/ld-err' &&
+    ! '$sb' wait node Progress --value 50 --timeout 1 2>> '$tmp/ld-err' &&
+    ! '$sb' wait gone Row --timeout 1 2>> '$tmp/ld-err' &&
+    ! '$sb' wait node Save --state shiny --timeout 1 2>> '$tmp/ld-err'" > "$tmp/ld-out" 2>&1 \
+    && [ "$(cat "$tmp/ld-rows")" = "$(printf 'label "Row %s"\n' 1 2 3 4 5)" ] \
+    && [ "$(grep '^shotbox:' "$tmp/ld-err" | sed 's/^shotbox: //; s/push button/button/')" = "$(printf '%s\n' \
+         "gave up waiting for 7 nodes matching '^Row' after 1s: 5 matches, label \"Row 1\"; label \"Row 2\"; label \"Row 3\"; label \"Row 4\"; label \"Row 5\"" \
+         "gave up waiting for a node matching '^Save\$', not-enabled after 1s: 1 match, button \"Save\" [focusable]: is enabled" \
+         "gave up waiting for a node matching 'Progress', its value '50' after 1s: 1 match, progress bar \"Progress\": its value \"100\"" \
+         "gave up waiting for no node matching 'Row' after 1s: still there, label \"Row 1\", and 4 more")" ] \
+    && grep -q "invalid choice: 'shiny'" "$tmp/ld-err" \
+    && ok "a11y: wait node --state, --value, --count, and wait gone; each giving up says what it saw" \
+    || { fail "a11y: wait node --state/--value/--count, wait gone"; cat "$tmp/ld-out" "$tmp/ld-rows" "$tmp/ld-err"; }
   # A node with nothing in it, 0 pixels tall, is no node to leave out.
   ! "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' empty & '$sb' wait window gtk4-empty >/dev/null &&
     '$sb' wait change --window gtk4-empty --ignore-node Nothing --timeout 2" > "$tmp/empty-out" 2>&1 \
@@ -2426,6 +2507,46 @@ said="$(printf '%s\n' '  50 pixels, in 10x5 at 12,12: button "Save"' '  9 pixels
   && [ ! -e "$tmp/tr-ref/v.json" ] && [ -L "$tmp/tr-ref/w.json" ] && [ ! -e "$tmp/tr/gone.json" ] \
   && ok "compare: a tree beside a picture names what each region that differs is in" \
   || { fail "compare, named by a tree ($st $st2 $st3 $st4)"; printf '%s\n--\n' "$one" "$two" "$moved" "$dirs"; }
+
+# GTK 4 says where a widget is without its containers' padding, so text
+# can sit partly outside its own node: named by the one child of the
+# smallest node holding it that has most of it, and no other much of it;
+# split between two children, by the node holding both.
+mkdir -p "$tmp/gk"
+convert -size 100x80 xc:white "$tmp/gk/ref.png"
+convert "$tmp/gk/ref.png" -fill black -draw "rectangle 40,40 59,49" "$tmp/gk/new.png"
+kids() {   # kids FILE CHILD CHILD: a frame, a panel "p", and two children in it
+  printf '[{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 100, 80], "depth": 0},
+    {"role": "panel", "name": "p", "description": "", "states": [], "path": "frame/panel[0]", "bounds": [30, 30, 60, 30], "depth": 1},
+    %s, %s]' "$2" "$3" > "$1"; }
+kid() { printf '{"role": "%s", "name": "%s", "description": "", "states": [], "path": "frame/panel[0]/%s[%s]", "bounds": [%s], "depth": 2}' "$@"; }
+kids "$tmp/gk/new.json" "$(kid label Status label 0 '38, 36, 22, 10')" "$(kid button Go button 1 '62, 40, 10, 10')"
+gk1=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+kids "$tmp/gk/new.json" "$(kid button A button 0 '30, 30, 22, 30')" "$(kid button B button 1 '52, 30, 38, 30')"
+gk2=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+# Nor is a change round a child, as a frame's, named by what's inside it.
+convert "$tmp/gk/ref.png" -fill none -stroke black -draw "rectangle 35,35 64,54" "$tmp/gk/ring.png"
+kids "$tmp/gk/ring.json" "$(kid list Files list 0 '37, 37, 26, 16')" "$(kid button Go button 1 '80, 70, 5, 5')"
+gk3=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/ring.png" | tail -1) || true
+# Nor is a child of a twin window, the same path, taken for the window's own.
+kids "$tmp/gk/new.json" "$(kid label Status label 0 '38, 36, 22, 10')" \
+  '{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 100, 80], "depth": 0},
+  {"role": "panel", "name": "q", "description": "", "states": [], "path": "frame/panel[0]", "bounds": [70, 0, 30, 20], "depth": 1},
+  {"role": "label", "name": "Other", "description": "", "states": [], "path": "frame/panel[0]/label[0]", "bounds": [41, 40, 30, 10], "depth": 2}'
+gk4=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+# Colored for a person at a terminal, as FORCE_COLOR stands in for here;
+# not in a pipe, nor with NO_COLOR, whatever else says.
+FORCE_COLOR=1 "$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" > "$tmp/gk/color" || true
+gkn=$(NO_COLOR=1 FORCE_COLOR=1 "$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
+[ "$gk1" = '  200 pixels, in 20x10 at 40,40: label "Status"' ] && [ "$gk2" = '  200 pixels, in 20x10 at 40,40: panel "p"' ] \
+  && [ "$gk3" = '  208 pixels, in 31x21 at 35,35: panel "p"' ] && [ "$gk4" = "$gk1" ] \
+  && ok "compare: a region partly outside its node, as GTK 4 places it, named by it; split, by what holds both" \
+  || { fail "compare, GTK 4's places"; printf '%s\n' "$gk1" "$gk2" "$gk3" "$gk4"; }
+[ "$(head -1 "$tmp/gk/color")" = "${esc}[31m200 pixels differ${esc}[0m, in 20x10 at 40,40" ] \
+  && [ "$(tail -1 "$tmp/gk/color")" = "  200 pixels, in 20x10 at 40,40: ${esc}[36mlabel \"Status\"${esc}[0m" ] \
+  && [ "$gkn" = "$gk1" ] \
+  && ok "compare: colored at a terminal, not in a pipe or with NO_COLOR" \
+  || { fail "compare's color"; cat -v "$tmp/gk/color"; echo "$gkn" | cat -v; }
 
 # compare --ignore-node: the node's box, from the tree beside the new
 # picture or the reference, left out; moved to match (--margin), where the

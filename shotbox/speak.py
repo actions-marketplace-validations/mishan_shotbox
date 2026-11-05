@@ -16,11 +16,12 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 
-from . import a11y, x
+from . import a11y, color, x
 from .screen import Screen, SessionError, wait_for
 
 # An entry of Orca's debug log for each thing it says: 51's is
@@ -217,14 +218,15 @@ def left(Atspi, window, before, settle):
         time.sleep(0.05)
 
 
-def lines(got):
+def lines(got, shade=lambda text, style: text):
     """What speak() found, a line each, as `shotbox a11y speak` says it, the
-    start first: the focus's tree line, then what was said, each quoted."""
+    start first: the focus's tree line, then what was said, each quoted;
+    `shade` colors a part of it."""
     def said(p):
         where = p["focus"].line() if p["focus"] else "(no node has the focus)"
-        stayed = "  (the focus didn't move)" if p.get("moved") is False else ""
+        stayed = shade("  (the focus didn't move)", "warn") if p.get("moved") is False else ""
         return (where + stayed + "  says "
-                + (", ".join(json.dumps(s, ensure_ascii=False) for s in p["speech"])
+                + (shade(", ".join(json.dumps(s, ensure_ascii=False) for s in p["speech"]), "name")
                    or "nothing"))
     out = ["(start) " + said(got["start"])] + [said(p) for p in got["presses"]]
     if got["text_view"]:
@@ -259,5 +261,5 @@ def main(argv):
             p["focus"] = p["focus"] and a11y.public(p["focus"])
         print(json.dumps(got, ensure_ascii=False))
     else:
-        print("\n".join(lines(got)))
+        print("\n".join(lines(got, lambda text, style: color.paint(sys.stdout, text, style))))
     return 0

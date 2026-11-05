@@ -1,4 +1,4 @@
-record ${OUT} --seconds 20.5 &
+record ${OUT} --seconds 34 &
 0.3   type sketchpad
 0.6   key Return
 wait window Sketchpad
@@ -7,19 +7,28 @@ wait window Sketchpad
 2.3   key Return
 wait line --from-start "no name" term.log
 4.5   focus shotbox-term
-4.5   type "shotbox a11y contrast --window Sketchpad && echo ok"
+4.5   type "shotbox a11y contrast --window Sketchpad --ignore 'not measured' && echo ok"
 5.3   key Return
 wait line --from-start "at least" term.log
 8.5   focus shotbox-term
-8.5   type "git apply fix.diff && git diff -U1"
-9     key Return
+8.5   type "shotbox focus Sketchpad && shotbox a11y speak --keys shift+Tab"
+9.3   key Return
+wait line --from-start "\"button\"" term.log
++2.5  focus shotbox-term
++0    type "git apply fix.diff && git diff -U1"
++0.5  key Return
 wait line --from-start Delete term.log
-12.5  type sketchpad
-12.8  key Return
-14    focus shotbox-term
-14    type "shotbox a11y lint --window Sketchpad && echo ok"
-14.6  key Return
++3.5  type sketchpad
++0.3  key Return
++1.2  focus shotbox-term
++0    type "shotbox a11y lint --window Sketchpad && echo ok"
++0.6  key Return
 wait line --from-start "(^|[^ ])ok\s*$" term.log
-16.3  focus shotbox-term
-16.3  type "shotbox a11y contrast --window Sketchpad && echo ok"
-16.9  key Return
++1.7  focus shotbox-term
++0    type "shotbox a11y contrast --window Sketchpad --ignore 'not measured' && echo ok"
++0.6  key Return
+wait line "(^|[^ ])ok\s*$" term.log
++1.2  focus shotbox-term
++0    type "shotbox focus Sketchpad && shotbox a11y speak --keys shift+Tab"
++0.8  key Return
+wait line --from-start "\"Delete button\"" term.log

@@ -59,7 +59,7 @@ import urllib.parse
 import wave
 from pathlib import Path
 
-from . import __version__, a11y, kept, mcp, mutation, pad, sound, term, usage, x, xtest
+from . import __version__, a11y, color, kept, mcp, mutation, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
@@ -323,7 +323,7 @@ def cmd_mutate(argv):
     if a.json:
         print(json.dumps({**dataclasses.asdict(rep), "reproduce": again}, indent=2))
     elif again:
-        print(f"reproduce: {again}")
+        print(color.paint(sys.stdout, f"reproduce: {again}", "dim"))
     return rep.status
 
 
@@ -611,13 +611,14 @@ def cmd_wait(argv):
                                             "change and idle say how long they "
                                             "took; line prints the line.")
     p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
-                                    "node", "match", "change", "line", "idle"))
+                                    "node", "gone", "match", "change", "line", "idle"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
                         "stable, how long it must hold still (0.5); for announce, "
                         "a regex found in what was said (needs --a11y); for node, a "
-                        "regex found in a showing node's name or text (needs --a11y); "
+                        "regex found in a showing node's name or text (needs --a11y), "
+                        "and for gone, one no showing node has; "
                         "for match, "
                         "the picture (a PNG) to look like; for line, a regex found in "
                         "the line")
@@ -626,7 +627,7 @@ def cmd_wait(argv):
                    help="for line: from the top of the file, not from the end it has "
                         "when the wait starts")
     p.add_argument("--window", metavar="RE",
-                   help="for stable, node, match, change and idle: watch this window "
+                   help="for stable, node, gone, match, change and idle: watch this window "
                         "rather than the display")
     p.add_argument("--crop", metavar="WxH+X+Y",
                    help="for stable, match and change: watch just this part of it")
@@ -648,6 +649,15 @@ def cmd_wait(argv):
     p.add_argument("--click", nargs="?", const="", metavar="X,Y",
                    help="for match: then click where it matched, at its middle, or X,Y in "
                         "the picture")
+    p.add_argument("--state", action="append", default=[], metavar="STATE", choices=(
+        *a11y.WAIT_STATES, *(f"not-{st}" for st in a11y.WAIT_STATES)),
+                   help="for node: in this state too, enabled, focused, checked, expanded "
+                        "or another the tree says, or not-STATE (repeatable)")
+    p.add_argument("--value", metavar="V",
+                   help="for node: its value this, exactly, else a regex in full: a "
+                        "field's text, a progress bar's number")
+    p.add_argument("--count", type=int, metavar="N",
+                   help="for node: exactly N such nodes")
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
@@ -659,8 +669,10 @@ def cmd_wait(argv):
         p.error(f"--click is X,Y in the picture, not {a.click} (the picture goes before --click)")
     if a.kind == "match" and not a.arg:
         p.error("match needs the picture to look like")
-    if a.kind == "node" and not a.arg:
-        p.error("node needs a regex to look for: an empty one matches any node")
+    if a.kind in ("node", "gone") and not a.arg:
+        p.error(f"{a.kind} needs a regex to look for: an empty one matches any node")
+    if (a.state or a.value is not None or a.count is not None) and a.kind != "node":
+        p.error("--state, --value and --count go with node")
     if (a.kind == "line") != bool(a.file):
         p.error("line, and only line, takes a FILE after its pattern")
     if a.from_start and a.kind != "line":
@@ -687,7 +699,13 @@ def cmd_wait(argv):
         print(screen.wait_line(a.arg, a.file, a.from_start, a.timeout))
         return 0
     if a.kind == "node":
-        screen.wait_node(a.arg, a.window, a.timeout)
+        got = screen.wait_node(a.arg, a.window, a.timeout, states=a.state, value=a.value,
+                               count=a.count)
+        for n in got if a.count is not None else []:
+            print(n.line())
+        return 0
+    if a.kind == "gone":
+        screen.wait_gone(a.arg, a.window, a.timeout)
         return 0
     if a.kind == "idle":
         print(f"{screen.wait_idle(a.window, a.timeout):.3f}s")
@@ -1383,11 +1401,19 @@ def node_boxes(ref, new, names, at, grow=0, strict=True):
     return boxes
 
 
-def named(ref, new, at, fuzz, ignore, margin):
+def overlap(a, b):
+    """How many pixels boxes (x, y, width, height) `a` and `b` share."""
+    return (max(0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+            * max(0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])))
+
+
+def named(ref, new, at, fuzz, ignore, margin, shade=str):
     """Where `new` differs from `ref`, a line each region, naming what a
     screen reader sees there: the smallest node whose bounds hold it all,
-    in the tree beside the new picture (`capture --tree`), or else the
-    reference's. Nothing without a tree; ten at most, and how many more."""
+    stepping down into a child with more than half of it while no other
+    child has more than a tenth, in the tree beside the new picture
+    (`capture --tree`), or else the reference's. Nothing without a tree;
+    ten at most, and how many more."""
     for side, shift in ((new, at), (ref, (0, 0))):
         tree = Path(side).with_suffix(".json")
         if tree.exists():
@@ -1395,9 +1421,10 @@ def named(ref, new, at, fuzz, ignore, margin):
     else:
         return []
     try:
-        nodes = bounded(tree)
+        every = a11y.saved(tree)
     except SessionError as e:
         return [f"  (no names: {e})"]
+    nodes = [d for d in every if x.boxed(d)]
     lines = []
     found = x.regions(ref, new, fuzz=fuzz, ignore=ignore, margin=margin, at=at)
     for n, (w, h, rx, ry) in found[:10]:
@@ -1406,8 +1433,24 @@ def named(ref, new, at, fuzz, ignore, margin):
         holds = [d for d in nodes if d.bounds[0] <= rx and d.bounds[1] <= ry
                  and rx + w <= d.bounds[0] + d.bounds[2] and ry + h <= d.bounds[1] + d.bounds[3]]
         node = min(holds, key=lambda d: (d.bounds[2] * d.bounds[3], -d.depth), default=None)
+        # GTK 4 says where a widget is without its containers' padding, so
+        # text can sit partly outside its own node: the one child with most
+        # of it, and no other much of it, is where it is. Not one wholly
+        # inside it, as a frame's change is round its content.
+        while node:
+            # Its children follow it in the tree, up to the next node no
+            # deeper: a twin window's have the same paths.
+            i = next(i for i, d in enumerate(every) if d is node)
+            end = next((j for j in range(i + 1, len(every)) if every[j].depth <= node.depth),
+                       len(every))
+            kids = sorted(((overlap(d.bounds, (rx, ry, w, h)), d) for d in every[i + 1:end]
+                           if d.depth == node.depth + 1 and x.boxed(d)), key=lambda k: -k[0])
+            if (not kids or kids[0][0] * 2 <= w * h or len(kids) > 1 and kids[1][0] * 10 > w * h
+                    or kids[0][0] == kids[0][1].bounds[2] * kids[0][1].bounds[3]):
+                break
+            node = kids[0][1]
         lines.append(f"  {n} pixels, in {w}x{h} at {rx - shift[0]},{ry - shift[1]}: "
-                     + (f"{node.role} {json.dumps(node.name, ensure_ascii=False)}" if node
+                     + (shade(f"{node.role} {json.dumps(node.name, ensure_ascii=False)}") if node
                         else "in no node"))
     if len(found) > 10:
         lines.append(f"  and {len(found) - 10} more")
@@ -1515,11 +1558,11 @@ def cmd_compare(argv):
                                                   strict=not dirs[0])
         return *x.compare(ref, new, diff=diff, box=True, at=at, **how), at
 
-    def regions(ref, new, name, at):
+    def regions(ref, new, name, at, shade=str):
         return "".join(f"\n{line}" for line in named(
             ref, new, at, fuzz(name),
             ignore(name) + node_boxes(ref, new, a.ignore_node, at, strict=not dirs[0]),
-            int(per_name(a.margin, name, 0))))
+            int(per_name(a.margin, name, 0)), shade))
 
     dirs = Path(a.a).is_dir(), Path(a.b).is_dir()
     if dirs[0] != dirs[1]:
@@ -1541,8 +1584,14 @@ def cmd_compare(argv):
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
-        print(differing(n, box) + shifted(at) + (regions(a.a, a.b, None, at) if n > most(None) else ""))
-        return 0 if n <= most(None) else 1
+        if n <= most(None):
+            print(differing(n, box) + shifted(at))
+            return 0
+        # One pair's alone: the directories' lines go on --diff's HTML page too.
+        print(differing(n, box).replace(f"{n} pixels differ", color.paint(
+            sys.stdout, f"{n} pixels differ", "fail"), 1) + shifted(at)
+            + regions(a.a, a.b, None, at, lambda s: color.paint(sys.stdout, s, "name")))
+        return 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
         {f.stem for d in (a.a, a.b)[:1 + a.update] for f in Path(d).glob("*.png")})

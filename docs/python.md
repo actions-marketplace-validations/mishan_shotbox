@@ -60,8 +60,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
   screen there first, and says where.
-- Accessibility, in a session with `a11y=True`: `a11y_tree(window=None)`,
-  the nodes (dicts, and attributes: `role`, `name`, `description`,
+- Accessibility, in a session with `a11y=True`: `a11y_tree(window=None,
+  timeout=10)`, waiting that long for the window and a program slow to
+  answer, the nodes (dicts, and attributes: `role`, `name`, `description`,
   `states`, `path`, `depth`, and `bounds`: on the screen, or given a
   `window`, here and in the nodes below, from its corner, as `click` and
   `scroll` take an x,y with it; a window's
@@ -69,8 +70,10 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   answer as a node with its `pid` and `quiet`); `find(role=None,
   name=None, window=None)`, `name` as `click_node` takes it (exactly,
   else a regex); `focused()`; `wait_focus(re)`; `wait_node(re,
-  window=None)`, the node `wait node` waits for, with its `text`, cut to
-  80 characters round the match, where that's what matched;
+  window=None, states=(), value=None, count=None)`, the node `wait node`
+  waits for, with its `text`, cut to 80 characters round the match,
+  where that's what matched (a list of them with `count`); `wait_gone(re,
+  window=None)`;
   `tab_walk(key="Tab", most=50, window=None, visible=False,
   reach_all=False, ignore=(), document=False)`, the nodes the focus
   lands on, failing as `tabwalk` does (with `visible`, where the focus

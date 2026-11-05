@@ -29,7 +29,7 @@ from collections import Counter
 from functools import cache
 from pathlib import Path
 
-from . import picture, wl, x
+from . import color, picture, wl, x
 from .screen import Screen, SessionError, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
@@ -1118,10 +1118,10 @@ def went(before, after, area, ring):
     def band(outer, inner):
         x0, y0, x1, y1 = meet(outer, area)
         for y in range(y0, y1):
-            for x in range(x0, x1):
-                if not (inner[0] <= x < inner[2] and inner[1] <= y < inner[3]):
-                    i = (y * before.width + x) * 3
-                    yield x, y, before.data[i:i + 3], after.data[i:i + 3]
+            for px in range(x0, x1):
+                if not (inner[0] <= px < inner[2] and inner[1] <= y < inner[3]):
+                    i = (y * before.width + px) * 3
+                    yield px, y, before.data[i:i + 3], after.data[i:i + 3]
 
     # By how much, since the ring's color can be round it too (a checked box).
     near = Counter(b for _, _, b, a in [*band(grow(ring, RING + 2), grow(ring, RING)),
@@ -1381,14 +1381,55 @@ def node_action(acc, action=True):
     return (None if i is None else (i, names[i])), names
 
 
-def wait_node(pattern, window=None, timeout=10):
+# The states wait node takes beside STATES and their opposites, as the
+# tree says them: "disabled" for what isn't enabled.
+WAIT_STATES = (*STATES, "collapsed", "disabled", "enabled")
+
+
+def has_state(n, state):
+    """Whether node `n` is in `state`, one of WAIT_STATES or "not-" one."""
+    if state.startswith("not-"):
+        return not has_state(n, state[4:])
+    return "disabled" not in n.states if state == "enabled" else state in n.states
+
+
+def node_value(Atspi, n):
+    """A node's value as a screen reader says it: its text (a field's, a
+    label's), else its number (a slider's), a progress bar's as a percent
+    of the way from its least to its most, else ""."""
+    text = unembedded(contents(Atspi, n) or "")
+    if text:
+        return text
+    try:
+        v = n._acc.get_value_iface()
+        if not v:
+            return ""
+        now, least, most = v.get_current_value(), v.get_minimum_value(), v.get_maximum_value()
+        if n._role == Atspi.Role.PROGRESS_BAR and most > least:
+            return f"{round((now - least) / (most - least) * 100, 2):g}"
+        return f"{now:g}"
+    except Exception:   # gone, or no value
+        return ""
+
+
+def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=None, gone=False):
     """Wait for a showing node with `pattern`, a regex, found in its name
     or text; that node, with its text round the match as `text` where
-    that's what matched. Giving up, say what came nearest: a match that
-    isn't showing, else the nearest names and texts, or that there were
-    none."""
+    that's what matched. With `states` (WAIT_STATES, or "not-" one), one
+    in each; with `value`, its value that, exactly or as a regex in full;
+    with `count`, exactly that many such nodes, the list of them; with
+    `gone`, until no showing node matches, True. Giving up, say what came
+    nearest: the matches and why each isn't it, or for gone what's still
+    there; a match that isn't showing; else the nearest names and texts,
+    or that there were none."""
     if not pattern:
         raise SessionError("wait node needs a regex to look for: an empty one matches any node")
+    for st in states:
+        if st.removeprefix("not-") not in WAIT_STATES:
+            raise SessionError(f"a state is one of {', '.join(WAIT_STATES)}, or not- one, "
+                               f"not {st!r}")
+    if count is not None and count < 0:
+        raise SessionError(f"a count is 0 or more, not {count}")
     Atspi = atspi()
     try:
         found = re.compile(pattern)
@@ -1406,16 +1447,80 @@ def wait_node(pattern, window=None, timeout=10):
             return True
         return False
 
-    def there():
-        seen[:] = [n for _, n in walk(Atspi, window, timeout)]
-        return next((n for n in seen if n._showing and matches(n)), None)
+    if value is not None:
+        valued, value_note = x.pattern(value)
+    shown = []
 
-    what = f"a node matching {pattern!r}"
+    def why_not(n):
+        """Why node `n`, which matches, isn't one waited for, or None."""
+        lacks = [st for st in states if not has_state(n, st)]
+        if lacks:
+            return ", ".join(f"is {st[4:]}" if st.startswith("not-") else f"isn't {st}"
+                             for st in lacks)
+        if value is not None:
+            n["value"] = node_value(Atspi, n)
+            if not valued(n.value):
+                return f"its value {json.dumps(n.value, ensure_ascii=False)}"
+        return None
+
+    looked = []
+
+    def quiet_owns(window):
+        """Whether a window `window` picks on the screen may be a program's
+        that didn't answer, and hold more."""
+        screen = Screen()
+        return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
+                   for w in screen.backend.shown(screen.env, window))
+
+    def there():
+        try:
+            # Once it's been looked in, the window is asked for at once:
+            # gone, it's gone with what was in it.
+            seen[:] = [n for _, n in walk(Atspi, window, 0 if looked and gone else timeout)]
+        except SessionError:
+            # Left out for not answering, it may still be on the screen.
+            if looked and gone:
+                return not QUIET or not Screen().find_window(window)
+            raise
+        looked.append(True)
+        whole = not QUIET or window and not quiet_owns(window)
+        shown.clear()
+        ok = []
+        for n in seen:
+            if n._showing and matches(n):
+                shown.append(n)
+                if not gone and why_not(n) is None:
+                    if count is None:
+                        return n
+                    ok.append(n)
+        if gone:
+            return not shown and whole
+        return (ok,) if len(ok) == count and whole else None
+
+    detail = "".join(f", {st}" for st in states) + (
+        f", its value {value!r}{value_note}" if value is not None else "")
+    if gone:
+        what = f"no node matching {pattern!r}"
+    elif count is not None:
+        what = f"{count} node{'s' * (count != 1)} matching {pattern!r}{detail}"
+    else:
+        what = f"a node matching {pattern!r}{detail}"
     try:
-        return wait_for(what, there, timeout)
+        got = wait_for(what, there, timeout)
+        return got[0] if count is not None else got
     except SessionError as e:
         if not str(e).startswith(f"gave up waiting for {what}"):
             raise
+        if gone and not shown:
+            raise SessionError(str(e)) from None
+        if gone:
+            raise SessionError(f"{e}: still there, {shown[0].line()}"
+                               + (f", and {len(shown) - 1} more" if len(shown) > 1 else "")) from None
+        if count is not None or (shown and (states or value is not None)):
+            said = [f"{n.line()}" + (f": {why}" if (why := why_not(n)) else "") for n in shown[:5]]
+            raise SessionError(f"{e}: {len(shown)} match{'es' * (len(shown) != 1)}"
+                               + (", " + "; ".join(said) if said else "")
+                               + (f", and {len(shown) - 5} more" if len(shown) > 5 else "")) from None
         hidden = next((n for n in seen if not n._showing and matches(n)), None)
         if hidden:
             text = (f", its text {json.dumps(hidden.text, ensure_ascii=False)},"
@@ -2422,8 +2527,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         got = aparts[key]
         if not got:
             return False
-        for match, (x, y) in ((got[0], got[1:3]), (got[5], got[7])):
-            there = [x + 2, y, got[3] - 4, got[4]]
+        for match, (px, py) in ((got[0], got[1:3]), (got[5], got[7])):
+            there = [px + 2, py, got[3] - 4, got[4]]
             if all(overlap(there, box)[2:]):
                 continue
             return match >= MATCH_ELSEWHERE and not (alone and drawers(there, t, o, blank=True))
@@ -2940,7 +3045,7 @@ def text_shapes(text, attrs, dy=0):
             options.set_hint_style(hint)
             options.set_hint_metrics(metrics)
 
-            def layout(cr):
+            def layout(cr, options=options):
                 got = PangoCairo.create_layout(cr)
                 PangoCairo.context_set_font_options(got.get_context(), options)
                 got.set_font_description(font)
@@ -3427,6 +3532,12 @@ def read(argv):
     sc.add_argument("--role", metavar="RE", help="and its role, exactly or a regex")
     nd = sub.add_parser("node")
     nd.add_argument("pattern")
+    nd.add_argument("--state", action="append", default=[], choices=(
+        *WAIT_STATES, *(f"not-{st}" for st in WAIT_STATES)), metavar="STATE")
+    nd.add_argument("--value")
+    nd.add_argument("--count", type=int)
+    gn = sub.add_parser("gone")
+    gn.add_argument("pattern")
     il = sub.add_parser("idle")
     for s in (c, sc):
         s.add_argument("--force", action="store_true",
@@ -3446,7 +3557,7 @@ def read(argv):
                     help="also what passes, with its ratio, after what fails")
     ct.add_argument("--strict", action="store_true",
                     help="what isn't measured fails too")
-    for s in (t, df, lt, w, c, sc, ct, nd, il):
+    for s in (t, df, lt, w, c, sc, ct, nd, gn, il):
         s.add_argument("--window", metavar="RE",
                        help="just this window (its title, a regex matched in full, "
                             "or app=RE for its app id; one with no accessible name "
@@ -3455,7 +3566,7 @@ def read(argv):
         s.add_argument("--timeout", type=float, default=10, metavar="SECS",
                        help="how long to wait for the --window (10), or the node, "
                             "and for a program to answer")
-    for s in (t, lt, w, c, sc, ct, nd, il):
+    for s in (t, lt, w, c, sc, ct, nd, gn, il):
         s.add_argument("--json", action="store_true", help="as JSON, for scripts")
     sub.add_parser("speak", help="what Orca, a screen reader, says as keys move the focus")
     rec = sub.add_parser("record")
@@ -3527,16 +3638,16 @@ def read(argv):
                               "behind": [dict(public(n), behind=what) for n, what in behind]}))
         else:
             for n, what in problems + passes + notes + behind:
-                print(f"{n.path}: {what}{placed(n)}")
+                print(f"{color.paint(sys.stdout, n.path, 'dim')}: {what}{placed(n)}")
         if QUIET and not a.window:
-            sys.stderr.write((said + "\n") * bool(said and not a.json)
+            sys.stderr.write((color.paint(sys.stderr, said, "warn") + "\n") * bool(said and not a.json)
                              + f"shotbox: not all checked: {unanswered()}\n")
             return 2
         if nothing:
             sys.stderr.write(f"shotbox: nothing measured: {said}\n")
             return 2
         if said and not a.json:
-            sys.stderr.write(said + "\n")
+            sys.stderr.write(color.paint(sys.stderr, said, "warn") + "\n")
         return 1 if problems and not a.json else 0
     if a.what in ("click", "scroll"):
         if a.what == "click" and a.name is None:
@@ -3558,8 +3669,16 @@ def read(argv):
         print(json.dumps(took) if a.json else f"{took:.3f}s")
         return 0
     if a.what == "node":
-        n = wait_node(a.pattern, a.window, a.timeout)
-        print(json.dumps(public(n)) if a.json else n.line())
+        got = wait_node(a.pattern, a.window, a.timeout, a.state, a.value, a.count)
+        found = got if a.count is not None else [got]
+        if a.json:
+            print(json.dumps([public(n) for n in found] if a.count is not None else public(got)))
+        for n in [] if a.json else found:
+            print(n.line())
+        return 0
+    if a.what == "gone":
+        wait_node(a.pattern, a.window, a.timeout, gone=True)
+        print("true" if a.json else "gone")
         return 0
     skip = ignored(a.ignore)
     seen, how, missed, began = tab_walk(a.key, a.max, a.window, timeout=a.timeout,

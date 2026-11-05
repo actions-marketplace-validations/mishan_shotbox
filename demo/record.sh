@@ -1,26 +1,34 @@
 #!/bin/sh
-# Records the README's demo into OUT-DIR: demo.mp4 and demo.gif, a scene
-# each from a11y.play, pictures.play, sound.play, flicker.play and
-# pad.play, then a closing card with LOGO (docs/logo.png).
+# record.sh OUT-DIR [SCENE]: the README's demo, demo.mp4 and demo.gif, a scene
+# each from a11y.play, pictures.play, sound.play, flicker.play, pad.play
+# and mutate.play, then a closing card with LOGO (docs/logo.png). With
+# SCENE, just that one, as OUT-DIR/SCENE.mp4, to check it before a take.
 set -eu
 demo=$(cd "$(dirname "$0")" && pwd)
 out=$(realpath "$1")
+only=${2-}
+[ -z "$only" ] || [ -f "$demo/$only.play" ] || { echo "record.sh: no $only.play" >&2; exit 2; }
 logo=${LOGO:-$demo/../docs/logo.png}
+[ -d "$demo/../node_modules/playwright" ] || { echo "record.sh: npm install first" >&2; exit 2; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# scene NAME [SESSION-OPTION...]: plays NAME.play into $work/NAME.mp4
+# scene NAME [SESSION-OPTION...]: plays NAME.play into $work/NAME.mp4,
+# its terminal COLS columns wide (83) at x AT (224, beside the app), with
+# MODULES as its node_modules if given.
 scene() {
   name=$1
   shift
+  [ -z "$only" ] || [ "$only" = "$name" ] || return 0
   shotbox run --screen 890x480 --seed "$demo" --identity demo@sketchpad \
     --env OUT="$work/$name.mp4" --env SCENE="$name" "$@" -- sh -c '
     cd
-    shotbox term --size 83x28 --font "Monospace 10" --scheme scheme.json --log term.log \
+    [ -z "${MODULES-}" ] || ln -s "$MODULES" node_modules
+    shotbox term --size ${COLS:-83}x28 --font "Monospace 10" --scheme scheme.json --log term.log \
       -- bash --rcfile "$HOME/bashrc" &
     shotbox wait window shotbox-term
     # No window manager: put the terminal beside the app, which maps at 0,0.
-    xdotool search --name "^shotbox-term$" windowmove 224 0
+    xdotool search --name "^shotbox-term$" windowmove ${AT:-224} 0
     shotbox play "$SCENE.play" >/dev/null'
 }
 clock=--clock=2026-10-01T09:00:00
@@ -30,6 +38,16 @@ scene pictures $clock
 scene sound --audio
 scene flicker --env SHOW_AT=+0+240 --env SHOW_SIZE=224x240 $clock
 scene pad --gamepads 1 $clock
+# The test's imports: this checkout as shotbox, and its Playwright (npm
+# install). Its browsers' path is passed in: --identity leaves it out, as
+# it has the user's name in it.
+mkdir "$work/node_modules"
+ln -s "$demo/.." "$work/node_modules/shotbox"
+ln -s "$demo/../node_modules/playwright" "$work/node_modules"
+scene mutate --env MODULES="$work/node_modules" --env COLS=110 --env AT=0 $clock \
+  --env PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
+
+if [ -n "$only" ]; then cp "$work/$only.mp4" "$out/"; exit; fi
 
 magick -size 890x520 xc:'#1f2430' \( "$logo" -resize 170x170 \) -geometry +80+150 -composite \
   -font Cantarell-Bold -pointsize 30 -fill white -annotate +290+200 'shotbox' \
@@ -45,7 +63,7 @@ magick -size 890x520 xc:'#1f2430' \( "$logo" -resize 170x170 \) -geometry +80+15
 # it has no sound of its own, then one after another.
 set --
 filters= n=0
-for name in a11y pictures sound flicker pad; do
+for name in a11y pictures sound flicker pad mutate; do
   set -- "$@" -i "$work/$name.mp4"
   filters="$filters[$n:v]pad=890:520:0:0:0x11141b,fps=30,setsar=1[v$n];"
   if [ "$name" = sound ]; then

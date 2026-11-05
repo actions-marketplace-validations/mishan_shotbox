@@ -1,6 +1,6 @@
 record ${OUT} --seconds 12 &
 0.3   focus shotbox-term
-0.3   type "shotbox shoot before.png --window Sketchpad -- python3 sketchpad.py"
+0.3   type "shotbox shoot before.png --tree --window Sketchpad -- python3 sketchpad.py"
 0.9   key Return
 wait line --from-start "before\.png\s*$" term.log
 2.4   focus shotbox-term
@@ -10,7 +10,7 @@ wait line --from-start "before\.png\s*$" term.log
 3.4   type "git apply fix.diff"
 3.8   key Return
 4.6   focus shotbox-term
-4.6   type "shotbox shoot after.png --window Sketchpad -- python3 sketchpad.py"
+4.6   type "shotbox shoot after.png --tree --window Sketchpad -- python3 sketchpad.py"
 5.2   key Return
 wait line --from-start "after\.png\s*$" term.log
 6.8   focus shotbox-term
