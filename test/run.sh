@@ -1663,6 +1663,12 @@ for w in "" gtk4-old; do
   done
 done
 timed "$sb" a11y tree --timeout 2
+# --window picks the window of one that answers, and one that doesn't.
+python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository import GLib, Gtk
+Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & other=$!
+"$sb" wait window gtk4-other >/dev/null
+timed "$sb" wait gone Save --window 'gtk4-(old|other)' --timeout 2
+kill $other
 kill -CONT $app; kill $app
 echo end >> "$out"
 EOF
