@@ -7,8 +7,9 @@ API (`test/api.py`, which needs GTK 3's PyGObject) and the Node helpers, and
 takes about 25 minutes; `SHOTBOX_PART=a11y test/run.sh` runs one of its
 parts (`core`, `input`, `a11y`, `a11y-2`, `record`, `browser`, `mutate`), as
 CI does, each on its own runner, and `SHOTBOX_LINES=FROM-TO test/run.sh`
-runs only those lines of it, with the setup every test has: one test,
-to watch it fail. The helpers that need a browser use Playwright's
+runs only those lines of it, after the setup before its first part:
+one test, to watch it fail. A test that needs its part's own setup, or
+files an earlier test made, needs those lines in the range too. The helpers that need a browser use Playwright's
 Chromium (`npm install && npx playwright install chromium`) and skip
 without it, the Wayland sessions need sway, grim and Xwayland and skip
 without them, the accessibility checks need GTK 4, libadwaita and
