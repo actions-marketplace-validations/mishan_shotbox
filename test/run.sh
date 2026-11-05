@@ -12,6 +12,16 @@ if [ -n "${SHOTBOX_PART-}" ]; then
   exec sh -c "$(awk -v p="$p" '/^#: part / { parted = 1; on = $3 == p; next }
     /^#: end$/ { on = 1; next } !parted || on' "$0")" "$0"
 fi
+# SHOTBOX_LINES=FROM-TO runs only those lines of this file, besides
+# what's before the first part and after "#: end": one test, watched
+# failing without the rest of its part.
+if [ -n "${SHOTBOX_LINES-}" ]; then
+  l=$SHOTBOX_LINES; unset SHOTBOX_LINES
+  echo "$l" | grep -qx '[0-9][0-9]*-[0-9][0-9]*' && [ "${l%-*}" -le "${l#*-}" ] \
+    || { echo "SHOTBOX_LINES is FROM-TO, not $l" >&2; exit 2; }
+  exec sh -c "$(awk -v a="${l%-*}" -v b="${l#*-}" '/^#: part / { parted = 1 }
+    /^#: end$/ { ended = 1 } !parted || ended || NR >= a + 0 && NR <= b + 0' "$0")" "$0"
+fi
 here=$(cd "$(dirname "$0")" && pwd)
 sb=$here/../bin/shotbox
 tmp=$(mktemp -d)
