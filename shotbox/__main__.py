@@ -1421,9 +1421,10 @@ def named(ref, new, at, fuzz, ignore, margin):
     else:
         return []
     try:
-        nodes = bounded(tree)
+        every = a11y.saved(tree)
     except SessionError as e:
         return [f"  (no names: {e})"]
+    nodes = [d for d in every if x.boxed(d)]
     lines = []
     found = x.regions(ref, new, fuzz=fuzz, ignore=ignore, margin=margin, at=at)
     for n, (w, h, rx, ry) in found[:10]:
@@ -1437,9 +1438,13 @@ def named(ref, new, at, fuzz, ignore, margin):
         # of it, and no other much of it, is where it is. Not one wholly
         # inside it, as a frame's change is round its content.
         while node:
-            kids = sorted(((overlap(d.bounds, (rx, ry, w, h)), d) for d in nodes
-                           if d.depth == node.depth + 1 and d.path.startswith(node.path + "/")),
-                          key=lambda k: -k[0])
+            # Its children follow it in the tree, up to the next node no
+            # deeper: a twin window's have the same paths.
+            i = next(i for i, d in enumerate(every) if d is node)
+            end = next((j for j in range(i + 1, len(every)) if every[j].depth <= node.depth),
+                       len(every))
+            kids = sorted(((overlap(d.bounds, (rx, ry, w, h)), d) for d in every[i + 1:end]
+                           if d.depth == node.depth + 1 and x.boxed(d)), key=lambda k: -k[0])
             if (not kids or kids[0][0] * 2 <= w * h or len(kids) > 1 and kids[1][0] * 10 > w * h
                     or kids[0][0] == kids[0][1].bounds[2] * kids[0][1].bounds[3]):
                 break
