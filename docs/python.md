@@ -60,8 +60,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
   screen there first, and says where.
-- Accessibility, in a session with `a11y=True`: `a11y_tree(window=None)`,
-  the nodes (dicts, and attributes: `role`, `name`, `description`,
+- Accessibility, in a session with `a11y=True`: `a11y_tree(window=None,
+  timeout=10)`, waiting that long for the window and a program slow to
+  answer, the nodes (dicts, and attributes: `role`, `name`, `description`,
   `states`, `path`, `depth`, and `bounds`: on the screen, or given a
   `window`, here and in the nodes below, from its corner, as `click` and
   `scroll` take an x,y with it; a window's

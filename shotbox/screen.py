@@ -341,8 +341,8 @@ class Screen:
         began = time.monotonic()
         # Grown by the margin each way: the picture's place is still to be
         # found, and what's in it moves with it.
-        boxes = self.node_boxes(ignore_node, window, crop, timeout, margin)
         with self._timed(timeout):
+            boxes = self.node_boxes(ignore_node, window, crop, timeout, margin)
             got = Match(*self._wait_looks(f"png:{ref}", ref, window, crop, fuzz, most,
                                           max(0, timeout - (time.monotonic() - began)),
                                           [*ignore, *boxes], margin))
@@ -357,8 +357,8 @@ class Screen:
         `most` pixels differ by more than `fuzz`, but for those in
         `ignore` and `ignore_node`, as wait_match's. The seconds it took."""
         began = time.monotonic()
-        boxes = self.node_boxes(ignore_node, window, crop, timeout)
         with self._timed(timeout):
+            boxes = self.node_boxes(ignore_node, window, crop, timeout)
             return self._wait_looks(None, None, window, crop, fuzz, most,
                                     max(0, timeout - (time.monotonic() - began)),
                                     [*ignore, *boxes])[0]
@@ -382,10 +382,11 @@ class Screen:
         no node with bounds has."""
         if not names:
             return []
+        began = time.monotonic()
         if window:
             self.wait_window(window, timeout)
         offset = x.box_of(crop)[2:] if crop and x.box_of(crop) else (0, 0)
-        nodes = self.a11y_tree(window)
+        nodes = self.a11y_tree(window, timeout - (time.monotonic() - began))
         boxes = []
         for name in names:
             found = [n.bounds for n in x.picked(name, nodes) if x.boxed(n)]
@@ -959,14 +960,18 @@ class Screen:
                                       said, flags=re.M)) from None
         return self._windowed([n], window, at)[0]
 
-    def a11y_tree(self, window=None):
+    def a11y_tree(self, window=None, timeout=10):
         """Every node a screen reader sees, depth first: dicts (and
         attributes) of role, name, description, states, path, depth, and
         bounds, [x, y, width, height]: on the screen, or with `window`, in
-        that window's x,y; or None where they can't be told."""
+        that window's x,y; or None where they can't be told. The window,
+        and a program slow to answer, are waited for up to `timeout`."""
         from .a11y import Node
+        # A wait whose time is all gone still looks once, as wait_for does.
+        timeout = max(timeout, 0.1)
         return self._windowed([Node(n) for n in self._a11y(
-            "tree", *([f"--window={window}"] if window else []))], window)
+            "tree", f"--timeout={timeout:g}", *([f"--window={window}"] if window else []),
+            timeout=90 + timeout)], window)
 
     def find(self, role=None, name=None, window=None):
         """The nodes with this role ("button") and named `name`: those
