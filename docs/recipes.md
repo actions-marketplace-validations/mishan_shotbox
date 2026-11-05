@@ -132,6 +132,7 @@ and the picture doesn't:
 cd "$(git rev-parse --show-toplevel)"
 sources() {   # PICTURE INPUT...
   name=$1; shift
+  cat "$@" >/dev/null   # -e misses a cat failing in a pipe
   echo "$name $(cat "$@" | sha256sum | cut -c1-16)"
 }
 now=$(mktemp)
