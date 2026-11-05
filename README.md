@@ -24,7 +24,7 @@ and what it used.
 Nothing it runs reaches your desktop or speakers by accident, and with
 `--net loopback`, not your network either.
 
-![shotbox finding an unnamed button and faint text, comparing pictures, hearing a dropout, catching flicker and driving a game with a gamepad](https://raw.githubusercontent.com/mishan/shotbox/main/docs/demo.gif)
+![shotbox finding an unnamed button and faint text and hearing what Orca says of them, comparing pictures, hearing a dropout, catching flicker, driving a game with a gamepad and finding a brittle, blind test](https://raw.githubusercontent.com/mishan/shotbox/main/docs/demo.gif)
 
 Made with shotbox: each scene is a [`play` script](https://github.com/mishan/shotbox/tree/main/demo) in a sealed
 session, recorded by `shotbox record`. [With sound](https://github.com/mishan/shotbox/blob/main/docs/demo.mp4).
