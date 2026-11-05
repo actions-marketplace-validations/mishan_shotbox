@@ -1401,11 +1401,19 @@ def node_boxes(ref, new, names, at, grow=0, strict=True):
     return boxes
 
 
+def overlap(a, b):
+    """How many pixels boxes (x, y, width, height) `a` and `b` share."""
+    return (max(0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+            * max(0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])))
+
+
 def named(ref, new, at, fuzz, ignore, margin):
     """Where `new` differs from `ref`, a line each region, naming what a
     screen reader sees there: the smallest node whose bounds hold it all,
-    in the tree beside the new picture (`capture --tree`), or else the
-    reference's. Nothing without a tree; ten at most, and how many more."""
+    stepping down into a child with more than half of it while no other
+    child has more than a tenth, in the tree beside the new picture
+    (`capture --tree`), or else the reference's. Nothing without a tree;
+    ten at most, and how many more."""
     for side, shift in ((new, at), (ref, (0, 0))):
         tree = Path(side).with_suffix(".json")
         if tree.exists():
@@ -1424,6 +1432,18 @@ def named(ref, new, at, fuzz, ignore, margin):
         holds = [d for d in nodes if d.bounds[0] <= rx and d.bounds[1] <= ry
                  and rx + w <= d.bounds[0] + d.bounds[2] and ry + h <= d.bounds[1] + d.bounds[3]]
         node = min(holds, key=lambda d: (d.bounds[2] * d.bounds[3], -d.depth), default=None)
+        # GTK 4 says where a widget is without its containers' padding, so
+        # text can sit partly outside its own node: the one child with most
+        # of it, and no other much of it, is where it is. Not one wholly
+        # inside it, as a frame's change is round its content.
+        while node:
+            kids = sorted(((overlap(d.bounds, (rx, ry, w, h)), d) for d in nodes
+                           if d.depth == node.depth + 1 and d.path.startswith(node.path + "/")),
+                          key=lambda k: -k[0])
+            if (not kids or kids[0][0] * 2 <= w * h or len(kids) > 1 and kids[1][0] * 10 > w * h
+                    or kids[0][0] == kids[0][1].bounds[2] * kids[0][1].bounds[3]):
+                break
+            node = kids[0][1]
         lines.append(f"  {n} pixels, in {w}x{h} at {rx - shift[0]},{ry - shift[1]}: "
                      + (f"{node.role} {json.dumps(node.name, ensure_ascii=False)}" if node
                         else "in no node"))

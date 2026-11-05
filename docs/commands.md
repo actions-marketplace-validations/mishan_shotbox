@@ -508,7 +508,11 @@ With a tree beside a picture, `B.json` (or else `A.json`), as `capture
 --tree` and `shoot --tree` write it in a session with `--a11y`, one that
 fails says what each part that differs is in, a line each: the smallest
 node whose bounds hold all of it, so a change reads as the control it's
-in. Pixels within a few of each other are one part; ten are said at most.
+in. From there it steps down into a child with more than half of it,
+while no other child has more than a tenth and the child isn't wholly
+inside it: GTK 4 places a widget without its containers' padding, its
+text partly outside it. Pixels within a few of
+each other are one part; ten are said at most.
 
 ```
 412 pixels differ, in 80x24 at 12,40
