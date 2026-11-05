@@ -61,7 +61,9 @@ runs:
         [ "$RECORD$WAYLAND" != truetrue ] || pkgs="$pkgs wf-recorder"
         [ "$TERM_" != true ] || pkgs="$pkgs gir1.2-vte-2.91 python3-gi"
         [ "$CLOCK" != true ] || pkgs="$pkgs libfaketime"
-        sudo apt-get update -qq
+        # Said as it goes, and a mirror that stops answering given up on
+        # and asked again: a silent update has hung a job for minutes.
+        sudo apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=30
         sudo apt-get install -y -qq --no-install-recommends $pkgs
         # Programs in a session run under bubblewrap, whose user namespaces
         # Ubuntu's AppArmor holds back: a runner is the job's own to allow.
