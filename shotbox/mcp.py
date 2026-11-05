@@ -1749,7 +1749,8 @@ def serve(server, inp, out):
         if skip:
             continue
 
-        def tick():
+        # Bound now: the loop moves on to the next request while this runs.
+        def tick(done=done, rid=rid, token=token, start=start):
             while not done.wait(PROGRESS):
                 with lock:
                     if not (done.is_set() or key(rid) in cancelled):

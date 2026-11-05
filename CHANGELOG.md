@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- MCP's progress for a long call could go on ticking for the requests
+  after it, as `notifications/progress` with their tokens (or none):
+  its thread followed the server on to the next request. Each call's
+  progress now ticks for it alone.
+
 ## 0.11.0 — 2026-11-05
 
 `shotbox mutate` runs a browser test against small changes to its page,

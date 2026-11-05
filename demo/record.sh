@@ -1,10 +1,13 @@
 #!/bin/sh
-# Records the README's demo into OUT-DIR: demo.mp4 and demo.gif, a scene
+# record.sh OUT-DIR [SCENE]: the README's demo, demo.mp4 and demo.gif, a scene
 # each from a11y.play, pictures.play, sound.play, flicker.play, pad.play
-# and mutate.play, then a closing card with LOGO (docs/logo.png).
+# and mutate.play, then a closing card with LOGO (docs/logo.png). With
+# SCENE, just that one, as OUT-DIR/SCENE.mp4, to check it before a take.
 set -eu
 demo=$(cd "$(dirname "$0")" && pwd)
 out=$(realpath "$1")
+only=${2-}
+[ -z "$only" ] || [ -f "$demo/$only.play" ] || { echo "record.sh: no $only.play" >&2; exit 2; }
 logo=${LOGO:-$demo/../docs/logo.png}
 [ -d "$demo/../node_modules/playwright" ] || { echo "record.sh: npm install first" >&2; exit 2; }
 work=$(mktemp -d)
@@ -16,6 +19,7 @@ trap 'rm -rf "$work"' EXIT
 scene() {
   name=$1
   shift
+  [ -z "$only" ] || [ "$only" = "$name" ] || return 0
   shotbox run --screen 890x480 --seed "$demo" --identity demo@sketchpad \
     --env OUT="$work/$name.mp4" --env SCENE="$name" "$@" -- sh -c '
     cd
@@ -42,6 +46,8 @@ ln -s "$demo/.." "$work/node_modules/shotbox"
 ln -s "$demo/../node_modules/playwright" "$work/node_modules"
 scene mutate --env MODULES="$work/node_modules" --env COLS=110 --env AT=0 $clock \
   --env PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright}"
+
+if [ -n "$only" ]; then cp "$work/$only.mp4" "$out/"; exit; fi
 
 magick -size 890x520 xc:'#1f2430' \( "$logo" -resize 170x170 \) -geometry +80+150 -composite \
   -font Cantarell-Bold -pointsize 30 -fill white -annotate +290+200 'shotbox' \

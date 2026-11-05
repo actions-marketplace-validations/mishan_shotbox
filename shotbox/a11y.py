@@ -1118,10 +1118,10 @@ def went(before, after, area, ring):
     def band(outer, inner):
         x0, y0, x1, y1 = meet(outer, area)
         for y in range(y0, y1):
-            for x in range(x0, x1):
-                if not (inner[0] <= x < inner[2] and inner[1] <= y < inner[3]):
-                    i = (y * before.width + x) * 3
-                    yield x, y, before.data[i:i + 3], after.data[i:i + 3]
+            for px in range(x0, x1):
+                if not (inner[0] <= px < inner[2] and inner[1] <= y < inner[3]):
+                    i = (y * before.width + px) * 3
+                    yield px, y, before.data[i:i + 3], after.data[i:i + 3]
 
     # By how much, since the ring's color can be round it too (a checked box).
     near = Counter(b for _, _, b, a in [*band(grow(ring, RING + 2), grow(ring, RING)),
@@ -2527,8 +2527,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         got = aparts[key]
         if not got:
             return False
-        for match, (x, y) in ((got[0], got[1:3]), (got[5], got[7])):
-            there = [x + 2, y, got[3] - 4, got[4]]
+        for match, (px, py) in ((got[0], got[1:3]), (got[5], got[7])):
+            there = [px + 2, py, got[3] - 4, got[4]]
             if all(overlap(there, box)[2:]):
                 continue
             return match >= MATCH_ELSEWHERE and not (alone and drawers(there, t, o, blank=True))
@@ -3045,7 +3045,7 @@ def text_shapes(text, attrs, dy=0):
             options.set_hint_style(hint)
             options.set_hint_metrics(metrics)
 
-            def layout(cr):
+            def layout(cr, options=options):
                 got = PangoCairo.create_layout(cr)
                 PangoCairo.context_set_font_options(got.get_context(), options)
                 got.set_font_description(font)

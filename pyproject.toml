@@ -42,3 +42,8 @@ packages = ["shotbox"]
 
 [tool.setuptools.dynamic]
 version = { attr = "shotbox.__version__" }
+
+# Ruff's own default once, which the code is written to, with B023: a
+# closure in a loop that reads the loop's variables later.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B023"]

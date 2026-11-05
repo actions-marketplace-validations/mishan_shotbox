@@ -27,6 +27,8 @@ chromium` in this checkout):
 demo/record.sh OUT-DIR
 ```
 
-which writes `OUT-DIR/demo.mp4` and `OUT-DIR/demo.gif`. `captions.srt`
+which writes `OUT-DIR/demo.mp4` and `OUT-DIR/demo.gif`; `demo/record.sh
+OUT-DIR mutate` records just that scene, as `OUT-DIR/mutate.mp4`, to
+check it in under a minute before a full take. `captions.srt`
 is timed to the scenes' lengths (each `.play`'s `record --seconds`), so
 a scene made longer moves the captions after it.
