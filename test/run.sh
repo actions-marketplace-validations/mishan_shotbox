@@ -2474,10 +2474,16 @@ gk2=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
 convert "$tmp/gk/ref.png" -fill none -stroke black -draw "rectangle 35,35 64,54" "$tmp/gk/ring.png"
 kids "$tmp/gk/ring.json" "$(kid list Files list 0 '37, 37, 26, 16')" "$(kid button Go button 1 '80, 70, 5, 5')"
 gk3=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/ring.png" | tail -1) || true
+# Nor is a child of a twin window, the same path, taken for the window's own.
+kids "$tmp/gk/new.json" "$(kid label Status label 0 '38, 36, 22, 10')" \
+  '{"role": "frame", "name": "w", "description": "", "states": [], "path": "frame", "bounds": [0, 0, 100, 80], "depth": 0},
+  {"role": "panel", "name": "q", "description": "", "states": [], "path": "frame/panel[0]", "bounds": [70, 0, 30, 20], "depth": 1},
+  {"role": "label", "name": "Other", "description": "", "states": [], "path": "frame/panel[0]/label[0]", "bounds": [41, 40, 30, 10], "depth": 2}'
+gk4=$("$sb" compare "$tmp/gk/ref.png" "$tmp/gk/new.png" | tail -1) || true
 [ "$gk1" = '  200 pixels, in 20x10 at 40,40: label "Status"' ] && [ "$gk2" = '  200 pixels, in 20x10 at 40,40: panel "p"' ] \
-  && [ "$gk3" = '  208 pixels, in 31x21 at 35,35: panel "p"' ] \
+  && [ "$gk3" = '  208 pixels, in 31x21 at 35,35: panel "p"' ] && [ "$gk4" = "$gk1" ] \
   && ok "compare: a region partly outside its node, as GTK 4 places it, named by it; split, by what holds both" \
-  || { fail "compare, GTK 4's places"; printf '%s\n' "$gk1" "$gk2" "$gk3"; }
+  || { fail "compare, GTK 4's places"; printf '%s\n' "$gk1" "$gk2" "$gk3" "$gk4"; }
 
 # compare --ignore-node: the node's box, from the tree beside the new
 # picture or the reference, left out; moved to match (--margin), where the
