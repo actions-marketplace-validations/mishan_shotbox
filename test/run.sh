@@ -1971,6 +1971,27 @@ print(\"{2}x{3}+{0}+{1}\".format(*next(n for n in json.load(sys.stdin) if n[\"na
     && grep -q "click is True or (x, y) in the [0-9]*x[0-9]* picture, not (999, 1)" "$tmp/clk-err" \
     && ok "a11y: wait match and change --ignore-node, a clock left out; wait match --click, where it matched" \
     || { fail "a11y: wait --ignore-node and --click"; cat "$tmp/clk-out" "$tmp/clk.log" "$tmp/clk-err"; }
+  # wait node --state, --value and --count, and wait gone, on a window
+  # loading for a second; each giving up says what it saw.
+  "$sb" run --a11y -- sh -c "'$here/window.py' ld loading & '$sb' wait window ld >/dev/null &&
+    '$sb' wait gone Loading --window ld --timeout 5 && '$sb' wait node '^Save\$' --state enabled --timeout 5 && '$sb' wait node Remember --state checked --timeout 5 &&
+    '$sb' wait node Progress --value 100 --timeout 5 && '$sb' wait node '^Row [0-9]\$' --count 5 --timeout 5 > '$tmp/ld-rows' &&
+    { '$here/window.py' bye & p=\$!; '$sb' wait window bye >/dev/null; { sleep 1; kill \$p; } &
+      '$sb' wait gone bye --window bye --timeout 5; } &&
+    ! '$sb' wait node '^Row' --count 7 --timeout 1 2> '$tmp/ld-err' &&
+    ! '$sb' wait node '^Save\$' --state not-enabled --timeout 1 2>> '$tmp/ld-err' &&
+    ! '$sb' wait node Progress --value 50 --timeout 1 2>> '$tmp/ld-err' &&
+    ! '$sb' wait gone Row --timeout 1 2>> '$tmp/ld-err' &&
+    ! '$sb' wait node Save --state shiny --timeout 1 2>> '$tmp/ld-err'" > "$tmp/ld-out" 2>&1 \
+    && [ "$(cat "$tmp/ld-rows")" = "$(printf 'label "Row %s"\n' 1 2 3 4 5)" ] \
+    && [ "$(grep '^shotbox:' "$tmp/ld-err" | sed 's/^shotbox: //; s/push button/button/')" = "$(printf '%s\n' \
+         "gave up waiting for 7 nodes matching '^Row' after 1s: 5 matches, label \"Row 1\"; label \"Row 2\"; label \"Row 3\"; label \"Row 4\"; label \"Row 5\"" \
+         "gave up waiting for a node matching '^Save\$', not-enabled after 1s: 1 match, button \"Save\" [focusable]: is enabled" \
+         "gave up waiting for a node matching 'Progress', its value '50' after 1s: 1 match, progress bar \"Progress\": its value \"100\"" \
+         "gave up waiting for no node matching 'Row' after 1s: still there, label \"Row 1\", and 4 more")" ] \
+    && grep -q "invalid choice: 'shiny'" "$tmp/ld-err" \
+    && ok "a11y: wait node --state, --value, --count, and wait gone; each giving up says what it saw" \
+    || { fail "a11y: wait node --state/--value/--count, wait gone"; cat "$tmp/ld-out" "$tmp/ld-rows" "$tmp/ld-err"; }
   # Said twice, waited for twice; a third wait has nothing left to take.
   "$sb" run --announce-log "$tmp/said" -- sh -c "'$app' & '$sb' wait window a11y-test &&
     '$sb' key Tab Tab space && '$sb' wait announce 'notes\.md' --timeout 10 &&

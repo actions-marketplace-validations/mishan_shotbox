@@ -990,17 +990,31 @@ class Screen:
             return n if n and named(n.name) else None
         return self.until(f"the focus on {name!r}{note}", there, timeout)
 
-    def wait_node(self, pattern, window=None, timeout=30, alive=None):
+    def wait_node(self, pattern, window=None, timeout=30, alive=None, states=(), value=None,
+                  count=None):
         """Wait for a showing node with `pattern`, a regex, found in its name
         or text: a status line saying a page is drawn, say. That node, with
         its text round the match, about 80 characters, as `text` where
-        that's what matched. With `alive` (a process), fail sooner if it
-        exits."""
+        that's what matched. With `states` ("enabled", "focused",
+        "checked", "expanded", any the tree says, or "not-" one), in each;
+        with `value`, its value (a field's text, a progress bar's number)
+        that, exactly or as a regex in full; with `count`, exactly that many
+        such nodes, a list of them. With `alive` (a process), fail sooner if
+        it exits."""
         from .a11y import Node
-        return Node(self._a11y("node", "--timeout", str(timeout),
-                               *([f"--window={window}"] if window else []), "--", pattern,
-                               timeout=90 + timeout, alive=alive,
-                               what=f"a node matching {pattern!r}"))
+        got = self._a11y("node", "--timeout", str(timeout),
+                         *([f"--window={window}"] if window else []),
+                         *(f"--state={st}" for st in states),
+                         *([f"--value={value}"] if value is not None else []),
+                         *([f"--count={count}"] if count is not None else []), "--", pattern,
+                         timeout=90 + timeout, alive=alive, what=f"a node matching {pattern!r}")
+        return [Node(n) for n in got] if count is not None else Node(got)
+
+    def wait_gone(self, pattern, window=None, timeout=30):
+        """Wait until no showing node has `pattern`, a regex, in its name or
+        text: a spinner, a dialog after OK."""
+        self._a11y("gone", "--timeout", str(timeout), *([f"--window={window}"] if window else []),
+                   "--", pattern, timeout=90 + timeout, what=f"no node matching {pattern!r}")
 
     def a11y_lint(self, window=None, ignore=()):
         """The nodes a screen reader would have no name to say for, each

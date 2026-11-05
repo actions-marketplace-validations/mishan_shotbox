@@ -60,6 +60,20 @@ Inside a session with `--a11y`:
   element in it taken out and the spaces beside it made one: `<p>Done
   <a>here</a> now</p>` matches "Done now"; with no space beside it, the
   text either side joins, `Join<button>X</button>Me` as "JoinMe".
+- **`--state STATE`** (repeatable) waits for such a node in that state
+  too: `enabled` (a button that turns on once a form is valid),
+  `focused`, `checked`, `expanded`, or any other the tree says, and
+  `not-STATE` for its opposite. **`--value V`** waits for its value to be
+  V, exactly or else as a regex in full: a field's or label's text, a
+  slider's number, a progress bar's percent (`--value 100`).
+  **`--count N`** waits for exactly N such nodes (a list that has
+  loaded its rows), and prints them. **`shotbox wait gone RE`** waits
+  until no showing node has RE: a spinner, a dialog after OK. Giving
+  up, each says what it saw last: the matches, each with what isn't so
+  (`button "Save" [focusable, disabled]: isn't enabled`, `its value
+  "40"`), how many there were, or what's still there. Python's
+  `wait_node(states=, value=, count=)` and `wait_gone`, and MCP's
+  `wait_for` node (`states`, `node_value`, `count`) and gone, do the same.
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &

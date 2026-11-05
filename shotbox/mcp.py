@@ -835,11 +835,14 @@ class Server:
 
     def wait_for(self, session, what, value=None, window=None, timeout=10, crop=None,
                  fuzz=None, most=None, file=None, from_start=False, ignore=None,
-                 margin=None, ignore_node=None, click=False):
+                 margin=None, ignore_node=None, click=False, states=None, node_value=None,
+                 count=None):
         s = self.session(session)
         if what not in WAITS:
             raise Refused(f"wait_for waits for {', '.join(WAITS[:-1])} or {WAITS[-1]}, "
                           f"not {what!r}")
+        if what != "node" and (states or node_value is not None or count is not None):
+            raise Refused("states, node_value and count go with node")
         # Each call holds the server till it's done: not for long.
         timeout = number(timeout, "timeout", 0, 300)
         timeout = 10 if timeout is None else timeout
@@ -894,10 +897,18 @@ class Server:
                                                       window=text(window))
             return f"The focus is on {n.line()}."
         if what == "node":
-            n = self.a11y_session(session).wait_node(str(value), text(window), timeout)
-            return (f"It's there: {n.line()}"
-                    + (f", its text {json.dumps(n.text, ensure_ascii=False)}." if "text" in n
+            count = None if count is None else int(number(count, "count", 0))
+            got = self.a11y_session(session).wait_node(
+                str(value), text(window), timeout, states=words(states),
+                value=None if node_value is None else str(node_value), count=count)
+            if count is not None:
+                return f"{count} there" + "".join(f"\n{n.line()}" for n in got)
+            return (f"It's there: {got.line()}"
+                    + (f", its text {json.dumps(got.text, ensure_ascii=False)}." if "text" in got
                        else "."))
+        if what == "gone":
+            self.a11y_session(session).wait_gone(str(value), text(window), timeout)
+            return f"Nothing showing matches {value!r} now."
         return "The line:\n" + fenced([s.wait_line(str(value), self.log(file), flag(from_start),
                                                    timeout, within=Path(self.home).resolve())])
 
@@ -1041,7 +1052,8 @@ PROGRAM = {"type": "string", "description": "Its name in the allow list"}
 CHANGES = {"type": "boolean", "description": "Also say what this changed in the accessible "
            "tree once the screen holds still (not a field's text, nor where things are): "
            "tree lines, + added, - gone, ~ changed"}
-WAITS = ("window", "stable", "idle", "announcement", "focus", "node", "match", "change", "line")
+WAITS = ("window", "stable", "idle", "announcement", "focus", "node", "gone", "match", "change",
+         "line")
 
 # What the agent knows of each tool is its description: what it's for, what
 # to read in its answer, and what to do instead when it's the wrong one.
@@ -1259,7 +1271,11 @@ TOOLS = [
      "answers with its tree line. "
      "node: a regex in the name or text of a node showing in the accessible tree, as a "
      "status line saying a page is drawn, where the screen holding still says nothing; "
-     "answers with its tree line, and its text if that matched. "
+     "answers with its tree line, and its text if that matched; with states, node_value "
+     "or count, one in those states, with that value, or that many such nodes (a button "
+     "enabled, a progress bar at 100, a list's rows loaded). "
+     "gone: a regex no showing node has in its name or text any more: a spinner, a dialog "
+     "after OK. "
      "match: a PNG's path, from the allow file's directory, that the screen (or window, "
      "cropped to crop) should look like; answers how long it took. "
      "change: any change from how it looked when the wait began; answers how long it took. "
@@ -1290,6 +1306,13 @@ TOOLS = [
                              "starts: a clock, a spinner. Needs an a11y session"},
              "click": {"type": "boolean", "description": "match: then click its middle, for "
                        "a canvas or a game with no tree to click by"},
+             "states": {"type": "array", "items": {"type": "string"},
+                        "description": "node: states it's in too: enabled, focused, checked, "
+                        "expanded or another the tree says, or not-STATE"},
+             "node_value": {"type": "string", "description": "node: its value, exactly or a "
+                            "regex in full: a field's text, a progress bar's number"},
+             "count": {"type": "integer", "minimum": 0,
+                       "description": "node: exactly this many such nodes"},
              "file": {"type": "string", "description": "line's, by its path from the allow "
                       "file's directory"},
              "from_start": {"type": "boolean", "description": "line: anywhere in file"}},
