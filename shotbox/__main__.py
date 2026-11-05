@@ -59,7 +59,7 @@ import urllib.parse
 import wave
 from pathlib import Path
 
-from . import __version__, a11y, kept, mcp, mutation, pad, sound, term, usage, x, xtest
+from . import __version__, a11y, color, kept, mcp, mutation, pad, sound, term, usage, x, xtest
 from .screen import Screen, SessionError, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
@@ -323,7 +323,7 @@ def cmd_mutate(argv):
     if a.json:
         print(json.dumps({**dataclasses.asdict(rep), "reproduce": again}, indent=2))
     elif again:
-        print(f"reproduce: {again}")
+        print(color.paint(sys.stdout, f"reproduce: {again}", "dim"))
     return rep.status
 
 
@@ -1407,7 +1407,7 @@ def overlap(a, b):
             * max(0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1])))
 
 
-def named(ref, new, at, fuzz, ignore, margin):
+def named(ref, new, at, fuzz, ignore, margin, shade=str):
     """Where `new` differs from `ref`, a line each region, naming what a
     screen reader sees there: the smallest node whose bounds hold it all,
     stepping down into a child with more than half of it while no other
@@ -1450,7 +1450,7 @@ def named(ref, new, at, fuzz, ignore, margin):
                 break
             node = kids[0][1]
         lines.append(f"  {n} pixels, in {w}x{h} at {rx - shift[0]},{ry - shift[1]}: "
-                     + (f"{node.role} {json.dumps(node.name, ensure_ascii=False)}" if node
+                     + (shade(f"{node.role} {json.dumps(node.name, ensure_ascii=False)}") if node
                         else "in no node"))
     if len(found) > 10:
         lines.append(f"  and {len(found) - 10} more")
@@ -1558,11 +1558,11 @@ def cmd_compare(argv):
                                                   strict=not dirs[0])
         return *x.compare(ref, new, diff=diff, box=True, at=at, **how), at
 
-    def regions(ref, new, name, at):
+    def regions(ref, new, name, at, shade=str):
         return "".join(f"\n{line}" for line in named(
             ref, new, at, fuzz(name),
             ignore(name) + node_boxes(ref, new, a.ignore_node, at, strict=not dirs[0]),
-            int(per_name(a.margin, name, 0))))
+            int(per_name(a.margin, name, 0)), shade))
 
     dirs = Path(a.a).is_dir(), Path(a.b).is_dir()
     if dirs[0] != dirs[1]:
@@ -1584,8 +1584,14 @@ def cmd_compare(argv):
         except ValueError as e:
             sys.stderr.write(f"shotbox: {e}\n")
             return 2
-        print(differing(n, box) + shifted(at) + (regions(a.a, a.b, None, at) if n > most(None) else ""))
-        return 0 if n <= most(None) else 1
+        if n <= most(None):
+            print(differing(n, box) + shifted(at))
+            return 0
+        # One pair's alone: the directories' lines go on --diff's HTML page too.
+        print(differing(n, box).replace(f"{n} pixels differ", color.paint(
+            sys.stdout, f"{n} pixels differ", "fail"), 1) + shifted(at)
+            + regions(a.a, a.b, None, at, lambda s: color.paint(sys.stdout, s, "name")))
+        return 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
         {f.stem for d in (a.a, a.b)[:1 + a.update] for f in Path(d).glob("*.png")})

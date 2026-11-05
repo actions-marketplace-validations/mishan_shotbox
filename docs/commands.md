@@ -3,6 +3,15 @@
 Every command, and the options sessions take. `shotbox COMMAND --help`
 says each one's options.
 
+At a terminal, `mutate`'s verdicts, what differs between two pictures
+`compare` is given and what it's in, `a11y lint` and `contrast`'s node
+paths and notes, and what `a11y speak` heard are in color. Into a pipe
+or a file the text is plain; `NO_COLOR=1` keeps it plain at a terminal
+too, and `FORCE_COLOR=1` colors it anywhere. A command given
+`--session` takes them from where it's run; one inside `shotbox run`
+needs them passed in (`--pass NO_COLOR`), as a session's environment
+is its own.
+
 ## Needs
 
 Every session needs `Xvfb`, `xauth`, `dbus-daemon`, ImageMagick, `xwininfo` and `xprop`; for
