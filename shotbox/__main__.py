@@ -611,13 +611,14 @@ def cmd_wait(argv):
                                             "change and idle say how long they "
                                             "took; line prints the line.")
     p.add_argument("kind", choices=("window", "port", "file", "ready", "stable", "announce",
-                                    "node", "match", "change", "line", "idle"))
+                                    "node", "gone", "match", "change", "line", "idle"))
     p.add_argument("arg", nargs="?", default="",
                    help="the window's title (a regex; app=RE for its app id), the "
                         "port, the file; for "
                         "stable, how long it must hold still (0.5); for announce, "
                         "a regex found in what was said (needs --a11y); for node, a "
-                        "regex found in a showing node's name or text (needs --a11y); "
+                        "regex found in a showing node's name or text (needs --a11y), "
+                        "and for gone, one no showing node has; "
                         "for match, "
                         "the picture (a PNG) to look like; for line, a regex found in "
                         "the line")
@@ -626,7 +627,7 @@ def cmd_wait(argv):
                    help="for line: from the top of the file, not from the end it has "
                         "when the wait starts")
     p.add_argument("--window", metavar="RE",
-                   help="for stable, node, match, change and idle: watch this window "
+                   help="for stable, node, gone, match, change and idle: watch this window "
                         "rather than the display")
     p.add_argument("--crop", metavar="WxH+X+Y",
                    help="for stable, match and change: watch just this part of it")
@@ -648,6 +649,15 @@ def cmd_wait(argv):
     p.add_argument("--click", nargs="?", const="", metavar="X,Y",
                    help="for match: then click where it matched, at its middle, or X,Y in "
                         "the picture")
+    p.add_argument("--state", action="append", default=[], metavar="STATE", choices=(
+        *a11y.WAIT_STATES, *(f"not-{st}" for st in a11y.WAIT_STATES)),
+                   help="for node: in this state too, enabled, focused, checked, expanded "
+                        "or another the tree says, or not-STATE (repeatable)")
+    p.add_argument("--value", metavar="V",
+                   help="for node: its value this, exactly, else a regex in full: a "
+                        "field's text, a progress bar's number")
+    p.add_argument("--count", type=int, metavar="N",
+                   help="for node: exactly N such nodes")
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--failed", metavar="FILE",
                    help="if it gives up, a picture of the screen goes here "
@@ -659,8 +669,10 @@ def cmd_wait(argv):
         p.error(f"--click is X,Y in the picture, not {a.click} (the picture goes before --click)")
     if a.kind == "match" and not a.arg:
         p.error("match needs the picture to look like")
-    if a.kind == "node" and not a.arg:
-        p.error("node needs a regex to look for: an empty one matches any node")
+    if a.kind in ("node", "gone") and not a.arg:
+        p.error(f"{a.kind} needs a regex to look for: an empty one matches any node")
+    if (a.state or a.value is not None or a.count is not None) and a.kind != "node":
+        p.error("--state, --value and --count go with node")
     if (a.kind == "line") != bool(a.file):
         p.error("line, and only line, takes a FILE after its pattern")
     if a.from_start and a.kind != "line":
@@ -687,7 +699,13 @@ def cmd_wait(argv):
         print(screen.wait_line(a.arg, a.file, a.from_start, a.timeout))
         return 0
     if a.kind == "node":
-        screen.wait_node(a.arg, a.window, a.timeout)
+        got = screen.wait_node(a.arg, a.window, a.timeout, states=a.state, value=a.value,
+                               count=a.count)
+        for n in got if a.count is not None else []:
+            print(n.line())
+        return 0
+    if a.kind == "gone":
+        screen.wait_gone(a.arg, a.window, a.timeout)
         return 0
     if a.kind == "idle":
         print(f"{screen.wait_idle(a.window, a.timeout):.3f}s")

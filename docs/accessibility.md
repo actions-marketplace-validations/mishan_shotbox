@@ -60,6 +60,20 @@ Inside a session with `--a11y`:
   element in it taken out and the spaces beside it made one: `<p>Done
   <a>here</a> now</p>` matches "Done now"; with no space beside it, the
   text either side joins, `Join<button>X</button>Me` as "JoinMe".
+- **`--state STATE`** (repeatable) waits for such a node in that state
+  too: `enabled` (a button that turns on once a form is valid),
+  `focused`, `checked`, `expanded`, or any other the tree says, and
+  `not-STATE` for its opposite. **`--value V`** waits for its value to be
+  V, exactly or else as a regex in full: a field's or label's text, a
+  slider's number, a progress bar's percent (`--value 100`).
+  **`--count N`** waits for exactly N such nodes (a list that has
+  loaded its rows), and prints them. **`shotbox wait gone RE`** waits
+  until no showing node has RE: a spinner, a dialog after OK. Giving
+  up, each says what it saw last: the matches, each with what isn't so
+  (`button "Save" [focusable, disabled]: isn't enabled`, `its value
+  "40"`), how many there were, or what's still there. Python's
+  `wait_node(states=, value=, count=)` and `wait_gone`, and MCP's
+  `wait_for` node (`states`, `node_value`, `count`) and gone, do the same.
 
 ```
 shotbox run --a11y -- sh -c 'gnome-text-editor &
@@ -210,7 +224,9 @@ its windows aren't in the tree; it's given `--timeout` (10 seconds, 15
 at most) to answer first. Every other `a11y` command, and `wait node`, adds
 `; program 1234 didn't answer: busy, or hung` to the error it gives up
 with, a second past its `--timeout` (0.8 s more for each other program
-that doesn't answer). The bus drops a program that hasn't answered for
+that doesn't answer). With one not answering, `wait gone` and `--count`
+pass only with a `--window` none of whose windows on the screen is
+that program's: its nodes might be any of them. The bus drops a program that hasn't answered for
 about half a minute, after which it's as one with no accessibility.
 With `--json`, a window has its program's `pid` and `toolkit`
 ("GTK 4.14.5"), and a program that didn't answer is a node with its

@@ -4,6 +4,13 @@
 
 ### Added
 
+- `shotbox wait node RE --state STATE` (enabled, focused, checked,
+  expanded, any the tree says, or not-STATE), `--value V` (a field's
+  text, a progress bar's percent) and `--count N` wait for a node in
+  that state, with that value, or that many of them; `shotbox wait gone
+  RE` until no showing node matches: a spinner, a dialog after OK. Each
+  says what it saw last when it gives up. Python's `wait_node(states=,
+  value=, count=)` and `wait_gone`, MCP's `wait_for` node and gone.
 - `--ignore-node NAME` leaves out a node by its name, where there's a
   tree: `compare`'s from the tree beside either picture, `wait match` and
   `wait change`'s from the live one as the wait starts; a clock or a

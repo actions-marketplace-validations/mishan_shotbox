@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A plain GTK 3 window to take pictures of: test/window.py TITLE [LOG]
 [corner|list], or TITLE contrast, or TITLE slow MS, or TITLE flip MS, or TITLE ticking MS,
-or TITLE flash MS, or TITLE clock LOG, or
+or TITLE flash MS, or TITLE clock LOG, or TITLE loading, or
 TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
@@ -165,6 +165,33 @@ elif sys.argv[2:3] == ["clock"]:
     go.connect("clicked", lambda b: open(sys.argv[3], "a").write("clicked\n"))
     box.pack_start(clock, False, False, 8)
     box.pack_start(go, False, False, 8)
+    w.add(box)
+elif sys.argv[2:3] == ["loading"]:
+    # Loading for a second: a progress bar named Progress to 100, rows
+    # Row 1 to Row 5 one by one, a "Loading" label; then the label gone, a
+    # Save button enabled and a Remember box checked.
+    box, rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL), Gtk.ListBox()
+    bar, loading = Gtk.ProgressBar(), Gtk.Label(label="Loading")
+    save, remember = Gtk.Button(label="Save"), Gtk.CheckButton(label="Remember")
+    bar.get_accessible().set_name("Progress")
+    save.set_sensitive(False)
+    for wid in (loading, bar, rows, save, remember):
+        box.pack_start(wid, False, False, 2)
+    n = [0]
+
+    def step():
+        n[0] += 1
+        bar.set_fraction(n[0] / 10)
+        if n[0] % 2 == 0:
+            rows.add(Gtk.Label(label=f"Row {n[0] // 2}"))
+            rows.show_all()
+        if n[0] < 10:
+            return True
+        loading.hide()
+        save.set_sensitive(True)
+        remember.set_active(True)
+        return False
+    GLib.timeout_add(100, step)
     w.add(box)
 elif sys.argv[2:3] == ["ticking"]:
     area, black = Gtk.DrawingArea(), [False]

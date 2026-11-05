@@ -45,6 +45,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  f"block = {here / 'gtk4_window.py'} block {tmp / 'block.log'} 1\n"
                  "plain = xmessage -title plain hi\n"
                  f"clock = {here / 'window.py'} clk clock {tmp / 'clk.log'}\n"
+                 f"loading = {here / 'window.py'} ld loading\n"
                  f"ready = {here / 'a11y_app.py'} ready\n"
                  f"fading = {here / 'a11y_app.py'} faint fading\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
@@ -557,6 +558,24 @@ try:
           f"wait_for: change and match, a clock left out by name; a match clicked at its "
           f"middle or [x, y]; click neither, refused ({said}; {left}; {hit}; {at}; {odd})")
     tool("stop_session", session="c")
+    # A node in a state, with a value, so many of them, and one gone.
+    tool("start_session", name="l")
+    tool("spawn_program", session="l", program="loading")
+    tool("wait_for", session="l", what="window", value="ld", timeout="20")
+    gone, bad4, _ = tool("wait_for", session="l", what="gone", value="Loading", window="ld")
+    on, bad, _ = tool("wait_for", session="l", what="node", value="^Save$", states=["enabled"])
+    full, bad2, _ = tool("wait_for", session="l", what="node", value="Progress", node_value="100")
+    rows, bad3, _ = tool("wait_for", session="l", what="node", value="^Row [0-9]$", count=5)
+    refused, bad5, _ = tool("wait_for", session="l", what="window", value="ld", count=1)
+    counts = [tool("wait_for", session="l", what="node", value="^Row", count=c, timeout="1")[:2]
+           for c in (2.5, -1)]
+    check(not (bad or bad2 or bad3 or bad4) and bad5 and "go with node" in refused
+          and all(bad and "whole number" in said for said, bad in counts)
+          and re.match(r'It\'s there: (push )?button "Save"', on) and rows.startswith("5 there\n")
+          and rows.count("label \"Row") == 5 and gone == "Nothing showing matches 'Loading' now.",
+          f"wait_for: node in a state, with a value, so many, but not 2.5 or -1; gone "
+          f"({on}; {full}; {rows}; {gone}; {counts})")
+    tool("stop_session", session="l")
     # Held keys and buttons, across calls: on Wayland too, since a session
     # keeps its input connection.
     # A session of its own: in "t", the window clicked by name keeps the keyboard.
