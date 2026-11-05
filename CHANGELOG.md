@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- MCP's progress for a long call could tick for the next request too,
+  as a second stream of `notifications/progress` for it: the thread
+  sending one call's progress read the server's loop as it went on.
+
 ## 0.11.0 — 2026-11-05
 
 `shotbox mutate` runs a browser test against small changes to its page,
