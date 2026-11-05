@@ -21,9 +21,11 @@ if [ -n "${SHOTBOX_LINES-}" ]; then
   l=$SHOTBOX_LINES; unset SHOTBOX_LINES
   echo "$l" | grep -qx '[0-9][0-9]*-[0-9][0-9]*' && [ "${l%-*}" -le "${l#*-}" ] \
     || { echo "SHOTBOX_LINES is FROM-TO, not $l" >&2; exit 2; }
-  # A range with no test in it would pass, as one mistyped would.
-  awk -v a="${l%-*}" -v b="${l#*-}" 'NR >= a + 0 && NR <= b + 0 && /(^|[ ;&|{(])(ok|fail) "/ { t = 1 }
-    END { exit !t }' "$0" || { echo "SHOTBOX_LINES: no ok or fail in lines $l" >&2; exit 2; }
+  # A range with no test in it would pass, as one mistyped would: a test
+  # is an ok or fail, or a browser() run, past the setup that defines them.
+  awk -v a="${l%-*}" -v b="${l#*-}" '/^#: part / { parted = 1 }
+    parted && NR >= a + 0 && NR <= b + 0 && /(^|[ ;&|{(])(ok|fail|browser) [a-z"]/ { t = 1 }
+    END { exit !t }' "$0" || { echo "SHOTBOX_LINES: no test in lines $l" >&2; exit 2; }
   exec sh -c "$(awk -v a="${l%-*}" -v b="${l#*-}" '/^#: part / { parted = 1 }
     /^#: end$/ { ended = 1 } !parted || ended || NR >= a + 0 && NR <= b + 0' "$0")" "$0"
 fi
