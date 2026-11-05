@@ -129,6 +129,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+      # The packages' downloads kept, as the test jobs keep theirs: a slow
+      # mirror has run out the install's 10 minutes fetching them all.
+      - run: |
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+          mkdir -p ~/apt/partial
+          echo "Dir::Cache::Archives \"$HOME/apt\";" | sudo tee /etc/apt/apt.conf.d/90cached
+      - uses: actions/cache@v6
+        with:
+          path: ~/apt/*.deb
+          key: apt-${{ github.job }}-${{ env.image }}-${{ hashFiles('action.yml') }}
+          restore-keys: apt-${{ github.job }}-${{ env.image }}-
       - uses: ./
         timeout-minutes: 10
         with:
@@ -164,6 +175,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+      # The packages' downloads kept, as the test jobs keep theirs: a slow
+      # mirror has run out the install's 10 minutes fetching them all.
+      - run: |
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_ENV"
+          mkdir -p ~/apt/partial
+          echo "Dir::Cache::Archives \"$HOME/apt\";" | sudo tee /etc/apt/apt.conf.d/90cached
+      - uses: actions/cache@v6
+        with:
+          path: ~/apt/*.deb
+          key: apt-${{ github.job }}-${{ env.image }}-${{ hashFiles('action.yml') }}
+          restore-keys: apt-${{ github.job }}-${{ env.image }}-
       - uses: ./
         timeout-minutes: 10
         with:
