@@ -300,8 +300,10 @@ def find_toplevels(Atspi, window=None):
     hits = []
     for name, _, app, count in sorted(apps, key=lambda a: a[:2]):
         tops = [app.get_child_at_index(j) for j in range(count)]
-        # One not given: closed since, or its program stopped answering.
-        if any(t is None for t in tops) and app.get_child_count() < 0 and stalled(app, cut=True):
+        # One not given: closed since, or its program stopped answering, cut
+        # if it's being read: with a window, maybe it isn't.
+        if any(t is None for t in tops) and app.get_child_count() < 0 and stalled(
+                app, cut=window is None):
             continue
         tops = [t for t in tops if t is not None]
         names = [t.get_name() or "" for t in tops]
@@ -791,6 +793,9 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         toplevels(Atspi, window, timeout)
     docs = document and [n.path + "/" for _, n in walk(Atspi, window, timeout)
                          if n._role == Atspi.Role.DOCUMENT_WEB]
+    if CUT:
+        screen.close()
+        uncut()
     if document and not docs:
         screen.close()
         raise SessionError("no web document to walk: the window isn't a browser's")
