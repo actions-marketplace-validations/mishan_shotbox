@@ -6,7 +6,8 @@ TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
-edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide. With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide, or TITLE trap LOG.
+With LOG, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -28,7 +29,11 @@ as wide, its text at the right, and below it a button at each end. With
 moving, a faint label that's dark half a second in two, and dark words
 sliding by; with blinking, dark words shown and hidden. With ticking, a
 still gray window but for its top right 20x20, black and white by turns
-every MS milliseconds, as a clock is."""
+every MS milliseconds, as a clock is. With trap, buttons Before, one with
+no name, and After, and a second window, "TITLE two", with Other: once
+SIGUSR1 arms it, the program stops itself (SIGSTOP) as a screen reader
+reads the unnamed button, partway through a tree, and writes "stopped"
+to LOG."""
 
 import sys
 import time
@@ -730,6 +735,53 @@ elif sys.argv[2:3] in (["move"], ["scroll"], ["smooth"], ["spaced"], ["fast"]):
     GLib.timeout_add(30 if sys.argv[2] == "smooth" else 16,
                      lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)
+elif sys.argv[2:3] == ["trap"]:
+    import os
+    import signal
+
+    gi.require_version("Atk", "1.0")
+    from gi.repository import Atk
+
+    armed = []
+    signal.signal(signal.SIGUSR1, lambda *_: armed.append("armed"))
+
+    class Trap(Atk.Object):
+        """A focusable button with no name, whose labels a screen reader
+        asks for: only as it reads it, never fetched ahead with the rest,
+        so a walk is partway through when the program stops."""
+        def do_ref_state_set(self):
+            states = Atk.StateSet()
+            states.add_states([Atk.StateType.VISIBLE, Atk.StateType.SHOWING, Atk.StateType.ENABLED,
+                               Atk.StateType.SENSITIVE, Atk.StateType.FOCUSABLE])
+            return states
+
+        def do_get_n_children(self):
+            return 0
+
+        def do_ref_relation_set(self):
+            if armed == ["armed"]:
+                armed.append("fired")
+                open(sys.argv[3], "a").write("stopped\n")
+                os.kill(os.getpid(), signal.SIGSTOP)
+            return Atk.RelationSet()
+
+    class Trapped(Gtk.DrawingArea):
+        def do_get_accessible(self):
+            if not hasattr(self, "acc"):
+                self.acc = Trap()
+                self.acc.set_role(Atk.Role.PUSH_BUTTON)
+                self.acc.set_parent(self.get_parent().get_accessible())
+            return self.acc
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    trapped = Trapped()
+    trapped.set_size_request(60, 20)
+    for child in (Gtk.Button(label="Before"), trapped, Gtk.Button(label="After")):
+        box.add(child)
+    w.add(box)
+    two = Gtk.Window(title=f"{sys.argv[1]} two")
+    two.add(Gtk.Button(label="Other"))
+    two.show_all()
 elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)
     button.connect("clicked", lambda b: open(sys.argv[2], "w").write("clicked"))

@@ -1731,6 +1731,51 @@ EOF
     && grep -q " wait change .* after 2s; program " "$tmp/hung" \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
+  # One that stops answering partway through a read, as the walk reads its
+  # unnamed button (window.py trap): said not to answer as one stopped
+  # before is, with --window too; its windows' nodes left out, none read
+  # wrong; and each ends within 5 s of its --timeout, rather than a call's
+  # timeout for each node left.
+  cat > "$tmp/cut.sh" <<'EOF'
+sb=$1; here=$2; out=$3; app=
+cut() {   # NAME COMMAND...: a fresh trap, its tree saved, armed, then the command
+  [ -z "$app" ] || { kill -CONT $app; kill $app; wait $app; }
+  : > "$out.log"
+  "$here/window.py" trap trap "$out.log" & app=$!
+  "$sb" wait node After >/dev/null && "$sb" wait node Other >/dev/null \
+    && "$sb" a11y tree --json --window 'trap$' > "$out.saved" || { echo "$1 99999 0 0 0" >> "$out"; return; }
+  kill -USR1 $app; sleep 0.2
+  name=$1; shift
+  s=$(date +%s%N); "$@" > "$out.$name" 2>&1; st=$?
+  echo "$name $(( ($(date +%s%N) - s) / 1000000 )) $st $app $(grep -c stopped "$out.log")" >> "$out"
+}
+cut tree "$sb" a11y tree --timeout 3
+cut lint "$sb" a11y lint --timeout 3
+cut lintw "$sb" a11y lint --window 'trap$' --timeout 3
+cut gone "$sb" wait gone After --timeout 3
+cut count "$sb" wait node After --count 0 --timeout 3
+cut node "$sb" wait node Before --timeout 3
+cut diff "$sb" a11y diff "$out.saved" --window 'trap$' --timeout 3
+cut walk "$sb" a11y tabwalk --timeout 3
+kill -CONT $app; kill $app
+echo end >> "$out"
+EOF
+  : > "$tmp/cut"
+  "$sb" run --a11y -- sh "$tmp/cut.sh" "$sb" "$here" "$tmp/cut" >/dev/null 2>&1 || true
+  # Each: the trap fired once, the command ended within 5 s past its
+  # --timeout of 3, with its status: tree 0, lint and diff 2, the rest 1.
+  bad=$(awk '$1 != "end" && ($5 != 1 || $2 > 8000 ||
+    $3 != ($1 == "tree" ? 0 : $1 ~ /^(lint|diff)/ ? 2 : 1)) { print }' "$tmp/cut")
+  said() { grep -q "$2" "$tmp/cut.$1"; }
+  [ "$(tail -1 "$tmp/cut")" = end ] && [ -z "$bad" ] \
+    && grep -qx "application \"\" (pid [0-9]*) didn't answer: busy, or hung" "$tmp/cut.tree" \
+    && ! grep -q 'Before\|After\|Other\|button ""' "$tmp/cut.tree" \
+    && said lint "not all checked" && said lintw "not all checked" \
+    && said gone "didn't answer" && said count "didn't answer" && said node "didn't answer" \
+    && said walk "didn't answer" && said diff '^! application ""' \
+    && ok "a11y: a program that stops answering partway through a read is said not to, its nodes left out" \
+    || { fail "a11y: a program that stops answering partway through a read"; cat "$tmp/cut"
+         for f in "$tmp"/cut.[a-z]*; do echo "== $f"; head -5 "$f"; done; }
   [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
     || fail "a11y: left running: $(ours_a11y)"
   unset TMPDIR
