@@ -1738,12 +1738,14 @@ EOF
   # timeout for each node left.
   cat > "$tmp/cut.sh" <<'EOF'
 sb=$1; here=$2; out=$3; app=
-cut() {   # NAME COMMAND...: a fresh trap, its tree saved, armed, then the command
+cut() {   # NAME COMMAND...: a fresh trap ($focused), its tree saved, armed, then the command
   [ -z "$app" ] || { kill -CONT $app; kill $app; wait $app; }
   : > "$out.log"
-  "$here/window.py" trap trap "$out.log" & app=$!
+  "$here/window.py" trap trap "$out.log" ${focused:+focused} & app=$!
   "$sb" wait node After >/dev/null && "$sb" wait node Other >/dev/null \
-    && "$sb" a11y tree --json --window 'trap$' > "$out.saved" || { echo "$1 99999 0 0 0" >> "$out"; return; }
+    && "$sb" a11y tree --json --window 'trap$' > "$out.saved" \
+    && { [ -z "${focused-}" ] || "$sb" a11y click Before --window 'trap$' >/dev/null; } \
+    || { echo "$1 99999 0 0 0" >> "$out"; return; }
   kill -USR1 $app; sleep 0.2
   name=$1; shift
   s=$(date +%s%N); "$@" > "$out.$name" 2>&1; st=$?
@@ -1758,6 +1760,8 @@ cut node "$sb" wait node Before --timeout 3
 cut diff "$sb" a11y diff "$out.saved" --window 'trap$' --timeout 3
 cut walk "$sb" a11y tabwalk --timeout 3
 ! command -v orca >/dev/null || cut speak "$sb" a11y speak --timeout 3
+# Stopped later in a tabwalk: as Tab takes the focus to the button.
+focused=1 cut walked "$sb" a11y tabwalk --window 'trap$' --timeout 3
 kill -CONT $app; kill $app
 echo end >> "$out"
 EOF
@@ -1775,7 +1779,7 @@ EOF
     && ! grep -q 'Before\|After\|Other\|button ""' "$tmp/cut.tree" \
     && said lint "not all checked" && said lintw "not all checked" \
     && said gone "didn't answer" && said count "didn't answer" && said node "didn't answer" \
-    && said walk "didn't answer" && said diff '^! application ""' \
+    && said walk "didn't answer" && said walked "didn't answer" && said diff '^! application ""' \
     && { [ ! -e "$tmp/cut.speak" ] || said speak "didn't answer"; } \
     && ok "a11y: a program that stops answering partway through a read is said not to, its nodes left out" \
     || { fail "a11y: a program that stops answering partway through a read"; cat "$tmp/cut"

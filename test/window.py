@@ -7,7 +7,7 @@ TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
 edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide, or
-TITLE trap LOG. With LOG alone, it holds an entry instead,
+TITLE trap LOG [focused]. With LOG alone, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,
@@ -33,7 +33,7 @@ every MS milliseconds, as a clock is. With trap, buttons Before, one with
 no name, and After, and a second window, "TITLE two", with Other: once
 SIGUSR1 arms it, the program stops itself (SIGSTOP) as a screen reader
 reads the unnamed button, partway through a tree, and writes "stopped"
-to LOG."""
+to LOG; with focused, only once the button has the keyboard focus."""
 
 import sys
 import time
@@ -759,7 +759,7 @@ elif sys.argv[2:3] == ["trap"]:
             return 0
 
         def do_ref_relation_set(self):
-            if armed == ["armed"]:
+            if armed == ["armed"] and (sys.argv[4:] != ["focused"] or trapped.has_focus()):
                 armed.append("fired")
                 open(sys.argv[3], "a").write("stopped\n")
                 os.kill(os.getpid(), signal.SIGSTOP)
@@ -774,7 +774,7 @@ elif sys.argv[2:3] == ["trap"]:
             return self.acc
 
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-    trapped = Trapped()
+    trapped = Trapped(can_focus=sys.argv[4:] == ["focused"])
     trapped.set_size_request(60, 20)
     for child in (Gtk.Button(label="Before"), trapped, Gtk.Button(label="After")):
         box.add(child)

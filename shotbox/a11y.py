@@ -775,9 +775,12 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         end = time.monotonic() + settle
         while True:
             now = focused(Atspi, window)
+            # Cut as it was read, its focus can't be told, nor anything after.
+            if CUT:
+                screen.close()
+                raise SessionError("stopped walking: a program stopped answering as it was read")
             if (now is not None and (before is None or now._id != before._id)
-                    or time.monotonic() > end
-                    or not k and now is None and (CUT or QUIET and not window)):
+                    or time.monotonic() > end or not k and now is None and QUIET and not window):
                 return now
             time.sleep(0.05)
 
@@ -796,7 +799,7 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
     start = press(None, None)
     if start is None:
         screen.close()
-        if CUT or QUIET and not window:
+        if QUIET and not window:
             raise SessionError("no node has the focus to begin with")
         return [], "unfocused", [], None
     began = start if writing(Atspi, start) else None
@@ -995,6 +998,9 @@ def unreached(Atspi, window, seen):
     containers, items, lists = roles(Atspi, CONTAINERS), roles(Atspi, ITEMS), roles(Atspi, LISTS)
     menu_bar, docs = roles(Atspi, ("MENU_BAR",)), roles(Atspi, ("DOCUMENT_WEB",))
     nodes = [n for _, n in walk(Atspi, window)]
+    # What's left out of a program cut as it was read could be any of them.
+    if CUT:
+        raise SessionError("not all checked: a program stopped answering as it was read")
     by_path = {n.path: n for n in nodes}
     ids = {n._id for n in seen}
 
