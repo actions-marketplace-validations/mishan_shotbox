@@ -1757,14 +1757,17 @@ cut count "$sb" wait node After --count 0 --timeout 3
 cut node "$sb" wait node Before --timeout 3
 cut diff "$sb" a11y diff "$out.saved" --window 'trap$' --timeout 3
 cut walk "$sb" a11y tabwalk --timeout 3
+! command -v orca >/dev/null || cut speak "$sb" a11y speak --timeout 3
 kill -CONT $app; kill $app
 echo end >> "$out"
 EOF
   : > "$tmp/cut"
   "$sb" run --a11y -- sh "$tmp/cut.sh" "$sb" "$here" "$tmp/cut" >/dev/null 2>&1 || true
-  # Each: the trap fired once, the command ended within 5 s past its
-  # --timeout of 3, with its status: tree 0, lint and diff 2, the rest 1.
-  bad=$(awk '$1 != "end" && ($5 != 1 || $2 > 8000 ||
+  # Each: the trap fired once, the command ended within 7 s past its
+  # --timeout of 3 (a call to the stopped program takes up to 1.6 s, and
+  # four are made before it's known), with its status: tree 0, lint and
+  # diff 2, the rest 1.
+  bad=$(awk '$1 != "end" && ($5 != 1 || $2 > 10000 ||
     $3 != ($1 == "tree" ? 0 : $1 ~ /^(lint|diff)/ ? 2 : 1)) { print }' "$tmp/cut")
   said() { grep -q "$2" "$tmp/cut.$1"; }
   [ "$(tail -1 "$tmp/cut")" = end ] && [ -z "$bad" ] \
@@ -1773,6 +1776,7 @@ EOF
     && said lint "not all checked" && said lintw "not all checked" \
     && said gone "didn't answer" && said count "didn't answer" && said node "didn't answer" \
     && said walk "didn't answer" && said diff '^! application ""' \
+    && { [ ! -e "$tmp/cut.speak" ] || said speak "didn't answer"; } \
     && ok "a11y: a program that stops answering partway through a read is said not to, its nodes left out" \
     || { fail "a11y: a program that stops answering partway through a read"; cat "$tmp/cut"
          for f in "$tmp"/cut.[a-z]*; do echo "== $f"; head -5 "$f"; done; }

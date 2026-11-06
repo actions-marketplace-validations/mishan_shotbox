@@ -311,7 +311,7 @@ def find_toplevels(Atspi, window=None):
         # there, unless one of the program's named windows is picked.
         unnamed = "" in names and (picks("") or (
             not any(picks(n) for n in names if n)
-            and app.get_process_id() == shown_pid()))
+            and shown_pid() is not None and pid_of(app) == shown_pid()))
         hits += [(app, t) for t, got in zip(tops, names) if (picks(got) if got else unnamed)]
     return hits
 
@@ -327,14 +327,21 @@ class Cut(Exception):
     """A program stopped answering partway through a walk."""
 
 
+def pid_of(app):
+    """Program `app`'s pid, the bus's to say; None if it's exited."""
+    try:
+        return app.get_process_id()
+    except Exception:
+        return None
+
+
 def stalled(app, cut=False):
     """Whether program `app`, whose child count came back -1, is busy or
     hung rather than exited: then it's added to QUIET, and with `cut` to
     CUT. Its pid is the bus's to say, so it answers for a stalled program,
     not for one that's exited."""
-    try:
-        pid = app.get_process_id()
-    except Exception:
+    pid = pid_of(app)
+    if pid is None:
         return False
     QUIET.add(pid)
     if cut:

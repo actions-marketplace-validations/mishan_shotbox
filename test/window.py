@@ -6,8 +6,8 @@ TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
-edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide, or TITLE trap LOG.
-With LOG, it holds an entry instead,
+edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide, or
+TITLE trap LOG. With LOG alone, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
 longer and more of them than fit, and writes where they're scrolled to,

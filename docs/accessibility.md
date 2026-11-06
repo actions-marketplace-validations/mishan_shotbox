@@ -231,7 +231,9 @@ namespace of its own (a Flatpak's) isn't told to own its window that
 way. One that stops answering partway through a read is the same as one
 that didn't answer from the start: what was read of it is left out, and
 it counts with `--window` too, being one that was read; the command ends
-a few seconds past its `--timeout`. Qt's and AccessKit's programs answer
+a few seconds past its `--timeout`. A program busy for over 0.8 s twice
+running is taken for one, so a `wait node` for a node it showed before
+waits on. Qt's and AccessKit's programs answer
 from a thread of their own, so one busy on its main thread isn't seen
 not to. The bus drops a program that hasn't answered for
 about half a minute, after which it's as one with no accessibility.

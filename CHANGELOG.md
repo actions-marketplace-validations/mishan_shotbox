@@ -22,7 +22,11 @@
   own, holding a 3-second wait for a minute. It's said not to answer
   now, as one that didn't from the start, `--window` or not; what was
   read of it is left out, and the command ends a few seconds past its
-  `--timeout`.
+  `--timeout`. A program busy for over 0.8 s twice running is taken for
+  one too, so a `wait node` for a node it showed waits on, and `tree`
+  leaves out its windows behind the line, where before it left out a
+  node unsaid. A program that exited as the windows were listed made
+  the command fail with a traceback; it's taken as gone.
 - `wait match` and `wait change` with `--ignore-node` (Python's
   `ignore_node`, MCP's) read the tree for the nodes' boxes with ten
   seconds of their own, whatever was left of the wait's `--timeout`: a
