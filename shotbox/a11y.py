@@ -299,8 +299,11 @@ def find_toplevels(Atspi, window=None):
 
     hits = []
     for name, _, app, count in sorted(apps, key=lambda a: a[:2]):
-        tops = [t for t in (app.get_child_at_index(j) for j in range(count))
-                if t is not None]
+        tops = [app.get_child_at_index(j) for j in range(count)]
+        # One not given: closed since, or its program stopped answering.
+        if any(t is None for t in tops) and app.get_child_count() < 0 and stalled(app, cut=True):
+            continue
+        tops = [t for t in tops if t is not None]
         names = [t.get_name() or "" for t in tops]
         if window is None:
             hits += [(app, t) for t in tops]
@@ -955,11 +958,19 @@ def in_dialog(Atspi, n):
     return False
 
 
+def uncut():
+    """For tab_walk's reads: a program cut as one was read may have had
+    the focus, or what's left out of it, so the walk can't go on."""
+    if CUT:
+        raise SessionError("stopped walking: a program stopped answering as it was read")
+
+
 def focus_outside(Atspi, window, n, settle, after=False):
     """Give the focus to the first node outside `n` (`after` it) that takes
     it (AT-SPI's grab_focus), and the node it's then on, or None."""
     containers = roles(Atspi, CONTAINERS)
     nodes = [o for _, o in walk(Atspi, window)]
+    uncut()
     if after:
         nodes = nodes[next((i for i, o in enumerate(nodes) if o._id == n._id), len(nodes)):]
     for o in nodes:
@@ -972,6 +983,7 @@ def focus_outside(Atspi, window, n, settle, after=False):
             end = time.monotonic() + settle
             while time.monotonic() < end:
                 now = focused(Atspi, window)
+                uncut()
                 if now is not None and now._id != n._id:
                     return now
                 time.sleep(0.05)
@@ -3216,9 +3228,11 @@ def alone(Atspi, window, node):
     """Whether `node` is the one thing on screen that could take the focus:
     nothing else showing, sensitive and focusable but for containers."""
     containers = roles(Atspi, CONTAINERS)
+    nodes = walk(Atspi, window)
+    uncut()
     return not any("focusable" in n.states and n._showing and "disabled" not in n.states
                    and n._role not in containers and n._id != node._id
-                   for _, n in walk(Atspi, window))
+                   for _, n in nodes)
 
 
 def watchdog(seconds, what, status=1):
