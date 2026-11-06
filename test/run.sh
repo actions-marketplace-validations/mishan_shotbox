@@ -1776,7 +1776,7 @@ EOF
   said() { grep -q "$2" "$tmp/cut.$1"; }
   [ "$(tail -1 "$tmp/cut")" = end ] && [ -z "$bad" ] \
     && grep -qx "application \"\" (pid [0-9]*) didn't answer: busy, or hung" "$tmp/cut.tree" \
-    && ! grep -q 'Before\|After\|Other\|button ""' "$tmp/cut.tree" \
+    && ! grep -q '"trap\|Before\|After\|Other\|button ""' "$tmp/cut.tree" \
     && said lint "not all checked" && said lintw "not all checked" \
     && said gone "didn't answer" && said count "didn't answer" && said node "didn't answer" \
     && said walk "didn't answer" && said walked "didn't answer" && said diff '^! application ""' \

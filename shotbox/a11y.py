@@ -1588,7 +1588,9 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
                         return n
                     ok.append(n)
         if gone:
-            return not shown and whole
+            # Cut short, after a read that found the window: gone from the screen, gone.
+            return not shown and (whole or len(looked) > 1 and window is not None
+                                  and not Screen().find_window(window))
         return (ok,) if len(ok) == count and whole else None
 
     detail = "".join(f", {st}" for st in states) + (
