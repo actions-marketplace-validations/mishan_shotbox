@@ -277,6 +277,14 @@ def find_toplevels(Atspi, window=None):
         screen, found = shown()
         return screen.backend.window_pid(screen.env, found[0]) if found else None
 
+    # The programs that own a window `window` picks on the display, None
+    # for one it can't say.
+    @cache
+    def owners():
+        screen = shown()[0]
+        return {screen.backend.window_pid(screen.env, w[0])
+                for w in screen.backend.shown(screen.env, window)}
+
     desktop = Atspi.get_desktop(0)
     apps = []
     QUIET.clear()
@@ -301,9 +309,9 @@ def find_toplevels(Atspi, window=None):
     for name, _, app, count in sorted(apps, key=lambda a: a[:2]):
         tops = [app.get_child_at_index(j) for j in range(count)]
         # One not given: closed since, or its program stopped answering, cut
-        # if it's being read: with a window, maybe it isn't.
+        # if it may own a window being read.
         if any(t is None for t in tops) and app.get_child_count() < 0 and stalled(
-                app, cut=window is None):
+                app, cut=window is None or bool(owners() & {pid_of(app), None})):
             continue
         tops = [t for t in tops if t is not None]
         names = [t.get_name() or "" for t in tops]
