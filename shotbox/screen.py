@@ -1026,8 +1026,8 @@ class Screen:
         """The nodes a screen reader would have no name to say for, each
         with what's wrong as `problem`; but those whose "PATH: PROBLEM"
         line, or "LINE: PROBLEM" with its tree line, one of the regexes in
-        `ignore` is found in. Fails, saying so, if without `window` a
-        program didn't answer."""
+        `ignore` is found in. Fails, saying so, if a program didn't answer:
+        any, without `window`; with it, one that stopped as it was read."""
         from .a11y import Node
         args = [f"--ignore={i}" for i in ignore]
         return self._windowed([Node(n) for n in self._a11y(
@@ -1052,8 +1052,8 @@ class Screen:
         "LINE: WHAT" with its tree line, one of the regexes in `ignore` is
         found in. Measured on a picture of the screen, `window` raised.
         Fails, saying why, if nothing could be measured: of a GTK 4 window,
-        its positions wrong, only text found near them is; or if without
-        `window` a program didn't answer."""
+        its positions wrong, only text found near them is; or if a program
+        didn't answer, as for a11y_lint."""
         from .a11y import Node
         args = ["--text", str(text), "--large", str(large), "--graphics", str(graphics),
                 *(["--edges", str(edges)] if edges else []),
