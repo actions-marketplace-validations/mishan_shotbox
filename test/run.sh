@@ -1716,6 +1716,7 @@ python3 -c 'import gi; gi.require_version("Gtk", "4.0"); from gi.repository impo
 Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & other=$!
 "$sb" wait window gtk4-other >/dev/null
 timed "$sb" wait gone Save --window 'gtk4-(old|other)' --timeout 2
+timed "$sb" a11y lint --window 'gtk4-(old|other)' --timeout 2
 kill $other
 kill -CONT $app; kill $app
 echo end >> "$out"
@@ -1723,9 +1724,10 @@ EOF
   : > "$tmp/hung"
   "$sb" run --a11y -- sh "$tmp/hung.sh" "$sb" "$here" "$tmp/hung" >/dev/null 2>&1 || true
   # Its tree says so, and goes on: a listing, not a failure; lint and
-  # contrast fail as not all checked.
+  # contrast fail as not all checked, lint with a --window picking its
+  # window and another's too.
   late=$(awk '/^end$/ { next } $1 > 3000 || ($2 == 0) != / a11y tree --timeout 2: / ||
-    / a11y (lint|contrast) --timeout 2: / && $2 != 2 ||
+    / a11y (lint|contrast) (--window gtk4-\(old\|other\) )?--timeout 2: / && $2 != 2 ||
     !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && grep -q " wait change .* after 2s; program " "$tmp/hung" \

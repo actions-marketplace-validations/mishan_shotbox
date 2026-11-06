@@ -14,6 +14,11 @@
 
 ### Fixed
 
+- `a11y lint` and `contrast` with `--window` passed while a program that
+  didn't answer owned a window it picked, checking only the others'. They
+  fail as not all checked now when a window `--window` picks on the
+  screen is that program's, or one whose owner the display can't say, as
+  `wait gone` and `--count` already did.
 - A program that stopped answering partway through a read of the tree,
   rather than before it, was taken for one whose nodes had gone: `wait
   gone` and `wait node --count` could pass while it still showed them,
