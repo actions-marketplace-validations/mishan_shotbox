@@ -340,6 +340,14 @@ class Cut(Exception):
     """A program stopped answering partway through a walk."""
 
 
+def quiet_owns(window):
+    """Whether a window `window` picks on the screen may be a program's
+    that didn't answer, and hold more."""
+    screen = Screen()
+    return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
+               for w in screen.backend.shown(screen.env, window))
+
+
 def pid_of(app):
     """Program `app`'s pid, the bus's to say; None if it's exited."""
     try:
@@ -1561,13 +1569,6 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
     # Whether the display had the window when a read first found it: a
     # window can be named apart from its title.
     on_screen = []
-
-    def quiet_owns(window):
-        """Whether a window `window` picks on the screen may be a program's
-        that didn't answer, and hold more."""
-        screen = Screen()
-        return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
-                   for w in screen.backend.shown(screen.env, window))
 
     def there():
         try:
@@ -3743,7 +3744,7 @@ def read(argv):
         else:
             for n, what in problems + passes + notes + behind:
                 print(f"{color.paint(sys.stdout, n.path, 'dim')}: {what}{placed(n)}")
-        if CUT or QUIET and not a.window:
+        if CUT or QUIET and (not a.window or quiet_owns(a.window)):
             sys.stderr.write((color.paint(sys.stderr, said, "warn") + "\n") * bool(said and not a.json)
                              + f"shotbox: not all checked: {unanswered()}\n")
             return 2

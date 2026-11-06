@@ -326,7 +326,9 @@ Each problem is a line: the node's path, every step a role and its index
 among its siblings, from the window down, then what's wrong. The exit
 status is 1 if there are any, and 2, `shotbox: not all checked: program
 1234 didn't answer: busy, or hung`, if a program didn't answer: any,
-without `--window`; with it, one that stopped partway through the read. `--ignore RE` (repeatable) leaves out each
+without `--window`; with it, one that may own a window it picks on the
+screen (or any, if the display can't say whose one is), or one that
+stopped partway through the read. `--ignore RE` (repeatable) leaves out each
 line the regex is found in, or would be in with the node's tree line in
 place of its path (`button "": button with no name`): an unnamed node
 that won't be fixed yet, or a toolkit's own (libadwaita's tab bar

@@ -1027,7 +1027,9 @@ class Screen:
         with what's wrong as `problem`; but those whose "PATH: PROBLEM"
         line, or "LINE: PROBLEM" with its tree line, one of the regexes in
         `ignore` is found in. Fails, saying so, if a program didn't answer:
-        any, without `window`; with it, one that stopped as it was read."""
+        any, without `window`; with it, one that may own a window it picks on
+        the screen (or any, if the display can't say whose one is), or one
+        that stopped as it was read."""
         from .a11y import Node
         args = [f"--ignore={i}" for i in ignore]
         return self._windowed([Node(n) for n in self._a11y(
