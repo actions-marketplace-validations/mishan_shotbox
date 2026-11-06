@@ -1558,6 +1558,9 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
         return None
 
     looked = []
+    # Whether the display had the window when a read first found it: a
+    # window can be named apart from its title.
+    on_screen = []
 
     def quiet_owns(window):
         """Whether a window `window` picks on the screen may be a program's
@@ -1574,8 +1577,10 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
         except SessionError:
             # Left out for not answering, it may still be on the screen.
             if looked and gone:
-                return not QUIET or not Screen().find_window(window)
+                return not QUIET or on_screen == [True] and not Screen().find_window(window)
             raise
+        if gone and window is not None and not looked:
+            on_screen.append(Screen().find_window(window) is not None)
         looked.append(True)
         whole = not CUT and (not QUIET or window and not quiet_owns(window))
         shown.clear()
@@ -1588,8 +1593,9 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
                         return n
                     ok.append(n)
         if gone:
-            # Cut short, after a read that found the window: gone from the screen, gone.
-            return not shown and (whole or len(looked) > 1 and window is not None
+            # Cut short, after a read that found the window, on the screen
+            # then: gone from it, gone.
+            return not shown and (whole or len(looked) > 1 and on_screen == [True]
                                   and not Screen().find_window(window))
         return (ok,) if len(ok) == count and whole else None
 
