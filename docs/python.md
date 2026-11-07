@@ -43,7 +43,8 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   n=1, hold=None)`, `pad_trigger(which, value, n=1, hold=None)` and
   `pad_neutral(n=1)`.
 - Pictures: `capture(out, window=None, crop=None, park=False,
-  vision=None, tree=False)`, `burst(out, count, every=0, ..., sheet=None)`, and
+  vision=None, tree=False, redact=())`, `redact` blacking out boxes and
+  nodes as `capture --redact` does, `burst(out, count, every=0, ..., sheet=None)`, and
   `window(re)` for where one is. `record(out, seconds=None, window=None,
   ..., sound=False, until=None, tail=0)` takes a video, or a `.wav` of the
   sound, ended with `until=(re, path)` by a line, as `wait_line` waits for

@@ -730,6 +730,13 @@ def tree_option(p):
                         "bounds in the picture's pixels: compare names what changed by it")
 
 
+def redact_option(p):
+    p.add_argument("--redact", action="append", default=[], metavar="NODE|WxH+X+Y",
+                   help="black this out: a box in the picture, or a node, by its name "
+                        "(exactly or as a regex matched in full, both), with all inside it, "
+                        "which needs --a11y; nothing is written if it can't be (repeatable)")
+
+
 def cmd_capture(argv):
     p = argparse.ArgumentParser(prog="shotbox capture",
                                 description="Inside `shotbox run`: screenshot the display "
@@ -747,15 +754,16 @@ def cmd_capture(argv):
     p.add_argument("--sheet", metavar="FILE",
                    help="with --burst: all the pictures in rows of four here too")
     tree_option(p)
+    redact_option(p)
     a = p.parse_args(argv)
     if a.burst is None:
         if a.every or a.sheet:
             p.error("--every and --sheet go with --burst")
         inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision,
-                         tree=a.tree)
+                         tree=a.tree, redact=a.redact)
         return 0
-    if a.tree:
-        p.error("--tree goes with one picture, not --burst")
+    if a.tree or a.redact:
+        p.error(f"{'--tree' if a.tree else '--redact'} goes with one picture, not --burst")
     taken = inside().burst(a.out, a.burst, every=a.every, window=a.window, crop=a.crop,
                            park=a.park, vision=a.vision, sheet=a.sheet)
     for path, at in taken:

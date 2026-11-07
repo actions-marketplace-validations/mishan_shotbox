@@ -4,6 +4,13 @@
 
 ### Added
 
+- `capture --redact NODE|WxH+X+Y` (repeatable; Python's `capture(redact=)`)
+  blacks out a box, or a node by its name and all inside it, wherever
+  the screen's tree has it, before the picture is written: for a
+  screenshot to publish without the clock, a user name or a Wi-Fi
+  network's name. What it can't black out, it fails on, writing nothing:
+  a name no node has, a node in GTK 4, whose positions are wrong, or a
+  program that doesn't answer.
 - Color at a terminal: `mutate`'s verdicts (BRITTLE yellow, BLIND red,
   robust and caught green), `compare`'s differences between two
   pictures and what they're in, `a11y lint` and `contrast`'s node paths

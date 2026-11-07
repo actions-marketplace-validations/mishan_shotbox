@@ -2066,6 +2066,62 @@ sys.exit(want != got or not any(n['role'] in ('button', 'push button') for n in 
     && grep -q "start the session with --a11y" "$tmp/tw-no" && [ ! -e "$tmp/tw-no.png" ] && [ ! -e "$tmp/tw-no.json" ] \
     && ok "a11y: capture --tree: the tree beside the picture, in its pixels, cropped" \
     || { fail "a11y: capture --tree"; cat "$tmp/tw-out" "$tmp/tw-no"; }
+  # capture --redact: Secret, drawn all magenta, in a window off the
+  # screen's corner, by its name, the screen taken and the window cropped
+  # off its corner; by its box; and as it is, where it shows. What it can't
+  # black out fails, writing nothing: a name no node has, a box past the
+  # picture, GTK 4's widgets, a tree beside it, a crop that's no box, a
+  # program not answering.
+  # With sway, by its name, cropped.
+  cat > "$tmp/magenta.py" <<'PY'
+import sys
+from shotbox import x
+for path in sys.argv[1:]:
+    w, h, data = x.rgb(path)
+    print(path.rsplit("/", 1)[-1], sum(data[i] > 200 and data[i + 1] < 60 and data[i + 2] > 200
+                                       for i in range(0, len(data), 3)))
+PY
+  : > "$tmp/sec-err"
+  "$sb" run --a11y -- sh -c "'$here/window.py' sec secret & sec=\$!; '$here/gtk4_window.py' &
+    '$sb' wait node Secret --window sec >/dev/null && '$sb' wait node Save >/dev/null &&
+    xdotool search --name '^sec\$' windowmove --sync 700 400 &&
+    box=\$('$sb' a11y tree --window sec --json | python3 -c 'import json, sys
+nodes = json.load(sys.stdin)
+x, y, w, h = next(n for n in nodes if n[\"name\"] == \"Secret\")[\"bounds\"]
+print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")') &&
+    '$sb' capture '$tmp/sec-shown.png' --window sec &&
+    '$sb' capture '$tmp/sec-all.png' --redact Secret &&
+    '$sb' capture '$tmp/sec-crop.png' --window sec --crop 120x80+10+30 --redact 'Sec.*' &&
+    '$sb' capture '$tmp/sec-box.png' --window sec --redact \$box &&
+    for r in Secrt 10x10+5000+0 Save; do
+      ! '$sb' capture '$tmp/sec-no.png' --window sec --redact \$r 2>> '$tmp/sec-err' || exit 1
+    done &&
+    ! '$sb' capture '$tmp/sec-no.png' --redact Secret --tree 2>> '$tmp/sec-err' &&
+    ! '$sb' capture '$tmp/sec-no.png' --window sec --crop 0x80+10+30 --redact Secret 2>> '$tmp/sec-err' &&
+    kill -STOP \$sec && ! '$sb' capture '$tmp/sec-no.png' --redact Plain 2>> '$tmp/sec-err'
+    st=\$?; kill -CONT \$sec; exit \$st" > "$tmp/sec-out" 2>&1 \
+    && PYTHONPATH="$here/.." python3 "$tmp/magenta.py" "$tmp"/sec-shown.png "$tmp"/sec-all.png \
+      "$tmp"/sec-crop.png "$tmp"/sec-box.png > "$tmp/sec-count" \
+    && awk '$1 == "sec-shown.png" && $2 < 100 || $1 != "sec-shown.png" && $2 { bad = 1 } END { exit bad }' "$tmp/sec-count" \
+    && [ "$(identify -format %wx%h "$tmp/sec-crop.png")" = 120x80 ] \
+    && ! ls -a "$tmp" | grep -q sec-no \
+    && grep -q "no node named 'Secrt' to black out" "$tmp/sec-err" \
+    && grep -q "^shotbox: 10x10+5000+0 isn't all in the picture, which is [0-9]*x[0-9]*$" "$tmp/sec-err" \
+    && grep -q "is GTK 4[.0-9]*'s, which says where its widgets are wrong: give its box" "$tmp/sec-err" \
+    && grep -q "would say what's blacked out: not both" "$tmp/sec-err" \
+    && grep -q "a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x80+10+30" "$tmp/sec-err" \
+    && grep -q "can't tell where to black out 'Plain': the program with pid [0-9]* didn't answer" "$tmp/sec-err" \
+    && ok "a11y: capture --redact: by name and by box, nothing of it left; what it can't, refused" \
+    || { fail "a11y: capture --redact"; cat "$tmp/sec-out" "$tmp/sec-count" "$tmp/sec-err"; }
+  if command -v sway >/dev/null && command -v grim >/dev/null; then
+    "$sb" run --wayland --a11y -- sh -c "'$here/window.py' sec secret & '$sb' wait node Secret --window sec >/dev/null &&
+      '$sb' capture '$tmp/sec-wl.png' --window sec --crop 120x80+10+30 --redact Secret &&
+      '$sb' capture '$tmp/sec-wl-shown.png' --window sec --crop 120x80+10+30" > "$tmp/sec-wl-out" 2>&1 \
+      && PYTHONPATH="$here/.." python3 "$tmp/magenta.py" "$tmp/sec-wl.png" "$tmp/sec-wl-shown.png" > "$tmp/sec-wl-count" \
+      && awk '$1 == "sec-wl-shown.png" && $2 < 100 || $1 == "sec-wl.png" && $2 { bad = 1 } END { exit bad }' "$tmp/sec-wl-count" \
+      && ok "wayland: a11y: capture --redact by name, cropped" \
+      || { fail "wayland: a11y: capture --redact"; cat "$tmp/sec-wl-out" "$tmp/sec-wl-count"; }
+  fi
   # --ignore-node: the clock left out where it is as the wait starts, the
   # window holds still, and the whole of it matches; without, it changes.
   # --click: at X,Y in the picture (4,4: not on Go), or at its middle (Go's
@@ -2454,6 +2510,33 @@ out=$(for e in '1:1 pixels differ, in 1x1 at 3,2:--ignore 1x1+0+0' \
   [ "$st:$got" = "$want:$said" ] || echo "${rest#*:}: $st $got"
 done)
 [ -z "$out" ] && ok "compare: --ignore leaves boxes out" || fail "compare --ignore: $out"
+# Blacking out, as capture --redact does: each box's pixels, cut to the
+# picture, opaque black, see-through ones too, and none outside changed.
+convert -size 40x30 xc: +noise Random -channel A -fx 'i<20 ? 0.5 : 1' "$tmp/bo.png"
+PYTHONPATH="$here/.." python3 - "$tmp" <<'PY' && ok "blackout: each box black, cut to the picture; nothing else changed" \
+  || fail "blackout"
+import shutil, subprocess, sys
+from shotbox import x
+tmp = sys.argv[1]
+def rgba(path):
+    return subprocess.run([*x.CONVERT, path, "-depth", "8", "rgba:-"], capture_output=True,
+                          check=True).stdout
+before = rgba(f"{tmp}/bo.png")
+bad = []
+for boxes in ([(5, 4, 10, 10)], [(1, 1, 0, 0)], [(1, 1, 39, 29)], [(40, 30, 0, 0)],
+              [(10, 10, -5, -5)], [(10, 10, 35, 25)], [(3, 3, 2, 2), (4, 2, 30, 1)]):
+    shutil.copy(f"{tmp}/bo.png", f"{tmp}/bo-out.png")
+    x.blackout(f"{tmp}/bo-out.png", boxes)
+    after = rgba(f"{tmp}/bo-out.png")
+    for i in range(40 * 30):
+        px, py = i % 40, i // 40
+        inside = any(bx <= px < bx + bw and by <= py < by + bh for bw, bh, bx, by in boxes)
+        if after[i * 4:i * 4 + 4] != (b"\0\0\0\xff" if inside else before[i * 4:i * 4 + 4]):
+            bad.append(f"{boxes}: {px},{py}")
+            break
+print(*bad, sep="\n")
+sys.exit(bool(bad))
+PY
 # --margin: the picture moved 2 right and 1 up, found within 2 or more,
 # not 1; with a pixel changed, failing where it matches best; a box left
 # out goes with the first picture.

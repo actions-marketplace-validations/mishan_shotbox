@@ -25,6 +25,7 @@ import functools
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1156,14 +1157,27 @@ class Screen:
         (a dialog) gets neither by itself."""
         self.backend.focus(self.env, self.window(name))
 
-    def capture(self, out, window=None, crop=None, park=False, vision=None, tree=False):
+    def capture(self, out, window=None, crop=None, park=False, vision=None, tree=False,
+                redact=()):
         """A picture of the display, or of the window named `window`, to
         `out` (a PNG), then cropped (WxH+X+Y). With `park`, the pointer
         goes out of the way first, so nothing shows its hover. With
         `vision` (protanopia, deuteranopia, tritanopia or gray), it's as
         someone with that color vision sees it. With `tree`, what a screen
         reader sees there goes beside it, OUT.json, as a11y_tree has it but
-        its bounds in the picture's pixels: what compare names a change by."""
+        its bounds in the picture's pixels: what compare names a change by.
+        With `redact`, boxes (WxH+X+Y, in the picture) and node names
+        (exactly, or else a regex matched in full), each is black in it:
+        a node, all inside it and 2 pixels round, wherever on the screen
+        it's drawn over what's taken. Failing, with nothing written, for a
+        name no node has, or one it can't tell where to black out."""
+        if redact:
+            # A picture of the screen as it fails would show what's to be blacked out.
+            failed, self.failed = self.failed, None
+            try:
+                return self._redacted(out, window, crop, park, vision, tree, redact)
+            finally:
+                self.failed = failed
         if park:
             self.park()
         if tree:
@@ -1180,6 +1194,83 @@ class Screen:
         if tree:
             Path(out).with_suffix(".json").write_text(json.dumps(nodes, ensure_ascii=False))
         return Path(out)
+
+    def _redacted(self, out, window, crop, park, vision, tree, redact):
+        """capture() with `redact`: taken and blacked out in a directory of
+        the session's own, then moved to `out`, so it's never there, nor
+        beside it, as it was."""
+        if tree:
+            self.fail("a tree beside a redacted picture would say what's blacked out: "
+                      "not both")
+        if crop and not x.box_of(crop):
+            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+        if park:
+            self.park()
+        given = [(spec, box) for spec in redact if (box := x.box_of(spec))]
+        names = [spec for spec in redact if not x.box_of(spec)]
+        boxes = self._redaction(names, window, crop) if names else []
+        with tempfile.TemporaryDirectory(dir=self.env.get("SHOTBOX_SCRATCH")) as tmp:
+            pic = Path(tmp) / "picture.png"
+            self.backend.capture(self.env, pic, window=self.window(window) if window else None,
+                                 crop=crop)
+            if names and self._redaction(names, window, crop) != boxes:
+                self.fail(f"what's named to black out ({', '.join(map(repr, names))}) moved, "
+                          "or came or went, as the picture was taken")
+            pw, ph = map(int, x.size_of(pic).split("x"))
+            for spec, (bw, bh, bx, by) in given:
+                if bx + bw > pw or by + bh > ph:
+                    self.fail(f"{spec} isn't all in the picture, which is {pw}x{ph}")
+            if vision:
+                x.vision(pic, pic, vision)
+            x.blackout(pic, [box for _, box in given] + boxes)
+            near = Path(out).with_name(f".{Path(out).name}.part")
+            shutil.copyfile(pic, near)
+            os.replace(near, out)
+        return Path(out)
+
+    def _redaction(self, names, window=None, crop=None):
+        """The boxes to black out in a picture of the display, or of the
+        window named `window`, cropped, for the nodes named each of `names`:
+        each so named and all inside it, grown 2 pixels each way, (width,
+        height, x, y) in its pixels, uncut. From the whole screen's tree, so one
+        drawn over the window is too, and named exactly or as a regex, both:
+        more is blacked out, not less. Failing for a name no node has, one
+        with no place on the screen said, or in GTK 4, which says where its
+        widgets are wrong, or while a program doesn't answer."""
+        from .a11y import GTK4_BOUNDS
+        nodes = self.a11y_tree()
+        quiet = [n.pid for n in nodes if n.get("quiet")]
+        if quiet:
+            self.fail(f"can't tell where to black out {names[0]!r}: the program with pid "
+                      f"{quiet[0]} didn't answer, so its windows weren't read")
+        wx, wy = self.window(window)[4:6] if window else (0, 0)
+        cx, cy = x.box_of(crop)[2:] if crop else (0, 0)
+        trusted = self.env.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
+        tops, top = [], None
+        for n in nodes:
+            top = n if not n.depth else top
+            tops.append(top)
+        boxes = set()
+        for name in names:
+            test = x.pattern(name)[0]
+            picked = [(i, n) for i, n in enumerate(nodes) if test(n.name)]
+            if not picked:
+                self.fail(f"no node named {name!r}{x.pattern(name)[1]} to black out")
+            for i, n in picked:
+                kit = tops[i].get("toolkit") or ""
+                if kit.startswith("GTK 4.") and kit[4:] not in GTK4_BOUNDS and not trusted:
+                    self.fail(f"{n.line()} is {kit}'s, which says where its widgets are wrong: "
+                              "give its box, WxH+X+Y, to black out instead")
+                end = next((j for j in range(i + 1, len(nodes)) if nodes[j].depth <= n.depth),
+                           len(nodes))
+                inside = nodes[i:end]
+                unplaced = next((m for m in inside if not m.get("bounds")), None)
+                if unplaced or not any(map(x.boxed, inside)):
+                    self.fail(f"{(unplaced or n).line()} has no place on the screen said, "
+                              "to black out")
+                for bx, by, bw, bh in (m.bounds for m in inside if x.boxed(m)):
+                    boxes.add((bw + 4, bh + 4, bx - wx - cx - 2, by - wy - cy - 2))
+        return sorted(boxes)
 
     def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
                park=False, sound=False, gap=0.001, size=None, until=None, tail=0,

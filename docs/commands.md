@@ -93,12 +93,25 @@ sealed session, waits, takes the picture and stops everything.
 **`shotbox run [options] -- COMMAND...`** runs a command in a sealed session
 and exits with its status. For scripts that take several pictures: inside,
 `shotbox wait window|port|file|ready|stable ARG` and `shotbox capture
-OUT.png [--window RE] [--crop G] [--park] [--vision KIND] [--tree]` work
-on the session's display; `--tree`, with `--a11y`, writes what a screen
-reader sees there beside the picture, `OUT.json`, as `a11y tree --json`
-would, but its bounds in the picture's pixels, for `compare` to name a
-change by. A picture taken again without it keeps the tree it had, which
-no longer goes with it. `shotbox wait stable [SECS] [--window RE]` is the one to use after a
+OUT.png [--window RE] [--crop G] [--park] [--vision KIND] [--tree]
+[--redact NODE|G]` work on the session's display; `--tree`, with `--a11y`,
+writes what a screen reader sees there beside the picture, `OUT.json`, as
+`a11y tree --json` would, but its bounds in the picture's pixels, for
+`compare` to name a change by. A picture taken again without it keeps the
+tree it had, which no longer goes with it. `--redact` (repeatable) blacks
+out a box G, in the picture's pixels, or with `--a11y`, each node by its
+name (exactly or as a regex in full, both) and all inside it, 2 pixels
+round, wherever the screen's tree has it over what's taken: its pixels
+replaced, before the picture is written, so nothing of them is in the file.
+Nothing is written when it can't be done: a name no node has, or one with
+no place on the screen said; a box not all in the picture, or a `--crop`
+that isn't G; a node in GTK 4, which says where its widgets are wrong (give
+its box, or see `SHOTBOX_TRUST_GTK4_BOUNDS` in
+[accessibility](accessibility.md)); a program that doesn't answer, whose
+windows weren't read; one that moves as the picture is taken; or with
+`--tree`. A name is in the script and in what fails says, so for a secret,
+give its box or a name that isn't it.
+`shotbox wait stable [SECS] [--window RE]` is the one to use after a
 click, in place of a sleep; with `--crop G` it watches just that part,
 and with `--ignore G` (repeatable, in what's watched) leaves out a box
 that never holds still, a clock or a live chart. `shotbox wait match REF.png [--window RE] [--crop
