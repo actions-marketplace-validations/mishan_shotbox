@@ -76,6 +76,10 @@ class Screen:
     """The display in `env` (DISPLAY, XAUTHORITY and SHOTBOX_SCRATCH; the
     process's own environment by default)."""
 
+    # (redact, where), where() saying the (window, crop) taken: a picture as
+    # it fails is then of that, blacked out as capture's `redact` does.
+    redacting = None
+
     def __init__(self, env=None, failed=None):
         self.env = dict(os.environ if env is None else env)
         self.failed = failed or self.env.get("SHOTBOX_FAILED")
@@ -85,13 +89,30 @@ class Screen:
 
     def fail(self, message):
         """Raise SessionError(message), first taking a picture of the screen
-        to `failed` if it's set, and saying where."""
+        to `failed` if it's set, and saying where; with `redacting`, of what
+        it says, blacked out, or none, saying why it couldn't be."""
         shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
-        if self.failed and shown and x.try_capture(self.env, self.failed, self.backend):
-            e = SessionError(f"{message}; the screen then: {self.failed}")
-            e.failed = True
-            raise e
-        raise SessionError(message)
+        if self.failed and shown and not self.redacting:
+            took = x.try_capture(self.env, self.failed, self.backend)
+        elif self.failed and shown:
+            (redact, where), failed = self.redacting, self.failed
+            self.failed = self.redacting = None
+            try:
+                took = self._redacted(failed, *where(), False, None, False, redact)
+            except Exception as e:
+                took = None
+                # One from before, unblacked, would be taken for this one.
+                Path(failed).unlink(missing_ok=True)
+                if isinstance(e, SessionError):
+                    message = f"{message}; no picture of the screen, as {e}"
+            finally:
+                self.failed, self.redacting = failed, (redact, where)
+        if self.failed and shown and took:
+            message = f"{message}; the screen then: {self.failed}"
+        e = SessionError(message)
+        # Its picture taken, or not, it's said all it will: until doesn't try again.
+        e.failed = bool(self.failed and shown and (took or self.redacting))
+        raise e
 
     def until(self, what, test, timeout=30, alive=None):
         """Poll `test()` until it returns something true, and return that;

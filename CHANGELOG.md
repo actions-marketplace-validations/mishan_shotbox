@@ -4,15 +4,17 @@
 
 ### Added
 
-- `capture --redact NODE|WxH+X+Y` (repeatable; Python's `capture(redact=)`)
-  blacks out a box, or a node by its name and all inside it, wherever
-  the screen's tree has it, before the picture is written: for a
-  screenshot to publish without the clock, a user name or a Wi-Fi
-  network's name. What it can't black out, it fails on, writing nothing:
-  a name no node has, a node in GTK 4, whose positions are wrong, or a
-  program that doesn't answer. With `--tree`, what's blacked out is
-  blanked in the tree beside it too, and what it's in; without, a tree
-  beside it from before is removed.
+- `capture` and `shoot --redact NODE|WxH+X+Y` (repeatable;
+  `term --shoot` too, and Python's `capture(redact=)`) black out a box,
+  or a node by its name and all inside it, wherever the screen's tree
+  has it, before the picture is written: for a screenshot to publish
+  without the clock, a user name or a Wi-Fi network's name. What it
+  can't black out, it fails on, writing nothing: a name no node has, a
+  node in GTK 4, whose positions are wrong, or a program that doesn't
+  answer. With `--tree`, what's blacked out is blanked in the tree
+  beside it too, and what it's in; without, a tree beside it from before
+  is removed. `shoot`'s picture of the screen as it fails is then of
+  what it takes, blacked out the same way, or none.
 - Color at a terminal: `mutate`'s verdicts (BRITTLE yellow, BLIND red,
   robust and caught green), `compare`'s differences between two
   pictures and what they're in, `a11y lint` and `contrast`'s node paths

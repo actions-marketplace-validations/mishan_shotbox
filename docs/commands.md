@@ -65,6 +65,11 @@ sealed session, waits, takes the picture and stops everything.
 - `--park` moves the pointer out of the way first (see `shotbox park`).
 - `--tree` writes the tree beside OUT, as `capture --tree` does, and gives
   the session `--a11y`.
+- `--redact NODE|G` (repeatable) blacks out as `capture --redact` does; a
+  NODE gives the session `--a11y`. The picture of the screen it leaves as
+  it fails is then of what it takes, the window, cropped, blacked out
+  the same way, or, where that can't be done, none, saying why. With
+  `--twice`, both pictures are, so the difference it writes is too.
 - `--crop WxH+X+Y`, `--settle SECS` (0.3), `--timeout SECS` (30),
   `--log FILE` for the program's output. If a wait fails or the program
   dies, it says which, shows the program's last output, and leaves a
@@ -116,7 +121,9 @@ named by what it holds) or that has no place said,
 each marked `"redacted": true`; a window so kept has its title taken out of
 its nodes' paths; without `--tree`, a tree beside it from before is
 removed. A name is in the script and in what fails says, so for a secret,
-give its box or a name that isn't it.
+give its box or a name that isn't it. In a script, another step that fails
+takes its picture of the screen (`play --failed`, `$SHOTBOX_FAILED`)
+unblacked: leave those unset there.
 `shotbox wait stable [SECS] [--window RE]` is the one to use after a
 click, in place of a sleep; with `--crop G` it watches just that part,
 and with `--ignore G` (repeatable, in what's watched) leaves out a box
@@ -496,7 +503,7 @@ named `shotbox-term`.
   the size in pixels to `$SHOTBOX_SCRATCH/crop`, which `shoot` crops to
   when it has no `--crop` of its own.
 - `--shoot OUT.png` starts the session and takes the picture too, taking
-  `shoot`'s session options, `--park` and `--failed`.
+  `shoot`'s session options, `--park`, `--failed` and `--redact`.
 - `--log FILE` keeps every byte the program wrote, escape codes and all
   (via `script`, whose first line is its own header). Colors are hard to
   judge in a picture and easy to grep in the log.
