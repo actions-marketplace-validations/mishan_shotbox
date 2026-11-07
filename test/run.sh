@@ -2070,8 +2070,10 @@ sys.exit(want != got or not any(n['role'] in ('button', 'push button') for n in 
   # screen's corner, by its name, the screen taken and the window cropped
   # off its corner; by its box; and as it is, where it shows. What it can't
   # black out fails, writing nothing: a name no node has, a box past the
-  # picture, GTK 4's widgets, a tree beside it, a crop that's no box, a
-  # program not answering.
+  # picture, GTK 4's widgets, a crop that's no box, a program not
+  # answering. With --tree, nothing of it is in the tree either: a node
+  # by its name, all a box overlaps, a window and its title; without, a
+  # tree taken before is gone.
   # With sway, by its name, cropped.
   cat > "$tmp/magenta.py" <<'PY'
 import sys
@@ -2080,6 +2082,23 @@ for path in sys.argv[1:]:
     w, h, data = x.rgb(path)
     print(path.rsplit("/", 1)[-1], sum(data[i] > 200 and data[i + 1] < 60 and data[i + 2] > 200
                                        for i in range(0, len(data), 3)))
+PY
+  cat > "$tmp/redacted.py" <<'PY'
+import json, sys
+tmp = sys.argv[1]
+def tree(name):
+    text = open(f"{tmp}/sec-{name}.json").read()
+    return text, {n["path"]: n for n in json.loads(text)}
+text, nodes = tree("tn")
+blank = nodes['frame ""/filler[0]/label[1]']
+assert "Secret" not in text and blank["redacted"] and not blank["name"], text
+assert nodes['frame ""/filler[0]/label[0]']["name"] == "Plain", text
+text, nodes = tree("tb")
+assert "Secret" not in text and '"sec"' not in text and nodes['frame ""']["redacted"], text
+assert nodes['frame ""/filler[0]/label[0]']["name"] == "Plain", text
+text, nodes = tree("tw")
+assert not any(w in text for w in ("Secret", "Plain")) and "Save" in text, text
+assert not any('"sec"' in path for path in nodes), text
 PY
   : > "$tmp/sec-err"
   "$sb" run --a11y -- sh -c "'$here/window.py' sec secret & sec=\$!; '$here/gtk4_window.py' &
@@ -2090,13 +2109,15 @@ nodes = json.load(sys.stdin)
 x, y, w, h = next(n for n in nodes if n[\"name\"] == \"Secret\")[\"bounds\"]
 print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")') &&
     '$sb' capture '$tmp/sec-shown.png' --window sec &&
-    '$sb' capture '$tmp/sec-all.png' --redact Secret &&
+    '$sb' capture '$tmp/sec-all.png' --tree && '$sb' capture '$tmp/sec-all.png' --redact Secret &&
     '$sb' capture '$tmp/sec-crop.png' --window sec --crop 120x80+10+30 --redact 'Sec.*' &&
     '$sb' capture '$tmp/sec-box.png' --window sec --redact \$box &&
     for r in Secrt 10x10+5000+0 Save; do
       ! '$sb' capture '$tmp/sec-no.png' --window sec --redact \$r 2>> '$tmp/sec-err' || exit 1
     done &&
-    ! '$sb' capture '$tmp/sec-no.png' --redact Secret --tree 2>> '$tmp/sec-err' &&
+    '$sb' capture '$tmp/sec-tn.png' --window sec --redact Secret --tree &&
+    '$sb' capture '$tmp/sec-tb.png' --window sec --redact \$box --tree &&
+    '$sb' capture '$tmp/sec-tw.png' --redact sec --tree &&
     ! '$sb' capture '$tmp/sec-no.png' --window sec --crop 0x80+10+30 --redact Secret 2>> '$tmp/sec-err' &&
     kill -STOP \$sec && ! '$sb' capture '$tmp/sec-no.png' --redact Plain 2>> '$tmp/sec-err'
     st=\$?; kill -CONT \$sec; exit \$st" > "$tmp/sec-out" 2>&1 \
@@ -2105,13 +2126,14 @@ print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")'
     && awk '$1 == "sec-shown.png" && $2 < 100 || $1 != "sec-shown.png" && $2 { bad = 1 } END { exit bad }' "$tmp/sec-count" \
     && [ "$(identify -format %wx%h "$tmp/sec-crop.png")" = 120x80 ] \
     && ! ls -a "$tmp" | grep -q sec-no \
+    && [ ! -e "$tmp/sec-all.json" ] \
     && grep -q "no node named 'Secrt' to black out" "$tmp/sec-err" \
     && grep -q "^shotbox: 10x10+5000+0 isn't all in the picture, which is [0-9]*x[0-9]*$" "$tmp/sec-err" \
     && grep -q "is GTK 4[.0-9]*'s, which says where its widgets are wrong: give its box" "$tmp/sec-err" \
-    && grep -q "would say what's blacked out: not both" "$tmp/sec-err" \
+    && python3 "$tmp/redacted.py" "$tmp" \
     && grep -q "a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x80+10+30" "$tmp/sec-err" \
     && grep -q "can't tell where to black out 'Plain': the program with pid [0-9]* didn't answer" "$tmp/sec-err" \
-    && ok "a11y: capture --redact: by name and by box, nothing of it left; what it can't, refused" \
+    && ok "a11y: capture --redact: by name and by box, nothing of it left, in the picture or its tree; what it can't, refused" \
     || { fail "a11y: capture --redact"; cat "$tmp/sec-out" "$tmp/sec-count" "$tmp/sec-err"; }
   if command -v sway >/dev/null && command -v grim >/dev/null; then
     "$sb" run --wayland --a11y -- sh -c "'$here/window.py' sec secret & '$sb' wait node Secret --window sec >/dev/null &&

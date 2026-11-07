@@ -1167,10 +1167,11 @@ class Screen:
         reader sees there goes beside it, OUT.json, as a11y_tree has it but
         its bounds in the picture's pixels: what compare names a change by.
         With `redact`, boxes (WxH+X+Y, in the picture) and node names
-        (exactly, or else a regex matched in full), each is black in it:
+        (exactly or as a regex matched in full, both), each is black in it:
         a node, all inside it and 2 pixels round, wherever on the screen
-        it's drawn over what's taken. Failing, with nothing written, for a
-        name no node has, or one it can't tell where to black out."""
+        it's drawn over what's taken, and blanked in the tree beside it, as
+        blanked() has it. Failing, with nothing written, for a name no node
+        has, or one it can't tell where to black out."""
         if redact:
             # A picture of the screen as it fails would show what's to be blacked out.
             failed, self.failed = self.failed, None
@@ -1180,13 +1181,7 @@ class Screen:
                 self.failed = failed
         if park:
             self.park()
-        if tree:
-            from .a11y import Node
-            if crop and not x.box_of(crop):
-                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
-            dx, dy = x.box_of(crop)[2:] if crop else (0, 0)
-            nodes = [Node(n, bounds=[b[0] - dx, b[1] - dy, *b[2:]]) if (b := n.get("bounds")) else n
-                     for n in self.a11y_tree(window)]
+        nodes = tree and self._pictured(window, crop)
         self.backend.capture(self.env, out, window=self.window(window) if window else None,
                              crop=crop)
         if vision:
@@ -1195,13 +1190,22 @@ class Screen:
             Path(out).with_suffix(".json").write_text(json.dumps(nodes, ensure_ascii=False))
         return Path(out)
 
+    def _pictured(self, window, crop):
+        """The tree capture's `tree` writes beside a picture of the display, or
+        of the window named `window`, cropped: a11y_tree's, its bounds in the
+        picture's pixels."""
+        from .a11y import Node
+        if crop and not x.box_of(crop):
+            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+        dx, dy = x.box_of(crop)[2:] if crop else (0, 0)
+        return [Node(n, bounds=[b[0] - dx, b[1] - dy, *b[2:]]) if (b := n.get("bounds")) else n
+                for n in self.a11y_tree(window)]
+
     def _redacted(self, out, window, crop, park, vision, tree, redact):
         """capture() with `redact`: taken and blacked out in a directory of
         the session's own, then moved to `out`, so it's never there, nor
-        beside it, as it was."""
-        if tree:
-            self.fail("a tree beside a redacted picture would say what's blacked out: "
-                      "not both")
+        beside it, as it was; and with `tree`, the tree with what's blacked
+        out blanked in it."""
         if crop and not x.box_of(crop):
             self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
         if park:
@@ -1209,6 +1213,7 @@ class Screen:
         given = [(spec, box) for spec in redact if (box := x.box_of(spec))]
         names = [spec for spec in redact if not x.box_of(spec)]
         boxes = self._redaction(names, window, crop) if names else []
+        nodes = tree and self._pictured(window, crop)
         with tempfile.TemporaryDirectory(dir=self.env.get("SHOTBOX_SCRATCH")) as tmp:
             pic = Path(tmp) / "picture.png"
             self.backend.capture(self.env, pic, window=self.window(window) if window else None,
@@ -1223,6 +1228,15 @@ class Screen:
             if vision:
                 x.vision(pic, pic, vision)
             x.blackout(pic, [box for _, box in given] + boxes)
+            beside = Path(out).with_suffix(".json")
+            if tree:
+                near = beside.with_name(f".{beside.name}.part")
+                near.write_text(json.dumps(blanked(nodes, names, [b for _, b in given] + boxes),
+                                           ensure_ascii=False))
+                os.replace(near, beside)
+            else:
+                # One taken before, unredacted, would be published beside it.
+                beside.unlink(missing_ok=True)
             near = Path(out).with_name(f".{Path(out).name}.part")
             shutil.copyfile(pic, near)
             os.replace(near, out)
@@ -1672,3 +1686,38 @@ def here():
     if not os.environ.get("SHOTBOX_SCRATCH"):
         raise SessionError("not inside a shotbox session")
     return Screen()
+
+
+def blanked(nodes, names, boxes):
+    """`nodes`, a tree as capture writes it beside a picture, with nothing
+    left of what's blacked out in it: each node named one of `names`
+    (exactly or as a regex) and all inside it, and with `boxes` (width,
+    height, x, y: those blacked out, a node's too, as what holds it can
+    be named by it), each that overlaps one, what it's in too (a label's
+    box holds its text's), and each with no box, which could be anywhere, are
+    kept as their role, states, place and depth, "redacted". A window so
+    kept loses its title from its nodes' paths too."""
+    from .a11y import Node
+    tests = [x.pattern(name)[0] for name in names]
+    out, under, title = [], None, None
+    for n in nodes:
+        if under is not None and n.depth <= under:
+            under = None
+        if under is None and any(test(n.name) for test in tests):
+            under = n.depth
+        if not n.depth:
+            title = None
+        b = n.get("bounds")
+        if under is not None or boxes and (not b or any(
+                b[0] < bx + bw and bx < b[0] + b[2] and b[1] < by + bh and by < b[1] + b[3]
+                for bw, bh, bx, by in boxes)):
+            n = Node({k: v for k, v in n.items()
+                      if k in ("role", "states", "path", "bounds", "depth", "pid", "toolkit",
+                               "quiet")},
+                     name="", description="", redacted=True)
+            if not n.depth:
+                title = (n.path, f'{n.role} ""')
+        if title and n.path.startswith(title[0]):
+            n = Node(n, path=title[1] + n.path[len(title[0]):])
+        out.append(n)
+    return out

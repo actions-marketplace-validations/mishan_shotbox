@@ -108,8 +108,14 @@ no place on the screen said; a box not all in the picture, or a `--crop`
 that isn't G; a node in GTK 4, which says where its widgets are wrong (give
 its box, or see `SHOTBOX_TRUST_GTK4_BOUNDS` in
 [accessibility](accessibility.md)); a program that doesn't answer, whose
-windows weren't read; one that moves as the picture is taken; or with
-`--tree`. A name is in the script and in what fails says, so for a secret,
+windows weren't read; or one that moves as the picture is taken. With
+`--tree`, the tree beside it keeps only the role, states, place and depth
+of each node blacked out by its name, all inside it, and each that overlaps
+what's blacked out (what it's in too, the window as well, as it can be
+named by what it holds) or that has no place said,
+each marked `"redacted": true`; a window so kept has its title taken out of
+its nodes' paths; without `--tree`, a tree beside it from before is
+removed. A name is in the script and in what fails says, so for a secret,
 give its box or a name that isn't it.
 `shotbox wait stable [SECS] [--window RE]` is the one to use after a
 click, in place of a sleep; with `--crop G` it watches just that part,
