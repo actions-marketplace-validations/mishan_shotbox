@@ -173,7 +173,8 @@ def speak(keys=None, most=50, window=None, timeout=10, settle=2.0):
     for k in keys or ():
         screen.xt.chord_keys(k)
     a11y.toplevels(Atspi, window, timeout)
-    if not window and a11y.QUIET and a11y.focused(Atspi) is None:
+    # Read first: a program that stops answering as it's read is cut then.
+    if a11y.focused(Atspi, window) is None and (a11y.CUT or not window and a11y.QUIET):
         screen.close()
         raise SessionError("no node has the focus to begin with")
     orca = Orca()

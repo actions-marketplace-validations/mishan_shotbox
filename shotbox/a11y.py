@@ -277,17 +277,26 @@ def find_toplevels(Atspi, window=None):
         screen, found = shown()
         return screen.backend.window_pid(screen.env, found[0]) if found else None
 
+    # The programs that own a window `window` picks on the display, None
+    # for one it can't say.
+    @cache
+    def owners():
+        screen = shown()[0]
+        return {screen.backend.window_pid(screen.env, w[0])
+                for w in screen.backend.shown(screen.env, window)}
+
     desktop = Atspi.get_desktop(0)
     apps = []
     QUIET.clear()
+    CUT.clear()
     for i in range(desktop.get_child_count()):
         app = desktop.get_child_at_index(i)
         if app is None:
             continue
         # Asked first: a program that doesn't answer isn't asked its name too.
         count = app.get_child_count()
-        if count < 0:   # no answer, after libatspi's timeout: busy, or hung
-            QUIET.add(app.get_process_id())
+        if count < 0:   # no answer, after libatspi's timeout: busy, or hung; or exited
+            stalled(app)
         else:
             apps.append((app.get_name() or "", i, app, count))
 
@@ -298,8 +307,13 @@ def find_toplevels(Atspi, window=None):
 
     hits = []
     for name, _, app, count in sorted(apps, key=lambda a: a[:2]):
-        tops = [t for t in (app.get_child_at_index(j) for j in range(count))
-                if t is not None]
+        tops = [app.get_child_at_index(j) for j in range(count)]
+        # One not given: closed since, or its program stopped answering, cut
+        # if it may own a window being read.
+        if any(t is None for t in tops) and app.get_child_count() < 0 and stalled(
+                app, cut=window is None or bool(owners() & {pid_of(app), None})):
+            continue
+        tops = [t for t in tops if t is not None]
         names = [t.get_name() or "" for t in tops]
         if window is None:
             hits += [(app, t) for t in tops]
@@ -310,13 +324,50 @@ def find_toplevels(Atspi, window=None):
         # there, unless one of the program's named windows is picked.
         unnamed = "" in names and (picks("") or (
             not any(picks(n) for n in names if n)
-            and app.get_process_id() == shown_pid()))
+            and shown_pid() is not None and pid_of(app) == shown_pid()))
         hits += [(app, t) for t, got in zip(tops, names) if (picks(got) if got else unnamed)]
     return hits
 
 
 # The pids of the programs that didn't answer when their windows were last asked for.
 QUIET = set()
+# Those of them that stopped answering partway through a read: always one
+# being read, --window or not, where one in QUIET from the start may not be.
+CUT = set()
+
+
+class Cut(Exception):
+    """A program stopped answering partway through a walk."""
+
+
+def quiet_owns(window):
+    """Whether a window `window` picks on the screen may be a program's
+    that didn't answer, and hold more."""
+    screen = Screen()
+    return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
+               for w in screen.backend.shown(screen.env, window))
+
+
+def pid_of(app):
+    """Program `app`'s pid, the bus's to say; None if it's exited."""
+    try:
+        return app.get_process_id()
+    except Exception:
+        return None
+
+
+def stalled(app, cut=False):
+    """Whether program `app`, whose child count came back -1, is busy or
+    hung rather than exited: then it's added to QUIET, and with `cut` to
+    CUT. Its pid is the bus's to say, so it answers for a stalled program,
+    not for one that's exited."""
+    pid = pid_of(app)
+    if pid is None:
+        return False
+    QUIET.add(pid)
+    if cut:
+        CUT.add(pid)
+    return True
 
 
 def unanswered():
@@ -445,7 +496,15 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
     def done():
         return until and out and until(out[-1][1])
 
-    def visit(acc, role, depth, path, web=False):
+    def gone(app):
+        """For a node that said it's defunct, or failed to answer: true if
+        it's only gone, as a closing popover is; Cut if its program stopped
+        answering partway through."""
+        if app.get_child_count() < 0 and stalled(app, cut=True):
+            raise Cut
+        return True
+
+    def visit(app, acc, role, depth, path, web=False):
         if len(out) > 20000 or depth > 200:
             return
         # A toolkit's widget can be visible and not on the screen (in a
@@ -455,51 +514,75 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
         # before 4.10.3 says only its windows are showing; it presents
         # only what's visible, as later ones say is showing.
         web = web or role == Atspi.Role.DOCUMENT_WEB
+        n = None
         try:
             states = acc.get_state_set()
-            old = not web and gtk4_release(Node(_acc=acc)) < (4, 10, 3)
-            if not states.contains(Atspi.StateType.VISIBLE if web or old
-                                   else Atspi.StateType.SHOWING):
-                return
-            n = node(Atspi, acc, states, role, path)
-            if old:
-                n["_showing"] = True
+            # A stalled program's node says only that it's defunct, as one
+            # gone does: gone() asks which.
+            if states.get_states() != [Atspi.StateType.DEFUNCT]:
+                old = not web and gtk4_release(Node(_acc=acc)) < (4, 10, 3)
+                if not states.contains(Atspi.StateType.VISIBLE if web or old
+                                       else Atspi.StateType.SHOWING):
+                    return
+                n = node(Atspi, acc, states, role, path)
+                if old:
+                    n["_showing"] = True
         except Exception:   # gone while we looked: a closing popover, a toast
+            pass
+        if n is None and gone(app):
             return
         n["_top"] = top
         out.append((depth, n))
         try:
             count = acc.get_child_count()
         except Exception:   # gone while we looked: a window closing
+            count = -1
+        if count < 0 and gone(app):
             return
         for i in range(count):
             if done():
                 return
+            child = None
             try:
                 child = acc.get_child_at_index(i)
-                if child is None:
-                    continue
-                role = child.get_role()
-                at = f"{path}/{role_name(Atspi, child, role)}[{i}]"
+                role = child and child.get_role()
+                at = child and f"{path}/{role_name(Atspi, child, role)}[{i}]"
             except Exception:   # gone while we looked: a window closing
-                return
-            visit(child, role, depth + 1, at, web)
+                child = False
+            if not child and gone(app):
+                if child is False:
+                    return
+                continue
+            visit(app, child, role, depth + 1, at, web)
 
-    for _, top in toplevels(Atspi, window, timeout):
+    cut, pairs = [], toplevels(Atspi, window, timeout)
+    for app, top in pairs:
         if done():
             break
+        if app in cut:
+            continue
         # libatspi caches states, and hears they've changed only from
         # events, which nothing here dispatches.
         try:
-            top.clear_cache()
-            paged(Atspi, top, window, timeout)
-            role = top.get_role()
-            path = f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}"
-        except SessionError:   # paged()'s, about the window asked for
-            raise
-        except Exception:   # gone while we looked: a window closing
-            continue
-        visit(top, role, 0, path)
+            try:
+                top.clear_cache()
+                paged(Atspi, top, window, timeout)
+                role = top.get_role()
+                path = f"{role_name(Atspi, top, role)} {json.dumps(top.get_name() or '')}"
+            except SessionError:   # paged()'s, about the window asked for
+                if app.get_child_count() >= 0 or not stalled(app, cut=True):
+                    raise
+                raise Cut from None
+            except Exception:   # gone while we looked: a window closing
+                gone(app)
+                continue
+            visit(app, top, role, 0, path)
+        except Cut:
+            cut.append(app)
+    # What was read of a program that then stopped answering is left out,
+    # as the rest of it is: none of it can be told to be so now.
+    tops = {id(top) for app, top in pairs if app in cut}
+    out[:] = [(d, n) for d, n in out if id(n._top) not in tops]
     if bounds:
         screen, origins = Screen(), {}
         shown = screen.backend.windows(screen.env)
@@ -713,6 +796,10 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         end = time.monotonic() + settle
         while True:
             now = focused(Atspi, window)
+            # Cut as it was read, its focus can't be told, nor anything after.
+            if CUT:
+                screen.close()
+                raise SessionError("stopped walking: a program stopped answering as it was read")
             if (now is not None and (before is None or now._id != before._id)
                     or time.monotonic() > end or not k and now is None and QUIET and not window):
                 return now
@@ -722,6 +809,9 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
         toplevels(Atspi, window, timeout)
     docs = document and [n.path + "/" for _, n in walk(Atspi, window, timeout)
                          if n._role == Atspi.Role.DOCUMENT_WEB]
+    if CUT:
+        screen.close()
+        uncut()
     if document and not docs:
         screen.close()
         raise SessionError("no web document to walk: the window isn't a browser's")
@@ -889,11 +979,19 @@ def in_dialog(Atspi, n):
     return False
 
 
+def uncut():
+    """For tab_walk's reads: a program cut as one was read may have had
+    the focus, or what's left out of it, so the walk can't go on."""
+    if CUT:
+        raise SessionError("stopped walking: a program stopped answering as it was read")
+
+
 def focus_outside(Atspi, window, n, settle, after=False):
     """Give the focus to the first node outside `n` (`after` it) that takes
     it (AT-SPI's grab_focus), and the node it's then on, or None."""
     containers = roles(Atspi, CONTAINERS)
     nodes = [o for _, o in walk(Atspi, window)]
+    uncut()
     if after:
         nodes = nodes[next((i for i, o in enumerate(nodes) if o._id == n._id), len(nodes)):]
     for o in nodes:
@@ -906,6 +1004,7 @@ def focus_outside(Atspi, window, n, settle, after=False):
             end = time.monotonic() + settle
             while time.monotonic() < end:
                 now = focused(Atspi, window)
+                uncut()
                 if now is not None and now._id != n._id:
                     return now
                 time.sleep(0.05)
@@ -932,6 +1031,9 @@ def unreached(Atspi, window, seen):
     containers, items, lists = roles(Atspi, CONTAINERS), roles(Atspi, ITEMS), roles(Atspi, LISTS)
     menu_bar, docs = roles(Atspi, ("MENU_BAR",)), roles(Atspi, ("DOCUMENT_WEB",))
     nodes = [n for _, n in walk(Atspi, window)]
+    # What's left out of a program cut as it was read could be any of them.
+    if CUT:
+        raise SessionError("not all checked: a program stopped answering as it was read")
     by_path = {n.path: n for n in nodes}
     ids = {n._id for n in seen}
 
@@ -1464,13 +1566,9 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
         return None
 
     looked = []
-
-    def quiet_owns(window):
-        """Whether a window `window` picks on the screen may be a program's
-        that didn't answer, and hold more."""
-        screen = Screen()
-        return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
-                   for w in screen.backend.shown(screen.env, window))
+    # Whether the display had the window when a read first found it: a
+    # window can be named apart from its title.
+    on_screen = []
 
     def there():
         try:
@@ -1480,10 +1578,12 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
         except SessionError:
             # Left out for not answering, it may still be on the screen.
             if looked and gone:
-                return not QUIET or not Screen().find_window(window)
+                return not QUIET or on_screen == [True] and not Screen().find_window(window)
             raise
+        if gone and window is not None and not looked:
+            on_screen.append(Screen().find_window(window) is not None)
         looked.append(True)
-        whole = not QUIET or window and not quiet_owns(window)
+        whole = not CUT and (not QUIET or window and not quiet_owns(window))
         shown.clear()
         ok = []
         for n in seen:
@@ -1494,7 +1594,10 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
                         return n
                     ok.append(n)
         if gone:
-            return not shown and whole
+            # Cut short, after a read that found the window, on the screen
+            # then: gone from it, gone.
+            return not shown and (whole or len(looked) > 1 and on_screen == [True]
+                                  and not Screen().find_window(window))
         return (ok,) if len(ok) == count and whole else None
 
     detail = "".join(f", {st}" for st in states) + (
@@ -3147,9 +3250,11 @@ def alone(Atspi, window, node):
     """Whether `node` is the one thing on screen that could take the focus:
     nothing else showing, sensitive and focusable but for containers."""
     containers = roles(Atspi, CONTAINERS)
+    nodes = walk(Atspi, window)
+    uncut()
     return not any("focusable" in n.states and n._showing and "disabled" not in n.states
                    and n._role not in containers and n._id != node._id
-                   for _, n in walk(Atspi, window))
+                   for _, n in nodes)
 
 
 def watchdog(seconds, what, status=1):
@@ -3456,7 +3561,7 @@ def listed(window, timeout, bounds, quiet=False):
              for n in tree(window, timeout, bounds=bounds)]
     return nodes + [Node(role="application", name="", description="", states=[],
                          path="application", depth=0, pid=pid, quiet=True, bounds=None)
-                    for pid in sorted(QUIET) if quiet or not window]
+                    for pid in sorted(QUIET) if quiet or not window or pid in CUT]
 
 
 def saved(path):
@@ -3639,7 +3744,7 @@ def read(argv):
         else:
             for n, what in problems + passes + notes + behind:
                 print(f"{color.paint(sys.stdout, n.path, 'dim')}: {what}{placed(n)}")
-        if QUIET and not a.window:
+        if CUT or QUIET and (not a.window or quiet_owns(a.window)):
             sys.stderr.write((color.paint(sys.stderr, said, "warn") + "\n") * bool(said and not a.json)
                              + f"shotbox: not all checked: {unanswered()}\n")
             return 2
