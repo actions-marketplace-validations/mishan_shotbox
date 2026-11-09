@@ -486,6 +486,10 @@ def node(Atspi, acc, states, role, path):
                 _acc=acc)
 
 
+# The most a tree read takes: past them, what's left isn't read.
+MOST_NODES, DEEPEST = 20000, 200
+
+
 def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
     """Every showing node (in a page, visible) under the toplevels `window`
     picks, depth first, as (depth, Node); with `until`, up to the first
@@ -505,7 +509,7 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
         return True
 
     def visit(app, acc, role, depth, path, web=False):
-        if len(out) > 20000 or depth > 200:
+        if len(out) > MOST_NODES or depth > DEEPEST:
             return
         # A toolkit's widget can be visible and not on the screen (in a
         # revealer not revealed); a page's is not showing only scrolled

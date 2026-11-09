@@ -2086,7 +2086,8 @@ sys.exit(want != got or not any(n['role'] in ('button', 'push button') for n in 
   # by its name, all a box overlaps, a window and its title; without, a
   # tree taken before is gone. shoot --redact too, --twice too, and as it
   # fails, the picture of the screen is of what it takes, cropped, blacked
-  # out, or none, one from before gone.
+  # out, or none, ones from before gone; none with a box a command in it
+  # blacked out, which says where only in its own picture.
   # With sway, by its name, cropped.
   cat > "$tmp/magenta.py" <<'PY'
 import sys
@@ -2113,7 +2114,7 @@ text, nodes = tree("tw")
 assert not any(w in text for w in ("Secret", "Plain")) and "Save" in text, text
 assert not any('"sec"' in path for path in nodes), text
 PY
-  : > "$tmp/sec-err"
+  : > "$tmp/sec-err"; : > "$tmp/sec-no.png"; : > "$tmp/sec-no.json"
   "$sb" run --a11y -- sh -c "'$here/window.py' sec secret & sec=\$!; '$here/gtk4_window.py' &
     '$sb' wait node Secret --window sec >/dev/null && '$sb' wait node Save >/dev/null &&
     xdotool search --name '^sec\$' windowmove --sync 700 400 &&
@@ -2141,15 +2142,20 @@ print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")'
     && ! "$sb" shoot "$tmp/sec-f.png" --window sec --crop 120x80+10+30 --redact 120x60+0+10 \
       --wait node:Nope --timeout 2 -- sh -c "'$here/window.py' sec secret &
         xdotool search --sync --name '^sec\$' windowmove 700 400; wait" 2> "$tmp/sec-f.err" \
-    && : > "$tmp/sec-g-failed.png" \
+    && : > "$tmp/sec-g-failed.png" && : > "$tmp/sec-g.png" \
     && ! "$sb" shoot "$tmp/sec-g.png" --window sec --redact Secrt --wait node:Nope --timeout 2 -- \
       sh -c "printf 'Secr%s\\n' et-said; exec '$here/window.py' sec secret" 2> "$tmp/sec-g.err" \
+    && ! "$sb" shoot "$tmp/sec-h.png" --window sec --redact Secret --wait node:Nope --timeout 3 -- \
+      sh -c "'$here/window.py' sec secret & '$sb' wait node Secret >/dev/null &&
+        '$sb' capture '$tmp/sec-hi.png' --redact 1x1+0+0; wait" 2> "$tmp/sec-h.err" \
     && PYTHONPATH="$here/.." python3 "$tmp/magenta.py" "$tmp"/sec-shown.png "$tmp"/sec-all.png \
       "$tmp"/sec-crop.png "$tmp"/sec-box.png "$tmp"/sec-s.png "$tmp"/sec-t.png "$tmp"/sec-f-failed.png \
       > "$tmp/sec-count" \
     && awk '$1 == "sec-shown.png" && $2 < 100 || $1 != "sec-shown.png" && $2 { bad = 1 } END { exit bad }' "$tmp/sec-count" \
     && [ "$(identify -format %wx%h "$tmp/sec-crop.png")" = 120x80 ] \
     && [ "$(identify -format %wx%h "$tmp/sec-f-failed.png")" = 120x80 ] && [ ! -e "$tmp/sec-g-failed.png" ] \
+    && [ ! -e "$tmp/sec-g.png" ] && [ -e "$tmp/sec-hi.png" ] && [ ! -e "$tmp/sec-h-failed.png" ] \
+    && grep -q "no picture of the screen, as a box blacked out here says where only in its own" "$tmp/sec-h.err" \
     && grep -q "; no picture of the screen, as no node named 'Secrt' to black out (names left out" "$tmp/sec-g.err" \
     && grep -q "^(left out with --redact)$" "$tmp/sec-g.err" && ! grep -q Secret-said "$tmp/sec-g.err" \
     && ! ls -a "$tmp" | grep -q sec-no \
@@ -2161,7 +2167,7 @@ print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")'
     && grep -q "a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x80+10+30" "$tmp/sec-err" \
     && grep -q "can't tell where to black out 'Plain': the program with pid [0-9]* didn't answer" "$tmp/sec-err" \
     && ok "a11y: capture and shoot --redact: by name and by box, nothing of it left, in the picture, its tree or shoot's failure picture; what it can't, refused" \
-    || { fail "a11y: capture --redact"; cat "$tmp/sec-out" "$tmp/sec-count" "$tmp/sec-err" "$tmp/sec-f.err" "$tmp/sec-g.err"; }
+    || { fail "a11y: capture --redact"; cat "$tmp/sec-out" "$tmp/sec-count" "$tmp/sec-err" "$tmp/sec-f.err" "$tmp/sec-g.err" "$tmp/sec-h.err"; }
   # After a capture --redact, the session's other commands that fail say
   # no names, a quote in what's asked for or not, and their pictures of
   # the screen are blacked out the same way; once a box is, there's none.

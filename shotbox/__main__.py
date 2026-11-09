@@ -394,6 +394,12 @@ def cmd_shoot(argv):
     if not a.twice and (a.fuzz is not None or a.max is not None):
         p.error("--fuzz and --max go with --twice")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    if a.redact:
+        # Ones from before, unblacked, would be taken for this run's.
+        out = Path(a.out)
+        for old in (out, out.with_suffix(".json"), out.with_name(out.stem + "-diff.png"),
+                    Path(a.failed or out.with_name(out.stem + "-failed.png"))):
+            old.unlink(missing_ok=True)
     if a.twice:
         return twice(a, cmd, waits)
     status = take(a, cmd, waits, a.out)
@@ -440,8 +446,6 @@ def twice(a, cmd, waits):
         os.replace(pics[0], out)
         if a.tree:
             os.replace(pics[0].with_suffix(".json"), out.with_suffix(".json"))
-        elif a.redact:
-            out.with_suffix(".json").unlink(missing_ok=True)
     print(a.out)
     return 0
 

@@ -93,9 +93,11 @@ class Screen:
         it says, blacked out, or none, saying why it couldn't be."""
         shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
         marked, redacting = redacted(self.env), self.redacting
-        if marked and not redacting:
-            redacting = (marked, (lambda: (None, None)) if not any(map(x.box_of, marked))
-                         else nowhere)
+        extra = [m for m in marked if not redacting or m not in redacting[0]]
+        if extra:
+            redacting = ([*(redacting[0] if redacting else ()), *extra],
+                         nowhere if any(map(x.box_of, extra))
+                         else redacting[1] if redacting else lambda: (None, None))
         if self.failed and shown and not redacting:
             took = x.try_capture(self.env, self.failed, self.backend)
         elif self.failed and shown:
@@ -1197,6 +1199,8 @@ class Screen:
         it's drawn over what's taken, and blanked in the tree beside it, as
         blanked() has it. Failing, with nothing written, for a name no node
         has, or one it can't tell where to black out."""
+        if isinstance(redact, str):
+            redact = [redact]
         if redact:
             # A picture of the screen as it fails would show what's to be blacked out.
             failed, self.failed = self.failed, None
@@ -1232,19 +1236,24 @@ class Screen:
         beside it, as it was; and with `tree`, the tree with what's blacked
         out blanked in it."""
         mark_redacted(self.env, redact)
+        # Ones from before, unblacked, would be taken for these if this fails.
+        for old in (Path(out), Path(out).with_suffix(".json")):
+            old.unlink(missing_ok=True)
         if crop and not x.box_of(crop):
             self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
         if park:
             self.park()
         given = [(spec, box) for spec in redact if (box := x.box_of(spec))]
         names = [spec for spec in redact if not x.box_of(spec)]
-        boxes = self._redaction(names, window, crop) if names else []
+        # Found once: a window moving after would move what's taken, not its boxes.
+        found = self.window(window) if window else None
+        boxes = self._redaction(names, found, crop) if names else []
         nodes = tree and self._pictured(window, crop)
         with tempfile.TemporaryDirectory(dir=self.env.get("SHOTBOX_SCRATCH")) as tmp:
             pic = Path(tmp) / "picture.png"
-            self.backend.capture(self.env, pic, window=self.window(window) if window else None,
-                                 crop=crop)
-            if names and self._redaction(names, window, crop) != boxes:
+            self.backend.capture(self.env, pic, window=found, crop=crop)
+            if names and (self._redaction(names, found, crop) != boxes
+                          or found and self.window(window)[4:6] != found[4:6]):
                 self.fail(f"what's named to black out ({', '.join(map(repr, names))}) moved, "
                           "or came or went, as the picture was taken")
             pw, ph = map(int, x.size_of(pic).split("x"))
@@ -1260,30 +1269,31 @@ class Screen:
                 near.write_text(json.dumps(blanked(nodes, names, [b for _, b in given] + boxes),
                                            ensure_ascii=False))
                 os.replace(near, beside)
-            else:
-                # One taken before, unredacted, would be published beside it.
-                beside.unlink(missing_ok=True)
             near = Path(out).with_name(f".{Path(out).name}.part")
             shutil.copyfile(pic, near)
             os.replace(near, out)
         return Path(out)
 
     def _redaction(self, names, window=None, crop=None):
-        """The boxes to black out in a picture of the display, or of the
-        window named `window`, cropped, for the nodes named each of `names`:
+        """The boxes to black out in a picture of the display, or of
+        `window` (as self.window() found it), cropped, for the nodes named each of `names`:
         each so named and all inside it, grown 2 pixels each way, (width,
         height, x, y) in its pixels, uncut. From the whole screen's tree, so one
         drawn over the window is too, and named exactly or as a regex, both:
         more is blacked out, not less. Failing for a name no node has, one
         with no place on the screen said, or in GTK 4, which says where its
-        widgets are wrong, or while a program doesn't answer."""
-        from .a11y import GTK4_BOUNDS
+        widgets are wrong, or while a program doesn't answer, or the tree's
+        too big to be read whole."""
+        from .a11y import DEEPEST, GTK4_BOUNDS, MOST_NODES
         nodes = self.a11y_tree()
         quiet = [n.pid for n in nodes if n.get("quiet")]
         if quiet:
             self.fail(f"can't tell where to black out {names[0]!r}: the program with pid "
                       f"{quiet[0]} didn't answer, so its windows weren't read")
-        wx, wy = self.window(window)[4:6] if window else (0, 0)
+        if len(nodes) > MOST_NODES or any(n.depth >= DEEPEST for n in nodes):
+            self.fail(f"can't tell where to black out {names[0]!r}: the screen's tree is past "
+                      f"{MOST_NODES} nodes or {DEEPEST} deep, so it wasn't read whole")
+        wx, wy = window[4:6] if window else (0, 0)
         cx, cy = x.box_of(crop)[2:] if crop else (0, 0)
         trusted = self.env.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
         tops, top = [], None
@@ -1298,7 +1308,8 @@ class Screen:
                 self.fail(f"no node named {name!r}{x.pattern(name)[1]} to black out")
             for i, n in picked:
                 kit = tops[i].get("toolkit") or ""
-                if kit.startswith("GTK 4.") and kit[4:] not in GTK4_BOUNDS and not trusted:
+                # "GTK" with no version may be GTK 4 too (GTK 3 says "gtk").
+                if kit.split(" ")[0] == "GTK" and kit[4:] not in GTK4_BOUNDS and not trusted:
                     self.fail(f"a {n.role} named {name!r} is {kit}'s, which says where its "
                               "widgets are wrong: give its box, WxH+X+Y, to black out instead")
                 end = next((j for j in range(i + 1, len(nodes)) if nodes[j].depth <= n.depth),

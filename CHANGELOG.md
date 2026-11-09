@@ -9,11 +9,11 @@
   or a node by its name and all inside it, wherever the screen's tree
   has it, before the picture is written: for a screenshot to publish
   without the clock, a user name or a Wi-Fi network's name. What it
-  can't black out, it fails on, writing nothing: a name no node has, a
-  node in GTK 4, whose positions are wrong, or a program that doesn't
-  answer. With `--tree`, what's blacked out is blanked in the tree
-  beside it too, and what it's in; without, a tree beside it from before
-  is removed. `shoot`'s picture of the screen as it fails is then of
+  can't black out, it fails on, writing nothing, and removing what it
+  would write from before: a name no node has, a node in GTK 4, whose
+  positions are wrong, a program that doesn't answer, or a tree too big
+  to read whole. With `--tree`, what's blacked out is blanked in the tree
+  beside it too, and what it's in. `shoot`'s picture of the screen as it fails is then of
   what it takes, blacked out the same way, or none, and what the program
   said isn't shown. After it, what fails in the session quotes no names
   of what's on the screen, and its picture of the screen is blacked out

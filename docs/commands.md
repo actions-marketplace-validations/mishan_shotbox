@@ -68,9 +68,12 @@ sealed session, waits, takes the picture and stops everything.
 - `--redact NODE|G` (repeatable) blacks out as `capture --redact` does; a
   NODE gives the session `--a11y`. The picture of the screen it leaves as
   it fails is then of what it takes, the window, cropped, blacked out
-  the same way, or, where that can't be done, none, saying why; what
-  the program said isn't shown (`--log` keeps it). With `--twice`, both
-  pictures are, so the difference it writes is too.
+  the same way, also what a command in it blacked out, or, where that
+  can't be done (a box it blacked out says where only in its own
+  picture), none, saying why; what the program said isn't shown (`--log`
+  keeps it). OUT, `OUT.json`, the failure picture and `OUT-diff.png` from
+  before are removed first. With `--twice`, both pictures are blacked
+  out, so the difference it writes is too.
 - `--crop WxH+X+Y`, `--settle SECS` (0.3), `--timeout SECS` (30),
   `--log FILE` for the program's output. If a wait fails or the program
   dies, it says which, shows the program's last output, and leaves a
@@ -109,19 +112,20 @@ out a box G, in the picture's pixels, or with `--a11y`, each node by its
 name (exactly or as a regex in full, both) and all inside it, 2 pixels
 round, wherever the screen's tree has it over what's taken: its pixels
 replaced, before the picture is written, so nothing of them is in the file.
-Nothing is written when it can't be done: a name no node has, or one with
+Nothing is written when it can't be done, and an OUT and `OUT.json` from
+before are removed: a name no node has, or one with
 no place on the screen said; a box not all in the picture, or a `--crop`
 that isn't G; a node in GTK 4, which says where its widgets are wrong (give
 its box, or see `SHOTBOX_TRUST_GTK4_BOUNDS` in
 [accessibility](accessibility.md)); a program that doesn't answer, whose
-windows weren't read; or one that moves as the picture is taken. With
+windows weren't read; a tree too big to read whole; or one that moves, or
+its window, as the picture is taken. With
 `--tree`, the tree beside it keeps only the role, states, place and depth
 of each node blacked out by its name, all inside it, and each that overlaps
 what's blacked out (what it's in too, the window as well, as it can be
 named by what it holds) or that has no place said,
 each marked `"redacted": true`; a window so kept has its title taken out of
-its nodes' paths; without `--tree`, a tree beside it from before is
-removed. A name is in the script and in what fails says, so for a secret,
+its nodes' paths. A name is in the script and in what fails says, so for a secret,
 give its box or a name that isn't it. After it, in the same session, what
 fails says no names it would quote (windows' titles, nodes' names and
 texts), and its picture of the screen (`play --failed`, `$SHOTBOX_FAILED`)
