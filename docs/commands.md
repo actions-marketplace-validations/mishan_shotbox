@@ -71,8 +71,8 @@ sealed session, waits, takes the picture and stops everything.
   the same way, also what a command in it blacked out, or, where that
   can't be done (a box it blacked out says where only in its own
   picture), none, saying why; what the program said isn't shown (`--log`
-  keeps it). OUT, `OUT.json`, the failure picture and `OUT-diff.png` from
-  before are removed first. With `--twice`, both pictures are blacked
+  keeps it). OUT, a tree `OUT.json`, the failure picture and
+  `OUT-diff.png` from before are removed first. With `--twice`, both pictures are blacked
   out, so the difference it writes is too.
 - `--crop WxH+X+Y`, `--settle SECS` (0.3), `--timeout SECS` (30),
   `--log FILE` for the program's output. If a wait fails or the program
@@ -112,8 +112,8 @@ out a box G, in the picture's pixels, or with `--a11y`, each node by its
 name (exactly or as a regex in full, both) and all inside it, 2 pixels
 round, wherever the screen's tree has it over what's taken: its pixels
 replaced, before the picture is written, so nothing of them is in the file.
-Nothing is written when it can't be done, and an OUT and `OUT.json` from
-before are removed: a name no node has, or one with
+Nothing is written when it can't be done, and an OUT and a tree `OUT.json`
+from before are removed: a name no node has, or one with
 no place on the screen said; a box not all in the picture, or a `--crop`
 that isn't G; a node in GTK 4, which says where its widgets are wrong (give
 its box, or see `SHOTBOX_TRUST_GTK4_BOUNDS` in

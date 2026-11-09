@@ -1237,8 +1237,8 @@ class Screen:
         out blanked in it."""
         mark_redacted(self.env, redact)
         # Ones from before, unblacked, would be taken for these if this fails.
-        for old in (Path(out), Path(out).with_suffix(".json")):
-            old.unlink(missing_ok=True)
+        Path(out).unlink(missing_ok=True)
+        drop_tree(Path(out).with_suffix(".json"))
         if crop and not x.box_of(crop):
             self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
         if park:
@@ -1758,6 +1758,15 @@ def blanked(nodes, names, boxes):
             n = Node(n, path=title[1] + n.path[len(title[0]):])
         out.append(n)
     return out
+
+
+def drop_tree(path):
+    """Remove the tree a capture wrote at `path`; a file there that isn't
+    one stays."""
+    from .a11y import saved
+    with contextlib.suppress(SessionError):
+        saved(path)
+        Path(path).unlink()
 
 
 def mark_redacted(env, redact):

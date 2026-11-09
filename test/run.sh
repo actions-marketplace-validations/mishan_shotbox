@@ -2084,7 +2084,7 @@ sys.exit(want != got or not any(n['role'] in ('button', 'push button') for n in 
   # picture, GTK 4's widgets, a crop that's no box, a program not
   # answering. With --tree, nothing of it is in the tree either: a node
   # by its name, all a box overlaps, a window and its title; without, a
-  # tree taken before is gone. shoot --redact too, --twice too, and as it
+  # tree taken before is gone, a file there that isn't one kept. shoot --redact too, --twice too, and as it
   # fails, the picture of the screen is of what it takes, cropped, blacked
   # out, or none, ones from before gone; none with a box a command in it
   # blacked out, which says where only in its own picture.
@@ -2114,7 +2114,8 @@ text, nodes = tree("tw")
 assert not any(w in text for w in ("Secret", "Plain")) and "Save" in text, text
 assert not any('"sec"' in path for path in nodes), text
 PY
-  : > "$tmp/sec-err"; : > "$tmp/sec-no.png"; : > "$tmp/sec-no.json"
+  : > "$tmp/sec-err"; : > "$tmp/sec-no.png"; echo '[]' > "$tmp/sec-no.json"
+  echo '{}' > "$tmp/sec-crop.json"; echo '{}' > "$tmp/sec-s.json"
   "$sb" run --a11y -- sh -c "'$here/window.py' sec secret & sec=\$!; '$here/gtk4_window.py' &
     '$sb' wait node Secret --window sec >/dev/null && '$sb' wait node Save >/dev/null &&
     xdotool search --name '^sec\$' windowmove --sync 700 400 &&
@@ -2138,7 +2139,7 @@ print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")'
     && "$sb" shoot "$tmp/sec-s.png" --window sec --redact Secret -- "$here/window.py" sec secret >/dev/null \
     && echo '[]' > "$tmp/sec-t.json" \
     && "$sb" shoot "$tmp/sec-t.png" --twice --window sec --redact Secret -- "$here/window.py" sec secret >/dev/null \
-    && [ ! -e "$tmp/sec-t.json" ] \
+    && [ ! -e "$tmp/sec-t.json" ] && [ -e "$tmp/sec-crop.json" ] && [ -e "$tmp/sec-s.json" ] \
     && ! "$sb" shoot "$tmp/sec-f.png" --window sec --crop 120x80+10+30 --redact 120x60+0+10 \
       --wait node:Nope --timeout 2 -- sh -c "'$here/window.py' sec secret &
         xdotool search --sync --name '^sec\$' windowmove 700 400; wait" 2> "$tmp/sec-f.err" \

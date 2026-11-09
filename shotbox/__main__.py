@@ -60,7 +60,7 @@ import wave
 from pathlib import Path
 
 from . import __version__, a11y, color, kept, mcp, mutation, pad, sound, term, usage, x, xtest
-from .screen import Screen, SessionError, hushed, mark_redacted, wheel
+from .screen import Screen, SessionError, drop_tree, hushed, mark_redacted, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
 
@@ -397,9 +397,10 @@ def cmd_shoot(argv):
     if a.redact:
         # Ones from before, unblacked, would be taken for this run's.
         out = Path(a.out)
-        for old in (out, out.with_suffix(".json"), out.with_name(out.stem + "-diff.png"),
+        for old in (out, out.with_name(out.stem + "-diff.png"),
                     Path(a.failed or out.with_name(out.stem + "-failed.png"))):
             old.unlink(missing_ok=True)
+        drop_tree(out.with_suffix(".json"))
     if a.twice:
         return twice(a, cmd, waits)
     status = take(a, cmd, waits, a.out)
