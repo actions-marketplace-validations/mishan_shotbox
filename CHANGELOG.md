@@ -14,7 +14,10 @@
   answer. With `--tree`, what's blacked out is blanked in the tree
   beside it too, and what it's in; without, a tree beside it from before
   is removed. `shoot`'s picture of the screen as it fails is then of
-  what it takes, blacked out the same way, or none.
+  what it takes, blacked out the same way, or none, and what the program
+  said isn't shown. After it, what fails in the session quotes no names
+  of what's on the screen, and its picture of the screen is blacked out
+  too, or not taken.
 - Color at a terminal: `mutate`'s verdicts (BRITTLE yellow, BLIND red,
   robust and caught green), `compare`'s differences between two
   pictures and what they're in, `a11y lint` and `contrast`'s node paths

@@ -30,7 +30,7 @@ from functools import cache
 from pathlib import Path
 
 from . import color, picture, wl, x
-from .screen import Screen, SessionError, wait_for, wheel
+from .screen import Screen, SessionError, hushed, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
 # The states worth a line in the tree: what a screen reader says about a
@@ -1817,7 +1817,7 @@ def idle(window=None, timeout=30):
         for k, ws in programs.items():
             if not pinged[k] and not on_bus(k):
                 who = (f"program {k}" if isinstance(k, int)
-                       else f"the program of window {ws[0][1]!r}")
+                       else "the program of window " + json.dumps(ws[0][1], ensure_ascii=False))
                 kit = k in seen and bus.toolkits[seen[k]]
                 untold[k] = (f"can't tell whether {who} answers: its window takes no ping"
                              + ("; start the session with --a11y, if its toolkit has it"
@@ -1851,8 +1851,9 @@ def idle(window=None, timeout=30):
             took = time.monotonic() - began
             sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
             for k, ws in programs.items():
-                who = (f"program {k} (window {ws[0][1]!r})" if isinstance(k, int)
-                       else f"the program of window {ws[0][1]!r}")
+                title = json.dumps(ws[0][1], ensure_ascii=False)
+                who = (f"program {k} (window {title})" if isinstance(k, int)
+                       else f"the program of window {title}")
                 page = bus.paged(*apps[k]) if k in apps else None
                 if page:
                     sys.stderr.write(f"shotbox: {who} answers, but the page in it wasn't "
@@ -1873,8 +1874,9 @@ def idle(window=None, timeout=30):
             for k, ws in programs.items():
                 if streak[k] < ROUNDS:
                     w = max(ws, key=lambda w: w[2] * w[3])
-                    said.append((f"program {k} (window {w[1]!r})" if isinstance(k, int)
-                                 else f"the program of window {w[1]!r}")
+                    title = json.dumps(w[1], ensure_ascii=False)
+                    said.append((f"program {k} (window {title})" if isinstance(k, int)
+                                 else f"the program of window {title}")
                                 + (f" didn't answer {ROUNDS} times in a row within {timeout:g}s;"
                                    f" it last answered {time.monotonic() - answered[k]:.1f}s ago"
                                    if k in answered
@@ -3694,7 +3696,8 @@ def read(argv):
             said = changes(saved(a.before), saved(a.after) if a.after
                            else listed(a.window, a.timeout, False, quiet=True))
         except SessionError as e:
-            sys.stderr.write(f"shotbox: {e}{'; ' + unanswered() if QUIET else ''}\n")
+            said = f"{e}{'; ' + unanswered() if QUIET else ''}"
+            sys.stderr.write(f"shotbox: {hushed(said, os.environ)}\n")
             return 2
         for line in said:
             print(line)

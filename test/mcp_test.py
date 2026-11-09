@@ -506,14 +506,14 @@ try:
     ends = [float(line.split()[0]) for line in (tmp / "block.log").read_text().splitlines()
             if line.endswith(" end")]
     check(not bad and re.match(r"Every program checked answered, after [\d.]+ s\.", said)
-          and "can't tell whether the program of window 'plain' answers" in said
+          and 'can\'t tell whether the program of window "plain" answers' in said
           and len(ends) == 3 and done > ends[-1],
           f"wait_for idle: waits out a busy program, and says what it didn't check ({said})")
     os.kill(pid, signal.SIGUSR1)
     said, bad, _ = tool("wait_for", session="i", what="idle", timeout=0.5)
     refused = tool("wait_for", session="i", what="idle", value="1")
-    check(bad and f"program {pid} (window 'gtk4-block') didn't answer" in said
-          and "\ncan't tell whether the program of window 'plain' answers" in said
+    check(bad and f'program {pid} (window "gtk4-block") didn\'t answer' in said
+          and '\ncan\'t tell whether the program of window "plain" answers' in said
           and refused[1] and "takes no value" in refused[0],
           f"wait_for idle: a program busy past the timeout named, with what it didn't check; "
           f"a value refused ({said})")

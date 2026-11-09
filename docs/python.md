@@ -60,7 +60,9 @@ with shotbox.Session(size=(1600, 1000), failed="out/chat-failed.png") as s:
   `wait line`'s line, a recording's path) goes to stdout.
 - Anything that fails raises `SessionError`, saying what; with `failed` set
   (or `$SHOTBOX_FAILED` inside `shotbox run`) it leaves a picture of the
-  screen there first, and says where.
+  screen there first, and says where; after a `capture(redact=)` in the
+  session, blacked out, or none, and quoting no names, as `capture
+  --redact` says.
 - Accessibility, in a session with `a11y=True`: `a11y_tree(window=None,
   timeout=10)`, waiting that long for the window and a program slow to
   answer, the nodes (dicts, and attributes: `role`, `name`, `description`,

@@ -1870,11 +1870,11 @@ EOF
         $2 == "idle" { idle = n == 3 && stable < first && $1 > last && !$3 && $6 ~ /^[0-9.]+s?$/ }
         END { exit !idle }' "$f" || bad="$bad ${f#$tmp/idle.}"
     done
-    awk -v named="(window 'gtk4-block') didn't answer within 1s" '$2 == "idle" {
+    awk -v named="(window \"gtk4-block\") didn't answer within 1s" '$2 == "idle" {
       late = !$3 || $4 > 2000 || !index($0, "program " $5 " " named) } END { exit late }' \
       "$tmp/idle.$s.cli.1" || bad="$bad $s.timeout"
   done
-  grep -q "^shotbox: can't tell whether the program of window 'plain' answers" "$tmp/idle.x.mixed.10.out" \
+  grep -q "^shotbox: can't tell whether the program of window \"plain\" answers" "$tmp/idle.x.mixed.10.out" \
     || bad="$bad mixed"
   awk '$2 == "idle" { exit !($3 && $4 < 1000 && /can.t tell whether the program of window .plain./) }' \
     "$tmp/idle.x.pick.1" || bad="$bad pick"
@@ -2143,24 +2143,42 @@ print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")'
         xdotool search --sync --name '^sec\$' windowmove 700 400; wait" 2> "$tmp/sec-f.err" \
     && : > "$tmp/sec-g-failed.png" \
     && ! "$sb" shoot "$tmp/sec-g.png" --window sec --redact Secrt --wait node:Nope --timeout 2 -- \
-      "$here/window.py" sec secret 2> "$tmp/sec-g.err" \
+      sh -c "printf 'Secr%s\\n' et-said; exec '$here/window.py' sec secret" 2> "$tmp/sec-g.err" \
     && PYTHONPATH="$here/.." python3 "$tmp/magenta.py" "$tmp"/sec-shown.png "$tmp"/sec-all.png \
       "$tmp"/sec-crop.png "$tmp"/sec-box.png "$tmp"/sec-s.png "$tmp"/sec-t.png "$tmp"/sec-f-failed.png \
       > "$tmp/sec-count" \
     && awk '$1 == "sec-shown.png" && $2 < 100 || $1 != "sec-shown.png" && $2 { bad = 1 } END { exit bad }' "$tmp/sec-count" \
     && [ "$(identify -format %wx%h "$tmp/sec-crop.png")" = 120x80 ] \
     && [ "$(identify -format %wx%h "$tmp/sec-f-failed.png")" = 120x80 ] && [ ! -e "$tmp/sec-g-failed.png" ] \
-    && grep -q "; no picture of the screen, as no node named 'Secrt' to black out$" "$tmp/sec-g.err" \
+    && grep -q "; no picture of the screen, as no node named 'Secrt' to black out (names left out" "$tmp/sec-g.err" \
+    && grep -q "^(left out with --redact)$" "$tmp/sec-g.err" && ! grep -q Secret-said "$tmp/sec-g.err" \
     && ! ls -a "$tmp" | grep -q sec-no \
     && [ ! -e "$tmp/sec-all.json" ] \
     && grep -q "no node named 'Secrt' to black out" "$tmp/sec-err" \
-    && grep -q "^shotbox: 10x10+5000+0 isn't all in the picture, which is [0-9]*x[0-9]*$" "$tmp/sec-err" \
-    && grep -q "is GTK 4[.0-9]*'s, which says where its widgets are wrong: give its box" "$tmp/sec-err" \
+    && grep -q "^shotbox: 10x10+5000+0 isn't all in the picture, which is [0-9]*x[0-9]* (names left out" "$tmp/sec-err" \
+    && grep -q "a label named 'Save' is GTK 4[.0-9]*'s, which says where its widgets are wrong: give its box" "$tmp/sec-err" \
     && python3 "$tmp/redacted.py" "$tmp" \
     && grep -q "a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not 0x80+10+30" "$tmp/sec-err" \
     && grep -q "can't tell where to black out 'Plain': the program with pid [0-9]* didn't answer" "$tmp/sec-err" \
     && ok "a11y: capture and shoot --redact: by name and by box, nothing of it left, in the picture, its tree or shoot's failure picture; what it can't, refused" \
     || { fail "a11y: capture --redact"; cat "$tmp/sec-out" "$tmp/sec-count" "$tmp/sec-err" "$tmp/sec-f.err" "$tmp/sec-g.err"; }
+  # After a capture --redact, the session's other commands that fail say
+  # no names, a quote in what's asked for or not, and their pictures of
+  # the screen are blacked out the same way; once a box is, there's none.
+  "$sb" run --a11y -- sh -c "'$here/window.py' sec secret & '$sb' wait node Secret --window sec >/dev/null &&
+    '$sb' capture '$tmp/sec-m.png' --redact Secret &&
+    ! SHOTBOX_FAILED='$tmp/sec-m1.png' '$sb' wait node Secrex --timeout 1 2> '$tmp/sec-m.err' &&
+    ! '$sb' wait node 'Secr\"t' --timeout 1 2>> '$tmp/sec-m.err' &&
+    '$sb' capture '$tmp/sec-m.png' --redact 10x10+0+0 &&
+    ! SHOTBOX_FAILED='$tmp/sec-m2.png' '$sb' wait window nope --timeout 1 2>> '$tmp/sec-m.err'" \
+    > "$tmp/sec-m.out" 2>&1 \
+    && PYTHONPATH="$here/.." python3 "$tmp/magenta.py" "$tmp/sec-m1.png" > "$tmp/sec-m.count" \
+    && grep -qx "sec-m1.png 0" "$tmp/sec-m.count" && [ ! -e "$tmp/sec-m2.png" ] \
+    && ! grep -q 'Secret\|"sec"\|Plain' "$tmp/sec-m.err" \
+    && [ "$(grep -c "(names left out: this session blacks out some of what's on the screen)$" "$tmp/sec-m.err")" = 3 ] \
+    && grep -q "no picture of the screen, as a box blacked out here says where only in its own picture" "$tmp/sec-m.err" \
+    && ok "a11y: after capture --redact, what fails names nothing, its picture blacked out, or none" \
+    || { fail "a11y: after capture --redact"; cat "$tmp/sec-m.out" "$tmp/sec-m.err" "$tmp/sec-m.count"; }
   if command -v sway >/dev/null && command -v grim >/dev/null; then
     "$sb" run --wayland --a11y -- sh -c "'$here/window.py' sec secret & '$sb' wait node Secret --window sec >/dev/null &&
       '$sb' capture '$tmp/sec-wl.png' --window sec --crop 120x80+10+30 --redact Secret &&
@@ -3365,7 +3383,7 @@ END
         --user-data-dir=\"\$SHOTBOX_SCRATCH/chrome\" 'data:text/html,<title>idle-page</title>hi' \
         >/dev/null 2>&1 &
       '$sb' wait window 'idle-page.*' --timeout 60 >/dev/null && '$sb' wait idle" > "$tmp/idle.chrome" 2>&1 \
-      && grep -q "^shotbox: program [0-9]* (window 'idle-page.*') answers, but $want" "$tmp/idle.chrome" \
+      && grep -q "^shotbox: program [0-9]* (window \"idle-page.*\") answers, but $want" "$tmp/idle.chrome" \
       || said="$said $opts $flags: $(cat "$tmp/idle.chrome")"
   done
   [ -z "$said" ] && ok "wait idle: a browser answers, and its page is said not to be checked" \

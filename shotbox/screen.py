@@ -92,10 +92,14 @@ class Screen:
         to `failed` if it's set, and saying where; with `redacting`, of what
         it says, blacked out, or none, saying why it couldn't be."""
         shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
-        if self.failed and shown and not self.redacting:
+        marked, redacting = redacted(self.env), self.redacting
+        if marked and not redacting:
+            redacting = (marked, (lambda: (None, None)) if not any(map(x.box_of, marked))
+                         else nowhere)
+        if self.failed and shown and not redacting:
             took = x.try_capture(self.env, self.failed, self.backend)
         elif self.failed and shown:
-            (redact, where), failed = self.redacting, self.failed
+            (redact, where), failed, kept = redacting, self.failed, self.redacting
             self.failed = self.redacting = None
             try:
                 took = self._redacted(failed, *where(), False, None, False, redact)
@@ -106,12 +110,12 @@ class Screen:
                 if isinstance(e, SessionError):
                     message = f"{message}; no picture of the screen, as {e}"
             finally:
-                self.failed, self.redacting = failed, (redact, where)
+                self.failed, self.redacting = failed, kept
         if self.failed and shown and took:
             message = f"{message}; the screen then: {self.failed}"
-        e = SessionError(message)
+        e = SessionError(hushed(message, self.env))
         # Its picture taken, or not, it's said all it will: until doesn't try again.
-        e.failed = bool(self.failed and shown and (took or self.redacting))
+        e.failed = bool(self.failed and shown and (took or redacting))
         raise e
 
     def until(self, what, test, timeout=30, alive=None):
@@ -942,7 +946,7 @@ class Screen:
             # Failing, its error is its last line.
             if proc.returncode and lines:
                 err = lines.pop()
-            for line in lines:
+            for line in map(lambda line: hushed(line, self.env), lines):
                 if line.startswith("shotbox: "):
                     notes(line)
                 else:
@@ -1227,6 +1231,7 @@ class Screen:
         the session's own, then moved to `out`, so it's never there, nor
         beside it, as it was; and with `tree`, the tree with what's blacked
         out blanked in it."""
+        mark_redacted(self.env, redact)
         if crop and not x.box_of(crop):
             self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
         if park:
@@ -1294,15 +1299,15 @@ class Screen:
             for i, n in picked:
                 kit = tops[i].get("toolkit") or ""
                 if kit.startswith("GTK 4.") and kit[4:] not in GTK4_BOUNDS and not trusted:
-                    self.fail(f"{n.line()} is {kit}'s, which says where its widgets are wrong: "
-                              "give its box, WxH+X+Y, to black out instead")
+                    self.fail(f"a {n.role} named {name!r} is {kit}'s, which says where its "
+                              "widgets are wrong: give its box, WxH+X+Y, to black out instead")
                 end = next((j for j in range(i + 1, len(nodes)) if nodes[j].depth <= n.depth),
                            len(nodes))
                 inside = nodes[i:end]
                 unplaced = next((m for m in inside if not m.get("bounds")), None)
                 if unplaced or not any(map(x.boxed, inside)):
-                    self.fail(f"{(unplaced or n).line()} has no place on the screen said, "
-                              "to black out")
+                    self.fail(f"a {(unplaced or n).role} {'inside one ' * bool(unplaced)}named "
+                              f"{name!r} has no place on the screen said, to black out")
                 for bx, by, bw, bh in (m.bounds for m in inside if x.boxed(m)):
                     boxes.add((bw + 4, bh + 4, bx - wx - cx - 2, by - wy - cy - 2))
         return sorted(boxes)
@@ -1742,3 +1747,48 @@ def blanked(nodes, names, boxes):
             n = Node(n, path=title[1] + n.path[len(title[0]):])
         out.append(n)
     return out
+
+
+def mark_redacted(env, redact):
+    """Say, in the session `env` is of, that `redact` (capture's) is blacked
+    out on its screen, for every shotbox command after: their pictures of
+    the screen as they fail are blacked out too, and what they say of it
+    leaves out names."""
+    if env.get("SHOTBOX_SCRATCH"):
+        path = Path(env["SHOTBOX_SCRATCH"], "redacted")
+        # Under a lock, so two at once each keep the other's; replaced whole,
+        # so it's never read half written.
+        with open(path.with_suffix(".lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            near = path.with_suffix(".part")
+            near.write_text(json.dumps(sorted({*redacted(env), *redact})))
+            os.replace(near, path)
+
+
+def redacted(env):
+    """What's blacked out in the session `env` is of, as mark_redacted said."""
+    try:
+        return json.loads(Path(env["SHOTBOX_SCRATCH"], "redacted").read_text())
+    except (KeyError, FileNotFoundError):
+        return []
+    except ValueError:
+        return ["1x1+0+0"]      # what it can't tell, a box: no picture of the screen
+
+
+def nowhere():
+    raise SessionError("a box blacked out here says where only in its own picture")
+
+
+HUSHED = " (names left out: this session blacks out some of what's on the screen)"
+
+
+def hushed(message, env):
+    """`message`, in a session that blacks out some of its screen, with
+    each name it quotes, as JSON does, left out: a window's title or a
+    node's name or text, which may be what's blacked out. What's quoted
+    as Python does is what was asked for."""
+    if not redacted(env):
+        return message
+    # A quote inside a word ('a"b', asked for) neither starts nor ends one.
+    return re.sub(r'(?<!\w)"(?:[^"\\]|\\.|"(?=\w))*"(?!\w)', '"…"',
+                  message.replace(HUSHED, "")) + HUSHED

@@ -60,7 +60,7 @@ import wave
 from pathlib import Path
 
 from . import __version__, a11y, color, kept, mcp, mutation, pad, sound, term, usage, x, xtest
-from .screen import Screen, SessionError, wheel
+from .screen import Screen, SessionError, hushed, mark_redacted, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
 
@@ -465,6 +465,7 @@ def take(a, cmd, waits, out, watch=False):
                 raise SessionError("the program wasn't ready, to say what it's cropped to")
             return a.window, a.crop or (crop.read_text().strip() if crop.exists() else None)
         s.redacting = a.redact and (a.redact, where)
+        mark_redacted(s.env, a.redact)
         log = a.log or str(s.scratch / "command.log")
         proc = s.spawn(cmd, log=log)
         try:
@@ -495,7 +496,9 @@ def take(a, cmd, waits, out, watch=False):
                                  "picture depends on when it's taken\n")
                 return 1
         except SessionError as e:
-            sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
+            said = (f"(left out with --redact{f': see {a.log}' if a.log else ''})"
+                    if a.redact else tail(log))
+            sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{said}\n")
             return 1
     return 0
 
@@ -1747,7 +1750,7 @@ def main(argv=None):
             unclocked(os.environ)   # its env has the preload, for its programs
         return COMMANDS[argv[0]](argv[1:])
     except (SessionError, xtest.XError) as e:
-        sys.stderr.write(f"shotbox: {e}\n")
+        sys.stderr.write(f"shotbox: {hushed(str(e), os.environ)}\n")
         return 1
     except KeyboardInterrupt:
         return 130
