@@ -49,11 +49,11 @@ from pathlib import Path
 from . import __version__, kept, sound, usage
 from .a11y import Node, placed, walk_lines
 from .a11y import changes as tree_changes
-from .screen import _CANCEL, SessionError, wheel
+from .screen import _CANCEL, SessionError, mark_redacted, wheel
 from .session import Session, a11y_needs
 from .sound import describe
 from .speak import lines as spoken
-from .x import CONVERT, QUIET_PNG, VISION, ended, recording, sheet, stop
+from .x import CONVERT, QUIET_PNG, VISION, box_of, ended, recording, sheet, stop
 from .xtest import XError
 
 # Newest first: a client asking initialize for one of these gets it; any other, the newest.
@@ -467,8 +467,10 @@ class Server:
     # --- looking -------------------------------------------------------------
 
     def take_screenshot(self, session, window=None, crop=None, park=False, vision=None,
-                        burst=None, every=None, labels=False, zoom=None):
+                        burst=None, every=None, labels=False, zoom=None, redact=None):
         s = self.session(session)
+        redact = [str(r) for r in redact] if isinstance(redact, (list, tuple)) else (
+            [str(redact)] if redact else [])
         region = None
         if zoom is not None:
             try:
@@ -500,22 +502,37 @@ class Server:
         if every is not None and not burst:
             raise Refused("every goes with burst")
         labels = flag(labels)
-        if labels and burst:
-            raise Refused("labels goes with one picture, not burst")
-        nodes = self.a11y_session(session).a11y_tree(text(window)) if labels else None
+        for what, given in (("labels", labels), ("redact", redact)):
+            if given and burst:
+                raise Refused(f"{what} goes with one picture, not burst")
+        if labels or not all(map(box_of, redact)):
+            self.a11y_session(session)
         what = f"the window {window!r}" if window else "the whole screen"
         what += f", as seen with {vision}" if vision else ""
         x0 = y0 = 0
+        if region or any(map(box_of, redact)):
+            found = s.window(text(window)) if window else None
+            x1, y1 = big = found[2:4] if found else s.backend.root_size(s.env)
         if region:
             # Cut to what's taken: past its edges there's nothing to show.
-            found = s.window(text(window)) if window else None
-            big = found[2:4] if found else s.backend.root_size(s.env)
             x0, y0, x1, y1 = (min(max(0, round(v)), big[i % 2]) for i, v in enumerate(region))
             if x1 <= x0 or y1 <= y0:
                 raise Refused(f"{zoom or crop} has none of {what} in it, which is "
                               f"{big[0]}x{big[1]}")
             crop = f"{x1 - x0}x{y1 - y0}+{x0}+{y0}"
             what = f"{x0},{y0} to {x1},{y1} of {what}"
+        if redact:
+            # As given: what's cut to nothing below still keeps names out of what fails after.
+            mark_redacted(s.env, redact)
+        # A box is in click_element's x,y: in the picture, the part of it there.
+        for i, spec in enumerate(redact):
+            if box := box_of(spec):
+                bw, bh, bx, by = box
+                left, top = max(bx - x0, 0), max(by - y0, 0)
+                right, bottom = min(bx + bw - x0, x1 - x0), min(by + bh - y0, y1 - y0)
+                redact[i] = (f"{right - left}x{bottom - top}+{left}+{top}"
+                             if right > left and bottom > top else None)
+        redact = [r for r in redact if r]
         if burst:
             taken = s.burst(s.scratch / "burst.png", int(burst), every=every or 0,
                             window=text(window), crop=crop, park=flag(park),
@@ -525,26 +542,27 @@ class Server:
             said = (f"{len(taken)} pictures of {what}, {n} to a row, left to right, "
                     f"taken at {times} seconds; {size}.")
         else:
-            s.capture(out, window=text(window), crop=crop, park=flag(park), vision=vision)
+            s.capture(out, window=text(window), crop=crop, park=flag(park), vision=vision,
+                      tree=labels, redact=redact)
             size, scale = fit(out, grow=zoom is not None)
             said = f"A picture of {what}, {size}" + (
                 ": " + mapped(x0, y0, scale) + (", with the same window." if window else ".")
                 if scale or x0 or y0 else ".")
         if labels:
-            said += "\n" + self.labeled(out, nodes, (x0, y0), scale)
+            # capture's tree: in the picture's pixels, what's blacked out blanked.
+            nodes = [Node(n) for n in json.loads(out.with_suffix(".json").read_text())]
+            said += "\n" + self.labeled(out, nodes, scale)
         return [{"type": "image", "data": base64.b64encode(out.read_bytes()).decode(),
                  "mimeType": "image/png"},
                 {"type": "text", "text": said}]
 
-    def labeled(self, png, nodes, corner, scale):
+    def labeled(self, png, nodes, scale):
         """Draw on the picture at `png` each named node's box and a number,
         and say which node each number is, its box on the picture. Not a
         window's, which is the picture, nor one named as what it's in (a
         button's label). A box is cut to those of what it's in, so a row
-        scrolled out of view, which GTK says is showing, has none. The picture
-        is of what's taken from `corner`, in the nodes' x,y, scaled as fit
-        says (`scale`)."""
-        ox, oy = corner
+        scrolled out of view, which GTK says is showing, has none. The nodes'
+        x,y are the picture's before fit scaled it by `scale`."""
         kx, ky = map(float, scale or (1, 1))
         pw, ph = png_size(png)
         above, inside, legend, draw, unplaced, corners = {}, {}, [], [], 0, {}
@@ -555,9 +573,9 @@ class Server:
             box = inside.get(n.depth - 1, (0, 0, pw, ph)) if n.depth else (0, 0, pw, ph)
             if n.get("bounds"):
                 bx, by, bw, bh = n.bounds
-                box = (max(box[0], round((bx - ox) * kx)), max(box[1], round((by - oy) * ky)),
-                       min(box[2], round((bx + bw - ox) * kx)),
-                       min(box[3], round((by + bh - oy) * ky)))
+                box = (max(box[0], round(bx * kx)), max(box[1], round(by * ky)),
+                       min(box[2], round((bx + bw) * kx)),
+                       min(box[3], round((by + bh) * ky)))
             inside[n.depth] = box
             if not n.depth or not n.name or parent and parent.name == n.name:
                 continue
@@ -1141,7 +1159,8 @@ TOOLS = [
      "get_accessible_tree; take the window rather than the screen, and crop when you need a "
      "part; zoom enlarges one to read small text. vision checks nothing is told apart by "
      "color alone; burst, as one image, is for motion, an animation or a transition. labels "
-     "numbers each named node's box on it, to click by name what you see. The answer gives "
+     "numbers each named node's box on it, to click by name what you see. redact blacks out "
+     "what mustn't be seen or sent on, a password say. The answer gives "
      "its size, if it's scaled or a part how an x,y on it maps to click_element's, and with "
      "labels each number's tree line.",
      schema({"session": SESSION, "window": WINDOW,
@@ -1161,7 +1180,12 @@ TOOLS = [
                         "description": "protanopia (no red cones), deuteranopia (no green), "
                                        "tritanopia (no blue), or gray (no color)"},
              "labels": {"type": "boolean", "description": "Number each named node's box on "
-                        "it, and list each number's tree line"}},
+                        "it, and list each number's tree line"},
+             "redact": {"type": "array", "items": {"type": "string"},
+                        "description": "What to black out: nodes' names (exactly or as a "
+                        "regex), each with what's inside it, or boxes, WIDTHxHEIGHT+X+Y in "
+                        "click_element's x,y. Not labeled; refused where it can't be told "
+                        "where a name is (GTK 4: give a box)"}},
             ["session"])),
     ("record_video",
      "Record a video of the screen, or of one window, and save it as an .mp4: in the "

@@ -97,7 +97,7 @@ it arbitrary commands, typed with `type_text`.
 | `start_session`, `stop_session` | a session: X11 or Wayland, the accessibility bus (on by default), dark, high contrast, text scale, audio, screen size (up to 7680x4320), gamepads, a network of its own (`net: loopback`), who and where its programs are (`identity: USER@HOST`), what its programs used, said when it's stopped (`usage`), and a wall clock that starts at a time (`clock`, `tz`) |
 | `spawn_program`, `get_program_output` | a program from the list, and how it's doing |
 | `get_accessible_tree` | the tree, a node a line, with bounds if asked, up to 500 lines |
-| `take_screenshot` | the screen or a window, as an image, cropped or zoomed if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`); or a burst of them, as one image; with its size |
+| `take_screenshot` | the screen or a window, as an image, cropped or zoomed if asked, or as someone with another kind of color vision sees it, with each named node's box numbered on it if asked (`labels`), and boxes or nodes blacked out (`redact`); or a burst of them, as one image; with its size |
 | `record_video` | a clip of the screen or a window, up to 60 seconds and 100 MB, saved as an .mp4 in the session's scratch directory or in the `--allow` file's directory, answered with its path, its length and a sheet of frames from it, as one image, with what was heard if asked, in a session started with `audio`; or ended by a line in a log (`until_line`, `file`, `tail`), read as `wait_for`'s is |
 | `click_element` | by a node's name (and role), once it's enabled, still and uncovered unless `force`, or with `action` its accessible action of that name, for a node a click won't reach, or a point, the button held a while or left down if asked; with `changes`, what it changed in the tree |
 | `scroll_wheel` | the mouse wheel, clicks down and right, over a node by its name (and role), waited for as `click_element`'s is, or at a point; with `changes`, what it changed in the tree |
@@ -183,6 +183,13 @@ place can't be told (two windows the same size and title) are counted,
 not labeled. The boxes are where the tree says, which on GTK 4.14 and
 later is off, and the answer says so for such a program: [GTK 4's
 positions](accessibility.md#gtk-4s-positions).
+
+**Blacked out.** `take_screenshot` with `redact` blacks out, before
+the picture leaves the session, boxes (WIDTHxHEIGHT+X+Y, in
+`click_element`'s x,y, the part in the picture) and nodes by name,
+as [`capture --redact`](commands.md) does: a password, a user name.
+What's blacked out isn't labeled. A name it can't place, in GTK 4 or
+while a program doesn't answer, is refused: give a box.
 
 **Answers are bounded.** A screen is at most 7680x4320. The tree, what
 an action changed in it, a picture's labels, the checks' answers and
