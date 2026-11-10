@@ -230,7 +230,12 @@ that program's: its nodes might be any of them. A program in a pid
 namespace of its own (a Flatpak's) isn't told to own its window that
 way. One that stops answering partway through a read is the same as one
 that didn't answer from the start: what was read of it is left out, and
-it counts with `--window` too, being one that was read. One that stops
+it counts with `--window` too, being one that was read; `wait gone
+--window` then passes once the display has none of the windows the
+first read found, if it had each of them, as its program's by its pid
+(a window can be named apart from its title), and that read wasn't cut
+short; a window the display gives no pid, or a pid from a namespace of
+its own, never is. One that stops
 as its windows are listed counts only if the display says it owns a
 window `--window` picks, or can't say who owns one. The command ends a
 few seconds past its `--timeout`. A program busy for over 0.8 s twice

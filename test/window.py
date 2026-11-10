@@ -34,8 +34,10 @@ every MS milliseconds, as a clock is. With trap, buttons Before, one with
 no name, and After, and a second window, "TITLE two", with Other: once
 SIGUSR1 arms it, the program stops itself (SIGSTOP) as a screen reader
 reads the unnamed button, partway through a tree, and writes "stopped"
-to LOG; with focused, only once the button has the keyboard focus."""
+to LOG; with focused, only once the button has the keyboard focus. With
+A11Y_NAME in its environment, its window is named that, apart from its title."""
 
+import os
 import sys
 import time
 
@@ -746,7 +748,6 @@ elif sys.argv[2:3] in (["move"], ["scroll"], ["smooth"], ["spaced"], ["fast"]):
                      lambda: n.__setitem__(0, n[0] + 1) or area.queue_draw() or True)
     w.add(area)
 elif sys.argv[2:3] == ["trap"]:
-    import os
     import signal
 
     gi.require_version("Atk", "1.0")
@@ -815,4 +816,7 @@ else:
     w.add(Gtk.Label(label="a window"))
 w.connect("destroy", Gtk.main_quit)
 w.show_all()
+# Named apart from its title, as a screen reader hears it.
+if os.environ.get("A11Y_NAME"):
+    w.get_accessible().set_name(os.environ["A11Y_NAME"])
 Gtk.main()

@@ -16,6 +16,7 @@ desktop's. `record` is the session's announcement recorder; `node` and
 """
 
 import argparse
+import collections
 import difflib
 import json
 import math
@@ -353,6 +354,18 @@ def quiet_owns(window):
     screen = Screen()
     return any(screen.backend.window_pid(screen.env, w[0]) in QUIET | {None}
                for w in screen.backend.shown(screen.env, window))
+
+
+def displayed(nodes, window):
+    """Whether each window of `nodes`, a read of those `window` picks, is
+    on the display as one `window` picks there, its own: a window can be
+    named apart from its title, and only its program's pid ties the two
+    (which a program in a pid namespace of its own breaks)."""
+    screen = Screen()
+    tops = collections.Counter(pid_of(t) for t in {n._top for n in nodes})
+    there = collections.Counter(screen.backend.window_pid(screen.env, w[0])
+                                for w in screen.backend.shown(screen.env, window))
+    return bool(tops) and None not in tops and not tops - there
 
 
 def pid_of(app):
@@ -1575,8 +1588,7 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
         return None
 
     looked = []
-    # Whether the display had the window when a read first found it: a
-    # window can be named apart from its title.
+    # Whether the display had each window a read first found, its own.
     on_screen = []
 
     def there():
@@ -1590,7 +1602,8 @@ def wait_node(pattern, window=None, timeout=10, states=(), value=None, count=Non
                 return not QUIET or on_screen == [True] and not Screen().find_window(window)
             raise
         if gone and window is not None and not looked:
-            on_screen.append(Screen().find_window(window) is not None)
+            # Cut short, or one not answering, it may have left out a window.
+            on_screen.append(not CUT and not QUIET and displayed(seen, window))
         looked.append(True)
         whole = not CUT and (not QUIET or window and not quiet_owns(window))
         shown.clear()
