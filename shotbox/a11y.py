@@ -799,11 +799,7 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             screen.key(k)
         end = time.monotonic() + settle
         while True:
-            now = focused(Atspi, window)
-            # Cut as it was read, its focus can't be told, nor anything after.
-            if CUT:
-                screen.close()
-                raise SessionError("stopped walking: a program stopped answering as it was read")
+            now = tab_read(Atspi, window, focus=True, screen=screen)
             if (now is not None and (before is None or now._id != before._id)
                     or time.monotonic() > end or not k and now is None and QUIET and not window):
                 return now
@@ -811,11 +807,8 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
 
     if window:
         toplevels(Atspi, window, timeout)
-    docs = document and [n.path + "/" for _, n in walk(Atspi, window, timeout)
+    docs = document and [n.path + "/" for _, n in tab_read(Atspi, window, timeout, screen=screen)
                          if n._role == Atspi.Role.DOCUMENT_WEB]
-    if CUT:
-        screen.close()
-        uncut()
     if document and not docs:
         screen.close()
         raise SessionError("no web document to walk: the window isn't a browser's")
@@ -983,19 +976,25 @@ def in_dialog(Atspi, n):
     return False
 
 
-def uncut():
-    """For tab_walk's reads: a program cut as one was read may have had
-    the focus, or what's left out of it, so the walk can't go on."""
+def tab_read(Atspi, window, timeout=10, focus=False, screen=None, why="stopped walking"):
+    """tab_walk's every read: the tree, as walk() has it, or with `focus`
+    the node with the focus, as focused() has it. Each read clears CUT, so
+    each is checked as it's made: a program cut as it was read may have had
+    the focus, or what's left out of it, so it fails, saying `why` (with
+    `screen`, closed first, for a read the walk's try/finally may not cover)."""
+    got = focused(Atspi, window) if focus else walk(Atspi, window, timeout)
     if CUT:
-        raise SessionError("stopped walking: a program stopped answering as it was read")
+        if screen:
+            screen.close()
+        raise SessionError(f"{why}: a program stopped answering as it was read")
+    return got
 
 
 def focus_outside(Atspi, window, n, settle, after=False):
     """Give the focus to the first node outside `n` (`after` it) that takes
     it (AT-SPI's grab_focus), and the node it's then on, or None."""
     containers = roles(Atspi, CONTAINERS)
-    nodes = [o for _, o in walk(Atspi, window)]
-    uncut()
+    nodes = [o for _, o in tab_read(Atspi, window)]
     if after:
         nodes = nodes[next((i for i, o in enumerate(nodes) if o._id == n._id), len(nodes)):]
     for o in nodes:
@@ -1007,8 +1006,7 @@ def focus_outside(Atspi, window, n, settle, after=False):
                 continue
             end = time.monotonic() + settle
             while time.monotonic() < end:
-                now = focused(Atspi, window)
-                uncut()
+                now = tab_read(Atspi, window, focus=True)
                 if now is not None and now._id != n._id:
                     return now
                 time.sleep(0.05)
@@ -1034,10 +1032,8 @@ def unreached(Atspi, window, seen):
     controls, grouped = roles(Atspi, CONTROLS), roles(Atspi, GROUPED)
     containers, items, lists = roles(Atspi, CONTAINERS), roles(Atspi, ITEMS), roles(Atspi, LISTS)
     menu_bar, docs = roles(Atspi, ("MENU_BAR",)), roles(Atspi, ("DOCUMENT_WEB",))
-    nodes = [n for _, n in walk(Atspi, window)]
     # What's left out of a program cut as it was read could be any of them.
-    if CUT:
-        raise SessionError("not all checked: a program stopped answering as it was read")
+    nodes = [n for _, n in tab_read(Atspi, window, why="not all checked")]
     by_path = {n.path: n for n in nodes}
     ids = {n._id for n in seen}
 
@@ -3256,8 +3252,7 @@ def alone(Atspi, window, node):
     """Whether `node` is the one thing on screen that could take the focus:
     nothing else showing, sensitive and focusable but for containers."""
     containers = roles(Atspi, CONTAINERS)
-    nodes = walk(Atspi, window)
-    uncut()
+    nodes = tab_read(Atspi, window)
     return not any("focusable" in n.states and n._showing and "disabled" not in n.states
                    and n._role not in containers and n._id != node._id
                    for _, n in nodes)

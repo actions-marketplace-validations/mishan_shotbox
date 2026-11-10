@@ -81,6 +81,30 @@ action=$(grep -ho 'mishan/shotbox@v[0-9][0-9.]*' "$root/README.md" "$root"/docs/
 [ "$py" = "$js" ] && [ "$js" = "$lock" ] && [ "$lock" = "$log" ] && [ "$log" = "$mcp" ] \
   && [ "$cli" = "shotbox $py" ] && [ "$action" = "v$py " ] \
   && ok "one version, $py, everywhere" || fail "versions: python $py, npm $js, lock $lock, changelog $log, MCP registry $mcp, --version $cli, Action docs $action"
+# tabwalk reads the tree only through tab_read, which stops on a program
+# cut as it was read: each read clears what the last found.
+python3 - "$root/shotbox/a11y.py" > "$tmp/reads" <<'PY' \
+  && ok "a11y: tabwalk reads the tree only through tab_read" \
+  || { fail "a11y: tabwalk reads the tree past tab_read"; cat "$tmp/reads"; }
+import ast, sys
+defs = {d.name: d for d in ast.parse(open(sys.argv[1]).read()).body
+        if isinstance(d, (ast.FunctionDef, ast.ClassDef))}
+todo, seen, bad = ["tab_walk"], {"tab_read", "walk", "focused"}, []
+if not {"tab_walk", "tab_read", "walk", "focused"} <= set(defs):
+    sys.exit("tab_walk, tab_read, walk or focused isn't in a11y.py: nothing to check")
+while todo:
+    name = todo.pop()
+    if name in seen or name not in defs:
+        continue
+    seen.add(name)
+    for c in ast.walk(defs[name]):
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name):
+            if c.func.id in ("walk", "focused"):
+                bad.append(f"{name}:{c.lineno}: {c.func.id}()")
+            todo.append(c.func.id)
+print(*bad, sep="\n")
+sys.exit(bool(bad))
+PY
 
 # The session: none of ours gets in, and it cleans up after itself.
 out=$(DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 SSH_AUTH_SOCK=/nope SECRET=x \
