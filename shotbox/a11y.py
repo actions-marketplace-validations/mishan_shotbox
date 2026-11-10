@@ -250,16 +250,23 @@ def changes(before, after):
             for n in {n.pid: n for n in before + after if n.get("quiet")}.values()] + out
 
 
-def toplevels(Atspi, window=None, timeout=10):
+def toplevels(Atspi, window=None, timeout=10, cut=False):
     """Each (application, toplevel) on the bus, in a stable order:
     applications by name, their windows as they list them. `window`, as
     everywhere: a title regex, or app=RE, which goes through the display's
-    own idea of app ids to a title; it's waited for, up to `timeout`."""
+    own idea of app ids to a title; it's waited for, up to `timeout`, or
+    with `cut`, till a look cuts a program short, which the next would clear."""
     if not window:
         return find_toplevels(Atspi)
     what = f"an accessible {x.matcher(window)[1]}"
+
+    def look():
+        hits[:] = find_toplevels(Atspi, window)
+        return hits or cut and CUT
+    hits = []
     try:
-        return wait_for(what, lambda: find_toplevels(Atspi, window), timeout)
+        wait_for(what, look, timeout)
+        return hits
     except SessionError as e:
         raise SessionError(f"{e}{Screen().there(window)}") from None
 
@@ -983,7 +990,7 @@ def tab_read(Atspi, window, timeout=10, focus=False, screen=None, why="stopped w
     each is checked as it's made: a program cut as it was read may have had
     the focus, or what's left out of it, so it fails, saying `why` (with
     `screen`, closed first, for a read the walk's try/finally may not cover)."""
-    got = (toplevels(Atspi, window, timeout) if tops else focused(Atspi, window) if focus
+    got = (toplevels(Atspi, window, timeout, cut=True) if tops else focused(Atspi, window) if focus
            else walk(Atspi, window, timeout))
     if CUT:
         if screen:
