@@ -67,7 +67,8 @@ def parse(argv):
                         "take the picture when the steps are done")
     g.add_argument("--park", action="store_true", help="as for shoot")
     g.add_argument("--failed", metavar="FILE", help="as for shoot")
-    from .__main__ import session_options, twice_options
+    from .__main__ import redact_option, session_options, twice_options
+    redact_option(g)
     twice_options(g)
     session_options(p)
     p.set_defaults(steps=[])
@@ -86,8 +87,8 @@ def parse(argv):
     given = [k for k, v in vars(args).items()
              if k not in TERM_OPTS and k in defaults and v != defaults[k]]
     if given and not args.shoot:
-        p.error("the session options, --park, --failed, --twice, --fuzz and --max "
-                "go with --shoot")
+        p.error("the session options, --park, --failed, --redact, --twice, --fuzz and "
+                "--max go with --shoot")
     # Given again to shoot as they were given here, read back through the
     # parser's own options, so every session option shoot takes reaches it,
     # one added later too, unless its value doesn't print back as it was

@@ -89,6 +89,9 @@ click 1 1 --window ${NOPE}""", name="$EXPLORE")
         except shotbox.SessionError as e:
             check("failed.png" in str(e) and (d / "failed.png").exists(),
                   f"{on}: a failed wait raises, with a picture of the screen")
+        s.capture(d / "black.png", window="shotbox-button", redact="1x1+0+0")
+        check(x.rgb(d / "black.png")[2][:3] == b"\0\0\0",
+              f"{on}: capture(redact=) takes one box, or name, as itself")
 
 
 pointer("x11")

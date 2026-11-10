@@ -25,6 +25,7 @@ import functools
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -75,6 +76,10 @@ class Screen:
     """The display in `env` (DISPLAY, XAUTHORITY and SHOTBOX_SCRATCH; the
     process's own environment by default)."""
 
+    # (redact, where), where() saying the (window, crop) taken: a picture as
+    # it fails is then of that, blacked out as capture's `redact` does.
+    redacting = None
+
     def __init__(self, env=None, failed=None):
         self.env = dict(os.environ if env is None else env)
         self.failed = failed or self.env.get("SHOTBOX_FAILED")
@@ -84,13 +89,36 @@ class Screen:
 
     def fail(self, message):
         """Raise SessionError(message), first taking a picture of the screen
-        to `failed` if it's set, and saying where."""
+        to `failed` if it's set, and saying where; with `redacting`, of what
+        it says, blacked out, or none, saying why it couldn't be."""
         shown = self.env.get("DISPLAY") or self.env.get("WAYLAND_DISPLAY")
-        if self.failed and shown and x.try_capture(self.env, self.failed, self.backend):
-            e = SessionError(f"{message}; the screen then: {self.failed}")
-            e.failed = True
-            raise e
-        raise SessionError(message)
+        marked, redacting = redacted(self.env), self.redacting
+        extra = [m for m in marked if not redacting or m not in redacting[0]]
+        if extra:
+            redacting = ([*(redacting[0] if redacting else ()), *extra],
+                         nowhere if any(map(x.box_of, extra))
+                         else redacting[1] if redacting else lambda: (None, None))
+        if self.failed and shown and not redacting:
+            took = x.try_capture(self.env, self.failed, self.backend)
+        elif self.failed and shown:
+            (redact, where), failed, kept = redacting, self.failed, self.redacting
+            self.failed = self.redacting = None
+            try:
+                took = self._redacted(failed, *where(), False, None, False, redact)
+            except Exception as e:
+                took = None
+                # One from before, unblacked, would be taken for this one.
+                Path(failed).unlink(missing_ok=True)
+                if isinstance(e, SessionError):
+                    message = f"{message}; no picture of the screen, as {e}"
+            finally:
+                self.failed, self.redacting = failed, kept
+        if self.failed and shown and took:
+            message = f"{message}; the screen then: {self.failed}"
+        e = SessionError(hushed(message, self.env))
+        # Its picture taken, or not, it's said all it will: until doesn't try again.
+        e.failed = bool(self.failed and shown and (took or redacting))
+        raise e
 
     def until(self, what, test, timeout=30, alive=None):
         """Poll `test()` until it returns something true, and return that;
@@ -920,7 +948,7 @@ class Screen:
             # Failing, its error is its last line.
             if proc.returncode and lines:
                 err = lines.pop()
-            for line in lines:
+            for line in map(lambda line: hushed(line, self.env), lines):
                 if line.startswith("shotbox: "):
                     notes(line)
                 else:
@@ -1156,23 +1184,33 @@ class Screen:
         (a dialog) gets neither by itself."""
         self.backend.focus(self.env, self.window(name))
 
-    def capture(self, out, window=None, crop=None, park=False, vision=None, tree=False):
+    def capture(self, out, window=None, crop=None, park=False, vision=None, tree=False,
+                redact=()):
         """A picture of the display, or of the window named `window`, to
         `out` (a PNG), then cropped (WxH+X+Y). With `park`, the pointer
         goes out of the way first, so nothing shows its hover. With
         `vision` (protanopia, deuteranopia, tritanopia or gray), it's as
         someone with that color vision sees it. With `tree`, what a screen
         reader sees there goes beside it, OUT.json, as a11y_tree has it but
-        its bounds in the picture's pixels: what compare names a change by."""
+        its bounds in the picture's pixels: what compare names a change by.
+        With `redact`, boxes (WxH+X+Y, in the picture) and node names
+        (exactly or as a regex matched in full, both), each is black in it:
+        a node, all inside it and 2 pixels round, wherever on the screen
+        it's drawn over what's taken, and blanked in the tree beside it, as
+        blanked() has it. Failing, with nothing written, for a name no node
+        has, or one it can't tell where to black out."""
+        if isinstance(redact, str):
+            redact = [redact]
+        if redact:
+            # A picture of the screen as it fails would show what's to be blacked out.
+            failed, self.failed = self.failed, None
+            try:
+                return self._redacted(out, window, crop, park, vision, tree, redact)
+            finally:
+                self.failed = failed
         if park:
             self.park()
-        if tree:
-            from .a11y import Node
-            if crop and not x.box_of(crop):
-                self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
-            dx, dy = x.box_of(crop)[2:] if crop else (0, 0)
-            nodes = [Node(n, bounds=[b[0] - dx, b[1] - dy, *b[2:]]) if (b := n.get("bounds")) else n
-                     for n in self.a11y_tree(window)]
+        nodes = tree and self._pictured(window, crop)
         self.backend.capture(self.env, out, window=self.window(window) if window else None,
                              crop=crop)
         if vision:
@@ -1180,6 +1218,110 @@ class Screen:
         if tree:
             Path(out).with_suffix(".json").write_text(json.dumps(nodes, ensure_ascii=False))
         return Path(out)
+
+    def _pictured(self, window, crop):
+        """The tree capture's `tree` writes beside a picture of the display, or
+        of the window named `window`, cropped: a11y_tree's, its bounds in the
+        picture's pixels."""
+        from .a11y import Node
+        if crop and not x.box_of(crop):
+            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+        dx, dy = x.box_of(crop)[2:] if crop else (0, 0)
+        return [Node(n, bounds=[b[0] - dx, b[1] - dy, *b[2:]]) if (b := n.get("bounds")) else n
+                for n in self.a11y_tree(window)]
+
+    def _redacted(self, out, window, crop, park, vision, tree, redact):
+        """capture() with `redact`: taken and blacked out in a directory of
+        the session's own, then moved to `out`, so it's never there, nor
+        beside it, as it was; and with `tree`, the tree with what's blacked
+        out blanked in it."""
+        mark_redacted(self.env, redact)
+        # Ones from before, unblacked, would be taken for these if this fails.
+        Path(out).unlink(missing_ok=True)
+        drop_tree(Path(out).with_suffix(".json"))
+        if crop and not x.box_of(crop):
+            self.fail(f"a crop is WIDTHxHEIGHT+X+Y, at least 1x1, not {crop}")
+        if park:
+            self.park()
+        given = [(spec, box) for spec in redact if (box := x.box_of(spec))]
+        names = [spec for spec in redact if not x.box_of(spec)]
+        # Found once: a window moving after would move what's taken, not its boxes.
+        found = self.window(window) if window else None
+        boxes = self._redaction(names, found, crop) if names else []
+        nodes = tree and self._pictured(window, crop)
+        with tempfile.TemporaryDirectory(dir=self.env.get("SHOTBOX_SCRATCH")) as tmp:
+            pic = Path(tmp) / "picture.png"
+            self.backend.capture(self.env, pic, window=found, crop=crop)
+            if names and (self._redaction(names, found, crop) != boxes
+                          or found and self.window(window)[4:6] != found[4:6]):
+                self.fail(f"what's named to black out ({', '.join(map(repr, names))}) moved, "
+                          "or came or went, as the picture was taken")
+            pw, ph = map(int, x.size_of(pic).split("x"))
+            for spec, (bw, bh, bx, by) in given:
+                if bx + bw > pw or by + bh > ph:
+                    self.fail(f"{spec} isn't all in the picture, which is {pw}x{ph}")
+            if vision:
+                x.vision(pic, pic, vision)
+            x.blackout(pic, [box for _, box in given] + boxes)
+            beside = Path(out).with_suffix(".json")
+            if tree:
+                near = beside.with_name(f".{beside.name}.part")
+                near.write_text(json.dumps(blanked(nodes, names, [b for _, b in given] + boxes),
+                                           ensure_ascii=False))
+                os.replace(near, beside)
+            near = Path(out).with_name(f".{Path(out).name}.part")
+            shutil.copyfile(pic, near)
+            os.replace(near, out)
+        return Path(out)
+
+    def _redaction(self, names, window=None, crop=None):
+        """The boxes to black out in a picture of the display, or of
+        `window` (as self.window() found it), cropped, for the nodes named each of `names`:
+        each so named and all inside it, grown 2 pixels each way, (width,
+        height, x, y) in its pixels, uncut. From the whole screen's tree, so one
+        drawn over the window is too, and named exactly or as a regex, both:
+        more is blacked out, not less. Failing for a name no node has, one
+        with no place on the screen said, or in GTK 4, which says where its
+        widgets are wrong, or while a program doesn't answer, or the tree's
+        too big to be read whole."""
+        from .a11y import DEEPEST, GTK4_BOUNDS, MOST_NODES
+        nodes = self.a11y_tree()
+        quiet = [n.pid for n in nodes if n.get("quiet")]
+        if quiet:
+            self.fail(f"can't tell where to black out {names[0]!r}: the program with pid "
+                      f"{quiet[0]} didn't answer, so its windows weren't read")
+        if len(nodes) > MOST_NODES or any(n.depth >= DEEPEST for n in nodes):
+            self.fail(f"can't tell where to black out {names[0]!r}: the screen's tree is past "
+                      f"{MOST_NODES} nodes or {DEEPEST} deep, so it wasn't read whole")
+        wx, wy = window[4:6] if window else (0, 0)
+        cx, cy = x.box_of(crop)[2:] if crop else (0, 0)
+        trusted = self.env.get("SHOTBOX_TRUST_GTK4_BOUNDS") == "1"
+        tops, top = [], None
+        for n in nodes:
+            top = n if not n.depth else top
+            tops.append(top)
+        boxes = set()
+        for name in names:
+            test = x.pattern(name)[0]
+            picked = [(i, n) for i, n in enumerate(nodes) if test(n.name)]
+            if not picked:
+                self.fail(f"no node named {name!r}{x.pattern(name)[1]} to black out")
+            for i, n in picked:
+                kit = tops[i].get("toolkit") or ""
+                # "GTK" with no version may be GTK 4 too (GTK 3 says "gtk").
+                if kit.split(" ")[0] == "GTK" and kit[4:] not in GTK4_BOUNDS and not trusted:
+                    self.fail(f"a {n.role} named {name!r} is {kit}'s, which says where its "
+                              "widgets are wrong: give its box, WxH+X+Y, to black out instead")
+                end = next((j for j in range(i + 1, len(nodes)) if nodes[j].depth <= n.depth),
+                           len(nodes))
+                inside = nodes[i:end]
+                unplaced = next((m for m in inside if not m.get("bounds")), None)
+                if unplaced or not any(map(x.boxed, inside)):
+                    self.fail(f"a {(unplaced or n).role} {'inside one ' * bool(unplaced)}named "
+                              f"{name!r} has no place on the screen said, to black out")
+                for bx, by, bw, bh in (m.bounds for m in inside if x.boxed(m)):
+                    boxes.add((bw + 4, bh + 4, bx - wx - cx - 2, by - wy - cy - 2))
+        return sorted(boxes)
 
     def record(self, out, seconds=None, window=None, crop=None, fps=None, pointer=False,
                park=False, sound=False, gap=0.001, size=None, until=None, tail=0,
@@ -1581,3 +1723,92 @@ def here():
     if not os.environ.get("SHOTBOX_SCRATCH"):
         raise SessionError("not inside a shotbox session")
     return Screen()
+
+
+def blanked(nodes, names, boxes):
+    """`nodes`, a tree as capture writes it beside a picture, with nothing
+    left of what's blacked out in it: each node named one of `names`
+    (exactly or as a regex) and all inside it, and with `boxes` (width,
+    height, x, y: those blacked out, a node's too, as what holds it can
+    be named by it), each that overlaps one, what it's in too (a label's
+    box holds its text's), and each with no box, which could be anywhere, are
+    kept as their role, states, place and depth, "redacted". A window so
+    kept loses its title from its nodes' paths too."""
+    from .a11y import Node
+    tests = [x.pattern(name)[0] for name in names]
+    out, under, title = [], None, None
+    for n in nodes:
+        if under is not None and n.depth <= under:
+            under = None
+        if under is None and any(test(n.name) for test in tests):
+            under = n.depth
+        if not n.depth:
+            title = None
+        b = n.get("bounds")
+        if under is not None or boxes and (not b or any(
+                b[0] < bx + bw and bx < b[0] + b[2] and b[1] < by + bh and by < b[1] + b[3]
+                for bw, bh, bx, by in boxes)):
+            n = Node({k: v for k, v in n.items()
+                      if k in ("role", "states", "path", "bounds", "depth", "pid", "toolkit",
+                               "quiet")},
+                     name="", description="", redacted=True)
+            if not n.depth:
+                title = (n.path, f'{n.role} ""')
+        if title and n.path.startswith(title[0]):
+            n = Node(n, path=title[1] + n.path[len(title[0]):])
+        out.append(n)
+    return out
+
+
+def drop_tree(path):
+    """Remove the tree a capture wrote at `path`; a file there that isn't
+    one stays."""
+    from .a11y import saved
+    with contextlib.suppress(SessionError):
+        saved(path)
+        Path(path).unlink()
+
+
+def mark_redacted(env, redact):
+    """Say, in the session `env` is of, that `redact` (capture's) is blacked
+    out on its screen, for every shotbox command after: their pictures of
+    the screen as they fail are blacked out too, and what they say of it
+    leaves out names."""
+    if env.get("SHOTBOX_SCRATCH"):
+        path = Path(env["SHOTBOX_SCRATCH"], "redacted")
+        # Under a lock, so two at once each keep the other's; replaced whole,
+        # so it's never read half written.
+        with open(path.with_suffix(".lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            near = path.with_suffix(".part")
+            near.write_text(json.dumps(sorted({*redacted(env), *redact})))
+            os.replace(near, path)
+
+
+def redacted(env):
+    """What's blacked out in the session `env` is of, as mark_redacted said."""
+    try:
+        return json.loads(Path(env["SHOTBOX_SCRATCH"], "redacted").read_text())
+    except (KeyError, FileNotFoundError):
+        return []
+    except ValueError:
+        return ["1x1+0+0"]      # what it can't tell, a box: no picture of the screen
+
+
+def nowhere():
+    raise SessionError("a box blacked out here says where only in its own picture")
+
+
+HUSHED = " (names left out: this session blacks out some of what's on the screen)"
+
+
+def hushed(message, env):
+    """`message`, in a session that blacks out some of its screen, with
+    each name it quotes, as JSON does, left out: a window's title or a
+    node's name or text, which may be what's blacked out. What's quoted
+    as Python does is what was asked for."""
+    if not redacted(env):
+        return message
+    # A quote inside a word ('a"b', asked for) neither starts nor ends one.
+    return re.sub(r'(?<!\w)"(?:[^"\\]|\\.|"(?=\w))*"(?!\w)', '"…"',
+                  message.replace(HUSHED, "")) + HUSHED
