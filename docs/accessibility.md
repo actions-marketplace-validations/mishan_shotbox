@@ -237,7 +237,8 @@ first read found, if it had each of them, as its program's by its pid
 short, and the program shows no other window; a window the display
 gives no pid, or a pid from a namespace of its own, never is. One that stops
 as its windows are listed counts only if the display says it owns a
-window `--window` picks, or can't say who owns one. The command ends a
+window `--window` picks, or can't say who owns one, and while
+`--window` waits for its window, till it answers. The command ends a
 few seconds past its `--timeout`. A program busy for over 0.8 s twice
 running is taken for one, so a `wait node` for a node it showed before
 waits on. Qt's and AccessKit's programs answer
