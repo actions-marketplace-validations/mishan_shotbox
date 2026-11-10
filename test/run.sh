@@ -1844,6 +1844,7 @@ A11Y_NAME=Editor "$here/window.py" Document trap "$out.a" & a=$!
 sleep 2; kill -USR1 $a; kill $b
 wait $w; echo "apart $?" >> "$out"
 kill -CONT $a; kill $a
+command -v xdotool >/dev/null || exit
 A11Y_NAME=Editor "$here/window.py" Document trap "$out.s" & a=$!
 "$sb" wait window '^Document two$' >/dev/null && t=$(xdotool search --name '^Document two$') \
   && xprop -id "$t" -f _NET_WM_NAME 8u -set _NET_WM_NAME Editor \
@@ -1864,7 +1865,9 @@ kill -CONT $c; kill $c
 EOF
   : > "$tmp/paired"
   "$sb" run --a11y -- sh "$tmp/paired.sh" "$sb" "$here" "$tmp/paired" >/dev/null 2>&1 || true
-  grep -qx "open 1" "$tmp/paired" && grep -qx "apart 1" "$tmp/paired" && grep -qx "same 1" "$tmp/paired" && grep -qx "own 0" "$tmp/paired" \
+  command -v xdotool >/dev/null || echo "skip  a11y: wait gone --window, same and own: no xdotool"
+  grep -qx "open 1" "$tmp/paired" && grep -qx "apart 1" "$tmp/paired" && { ! command -v xdotool >/dev/null \
+    || { grep -qx "same 1" "$tmp/paired" && grep -qx "own 0" "$tmp/paired"; }; } \
     && ok "a11y: wait gone --window, cut short, takes the display's word only for the windows it had" \
     || { fail "a11y: wait gone --window, cut short, and the display"; cat "$tmp/paired"
          for f in "$tmp"/paired.[a-z]*; do echo "== $f"; cat "$f"; done; }
