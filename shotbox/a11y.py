@@ -360,12 +360,17 @@ def displayed(nodes, window):
     """Whether each window of `nodes`, a read of those `window` picks, is
     on the display as one `window` picks there, its own: a window can be
     named apart from its title, and only its program's pid ties the two
-    (which a program in a pid namespace of its own breaks)."""
+    (which a program in a pid namespace of its own breaks), so its program
+    shows no window `window` doesn't pick, which could be the one read."""
     screen = Screen()
+
+    def pids(spec=None):
+        return collections.Counter(screen.backend.window_pid(screen.env, w[0])
+                                   for w in screen.backend.shown(screen.env, spec))
     tops = collections.Counter(pid_of(t) for t in {n._top for n in nodes})
-    there = collections.Counter(screen.backend.window_pid(screen.env, w[0])
-                                for w in screen.backend.shown(screen.env, window))
-    return bool(tops) and None not in tops and not tops - there
+    there, every = pids(window), pids()
+    return (bool(tops) and None not in tops and not tops - there
+            and all(every[p] == there[p] for p in tops))
 
 
 def pid_of(app):
