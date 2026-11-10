@@ -806,7 +806,7 @@ def tab_walk(key="Tab", most=50, window=None, settle=2.0, timeout=10, visible=Fa
             time.sleep(0.05)
 
     if window:
-        toplevels(Atspi, window, timeout)
+        tab_read(Atspi, window, timeout, screen=screen, tops=True)
     docs = document and [n.path + "/" for _, n in tab_read(Atspi, window, timeout, screen=screen)
                          if n._role == Atspi.Role.DOCUMENT_WEB]
     if document and not docs:
@@ -976,13 +976,15 @@ def in_dialog(Atspi, n):
     return False
 
 
-def tab_read(Atspi, window, timeout=10, focus=False, screen=None, why="stopped walking"):
-    """tab_walk's every read: the tree, as walk() has it, or with `focus`
-    the node with the focus, as focused() has it. Each read clears CUT, so
+def tab_read(Atspi, window, timeout=10, focus=False, screen=None, why="stopped walking", tops=False):
+    """tab_walk's every read: the tree, as walk() has it, with `focus` the
+    node with the focus, as focused() has it, or with `tops` the toplevels,
+    as toplevels() has them. Each read clears CUT, so
     each is checked as it's made: a program cut as it was read may have had
     the focus, or what's left out of it, so it fails, saying `why` (with
     `screen`, closed first, for a read the walk's try/finally may not cover)."""
-    got = focused(Atspi, window) if focus else walk(Atspi, window, timeout)
+    got = (toplevels(Atspi, window, timeout) if tops else focused(Atspi, window) if focus
+           else walk(Atspi, window, timeout))
     if CUT:
         if screen:
             screen.close()

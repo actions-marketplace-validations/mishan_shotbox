@@ -89,9 +89,10 @@ python3 - "$root/shotbox/a11y.py" > "$tmp/reads" <<'PY' \
 import ast, sys
 defs = {d.name: d for d in ast.parse(open(sys.argv[1]).read()).body
         if isinstance(d, (ast.FunctionDef, ast.ClassDef))}
-todo, seen, bad = ["tab_walk"], {"tab_read", "walk", "focused"}, []
-if not {"tab_walk", "tab_read", "walk", "focused"} <= set(defs):
-    sys.exit("tab_walk, tab_read, walk or focused isn't in a11y.py: nothing to check")
+reads = {"walk", "focused", "toplevels"}
+todo, seen, bad = ["tab_walk"], {"tab_read"} | reads, []
+if not {"tab_walk", "tab_read"} | reads <= set(defs):
+    sys.exit(f"tab_walk, tab_read or one of {reads} isn't in a11y.py: nothing to check")
 while todo:
     name = todo.pop()
     if name in seen or name not in defs:
@@ -99,7 +100,7 @@ while todo:
     seen.add(name)
     for c in ast.walk(defs[name]):
         if isinstance(c, ast.Call) and isinstance(c.func, ast.Name):
-            if c.func.id in ("walk", "focused"):
+            if c.func.id in reads:
                 bad.append(f"{name}:{c.lineno}: {c.func.id}()")
             todo.append(c.func.id)
 print(*bad, sep="\n")
