@@ -1822,6 +1822,55 @@ EOF
     && ok "a11y: a program that stops answering partway through a read is said not to, its nodes left out" \
     || { fail "a11y: a program that stops answering partway through a read"; cat "$tmp/cut"
          for f in "$tmp"/cut.[a-z]*; do echo "== $f"; head -5 "$f"; done; }
+  # wait gone --window takes the display's word, for a read cut short, only
+  # for the windows the first read found, each on the display as its own:
+  # not one named apart from its title, whose program stops mid-read, with
+  # another titled that open or closed, its own program's or not; but one
+  # found there, its program's only window, gone from the display as its
+  # program is stopped, is gone.
+  cat > "$tmp/paired.sh" <<'EOF'
+sb=$1; here=$2; out=$3
+A11Y_NAME=Editor "$here/window.py" Document trap "$out.a" & a=$!
+"$here/window.py" Editor & b=$!
+"$sb" wait node After --window Editor >/dev/null && "$sb" wait window Editor >/dev/null || exit
+# Armed once the wait's first read is done: one cut short is never the display's.
+"$sb" wait gone After --window Editor --timeout 5 2> "$out.open" & w=$!
+sleep 2; kill -USR1 $a
+wait $w; echo "open $?" >> "$out"
+kill -CONT $a; kill $a
+A11Y_NAME=Editor "$here/window.py" Document trap "$out.a" & a=$!
+"$sb" wait node After --window Editor >/dev/null || exit
+"$sb" wait gone After --window Editor --timeout 5 2> "$out.apart" & w=$!
+sleep 2; kill -USR1 $a; kill $b
+wait $w; echo "apart $?" >> "$out"
+kill -CONT $a; kill $a
+command -v xdotool >/dev/null || exit
+A11Y_NAME=Editor "$here/window.py" Document trap "$out.s" & a=$!
+"$sb" wait window '^Document two$' >/dev/null && t=$(xdotool search --name '^Document two$') \
+  && xprop -id "$t" -f _NET_WM_NAME 8u -set _NET_WM_NAME Editor \
+  && "$sb" wait node After --window Editor >/dev/null && "$sb" wait window '^Editor$' >/dev/null || exit
+"$sb" wait gone After --window Editor --timeout 5 2> "$out.same" & w=$!
+sleep 2; kill -USR1 $a
+"$sb" wait file "$out.s" --timeout 5 && xdotool windowunmap "$t"
+wait $w; echo "same $?" >> "$out"
+kill -CONT $a; kill $a
+"$here/window.py" Editor trap "$out.c" & c=$!
+"$sb" wait node After --window Editor >/dev/null && "$sb" wait window '^Editor two$' >/dev/null \
+  && xdotool search --name '^Editor two$' windowunmap || exit
+"$sb" wait gone After --window Editor --timeout 5 2> "$out.own" & w=$!
+sleep 2; kill -USR1 $c
+"$sb" wait file "$out.c" --timeout 5 && xdotool search --name '^Editor$' windowunmap
+wait $w; echo "own $?" >> "$out"
+kill -CONT $c; kill $c
+EOF
+  : > "$tmp/paired"
+  "$sb" run --a11y -- sh "$tmp/paired.sh" "$sb" "$here" "$tmp/paired" >/dev/null 2>&1 || true
+  command -v xdotool >/dev/null || echo "skip  a11y: wait gone --window, same and own: no xdotool"
+  grep -qx "open 1" "$tmp/paired" && grep -qx "apart 1" "$tmp/paired" && { ! command -v xdotool >/dev/null \
+    || { grep -qx "same 1" "$tmp/paired" && grep -qx "own 0" "$tmp/paired"; }; } \
+    && ok "a11y: wait gone --window, cut short, takes the display's word only for the windows it had" \
+    || { fail "a11y: wait gone --window, cut short, and the display"; cat "$tmp/paired"
+         for f in "$tmp"/paired.[a-z]*; do echo "== $f"; cat "$f"; done; }
   [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
     || fail "a11y: left running: $(ours_a11y)"
   unset TMPDIR
