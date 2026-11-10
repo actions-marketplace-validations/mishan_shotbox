@@ -538,8 +538,11 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
         return True
 
     def visit(app, acc, role, depth, path, web=False):
-        if len(out) > MOST_NODES or depth > DEEPEST:
+        # A tree changed under the read can hand one over twice: a child
+        # put in front of those read moves the one read up to the next index.
+        if len(out) > MOST_NODES or depth > DEEPEST or ident(acc) in ids:
             return
+        ids.add(ident(acc))
         # A toolkit's widget can be visible and not on the screen (in a
         # revealer not revealed); a page's is not showing only scrolled
         # out of view, as a toolkit's list row is still showing. Each
@@ -588,7 +591,7 @@ def walk(Atspi, window=None, timeout=10, bounds=False, until=None):
                 continue
             visit(app, child, role, depth + 1, at, web)
 
-    cut, pairs = [], toplevels(Atspi, window, timeout)
+    cut, pairs, ids = [], toplevels(Atspi, window, timeout), set()
     for app, top in pairs:
         if done():
             break
