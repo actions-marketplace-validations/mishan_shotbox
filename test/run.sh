@@ -2122,7 +2122,8 @@ PY
     box=\$('$sb' a11y tree --window sec --json | python3 -c 'import json, sys
 nodes = json.load(sys.stdin)
 x, y, w, h = next(n for n in nodes if n[\"name\"] == \"Secret\")[\"bounds\"]
-print(f\"{w}x{h}+{x - nodes[0][\"bounds\"][0]}+{y - nodes[0][\"bounds\"][1]}\")') &&
+fx, fy = nodes[0][\"bounds\"][:2]
+print(f\"{w}x{h}+{x - fx}+{y - fy}\")') &&
     '$sb' capture '$tmp/sec-shown.png' --window sec &&
     '$sb' capture '$tmp/sec-all.png' --tree && '$sb' capture '$tmp/sec-all.png' --redact Secret &&
     '$sb' capture '$tmp/sec-crop.png' --window sec --crop 120x80+10+30 --redact 'Sec.*' &&
