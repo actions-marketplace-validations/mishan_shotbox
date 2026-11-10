@@ -143,7 +143,7 @@ def focus(env, window):
     r = ipc(env, RUN_COMMAND, f"[con_id={window[0]}] focus")
     if not r or not r[0].get("success"):
         from .screen import SessionError
-        raise SessionError(f"sway didn't focus {window[1]!r}: "
+        raise SessionError(f"sway didn't focus {json.dumps(window[1], ensure_ascii=False)}: "
                            f"{(r and r[0].get('error')) or 'no answer'}")
 
 

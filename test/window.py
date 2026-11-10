@@ -23,7 +23,8 @@ notebook with its tabs hidden. With alert, a Check button that shows an
 error in an info bar and is renamed Checked, a Resend button that counts
 down to 1s, and a Delete button that asks in a message dialog, its window
 titled Delete. With dot,
-a "." and nothing else. With popover, a faint label and a modal popover
+a "." and nothing else. With secret, a label Plain and below it one,
+Secret, drawn all magenta, its text and background. With popover, a faint label and a modal popover
 open below it. With wide, a window 1000 pixels wide, a label
 as wide, its text at the right, and below it a button at each end. With
 moving, a faint label that's dark half a second in two, and dark words
@@ -91,6 +92,15 @@ elif sys.argv[2:] == ["popover"]:
     w.add(faint)
 elif sys.argv[2:] == ["dot"]:
     w.add(Gtk.Label(label="."))
+elif sys.argv[2:] == ["secret"]:
+    css = Gtk.CssProvider()
+    css.load_from_data(b"#secret { background: #ff00ff; color: #ff00ff; }")
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin=20)
+    box.add(Gtk.Label(label="Plain"))
+    box.add(Gtk.Label(label="Secret", name="secret"))
+    w.add(box)
 elif sys.argv[2:] == ["fields"]:
     # GTK 3 names a field by its label as labelled-by, not as its own name;
     # an unrevealed bar's unnamed button is visible, but not showing; a

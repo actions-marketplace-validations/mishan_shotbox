@@ -612,6 +612,17 @@ def vision(src, out, kind):
     return Path(out)
 
 
+def blackout(path, boxes):
+    """Each box, (width, height, x, y), solid black in the picture at
+    `path`: its pixels replaced, so nothing of what was there is left in
+    the file. Unsmoothed, so an edge's pixels are black or untouched."""
+    draws = [a for bw, bh, bx, by in boxes
+             for a in ("-draw", f"rectangle {bx},{by} {bx + bw - 1},{by + bh - 1}")]
+    subprocess.run(CONVERT + [str(path), "+antialias", "-fill", "black", "-stroke", "none",
+                              *draws] + QUIET_PNG + [str(path)], check=True)
+    return Path(path)
+
+
 def try_capture(env, out, backend=None):
     """Screenshot the whole display for a look at what went wrong: the path,
     or None if there was no display left to take. `backend` is the module

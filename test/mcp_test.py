@@ -46,6 +46,7 @@ allow.write_text(f"# what the agent may run\napp = {here / 'a11y_app.py'}  # the
                  "plain = xmessage -title plain hi\n"
                  f"clock = {here / 'window.py'} clk clock {tmp / 'clk.log'}\n"
                  f"loading = {here / 'window.py'} ld loading\n"
+                 f"secret = {here / 'window.py'} sec secret\n"
                  f"ready = {here / 'a11y_app.py'} ready\n"
                  f"fading = {here / 'a11y_app.py'} faint fading\n"
                  f"rel = bin/thing --flag 'two words' --accent=#3584e4 \\#hash # a comment\n"
@@ -294,6 +295,8 @@ try:
               (ox + zx / kx, oy + zy / ky, zw / kx, zh / ky), (x, y, w, h))),
           f"take_screenshot: labels on a zoom, a box drawn where the legend says, mapped back by "
           f"the answer to where the tree has it ({zoomed})")
+    said, bad, _ = tool("take_screenshot", session="t", burst=2, redact=["Announce"])
+    check(bad and "one picture" in said, f"take_screenshot: redact with burst, refused ({said})")
     # Past what a model sees unscaled: shrunk, as Anthropic's vision docs
     # have 1920x1080 seen, with the scale to map an x,y back by.
     said, bad, _ = tool("start_session", name="big", screen="1920x1080")
@@ -506,14 +509,14 @@ try:
     ends = [float(line.split()[0]) for line in (tmp / "block.log").read_text().splitlines()
             if line.endswith(" end")]
     check(not bad and re.match(r"Every program checked answered, after [\d.]+ s\.", said)
-          and "can't tell whether the program of window 'plain' answers" in said
+          and 'can\'t tell whether the program of window "plain" answers' in said
           and len(ends) == 3 and done > ends[-1],
           f"wait_for idle: waits out a busy program, and says what it didn't check ({said})")
     os.kill(pid, signal.SIGUSR1)
     said, bad, _ = tool("wait_for", session="i", what="idle", timeout=0.5)
     refused = tool("wait_for", session="i", what="idle", value="1")
-    check(bad and f"program {pid} (window 'gtk4-block') didn't answer" in said
-          and "\ncan't tell whether the program of window 'plain' answers" in said
+    check(bad and f'program {pid} (window "gtk4-block") didn\'t answer' in said
+          and '\ncan\'t tell whether the program of window "plain" answers' in said
           and refused[1] and "takes no value" in refused[0],
           f"wait_for idle: a program busy past the timeout named, with what it didn't check; "
           f"a value refused ({said})")
@@ -655,6 +658,34 @@ try:
     said, bad, _ = tool("click_element", session="h", x=5, y=5, double=True, hold=1)
     check(bad and "not together" in said, "click_element: double with hold, refused")
     tool("stop_session", session="h")
+    # A session of its own: after a redaction, its errors leave out names.
+    tool("start_session", name="r")
+    tool("spawn_program", session="r", program="secret")
+    tool("wait_for", session="r", what="node", value="Secret", window="sec", timeout="20")
+    said, bad, content = tool("take_screenshot", session="r", window="sec", crop="10x10+0+0",
+                              redact=["10x10+100+100"])
+    shown, _, _ = tool("wait_for", session="r", what="window", value="nowhere", timeout=0)
+    check(not bad and pixel(content, 0, 0) != b"\0\0\0" and "names left out" in shown
+          and '"sec"' not in shown,
+          f"take_screenshot: redact a box not in the crop, the session marked all the same ({shown})")
+    said, bad, content = tool("take_screenshot", session="r", window="sec", redact=["5000x5+0+0"])
+    check(not bad and pixel(content, 0, 0) == pixel(content, 199, 4) == b"\0\0\0",
+          f"take_screenshot: redact a box past the window's edge, the part in it ({said})")
+    x, y, w, h = boxes(tool("take_screenshot", session="r", window="sec", labels=True)[0])["Secret"]
+    said, bad, content = tool("take_screenshot", session="r", window="sec", labels=True,
+                              redact=["Secret"])
+    check(not bad and "Secret" not in said and "Plain" in boxes(said)
+          and pixel(content, x + w // 2, y + h // 2) == b"\0\0\0",
+          f"take_screenshot: redact by name, black and not labeled ({said})")
+    said, bad, content = tool("take_screenshot", session="r", window="sec", labels=True,
+                              zoom=[x + 2, y + 2, x + w - 2, y + h - 2],
+                              redact=[f"{w}x{h + 20}+{x}+{y}"])
+    m = re.search(r", (\d+)x(\d+)", said)
+    pw, ph = map(int, m.groups()) if m else (1, 1)
+    check(not bad and m and "Secret" not in said
+          and {pixel(content, 0, 0), pixel(content, pw - 1, ph - 1)} == {b"\0\0\0"},
+          f"take_screenshot: redact a box in click_element's x,y, cut to a zoom ({said})")
+    tool("stop_session", session="r")
     tool("start_session", name="l")
     tool("spawn_program", session="l", program="long")
     tool("wait_for", session="l", what="window", value="a11y-test", timeout="20")

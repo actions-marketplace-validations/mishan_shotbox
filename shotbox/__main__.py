@@ -60,7 +60,7 @@ import wave
 from pathlib import Path
 
 from . import __version__, a11y, color, kept, mcp, mutation, pad, sound, term, usage, x, xtest
-from .screen import Screen, SessionError, wheel
+from .screen import Screen, SessionError, drop_tree, hushed, mark_redacted, wheel
 from .session import NEEDS, Session, off_the_clock, unclocked
 
 
@@ -366,12 +366,14 @@ def cmd_shoot(argv):
                    help="move the pointer out of the way before the picture")
     vision_option(p)
     tree_option(p)
+    redact_option(p)
     p.add_argument("--timeout", type=float, default=30, metavar="SECS",
                    help="give up on a wait after this long (30)")
     p.add_argument("--log", metavar="FILE", help="keep the command's output here")
     p.add_argument("--failed", metavar="FILE",
                    help="if it fails, a picture of the screen goes here "
-                        "(OUT's name with -failed, beside it)")
+                        "(OUT's name with -failed, beside it); with --redact, of "
+                        "what's taken, blacked out, or none")
     twice_options(p)
     session_options(p)
     opts, cmd = split(argv)
@@ -387,10 +389,18 @@ def cmd_shoot(argv):
         p.error("--ignore goes with --wait stable")
     if any(w in ("node", "node:") for w in waits):
         p.error("node needs a regex to look for: an empty one matches any node")
-    a.a11y = a.a11y or a.tree or "node" in kinds or "announce" in kinds
+    a.a11y = (a.a11y or a.tree or "node" in kinds or "announce" in kinds
+              or not all(map(x.box_of, a.redact)))
     if not a.twice and (a.fuzz is not None or a.max is not None):
         p.error("--fuzz and --max go with --twice")
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
+    if a.redact:
+        # Ones from before, unblacked, would be taken for this run's.
+        out = Path(a.out)
+        for old in (out, out.with_name(out.stem + "-diff.png"),
+                    Path(a.failed or out.with_name(out.stem + "-failed.png"))):
+            old.unlink(missing_ok=True)
+        drop_tree(out.with_suffix(".json"))
     if a.twice:
         return twice(a, cmd, waits)
     status = take(a, cmd, waits, a.out)
@@ -450,6 +460,17 @@ def take(a, cmd, waits, out, watch=False):
     other run's is."""
     with session(a) as s:
         s.failed = a.failed or str(Path(a.out).with_name(Path(a.out).stem + "-failed.png"))
+
+        def where():
+            """The window and crop taken: the program's crop, which it writes
+            before it's ready (as `shotbox term` does), so not till then."""
+            crop = s.scratch / "crop"
+            if (not (a.crop or crop.exists()) and "ready" in waits
+                    and not (s.scratch / "ready").exists()):
+                raise SessionError("the program wasn't ready, to say what it's cropped to")
+            return a.window, a.crop or (crop.read_text().strip() if crop.exists() else None)
+        s.redacting = a.redact and (a.redact, where)
+        mark_redacted(s.env, a.redact)
         log = a.log or str(s.scratch / "command.log")
         proc = s.spawn(cmd, log=log)
         try:
@@ -466,11 +487,9 @@ def take(a, cmd, waits, out, watch=False):
                        "before the picture was taken")
             if a.window and not s.backend.find_window(s.env, a.window):
                 s.fail(f"the window {a.window!r} went away")
-            crop = a.crop
-            if not crop and (s.scratch / "crop").exists():
-                crop = (s.scratch / "crop").read_text().strip()
+            crop = where()[1]
             s.capture(out, window=a.window, crop=crop, park=a.park, vision=a.vision,
-                      tree=a.tree)
+                      tree=a.tree, redact=a.redact)
             # Tiles of 4, so a caret of 7 pixels fills one; a look held
             # up to a second, three times, is one GTK holds for 800 ms.
             blink = watch and next((f for f in s.flicker(2.5, window=a.window, crop=crop, tile=4,
@@ -482,7 +501,9 @@ def take(a, cmd, waits, out, watch=False):
                                  "picture depends on when it's taken\n")
                 return 1
         except SessionError as e:
-            sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{tail(log)}\n")
+            said = (f"(left out with --redact{f': see {a.log}' if a.log else ''})"
+                    if a.redact else tail(log))
+            sys.stderr.write(f"shotbox: {e}\n--- {' '.join(cmd)} said ---\n{said}\n")
             return 1
     return 0
 
@@ -730,6 +751,13 @@ def tree_option(p):
                         "bounds in the picture's pixels: compare names what changed by it")
 
 
+def redact_option(p):
+    p.add_argument("--redact", action="append", default=[], metavar="NODE|WxH+X+Y",
+                   help="black this out: a box in the picture, or a node, by its name "
+                        "(exactly or as a regex matched in full, both), with all inside it, "
+                        "with --a11y; nothing is written if it can't be (repeatable)")
+
+
 def cmd_capture(argv):
     p = argparse.ArgumentParser(prog="shotbox capture",
                                 description="Inside `shotbox run`: screenshot the display "
@@ -747,15 +775,16 @@ def cmd_capture(argv):
     p.add_argument("--sheet", metavar="FILE",
                    help="with --burst: all the pictures in rows of four here too")
     tree_option(p)
+    redact_option(p)
     a = p.parse_args(argv)
     if a.burst is None:
         if a.every or a.sheet:
             p.error("--every and --sheet go with --burst")
         inside().capture(a.out, window=a.window, crop=a.crop, park=a.park, vision=a.vision,
-                         tree=a.tree)
+                         tree=a.tree, redact=a.redact)
         return 0
-    if a.tree:
-        p.error("--tree goes with one picture, not --burst")
+    if a.tree or a.redact:
+        p.error(f"{'--tree' if a.tree else '--redact'} goes with one picture, not --burst")
     taken = inside().burst(a.out, a.burst, every=a.every, window=a.window, crop=a.crop,
                            park=a.park, vision=a.vision, sheet=a.sheet)
     for path, at in taken:
@@ -1726,7 +1755,7 @@ def main(argv=None):
             unclocked(os.environ)   # its env has the preload, for its programs
         return COMMANDS[argv[0]](argv[1:])
     except (SessionError, xtest.XError) as e:
-        sys.stderr.write(f"shotbox: {e}\n")
+        sys.stderr.write(f"shotbox: {hushed(str(e), os.environ)}\n")
         return 1
     except KeyboardInterrupt:
         return 130
