@@ -6,7 +6,7 @@ TITLE caret MS, or TITLE spinner, or TITLE moving, or
 TITLE move, or TITLE scroll, or TITLE strip, or TITLE scene, or TITLE spaced,
 or TITLE smooth, or TITLE band [WIDTH [DARK]], or TITLE fast, or TITLE noisy, or TITLE panel,
 or TITLE text, pages, redraw, stair, poles, line, gradient, grating, passer, skip,
-edge, gray, busy, icon, dropout, beep, fields, alert, popover or wide, or
+edge, gray, busy, icon, dropout, beep, fields, alert, popover, wide or shift, or
 TITLE trap LOG [focused]. With LOG alone, it holds an entry instead,
 and writes what's typed in it there; with corner too, a button in its top
 left corner, and writes "clicked" there when it's clicked; with list, rows
@@ -35,6 +35,8 @@ no name, and After, and a second window, "TITLE two", with Other: once
 SIGUSR1 arms it, the program stops itself (SIGSTOP) as a screen reader
 reads the unnamed button, partway through a tree, and writes "stopped"
 to LOG; with focused, only once the button has the keyboard focus. With
+shift, a button with no name and Later, which SIGUSR1 arms to take a New
+one in front as a screen reader reads the first. With
 A11Y_NAME in its environment, its window is named that, apart from its title."""
 
 import os
@@ -793,6 +795,52 @@ elif sys.argv[2:3] == ["trap"]:
     two = Gtk.Window(title=f"{sys.argv[1]} two")
     two.add(Gtk.Button(label="Other"))
     two.show_all()
+elif sys.argv[2:] == ["shift"]:
+    import signal
+
+    gi.require_version("Atk", "1.0")
+    from gi.repository import Atk
+
+    armed = []
+    signal.signal(signal.SIGUSR1, lambda *_: armed.append("armed"))
+
+    class Unnamed(Atk.Object):
+        """A focusable button with no name, whose labels a screen reader
+        asks for as it reads it (never fetched ahead with the rest): once armed,
+        that puts a New button in front of it, as a list does that's
+        added to while it's read."""
+        def do_ref_state_set(self):
+            states = Atk.StateSet()
+            states.add_states([Atk.StateType.VISIBLE, Atk.StateType.SHOWING, Atk.StateType.ENABLED,
+                               Atk.StateType.SENSITIVE, Atk.StateType.FOCUSABLE])
+            return states
+
+        def do_get_n_children(self):
+            return 0
+
+        def do_ref_relation_set(self):
+            if armed == ["armed"]:
+                armed.append("fired")
+                new = Gtk.Button(label="New")
+                box.pack_start(new, False, False, 0)
+                box.reorder_child(new, 0)
+                new.show()
+            return Atk.RelationSet()
+
+    class Shifting(Gtk.DrawingArea):
+        def do_get_accessible(self):
+            if not hasattr(self, "acc"):
+                self.acc = Unnamed()
+                self.acc.set_role(Atk.Role.PUSH_BUTTON)
+                self.acc.set_parent(self.get_parent().get_accessible())
+            return self.acc
+
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    soon = Shifting()
+    soon.set_size_request(60, 20)
+    for child in (soon, Gtk.Button(label="Later")):
+        box.add(child)
+    w.add(box)
 elif sys.argv[3:] == ["corner"]:
     button = Gtk.Button(label="Corner", halign=Gtk.Align.START, valign=Gtk.Align.START)
     button.connect("clicked", lambda b: open(sys.argv[2], "w").write("clicked"))
