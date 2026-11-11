@@ -4,7 +4,7 @@ frames, faint labels: one GTK can't pick (can-target off), one under an
 overlay's clear child, and one in a menu button's popover, open below
 the rest; and a stack shown at its first page, "Gone", then its second,
 whose faint "Here" is at the other end. `glyphs
-TEXT|FONT|PX|WEIGHT|COLOR|BACKGROUND[|SHADOW]...` is a window of those
+MARKUP|FONT|PX|WEIGHT|COLOR|BACKGROUND[|SHADOW]...` is a window of those
 labels instead. `block LOG N [SECONDS...]` is N windows whose main thread,
 on SIGUSR1, is busy for each of SECONDS (1 1 1), free for 90 ms between,
 writing to LOG when each starts and ends. `fake LOG KIT WHAT SECONDS` is a
@@ -97,7 +97,8 @@ def glyphs(app):
     css = ""
     for i, case in enumerate(sys.argv[2:]):
         text, family, px, weight, color, back, *shadow = case.split("|")
-        box.append(Gtk.Label(label=text, halign=Gtk.Align.START, css_classes=[f"g{i}"]))
+        box.append(Gtk.Label(label=text, use_markup=True, halign=Gtk.Align.START,
+                             css_classes=[f"g{i}"]))
         css += (f"label.g{i} {{ font-family: {family}; font-size: {px}px; font-weight: {weight};"
                 f" color: {color}; background: {back}; padding: 6px 12px;"
                 f" text-shadow: {shadow[0] if shadow else 'none'}; }}\n")

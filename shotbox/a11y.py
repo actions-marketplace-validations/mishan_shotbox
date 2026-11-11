@@ -3440,6 +3440,8 @@ def text_shapes(text, attrs, dy=0):
     font.set_weight(min(Pango.Weight.__enum_values__.values(), key=lambda w: abs(w - int(weight)))
                     if weight.isdigit() else Pango.Weight.NORMAL)
     font.set_style(Pango.Style.ITALIC if attrs.get("style") == "italic" else Pango.Style.NORMAL)
+    # Said by Pango's name for it (single, low); "false" or "none" for none.
+    under = getattr(Pango.Underline, attrs.get("underline", "").upper().replace("-", "_"), None)
     try:
         size = float(attrs.get("size", "")) * float(attrs.get("scale", 1))
     except ValueError:
@@ -3461,6 +3463,10 @@ def text_shapes(text, attrs, dy=0):
                 PangoCairo.context_set_font_options(got.get_context(), options)
                 got.set_font_description(font)
                 got.set_text(text, -1)
+                if under:
+                    marks = Pango.AttrList()
+                    marks.insert(Pango.attr_underline_new(under))
+                    got.set_attributes(marks)
                 return got
             blank = cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1))
             _, logical = layout(blank).get_pixel_extents()

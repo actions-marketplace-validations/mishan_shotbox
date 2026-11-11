@@ -40,6 +40,9 @@
 
 ### Fixed
 
+- `a11y contrast` didn't find underlined GTK 4 text, a link's, from 4.14
+  (whose positions are wrong), and noted it not measured: it's looked
+  for underlined now.
 - `a11y lint` and `contrast` with `--window` passed while a program that
   didn't answer owned a window it picked, checking only the others'. They
   fail as not all checked now when a window `--window` picks on the
