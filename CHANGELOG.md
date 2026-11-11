@@ -15,6 +15,10 @@
   framed exactly, with most of its siblings, saying how far it was
   moved; one that can't be placed (a flat button, a focused control) is
   still a note, now saying why.
+- `a11y contrast` takes GTK 4 text found in two places, or where another
+  node's text could be, when that node's text found exactly settles
+  which is whose ("check" beside "unchecked"; a row's value an entry
+  holds too): it was taken only if it failed.
 - `capture` and `shoot --redact NODE|WxH+X+Y` (repeatable;
   `term --shoot` too, and Python's `capture(redact=)`) black out a box,
   or a node by its name and all inside it, wherever the screen's tree

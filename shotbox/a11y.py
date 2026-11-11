@@ -2645,11 +2645,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                         else n.name.lower() in t.lower()):
                     why = ("other", f"another node's text matches there too: {called(o, t)}")
                     # Nor does text holding this one's drawn apart where no
-                    # other node could have, but then it's taken only if it
-                    # fails (doubt).
-                    if (other and n.name.lower() in t.lower()
-                            and drawn_apart(o, t, other, box, until, alone=True)):
-                        doubt.setdefault(n.path, why)
+                    # other node could have; but it's taken only if it fails
+                    # (doubt), unless that's this same text, found there
+                    # exactly: `o` draws it once, so what's here is this one's.
+                    apart = (other and n.name.lower() in t.lower()
+                             and drawn_apart(o, t, other, box, until, alone=True))
+                    if apart:
+                        if apart < MATCH or t.lower() != n.name.lower():
+                            doubt.setdefault(n.path, why)
                         continue
                     refused[n.path] = why
                     return None
@@ -2673,9 +2676,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if not s or t.lower() in s.lower())[::-1]]
 
     def drawn_apart(o, t, kinds, box, until, alone=False):
-        """Whether `o`'s text `t`, drawn as `kinds`, matches MATCH_ELSEWHERE
-        or more where `o`'s can be (room), at a place apart from `box`; with
-        `alone`, one no other node could have drawn (drawers)."""
+        """How well `o`'s text `t`, drawn as `kinds`, matches where `o`'s can
+        be (room), at a place apart from `box`, if MATCH_ELSEWHERE or more;
+        with `alone`, one no other node could have drawn (drawers); else
+        0."""
         key = o.path, id(kinds)   # drawing() keeps each kinds
         if key not in aparts:
             area = room(o) and overlap(room(o), [0, 0, pic.width, pic.height])
@@ -2683,13 +2687,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 pic, kinds, (area[0], area[1], area[0] + area[2], area[1] + area[3]), until)
         got = aparts[key]
         if not got:
-            return False
+            return 0
         for match, (px, py) in ((got[0], got[1:3]), (got[5], got[7])):
             there = [px + 2, py, got[3] - 4, got[4]]
             if all(overlap(there, box)[2:]):
                 continue
-            return match >= MATCH_ELSEWHERE and not (alone and drawers(there, t, o, blank=True))
-        return False
+            return match if match >= MATCH_ELSEWHERE and not (
+                alone and drawers(there, t, o, blank=True)) else 0
+        return 0
 
     def called(o, t):
         """`o`'s text `t`, as a line says it: by `o`'s name where that's
@@ -2793,6 +2798,26 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 found[n.path] = seek(n, until)
             except TimeoutError:
                 late.add(n.path)
+    # A node draws its text once, and a place holds one node's: of two
+    # places, one mostly inside where another's text is found and taken
+    # isn't this one's, and the other is looked for again just there.
+    owned = [b[0] for p, b in found.items() if b and p not in refused and p not in doubt]
+    for n in measured:
+        if n.path not in both:
+            continue
+        left = [b for b, _, _ in both[n.path] if not any(
+            2 * o[2] * o[3] > b[2] * b[3] for o in (overlap(b, t) for t in owned))]
+        if len(left) != 1:
+            continue
+        b, was = left[0], (refused.pop(n.path), doubt.pop(n.path), both.pop(n.path))
+        try:
+            seen = seek(n, until, overlap([b[0] - 3, b[1] - 3, b[2] + 6, b[3] + 6], room(n)))
+        except TimeoutError:
+            seen = None
+        if seen and n.path not in refused and n.path not in doubt:
+            found[n.path] = seen
+        else:
+            refused[n.path], doubt[n.path], both[n.path] = was
 
     def anchor(n):
         if n.path not in anchors:
