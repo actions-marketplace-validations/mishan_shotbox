@@ -2379,6 +2379,28 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return rel[n.path]
 
     areas, fonts, drawings, lays, refused, aparts, doubt, both = {}, {}, {}, {}, {}, {}, {}, {}
+    groups, anchors = {}, {}
+
+    def spare(up, child, sizes=True):
+        """What `up` adds to how far GTK puts `child`, its child, off: None
+        if GTK doesn't say; "page" for a page, which GTK counts the place
+        of twice; else, with `sizes`, the room `up` has round what's in it,
+        [width, height], where its border and padding can be, less than
+        none where what's in it is bigger than it (scrolled)."""
+        mine, its = relative(child), relative(up)
+        if not mine or not its:
+            return None
+        # A page: not a widget, so no actions, with its child's extents.
+        # Its child is placed from it, counted twice, unless GTK sums
+        # past the page, as for libadwaita 1.5's view stack.
+        if (mine == its and up._acc.get_child_count() == 1
+                and "Action" not in up._acc.get_interfaces() and child.bounds and up.bounds
+                and child.bounds[:2] == [up.bounds[0] + its[0], up.bounds[1] + its[1]]):
+            return "page"
+        if not sizes:
+            return [0, 0]
+        return [its[i + 2] - max([o[i] + o[i + 2] for o in map(relative, kids[up.path]) if o]
+                                 + [0]) for i in (0, 1)]
 
     def room(n):
         """Where `n`'s text can be on GTK 4.14 and later, which says where
@@ -2400,21 +2422,13 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             up = parents.get(path)
             if not up or up._acc == n._top:
                 break
-            mine, its = relative(child), relative(up)
-            if not mine or not its:
+            got = spare(up, child, gtk4_release(n) >= (4, 14, 6))
+            if got is None:
                 more = None
-            # A page: not a widget, so no actions, with its child's extents.
-            # Its child is placed from it, counted twice, unless GTK sums
-            # past the page, as for libadwaita 1.5's view stack.
-            elif (mine == its and up._acc.get_child_count() == 1
-                    and "Action" not in up._acc.get_interfaces() and child.bounds and up.bounds
-                    and child.bounds[:2] == [up.bounds[0] + its[0], up.bounds[1] + its[1]]):
-                x, y = x - its[0], y - its[1]
-            elif gtk4_release(n) >= (4, 14, 6):
-                for i in (0, 1):
-                    reach = max([o[i] + o[i + 2] for o in map(relative, kids[path]) if o],
-                                default=0)
-                    more[i] += its[i + 2] - min(max(reach, 0), its[i + 2])
+            elif got == "page":
+                x, y = x - relative(up)[0], y - relative(up)[1]
+            else:
+                more = [m + max(g, 0) for m, g in zip(more, got)]
             child = up
         areas[n.path] = more and overlap([x, y, b[2] + more[0], b[3] + more[1]], list(win))
         return areas[n.path]
@@ -2718,11 +2732,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return (n._role in texts and n._role not in controls and gtk4(n)
                 and gtk4_release(n) >= (4, 14) and not trusted)
 
+    def placeable(n):
+        """Whether `n` is a graphic GTK 4 places wrong, and borrowed() may
+        place: from 4.14.6, whose text says where it's laid out."""
+        return (n._role in controls and gtk4(n) and gtk4(n) not in GTK4_BOUNDS
+                and gtk4_release(n) >= (4, 14, 6) and not trusted)
+
     # Where each node measured is, or GTK 4's text can be, cut to the
     # screen: all a sample keeps of what it pictures.
     regions = {}
     for n in measured:
-        region = pic.clip((searched(n) and room(n)) or shown(n) or [0, 0, 0, 0])
+        region = pic.clip(((searched(n) or placeable(n)) and room(n)) or shown(n) or [0, 0, 0, 0])
         if region:
             regions[id(n)] = region
 
@@ -2770,6 +2790,75 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             except TimeoutError:
                 late.add(n.path)
 
+    def anchor(n):
+        if n.path not in anchors:
+            anchors[n.path] = anchor_of(n)
+        return anchors[n.path]
+
+    def anchor_of(n):
+        """The container text found near graphic `n` is in, and how far that
+        text was found from where GTK says, (path, (dx, dy)); else why
+        that's no guide to where `n` is, a str. GTK leaves each
+        container's border and padding out of where it says a widget is,
+        so the text is put off as far as `n` only if no container between
+        them, under that one, has room for padding of its own."""
+        path = n.path
+        while "/" in path:
+            path = path.rsplit("/", 1)[0]
+            near = [p for p, s in found.items() if s and within(p, path) and p not in doubt
+                    and laid(parents[p])]
+            if near:
+                break
+        else:
+            return "no text found near it"
+
+        def snug(p):
+            child, up = parents[p], p.rsplit("/", 1)[0]
+            while up != path:
+                if up not in parents or spare(parents[up], child) != [0, 0]:
+                    return False
+                child, up = parents[up], up.rsplit("/", 1)[0]
+            return True
+        if not snug(n.path) or not all(map(snug, near)):
+            return "a container between it and the text found near it has room"
+        offsets = sorted(found[p][1] for p in near)
+        if any(max(o[i] for o in offsets) - min(o[i] for o in offsets) > 1 for i in (0, 1)):
+            return "text found near it is moved by different amounts"
+        return path, offsets[len(offsets) // 2]
+
+    def borrowed(n):
+        """Where GTK 4's graphic `n` is drawn, by text found near it,
+        (box, (dx, dy), None) as seek() has text; else why it can't be
+        told, a str. Where the move puts its kind, controls drawn framed or
+        as an icon, it puts the rest: it's taken once one of them is drawn
+        there. The box is its inside, 3 pixels in, as drawn_at() finds an
+        icon."""
+        got = anchor(n)
+        if isinstance(got, str):
+            return got
+        (dx, dy), b = got[1], n.bounds
+        box = [b[0] + dx, b[1] + dy, b[2], b[3]]
+        # A scroll pane is where GTK says or as far as `n` further: in it
+        # wherever it is, `n` is in it both ways.
+        panes = [o.bounds for o in nodes if o._role == Atspi.Role.SCROLL_PANE
+                 and within(n.path, o.path) and o.bounds]
+        if shown(n) != b or any(overlap(box, q) != box or overlap(
+                box, [q[0] + dx, q[1] + dy, *q[2:]]) != box for q in panes):
+            return "partly out of view"
+        if min(b[2:]) < 10:
+            return "too small to tell where it's drawn"
+        if overlap(box, room(n) or [0, 0, 0, 0]) != box:
+            return "text found near it is moved further than it can be"
+        if got not in groups:
+            groups[got] = any(picture.drawn_at(pic, [o.bounds[0] + dx, o.bounds[1] + dy,
+                                                     *o.bounds[2:]])
+                              for o in measured if within(o.path, got[0])
+                              and placeable(o) and leaf(o) and o.bounds and anchor(o) == got)
+        # Its icon, inside its edge and corners: what's round it is its
+        # edge's to measure, against what's behind them.
+        return ([box[0] + 3, box[1] + 3, box[2] - 6, box[3] - 6], (dx, dy), None) if groups[got] \
+            else "no control drawn where text near it puts it"
+
     def covered(n, k):
         """Whether `n` is behind a modal dialog: said apart if so."""
         m = fronts.get(n.path)
@@ -2778,8 +2867,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             behind.append((n, f"{k} behind a modal dialog {name}"))
         return bool(m)
 
-    def wrong(n, k):
-        """Whether `n` is GTK 4's, whose positions are wrong: noted if so."""
+    def wrong(n, k, why=None):
+        """Whether `n` is GTK 4's, whose positions are wrong: noted if so,
+        with `why` it wasn't found."""
         version = gtk4(n)
         inside = version and gtk4_release(n) < (4, 14)
         popover = inside and k != "edge" and popped(n)
@@ -2790,7 +2880,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         short = (" (a single letter: GTK gives it no width)" if text and lone(n) else
                  " (over more than one line)" if text and "\n" in n.name else
                  " (not all ASCII: GTK measures its width short)" if text and unsure(n) else
-                 f" ({refused[n.path][1]})" if text and n.path in refused else "")
+                 f" ({refused[n.path][1]})" if text and n.path in refused else
+                 f" ({why})" if why else "")
         case = text and n.path in refused and refused[n.path][0]
         notes.append((n, f"{k} not measured: GTK 4 reports its position wrong{short}"))
         why = (f"GTK {version} reports where what's in a popover is as if the popover were "
@@ -2902,7 +2993,13 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if why not in whys:
                 whys.append(why)
             continue
-        if not seen and wrong(n, k):
+        lent = why = None
+        if not seen and k == "graphics" and placeable(n) and n.bounds:
+            lent = borrowed(n)
+            if isinstance(lent, str):
+                lent, why = None, lent
+        seen = seen or lent
+        if not seen and wrong(n, k, why):
             continue
         if not n.bounds:
             if "_run" in n or not undrawn(Atspi, n):
@@ -2927,6 +3024,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         count += bool(got and not small)
         if small:
             notes.append((n, f"{k} too small to measure, {got[3]} pixels"))
+        elif got is None and lent:
+            wrong(n, k, "nothing drawn where text near it puts it")
         elif got is None and (k == "text" or n._role in controls):
             # What it draws can be past the screen's edge: right-aligned text.
             if cut:
@@ -2943,9 +3042,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             uncounted.add(id(n))
             taken.append((n, k, least, at, box, None, ""))
         elif got:
-            moved = (f"; found {seen[1][0]},{seen[1][1]} px from " + (
-                f"where GTK {gtk4(n)} says its text is" if laid(n)
-                else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
+            moved = (f"; moved {seen[1][0]},{seen[1][1]} px, as text found near it was" if lent
+                     else f"; found {seen[1][0]},{seen[1][1]} px from " + (
+                         f"where GTK {gtk4(n)} says its text is" if laid(n)
+                         else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
+            if lent:
+                n["_why"] = why = (
+                    f"GTK {gtk4(n)} reports where its widgets are wrong, so a graphic is "
+                    "measured where text found near it was moved to, if nothing between "
+                    "them can move it more and something's drawn there; see "
+                    "docs/accessibility.md.")
+                if why not in whys:
+                    whys.append(why)
             twice = seen and n.path in both
             moved = ("; it matches in two places and fails in both" if twice else "") + moved
             colors = f"{picture.hex_of(got[1])} on {picture.hex_of(got[2])} ({at})"

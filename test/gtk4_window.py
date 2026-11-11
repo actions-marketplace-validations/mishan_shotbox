@@ -13,7 +13,14 @@ toolkit KIT, answering it from a thread of its own; on SIGUSR1, its main
 thread is busy for SECONDS (WHAT main), or its bus thread is (bus), or
 that, then it leaves the bus (leave). `empty` is a window, gtk4-empty, of a
 button and below it a group named Nothing with nothing in it, 0 pixels
-tall."""
+tall. `anchored` is a window, gtk4-anchored, in a box with a border and
+padding, of rows of a label and icon buttons: Faint (#b0b0b0 on
+#c0c0c0), Dark (#101010 on #e0e0e0) and Blank, with no icon; Beside,
+next to a padded text button; Nested, in a box of its own; Away, half
+scrolled out; Over, in its scrolled window as GTK says, but not where
+it's drawn, its padding left out; Aside, its icon
+off its middle; and Pulse, Dark and Faint by turns, its row padded
+further."""
 
 import os
 import signal
@@ -91,6 +98,65 @@ def glyphs(app):
     w.present()
 
 
+def anchored(app):
+    w = Gtk.ApplicationWindow(application=app, title="gtk4-anchored")
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=["padded"])
+
+    def icon(name, kind, label):
+        b = Gtk.Button(css_classes=["flat", kind], **({"icon_name": name} if name else {}))
+        b.update_property([Gtk.AccessibleProperty.LABEL], [label])
+        return b
+
+    def row(*children):
+        r = Gtk.Box(spacing=6)
+        for c in children:
+            r.append(c)
+        box.append(r)
+        return r
+    snug = Gtk.Box()
+    snug.append(icon("window-minimize-symbolic", "dark", "Nested"))
+    row(Gtk.Label(label="Plain words"), icon("window-close-symbolic", "faint", "Faint"),
+        icon("window-maximize-symbolic", "dark", "Dark"), icon(None, "plain", "Blank"), snug)
+    row(Gtk.Button(label="Padded"), icon("window-minimize-symbolic", "dark", "Beside"))
+    inner = Gtk.Box(spacing=6)
+    inner.append(Gtk.Label(label="Scrolled across"))
+    inner.append(icon("window-close-symbolic", "dark", "Away"))
+    scrolled = Gtk.ScrolledWindow(child=inner, min_content_width=120, max_content_width=120,
+                                  halign=Gtk.Align.START, vscrollbar_policy=Gtk.PolicyType.NEVER)
+    box.append(scrolled)
+    spill = Gtk.Box(spacing=6, css_classes=["spill"])
+    spill.append(Gtk.Label(label="Spilling", width_request=70, xalign=0))
+    spill.append(icon("window-close-symbolic", "dark", "Over"))
+    box.append(Gtk.ScrolledWindow(child=spill, min_content_width=120, max_content_width=120,
+                                  halign=Gtk.Align.START,
+                                  vscrollbar_policy=Gtk.PolicyType.NEVER))
+    row(Gtk.Label(label="Lopsided row"), icon("window-close-symbolic", "aside", "Aside"))
+    blink = icon("window-maximize-symbolic", "dark", "Pulse")
+    # Far enough in that where GTK says it is holds none of it.
+    far = row(Gtk.Label(label="Blinking nearby"), blink)
+    box.remove(far)
+    box.append(Gtk.Box(css_classes=["far"]))
+    box.get_last_child().append(far)
+    provider = Gtk.CssProvider()
+    provider.load_from_string(
+        "box.padded { padding: 14px 9px; border: 3px solid #808080; }"
+        " button.faint { background: #c0c0c0; color: #b0b0b0; }"
+        " button.dark { background: #e0e0e0; color: #101010; }"
+        " box.far { padding: 40px; }"
+        " box.spill { padding: 0 16px; }"
+        " button.aside { background: none; color: #101010; padding: 0 24px 0 2px; }")
+    Gtk.StyleContext.add_provider_for_display(w.get_display(), provider,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    w.set_child(box)
+    w.present()
+
+    def toggle():
+        for kind in ("dark", "faint"):
+            (blink.remove_css_class if blink.has_css_class(kind) else blink.add_css_class)(kind)
+        return True
+    GLib.timeout_add(500, toggle)
+
+
 def note(what):
     with open(sys.argv[2], "a") as f:
         f.write(f"{time.time():.3f} {what}\n")
@@ -163,6 +229,7 @@ def fake(app):
 
 
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
-app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake, "empty": empty}.get(
+app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake, "empty": empty,
+                         "anchored": anchored}.get(
     "".join(sys.argv[1:2]), activate))
 app.run([])
