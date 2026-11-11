@@ -1714,7 +1714,7 @@ assert j['notes'] and all('not shown' in n['note'] for n in j['notes']), j" "$tm
     [ $st = 1 ] && [ "$(grep -c ': text 1\.9[0-9]:1, #b[01]b[01]b[01] on #[0-9a-f]* (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast")" = 4 ] \
       && grep -q '\[3\]/panel\[[01]\]/label\[0\]: text 1\.9' "$tmp/contrast" \
       && grep -q 'button\[4\]/panel\[1\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong\( (.*)\)\?$' "$tmp/contrast" \
-      && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong$' "$tmp/contrast")" = 2 ] \
+      && [ "$(grep -c ': edge not measured: GTK 4 reports its position wrong\( (.*)\)\?$' "$tmp/contrast")" = 2 ] \
       && [ "$(wc -l < "$tmp/contrast")" = 7 ] \
       && ok "a11y: contrast, GTK 4 from 4.14: text where it's found, a stack's too; not a popover or an edge, said" \
       || { fail "a11y: contrast, GTK 4 from 4.14 ($st)"; cat "$tmp/contrast"; }
@@ -1794,6 +1794,49 @@ bad = [m for m, ok in [
     ("Hid", noted("Hid", "partly out of view")), ("Roomy", at("Roomy", 7, 9)),
     ("Roomier", noted("Roomier", "too much room round it to find it"))] if not ok]
 print(*bad, *[f"{k}: {v}" for k, v in said.items()], sep="\n")
+sys.exit(bool(bad))
+PY
+    # An edge where it's found framed exactly, at the move most of its
+    # siblings are found at (gtk4_window.py edged): one framed where a
+    # sibling of its size is too, a faint one, a thick one, a wide one. Not
+    # one drawn flat; nor framed elsewhere than most, or where no move has
+    # most; nor where another control can be; nor focused, its ring on its
+    # edge; nor a field's faint edge, as what it's in might draw one; nor
+    # one partly scrolled out; nor a flat one beside a disabled one.
+    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' edged & '$sb' wait window gtk4-edged >/dev/null &&
+      sleep 1 && '$sb' a11y contrast --edges 3 --passes --window gtk4-edged --json" > "$tmp/edged" 2>/dev/null || true
+    python3 - "$tmp/edged" <<'PY' && ok "a11y: contrast --edges, GTK 4 where found framed exactly, as most of its siblings are" \
+      || { fail "a11y: contrast --edges, GTK 4 found framed"; cat "$tmp/edged"; }
+import json, sys
+got = json.load(open(sys.argv[1]))
+said = {n["name"]: n for k in ("problems", "passes", "notes") for n in got[k]
+        if (n.get("problem") or n.get("contrast") or n.get("note")).startswith("edge")}
+def at(name, edge="#404040", problem=False):
+    line = (said.get(name) or {}).get("problem" if problem else "contrast") or ""
+    return (line.startswith("edge 1." if problem else "edge passes at ")
+            and f"{edge} by #f0f0f0 " in line
+            and line.endswith("; moved 7,9 px, as found drawn where it can be"))
+def noted(name, why):
+    return (said.get(name) or {}).get("note") == \
+        f"edge not measured: GTK 4 reports its position wrong ({why})"
+apart = "its siblings found framed in different places"
+bad = [m for m, ok in [
+    ("Ok", at("Ok")), ("Apply", at("Apply")), ("Thick", at("Thick")),
+    ("Faintly", at("Faintly", "#d0d0d0", problem=True)
+     and "found framed exactly" in said["Faintly"].get("why", "")),
+    ("Plain", noted("Plain", "no edge found drawn where it can be")),
+    *[(n, noted(n, apart)) for n in ("Most", "More", "Shifted", "Further")],
+    ("Agree", at("Agree")), ("Also", at("Also")), ("Again", at("Again")),
+    ("Apart", noted("Apart", "found framed elsewhere than most of its siblings")),
+    ("Wide", at("Wide")),
+    *[(n, noted(n, "no edge found drawn where it can be")) for n in ("Tall", "Short", "Bevel")],
+    ("Typing", noted("Typing", "its focus ring is drawn on its edge")),
+    ("Pale field", noted("Pale field", "its own edge is faint, and what it's in can't be placed")),
+    ("Twin", noted("Twin", "found framed in more than one place")),
+    *[(n, noted(n, "found framed where another control can be")) for n in ("Hover", "Off")],
+    ("Hid", noted("Hid", "partly out of view"))] if not ok]
+print(*bad, *[f"{k}: {v.get('problem') or v.get('contrast') or v.get('note')}"
+              for k, v in said.items()], sep="\n")
 sys.exit(bool(bad))
 PY
   else
