@@ -1871,6 +1871,15 @@ EOF
     && ok "a11y: wait gone --window, cut short, takes the display's word only for the windows it had" \
     || { fail "a11y: wait gone --window, cut short, and the display"; cat "$tmp/paired"
          for f in "$tmp"/paired.[a-z]*; do echo "== $f"; cat "$f"; done; }
+  # A node read twice, as one is put in front of it partway through a read
+  # (window.py shift), is listed once; New, there in the next read, says it was.
+  out=$("$sb" run --a11y -- sh -c "'$here/window.py' sh shift & a=\$!
+    '$sb' wait node Later >/dev/null && kill -USR1 \$a && sleep 0.2 && '$sb' a11y tree --window '^sh\$' &&
+    echo -- && '$sb' a11y tree --window '^sh\$'" 2>&1)
+  [ "$(printf '%s\n' "$out" | sed '/^--$/q' | grep -c 'button "" ')" = 1 ] \
+    && printf '%s\n' "$out" | sed '1,/^--$/d' | grep -q 'button "New"' \
+    && ok "a11y: a node read twice, as the window changes partway through a read, is listed once" \
+    || fail "a11y: a node read twice as the window changes: $out"
   [ -z "$(ours_a11y)" ] && ok "a11y: the bus stops with the session" \
     || fail "a11y: left running: $(ours_a11y)"
   unset TMPDIR
