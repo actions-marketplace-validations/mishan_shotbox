@@ -11,6 +11,10 @@
   text near it can say (a header bar's buttons), where it's found drawn
   within the room its containers have, with most of its siblings; one
   that can't be placed either way is still a note, now saying why.
+  With `--edges`, a GTK 4 control's edge is measured where it's found
+  framed exactly, with most of its siblings, saying how far it was
+  moved; one that can't be placed (a flat button, a focused control) is
+  still a note, now saying why.
 - `capture` and `shoot --redact NODE|WxH+X+Y` (repeatable;
   `term --shoot` too, and Python's `capture(redact=)`) black out a box,
   or a node by its name and all inside it, wherever the screen's tree

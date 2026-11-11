@@ -7,7 +7,7 @@ import sys
 import time
 from array import array
 from collections import Counter
-from itertools import repeat
+from itertools import accumulate, repeat
 from operator import mul, sub, truediv
 
 
@@ -199,6 +199,46 @@ def edge_contrast(pic, box):
     band = pic.colors(box, inside=3)
     got = strongest(band, out, least=max(1, sum(band.values()) // 5))
     return (got[0], got[1], out) if got else (1.0, out, out)
+
+
+def framed_in(pic, area, w, h, until=None):
+    """The corner (x, y) of each `w` by `h` box inside `area` (x, y, width,
+    height) drawn framed exactly: each side unlike what's just outside it
+    along more than 9 tenths of it, corners (3 pixels) left out, as
+    drawn_at() has a frame, and its sides all about one lightness, as a
+    border or a fill is, not separators. None past `until`."""
+    x0, y0 = max(area[0], 1), max(area[1], 1)
+    x1, y1 = min(area[0] + area[2], pic.width - 1), min(area[1] + area[3], pic.height - 1)
+    if x1 - x0 < w or y1 - y0 < h or w < 10 or h < 10:
+        return []
+    d, width = pic.data, pic.width
+    # From a pixel above and left of `area`, to one below and right.
+    lit = [[(2 * d[j] + 5 * d[j + 1] + d[j + 2]) / 8 for j in range(i, i + (x1 - x0 + 2) * 3, 3)]
+           for i in ((y * width + x0 - 1) * 3 for y in range(y0 - 1, y1 + 1))]
+    across, down, col = [None], [], [0] * len(lit[0])
+    for r, row in enumerate(lit):
+        if r:
+            across.append([0, *accumulate(abs(a - b) > 10 for a, b in zip(row, lit[r - 1]))])
+        down.append(col)
+        col = [c + (abs(a - b) > 10) for c, a, b in zip(col, row, [row[0], *row])]
+    down.append(col)
+    out = []
+    for r in range(1, y1 - y0 - h + 2):
+        if until and time.monotonic() > until:
+            return None
+        top, bottom, upper, lower = across[r], across[r + h], down[r + 3], down[r + h - 3]
+        for c in range(1, x1 - x0 - w + 2):
+            if (10 * (top[c + w - 3] - top[c + 3]) > 9 * (w - 6)
+                    and 10 * (bottom[c + w - 3] - bottom[c + 3]) > 9 * (w - 6)
+                    and 10 * (lower[c] - upper[c]) > 9 * (h - 6)
+                    and 10 * (lower[c + w] - upper[c + w]) > 9 * (h - 6)):
+                sides = (lit[r][c + 3:c + w - 3], lit[r + h - 1][c + 3:c + w - 3],
+                         [lit[i][c] for i in range(r + 3, r + h - 3)],
+                         [lit[i][c + w - 1] for i in range(r + 3, r + h - 3)])
+                tones = [Counter(map(round, s)).most_common(1)[0][0] for s in sides]
+                if max(tones) - min(tones) <= 10:
+                    out.append((x0 - 1 + c, y0 - 1 + r))
+    return out
 
 
 def drawn_at(pic, box):

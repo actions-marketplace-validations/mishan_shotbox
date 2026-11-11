@@ -24,7 +24,14 @@ Bold; and Hid, half scrolled out; Roomy and Roomier, in boxes 18 and 19
 px wider than them; Away, half scrolled out; Over, in its scrolled
 window as GTK says, but not where it's drawn, its padding left out;
 Aside, its icon off its middle; and Pulse, Dark and Faint by turns, its
-row padded further."""
+row padded further. `edged` is a window, gtk4-edged, in a box with a
+border and padding, of rows with room to the right, of framed buttons:
+Ok and Apply, of a size; Faintly; Thick; and Plain, flat. Most and More,
+and Shifted and Further, flat, each beside a frame its size; Agree,
+Also, Again and Apart, flat beside a frame its size; Wide, an entry;
+Tall and Short, filled, touching; Bevel; Typing, focused, beside Pale
+field, faint; Hover, flat, above a frame its size, which is beside Twin;
+and Hid, half scrolled out."""
 
 import os
 import signal
@@ -185,6 +192,79 @@ def anchored(app):
     GLib.timeout_add(500, toggle)
 
 
+def edged(app):
+    w = Gtk.ApplicationWindow(application=app, title="gtk4-edged")
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=["padded"])
+
+    # Wide, as what's in it is put off by as much as the room it has.
+    def row(*children, into=box, width=440):
+        r = Gtk.Box(spacing=6, halign=Gtk.Align.START, width_request=width)
+        for c in children:
+            r.append(c)
+        into.append(r)
+        return r
+
+    def button(label, *css, **kw):
+        return Gtk.Button(label=label, css_classes=list(css), **kw)
+
+    def entry(name, *css):
+        e = Gtk.Entry(css_classes=list(css), width_chars=8)
+        e.update_property([Gtk.AccessibleProperty.LABEL], [name])
+        return e
+
+    def icon(name, *css):
+        b = Gtk.Button(icon_name="window-close-symbolic", css_classes=list(css),
+                       width_request=34, height_request=34)
+        b.update_property([Gtk.AccessibleProperty.LABEL], [name])
+        return b
+    row(button("Ok", width_request=60), button("Apply", width_request=60),
+        button("Faintly", "faint"), button("Thick", "thick"), button("Plain", "flat"))
+    def decoyed(label, width):
+        """A flat button and, beside it, a frame of its size, not a control."""
+        return (button(label, "flat", width_request=width, height_request=34),
+                Gtk.Box(width_request=width, height_request=34, css_classes=["decoy"]))
+    row(button("Most"), button("More"), *decoyed("Shifted", 70), *decoyed("Further", 76),
+        width=520)
+    row(button("Agree"), button("Also"), button("Again"), *decoyed("Apart", 60))
+    wide = entry("Wide")
+    wide.set_size_request(300, -1)
+    row(wide)
+    joined = row(button("Tall", "solid", width_request=200, height_request=40),
+                 button("Short", "solid", width_request=200, valign=Gtk.Align.CENTER))
+    joined.set_spacing(0)
+    row(button("Bevel", "bevel"))
+    typing = entry("Typing")
+    row(typing, entry("Pale field", "faint"))
+    pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, height_request=120)
+    row(Gtk.Box(width_request=34), icon("Hover", "flat"), into=pair)
+    row(icon("Twin"), Gtk.Box(width_request=34, height_request=34, css_classes=["decoy"]),
+        into=pair)
+    box.append(pair)
+    box.append(Gtk.ScrolledWindow(
+        child=row(Gtk.Label(label="Scrolled further", width_request=100, xalign=0),
+                  button("Hid"), into=Gtk.Box()),
+        min_content_width=120, max_content_width=120, halign=Gtk.Align.START,
+        vscrollbar_policy=Gtk.PolicyType.NEVER))
+    provider = Gtk.CssProvider()
+    provider.load_from_string(
+        "window, scrolledwindow { background: #f0f0f0; }"
+        " box.padded { padding: 6px 4px; border: 3px solid #808080; }"
+        " button, entry { border-radius: 0; box-shadow: none; outline: none; min-height: 24px;"
+        " min-width: 0; padding: 4px 8px; background: #e0e0e0; color: #101010;"
+        " border: 1px solid #404040; }"
+        " .faint { border-color: #d0d0d0; background: #f0f0f0; }"
+        " .thick { border-width: 2px; }"
+        " .flat { background: none; border-color: transparent; }"
+        " .solid { background: #404040; color: #ffffff; border: none; }"
+        " .bevel { border-color: #ffffff #404040 #404040 #ffffff; }"
+        " box.decoy { border: 1px solid #404040; background: #e0e0e0; }")
+    Gtk.StyleContext.add_provider_for_display(w.get_display(), provider,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    w.set_child(box)
+    w.present()
+    typing.grab_focus()
+
+
 def note(what):
     with open(sys.argv[2], "a") as f:
         f.write(f"{time.time():.3f} {what}\n")
@@ -258,6 +338,6 @@ def fake(app):
 
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
 app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake, "empty": empty,
-                         "anchored": anchored}.get(
+                         "anchored": anchored, "edged": edged}.get(
     "".join(sys.argv[1:2]), activate))
 app.run([])

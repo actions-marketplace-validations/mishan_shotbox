@@ -2860,30 +2860,46 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return ([box[0] + 3, box[1] + 3, box[2] - 6, box[3] - 6], (dx, dy), None) if groups[got] \
             else "no control drawn where text near it puts it"
 
+    def moves(n):
+        """How far right and down GTK 4's `n` can be drawn from where GTK
+        says, within the room its containers have: two ranges."""
+        b, r = n.bounds, room(n) or [0, 0, 0, 0]
+        return (range(r[0] - b[0], r[0] + r[2] - b[0] - b[2] + 1),
+                range(r[1] - b[1], r[1] + r[3] - b[1] - b[3] + 1))
+
+    def unseen(n, xs, ys):
+        """Why GTK 4's `n`, drawn moved by any of `xs` and `ys`, can't be
+        told where it is, a str; else None."""
+        b, s = list(n.bounds), shown(n)
+        # Cut by what it's in, as a carousel's hidden page is; not by a
+        # pixel, as GTK puts a header bar's container outside what it's in.
+        if not room(n) or not s or any(abs(i - j) > 1 for i, j in zip(s, b)):
+            return "partly out of view"
+        if min(b[2:]) < 10:
+            return "too small to tell where it's drawn"
+        # A scroll pane is moved as far as `n` or less: in it either way.
+        span = [b[0] + xs[0], b[1] + ys[0], b[2] + len(xs) - 1, b[3] + len(ys) - 1] \
+            if xs and ys else b
+        if any(overlap(span, q) != span or overlap(b, q) != b for q in (
+                o.bounds for o in nodes if o._role == Atspi.Role.SCROLL_PANE
+                and within(n.path, o.path) and o.bounds)):
+            return "partly out of view"
+        return None
+
     def places(n):
         """Where GTK 4's graphic `n`, with no text near it to go by, is
         drawn as a control is, as moves (dx, dy) from where GTK says, a set,
         of each place it can be: where GTK says, or further down and right
         by up to the room its containers have. Else why it isn't looked
         for, a str: room enough that a neighbor could be found for it, say."""
-        b, r, s = n.bounds, room(n), shown(n)
-        # Cut by what it's in, as a carousel's hidden page is; not by a
-        # pixel, as GTK puts a header bar's container outside what it's in.
-        if not r or not s or any(abs(i - j) > 1 for i, j in zip(s, b)):
-            return "partly out of view"
-        if min(b[2:]) < 10:
-            return "too small to tell where it's drawn"
-        xs = range(r[0] - b[0], r[0] + r[2] - b[0] - b[2] + 1)
-        ys = range(r[1] - b[1], r[1] + r[3] - b[1] - b[3] + 1)
+        b = n.bounds
+        xs, ys = moves(n)
+        why = unseen(n, xs, ys)
+        if why:
+            return why
         if len(xs) > b[2] - 3 or len(ys) > b[3] - 3:
             return "too much room round it to find it"
         boxes = {(dx, dy): [b[0] + dx, b[1] + dy, *b[2:]] for dx in xs for dy in ys}
-        # A scroll pane is moved as far as `n` or less: in it either way.
-        panes = [o.bounds for o in nodes if o._role == Atspi.Role.SCROLL_PANE
-                 and within(n.path, o.path) and o.bounds]
-        if any(overlap(o, q) != o or overlap(o, [q[0] + dx, q[1] + dy, *q[2:]]) != o
-               for (dx, dy), o in boxes.items() for q in panes):
-            return "partly out of view"
         got = set()
         for d, o in boxes.items():
             if time.monotonic() > until:
@@ -2919,6 +2935,57 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         sought.add(n.path)
         b = n.bounds
         return [b[0] + at[0] + 3, b[1] + at[1] + 3, b[2] - 6, b[3] - 6], at, None
+
+    def framings(n):
+        """Each move (dx, dy) at which GTK 4's control `n` is found framed
+        exactly, within the room its containers have, a set; else why it
+        isn't looked for, a str."""
+        if "focused" in n.states:
+            return "its focus ring is drawn on its edge"
+        b = n.bounds
+        xs, ys = moves(n)
+        why = unseen(n, xs, ys)
+        if why:
+            return why
+        if len(xs) * len(ys) > ROOMIEST:
+            return "too much room round it to find it"
+        got = picture.framed_in(pic, room(n), *b[2:], until)
+        if got is None:
+            return f"not looked for, past the {SEARCH:g} seconds given to looking"
+        return {(x - b[0], y - b[1]) for x, y in got}
+
+    def framed_where(ns):
+        """Where each of GTK 4's controls `ns` is drawn, by path: the move
+        (dx, dy) it and most of its siblings are found framed at, as their
+        containers move them alike; else why it can't be told, a str. Not
+        where another control can be: a flat one could be found at a
+        framed one's."""
+        kin, out, claims = {}, {}, {}
+        for n in ns:
+            kin.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
+        for group in kin.values():
+            got = {n.path: framings(n) for n in group}
+            sets = [m for m in got.values() if isinstance(m, set) and m]
+            top = Counter(d for m in sets for d in m).most_common(2)
+            at = (top and 2 * top[0][1] > len(sets) and (len(top) < 2 or top[1][1] < top[0][1])
+                  and top[0][0]) or None
+            for n in group:
+                mine, b = got[n.path], n.bounds
+                out[n.path] = (
+                    mine if isinstance(mine, str) else
+                    "no edge found drawn where it can be" if not mine else
+                    "found framed in more than one place" if not at and len(sets) == 1 else
+                    "its siblings found framed in different places" if not at else
+                    "found framed elsewhere than most of its siblings" if at not in mine else at)
+                # One not at the move most are at, or with none at one,
+                # can be at each place it's found.
+                for d in () if isinstance(mine, str) else [at] if at in mine else mine:
+                    claims.setdefault((b[0] + d[0], b[1] + d[1], *b[2:]), set()).add(n.path)
+        for n in ns:
+            d, b = out[n.path], n.bounds
+            if not isinstance(d, str) and claims[(b[0] + d[0], b[1] + d[1], *b[2:])] != {n.path}:
+                out[n.path] = "found framed where another control can be"
+        return out
 
     def covered(n, k):
         """Whether `n` is behind a modal dialog: said apart if so."""
@@ -3225,12 +3292,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if why not in whys:
                 whys.append(why)
     if edges:
-        for n in nodes:
-            if not (n._showing and not disabled(n) and (
-                    n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))
-                    ) or gtk3_switch(Atspi, n) or covered(n, "edge") or wrong(n, "edge"):
+        edging = [n for n in nodes if n._showing and not disabled(n) and (
+            n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))
+            and not gtk3_switch(Atspi, n) and not covered(n, "edge")]
+        placed = framed_where([n for n in edging if gtk4(n) and gtk4(n) not in GTK4_BOUNDS
+                               and gtk4_release(n) >= (4, 14, 6) and not trusted and n.bounds])
+        for n in edging:
+            at = placed.get(n.path)
+            if isinstance(at, str) and wrong(n, "edge", at) or not at and wrong(n, "edge"):
                 continue
-            box = shown(n)
+            b = n.bounds
+            box = [b[0] + at[0], b[1] + at[1], *b[2:]] if at else shown(n)
             if box and not pic.clip(box):
                 notes.append((n, "edge not measured: outside the screen"))
                 continue
@@ -3242,8 +3314,24 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 continue
             colors = (f"{ratio_text(got[0])}:1, {picture.hex_of(got[1])} by "
                       f"{picture.hex_of(got[2])} (at least {edges:g})")
+            moved = f"; moved {at[0]},{at[1]} px, as found drawn where it can be" if at else ""
+            # Not over a why it has already, a graphic's.
+            if at and (got[0] >= edges or not field) and "_why" not in n:
+                n["_why"] = why = (
+                    f"GTK {gtk4(n)} reports where its widgets are wrong, so a control's edge is "
+                    "measured where it's found framed exactly, as most of its siblings are, "
+                    "within the room its containers have; see docs/accessibility.md.")
+                if why not in whys:
+                    whys.append(why)
             if got[0] >= edges:
-                passes.append((n, f"edge passes at {colors}"))
+                passes.append((n, f"edge passes at {colors}{moved}"))
+            elif at:
+                # What it's in is put off by its own padding, not as far.
+                if field:
+                    count -= 1
+                    wrong(n, "edge", "its own edge is faint, and what it's in can't be placed")
+                else:
+                    problems.append((n, f"edge {colors}{moved}"))
             elif field and framed(n, box):
                 passes.append((n, f"edge passes, drawn by what it's in; its own {colors}"))
             else:
@@ -3304,6 +3392,10 @@ SEARCH = 30
 # "GTK 4's positions"). Before 4.14, GTK 4 says where a widget's content
 # is, which is measured, but for its edge and what's in a popover.
 GTK4_BOUNDS = ()
+
+# The most places a GTK 4 control's frame is looked for at: a tenth of a
+# second or so.
+ROOMIEST = 250000
 
 
 def large_text(Atspi, n):
