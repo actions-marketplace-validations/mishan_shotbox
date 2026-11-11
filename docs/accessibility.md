@@ -1014,16 +1014,30 @@ also put such a control where one's drawn: framed, or an icon centered
 with a clear margin, for at least one of them under that container; it's
 measured 3 pixels inside its box, clear of its edge and corners, and
 says how far it was moved, `graphics passes at 14.41:1, #101010 on
-#e0e0e0 (at least 3); moved 12,17 px, as text found near it was`. One
-that can't be placed so isn't measured, a line each saying why: `(no
-text found near it)`, `(a container between it and the text found near
-it has room)` (a header bar's buttons, often), `(text found near it is
-moved by different amounts)`, `(text found near it is moved further
-than it can be)`, `(partly out of view)`, `(too small to tell where
-it's drawn)`, `(no control
+#e0e0e0 (at least 3); moved 12,17 px, as text found near it was`.
+Where no text found near it can say (none is, the texts disagree, or a
+container between has room: a header bar's buttons, often), it's looked
+for where it can be, from where GTK says to as far down and right as its
+containers' room lets it, for a control drawn as above; its siblings,
+under the same container, are moved as far as it is, so it's measured at
+the middle (the median) of where they're found, if most are found within
+a pixel of it, and it within 3 (an icon off its middle, a window's
+minimize line, is found off it): `moved 7,6 px, as found drawn where it
+can be`, to a pixel. Not where its containers have as much room as its
+own size less 3 pixels, where a neighbor could be found for it: all that
+guards one alone in its container, with no siblings to agree. One that
+can't be placed either way isn't measured, a line each saying why:
+`(text found near it is moved further than it can be)`, `(no control
 drawn where text near it puts it)`, `(nothing drawn where text near it
-puts it)`. Before 4.14.6, such controls aren't measured, nor are images
-and edges (`--edges`), a line each: nothing says where they are. Thin text found is
+puts it)`, which aren't looked for elsewhere, as text says where they
+are; `(partly out of view)`, `(too small to tell where it's drawn)`,
+`(too much room round it to find it)`, `(not found drawn where it can
+be)`, for one not found near where most of its siblings are, or none
+with most of them found in one place; `(nothing drawn inside where it's
+found)`, a frame with nothing in it; and `(not looked for, past the 30
+seconds given to looking)`. Before 4.14.6, such controls aren't
+measured, nor are images and edges (`--edges`), a line each: nothing
+says where they are. Thin text found is
 measured from how much of each pixel its glyphs cover (as above), at
 its color; at GTK's own bounds, with `SHOTBOX_TRUST_GTK4_BOUNDS=1`,
 it's measured as drawn, and can measure lighter: `#b0b0b0` text as
