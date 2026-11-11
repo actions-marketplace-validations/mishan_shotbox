@@ -1001,9 +1001,29 @@ Looking takes up to 30 seconds in all; text not looked for by then is
 `text not measured: no time left to look for it`. Finding it needs
 pycairo and PangoCairo (`python3-gi-cairo` and `gir1.2-pango-1.0` on
 Debian, which the Action's `a11y: true` installs, and `shotbox doctor`
-checks): without them, no text is found, and the why says so. Images,
-controls that draw an icon, and edges (`--edges`) aren't measured
-either, a line each: nothing says where they are. Thin text found is
+checks): without them, no text is found, and the why says so. A
+control that draws an icon is measured, from 4.14.6, where text found
+near it was moved to, when that move must be its own too: text under
+the nearest container that has any found, with no container between it
+and either of them that has room round what's in it, where padding of
+its own could be (the found texts agreeing to a pixel). A padded widget
+GTK leaves out of the tree can't be seen in between, and would put such
+a control off by its padding; the check below is what's left to catch
+that. The move must
+also put such a control where one's drawn: framed, or an icon centered
+with a clear margin, for at least one of them under that container; it's
+measured 3 pixels inside its box, clear of its edge and corners, and
+says how far it was moved, `graphics passes at 14.41:1, #101010 on
+#e0e0e0 (at least 3); moved 12,17 px, as text found near it was`. One
+that can't be placed so isn't measured, a line each saying why: `(no
+text found near it)`, `(a container between it and the text found near
+it has room)` (a header bar's buttons, often), `(text found near it is
+moved by different amounts)`, `(text found near it is moved further
+than it can be)`, `(partly out of view)`, `(too small to tell where
+it's drawn)`, `(no control
+drawn where text near it puts it)`, `(nothing drawn where text near it
+puts it)`. Before 4.14.6, such controls aren't measured, nor are images
+and edges (`--edges`), a line each: nothing says where they are. Thin text found is
 measured from how much of each pixel its glyphs cover (as above), at
 its color; at GTK's own bounds, with `SHOTBOX_TRUST_GTK4_BOUNDS=1`,
 it's measured as drawn, and can measure lighter: `#b0b0b0` text as

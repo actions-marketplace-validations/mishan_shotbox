@@ -201,6 +201,40 @@ def edge_contrast(pic, box):
     return (got[0], got[1], out) if got else (1.0, out, out)
 
 
+def drawn_at(pic, box):
+    """Whether `box` holds a control as one is drawn: framed, its edge
+    unlike what's just outside it nearly all round (corners left out, as
+    they're rounded), or an icon, ink unlike both the box's background and
+    its edge, clear of it by 3 pixels all round and centered in it to a
+    pixel. Either puts the box where the control is to a pixel."""
+    x0, y0, w, h = box
+    if x0 < 1 or y0 < 1 or x0 + w >= pic.width or y0 + h >= pic.height or w < 10 or h < 10:
+        return False
+    d, width = pic.data, pic.width
+
+    def lit(x, y):
+        i = (y * width + x) * 3
+        return (2 * d[i] + 5 * d[i + 1] + d[i + 2]) / 8
+    x1, y1 = x0 + w - 1, y0 + h - 1
+    ring = ([((x, y0), (x, y0 - 1)) for x in range(x0 + 3, x1 - 2)]
+            + [((x, y1), (x, y1 + 1)) for x in range(x0 + 3, x1 - 2)]
+            + [((x0, y), (x0 - 1, y)) for y in range(y0 + 3, y1 - 2)]
+            + [((x1, y), (x1 + 1, y)) for y in range(y0 + 3, y1 - 2)])
+    if sum(abs(lit(*a) - lit(*b)) > 10 for a, b in ring) > 0.9 * len(ring):
+        return True
+    edge = Counter(round(lit(*a)) for a, _ in ring).most_common(1)[0][0]
+    back = Counter(round(lit(x, y)) for y in range(y0 + 2, y1 - 1)
+                   for x in (x0 + 2, x1 - 2)).most_common(1)[0][0]
+    ink = [(x, y) for y in range(y0 + 1, y1) for x in range(x0 + 1, x1)
+           if abs(lit(x, y) - back) > 12 and abs(lit(x, y) - edge) > 12
+           and min(x - x0, x1 - x) + min(y - y0, y1 - y) > 4]
+    if len(ink) < 6:
+        return False
+    xs, ys = [x for x, _ in ink], [y for _, y in ink]
+    return (min(xs) - x0 >= 3 and x1 - max(xs) >= 3 and min(ys) - y0 >= 3 and y1 - max(ys) >= 3
+            and abs(min(xs) + max(xs) - x0 - x1) <= 2 and abs(min(ys) + max(ys) - y0 - y1) <= 2)
+
+
 class Lightness:
     """The lightness of each pixel of the picture from x0, y0 up to x1, y1,
     cut to it, less what's behind it if `under` (backdrop's) says (`lum`,

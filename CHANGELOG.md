@@ -4,6 +4,11 @@
 
 ### Added
 
+- `a11y contrast` measures a GTK 4 control that draws an icon (from
+  4.14.6, whose positions are wrong) where text found near it was moved
+  to, when nothing between them could move it further and the picture
+  shows a control drawn there, saying how far it was moved; one that
+  can't be placed so is still a note, now saying why.
 - `capture` and `shoot --redact NODE|WxH+X+Y` (repeatable;
   `term --shoot` too, and Python's `capture(redact=)`) black out a box,
   or a node by its name and all inside it, wherever the screen's tree
