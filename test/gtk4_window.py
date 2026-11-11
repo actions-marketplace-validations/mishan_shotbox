@@ -233,6 +233,7 @@ def edged(app):
                  button("Short", "solid", width_request=200, valign=Gtk.Align.CENTER))
     joined.set_spacing(0)
     row(button("Bevel", "bevel"))
+    row(button("Off", "flat", width_request=60), button("Dim", width_request=60, sensitive=False))
     typing = entry("Typing")
     row(typing, entry("Pale field", "faint"))
     pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, height_request=120)

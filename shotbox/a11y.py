@@ -2954,18 +2954,19 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             return f"not looked for, past the {SEARCH:g} seconds given to looking"
         return {(x - b[0], y - b[1]) for x, y in got}
 
-    def framed_where(ns):
+    def framed_where(ns, others=()):
         """Where each of GTK 4's controls `ns` is drawn, by path: the move
         (dx, dy) it and most of its siblings are found framed at, as their
         containers move them alike; else why it can't be told, a str. Not
         where another control can be: a flat one could be found at a
-        framed one's."""
-        kin, out, claims = {}, {}, {}
-        for n in ns:
+        framed one's, or at one of `others`', which aren't measured, as a
+        disabled one isn't, so don't vote."""
+        kin, out, claims, votes = {}, {}, {}, {n.path for n in ns}
+        for n in (*ns, *others):
             kin.setdefault(n.path.rsplit("/", 1)[0], []).append(n)
         for group in kin.values():
             got = {n.path: framings(n) for n in group}
-            sets = [m for m in got.values() if isinstance(m, set) and m]
+            sets = [m for p, m in got.items() if p in votes and isinstance(m, set) and m]
             top = Counter(d for m in sets for d in m).most_common(2)
             at = (top and 2 * top[0][1] > len(sets) and (len(top) < 2 or top[1][1] < top[0][1])
                   and top[0][0]) or None
@@ -3292,11 +3293,14 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             if why not in whys:
                 whys.append(why)
     if edges:
-        edging = [n for n in nodes if n._showing and not disabled(n) and (
+        kinds = [n for n in nodes if n._showing and (
             n._role in edged or (n._role == Atspi.Role.TEXT and "editable" in n.states))
-            and not gtk3_switch(Atspi, n) and not covered(n, "edge")]
-        placed = framed_where([n for n in edging if gtk4(n) and gtk4(n) not in GTK4_BOUNDS
-                               and gtk4_release(n) >= (4, 14, 6) and not trusted and n.bounds])
+            and not gtk3_switch(Atspi, n)]
+        edging = [n for n in kinds if not disabled(n) and not covered(n, "edge")]
+        late = [n for n in kinds if gtk4(n) and gtk4(n) not in GTK4_BOUNDS
+                and gtk4_release(n) >= (4, 14, 6) and not trusted and n.bounds]
+        placed = framed_where([n for n in late if n in edging],
+                              [n for n in late if n not in edging])
         for n in edging:
             at = placed.get(n.path)
             if isinstance(at, str) and wrong(n, "edge", at) or not at and wrong(n, "edge"):

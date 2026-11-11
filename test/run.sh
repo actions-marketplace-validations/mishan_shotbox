@@ -1802,7 +1802,7 @@ PY
     # one drawn flat; nor framed elsewhere than most, or where no move has
     # most; nor where another control can be; nor focused, its ring on its
     # edge; nor a field's faint edge, as what it's in might draw one; nor
-    # one partly scrolled out.
+    # one partly scrolled out; nor a flat one beside a disabled one.
     "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' edged & '$sb' wait window gtk4-edged >/dev/null &&
       sleep 1 && '$sb' a11y contrast --edges 3 --passes --window gtk4-edged --json" > "$tmp/edged" 2>/dev/null || true
     python3 - "$tmp/edged" <<'PY' && ok "a11y: contrast --edges, GTK 4 where found framed exactly, as most of its siblings are" \
@@ -1833,7 +1833,7 @@ bad = [m for m, ok in [
     ("Typing", noted("Typing", "its focus ring is drawn on its edge")),
     ("Pale field", noted("Pale field", "its own edge is faint, and what it's in can't be placed")),
     ("Twin", noted("Twin", "found framed in more than one place")),
-    ("Hover", noted("Hover", "found framed where another control can be")),
+    *[(n, noted(n, "found framed where another control can be")) for n in ("Hover", "Off")],
     ("Hid", noted("Hid", "partly out of view"))] if not ok]
 print(*bad, *[f"{k}: {v.get('problem') or v.get('contrast') or v.get('note')}"
               for k, v in said.items()], sep="\n")

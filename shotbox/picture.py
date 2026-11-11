@@ -211,16 +211,21 @@ def framed_in(pic, area, w, h, until=None):
     x1, y1 = min(area[0] + area[2], pic.width - 1), min(area[1] + area[3], pic.height - 1)
     if x1 - x0 < w or y1 - y0 < h or w < 10 or h < 10:
         return []
-    d, width = pic.data, pic.width
-    # From a pixel above and left of `area`, to one below and right.
-    lit = [[(2 * d[j] + 5 * d[j + 1] + d[j + 2]) / 8 for j in range(i, i + (x1 - x0 + 2) * 3, 3)]
-           for i in ((y * width + x0 - 1) * 3 for y in range(y0 - 1, y1 + 1))]
-    across, down, col = [None], [], [0] * len(lit[0])
-    for r, row in enumerate(lit):
-        if r:
-            across.append([0, *accumulate(abs(a - b) > 10 for a, b in zip(row, lit[r - 1]))])
+    d, width, n = pic.data, pic.width, x1 - x0 + 2
+    # From a pixel above and left of `area`, to one below and right; in
+    # arrays, as a list takes 6 times the room, which a big control's
+    # area at 4K makes hundreds of megabytes.
+    lit, across, down, col = [], [None], [], array("H", bytes(2 * n))
+    for i in ((y * width + x0 - 1) * 3 for y in range(y0 - 1, y1 + 1)):
+        if until and time.monotonic() > until:
+            return None
+        row = array("f", [(2 * d[j] + 5 * d[j + 1] + d[j + 2]) / 8 for j in range(i, i + n * 3, 3)])
+        if lit:
+            across.append(array("H", [0, *accumulate(abs(a - b) > 10
+                                                     for a, b in zip(row, lit[-1]))]))
         down.append(col)
-        col = [c + (abs(a - b) > 10) for c, a, b in zip(col, row, [row[0], *row])]
+        col = array("H", [c + (abs(a - b) > 10) for c, a, b in zip(col, row, [row[0], *row])])
+        lit.append(row)
     down.append(col)
     out = []
     for r in range(1, y1 - y0 - h + 2):
