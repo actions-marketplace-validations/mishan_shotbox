@@ -2452,7 +2452,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     def font(n):
         if n.path not in fonts:
             try:
-                fonts[n.path] = Atspi.Text.get_attribute_run(n._acc, 0, True)[0] or {}
+                attrs, _, end = Atspi.Text.get_attribute_run(n._acc, 0, True)
+                # Where that run ends, for text_shapes to underline only it:
+                # GTK says the runs after it wrong (from 0, none underlined).
+                fonts[n.path] = {**attrs, "run-end": str(end)} if attrs else {}
             except Exception:   # no text, or gone since the walk
                 fonts[n.path] = None
         return fonts[n.path]
@@ -3440,6 +3443,8 @@ def text_shapes(text, attrs, dy=0):
     font.set_weight(min(Pango.Weight.__enum_values__.values(), key=lambda w: abs(w - int(weight)))
                     if weight.isdigit() else Pango.Weight.NORMAL)
     font.set_style(Pango.Style.ITALIC if attrs.get("style") == "italic" else Pango.Style.NORMAL)
+    # Said by Pango's name for it (single, low); "false" or "none" for none.
+    under = getattr(Pango.Underline, attrs.get("underline", "").upper().replace("-", "_"), None)
     try:
         size = float(attrs.get("size", "")) * float(attrs.get("scale", 1))
     except ValueError:
@@ -3461,6 +3466,11 @@ def text_shapes(text, attrs, dy=0):
                 PangoCairo.context_set_font_options(got.get_context(), options)
                 got.set_font_description(font)
                 got.set_text(text, -1)
+                if under:
+                    marks, line = Pango.AttrList(), Pango.attr_underline_new(under)
+                    line.end_index = len(text[:int(attrs.get("run-end", len(text)))].encode())
+                    marks.insert(line)
+                    got.set_attributes(marks)
                 return got
             blank = cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1))
             _, logical = layout(blank).get_pixel_extents()
