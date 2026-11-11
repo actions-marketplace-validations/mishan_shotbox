@@ -1718,6 +1718,51 @@ assert j['notes'] and all('not shown' in n['note'] for n in j['notes']), j" "$tm
       && ok "a11y: contrast, GTK 4 from 4.14: text where it's found, a stack's too; not a popover or an edge, said" \
       || { fail "a11y: contrast, GTK 4 from 4.14 ($st)"; cat "$tmp/contrast"; }
   fi
+  # A GTK 4 graphic is measured where text found near it was moved to, if
+  # no container between them has room (padding, or not) and something's
+  # drawn there: its own colors, the CSS's (gtk4_window.py anchored). Not
+  # where a padded button holds the text, where nothing's drawn, or only
+  # an icon off its middle, nor partly scrolled out, as GTK says or as
+  # it's drawn; through a box with no room, as if it weren't there; a
+  # blink, both its colors.
+  if [ "$minor" -gt 14 ] || { [ "$minor" = 14 ] && [ "$micro" -ge 6 ]; }; then
+    "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' anchored & '$sb' wait window gtk4-anchored >/dev/null &&
+      sleep 1 && '$sb' a11y contrast --passes --window gtk4-anchored --json" > "$tmp/anchored" 2>/dev/null || true
+    python3 - "$tmp/anchored" <<'PY' && ok "a11y: contrast, GTK 4 graphics where text found near them puts them, if certain" \
+      || { fail "a11y: contrast, GTK 4 graphics placed by text found near them"; cat "$tmp/anchored"; }
+import json, re, sys
+got = json.load(open(sys.argv[1]))
+said = {n["name"]: n.get("problem") or n.get("contrast") or n.get("note")
+        for k in ("problems", "passes", "notes") for n in got[k]}
+def near(line, fore, back):
+    c = re.search(r"(#[0-9a-f]{6}) on (#[0-9a-f]{6})", line or "")
+    return c and all(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) <= 8
+                     for a, b in zip(c.groups(), (fore, back)) for i in (1, 3, 5))
+moved = "; moved 12,17 px, as text found near it was"
+bad = [m for m, ok in [
+    ("Faint", near(said.get("Faint"), "#b0b0b0", "#c0c0c0") and said["Faint"].startswith("graphics 1.")
+     and said["Faint"].endswith(moved)),
+    ("Dark", near(said.get("Dark"), "#101010", "#e0e0e0") and said["Dark"].startswith("graphics passes")
+     and said["Dark"].endswith(moved)),
+    ("Nested", near(said.get("Nested"), "#101010", "#e0e0e0")
+     and said["Nested"].startswith("graphics passes") and said["Nested"].endswith(moved)),
+    ("Over", said.get("Over") == "graphics not measured: GTK 4 reports its position wrong "
+     "(partly out of view)"),
+    ("Blank", said.get("Blank") == "graphics not measured: GTK 4 reports its position wrong "
+     "(nothing drawn where text near it puts it)"),
+    ("Beside", (said.get("Beside") or "").startswith("graphics not measured: GTK 4 reports its "
+     "position wrong (a container between it and the text found near it has room")),
+    ("Aside", said.get("Aside") == "graphics not measured: GTK 4 reports its position wrong "
+     "(no control drawn where text near it puts it)"),
+    ("Away", said.get("Away") == "graphics not measured: GTK 4 reports its position wrong "
+     "(partly out of view)"),
+    ("Pulse", (said.get("Pulse") or "").startswith("graphics changing:"))] if not ok]
+print(*bad, *[f"{k}: {v}" for k, v in said.items()], sep="\n")
+sys.exit(bool(bad))
+PY
+  else
+    echo "skip  a11y: contrast, GTK 4 graphics placed by text found near them: GTK 4.$minor.$micro, before 4.14.6"
+  fi
   # A program that doesn't answer, stopped: each command that reads the
   # tree says so, by 1 s past its timeout, from the command line and
   # Python, rather than that a window or node isn't there, or that it
