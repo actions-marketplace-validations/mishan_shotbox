@@ -455,7 +455,7 @@ try:
     said, _, _ = tool("check_accessible_names", session="t", window="a11y-test", ignore=["image", '^panel ""'])
     check(len(said.splitlines()) == 1 and "button with no name" in said,
           f"check_accessible_names: ignore found in a tree line, by a path ({said!r})")
-    said, bad, _ = tool("check_contrast", session="t", window="a11y-test", passes=True)
+    said, bad, _ = tool("check_contrast", session="t", window="a11y-test", passes=True, edges=3)
     check(not bad and "not measured, which doesn't fail" in said and "reports where" in said
           and re.search(r"^\d+ pass:\n.*: text passes at ", said, re.M),
           f"check_contrast: GTK 4, its text found and passing, the rest not measured, said ({said!r})")
@@ -849,7 +849,7 @@ try:
     tool("start_session", name="f")
     tool("spawn_program", session="f", program="fading")
     tool("wait_for", session="f", what="window", value="a11y-test", timeout=20)
-    said, bad, _ = tool("check_contrast", session="f", window="a11y-test")
+    said, bad, _ = tool("check_contrast", session="f", window="a11y-test", edges=3)
     check(not bad and re.search(r"^1 changing, which doesn't fail:\n.*: text changing: "
                                 r"\d\.\d\d:1 to \d+\.\d\d:1 \(at least 4\.5\); found .*\n\d+ not measured", said, re.M)
           and "Its contrast changed over 6 pictures" in said,

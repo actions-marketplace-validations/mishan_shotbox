@@ -16,11 +16,15 @@ button and below it a group named Nothing with nothing in it, 0 pixels
 tall. `anchored` is a window, gtk4-anchored, in a box with a border and
 padding, of rows of a label and icon buttons: Faint (#b0b0b0 on
 #c0c0c0), Dark (#101010 on #e0e0e0) and Blank, with no icon; Beside,
-next to a padded text button; Nested, in a box of its own; Away, half
-scrolled out; Over, in its scrolled window as GTK says, but not where
-it's drawn, its padding left out; Aside, its icon
-off its middle; and Pulse, Dark and Faint by turns, its row padded
-further."""
+next to a padded text button; Nested, in a box of its own; in boxes
+padded 5 px across with no text, Up, Shut, Even, Low, its icon low, and Askew,
+its icon well off its middle; Lone, beside Void and Empty, with none; Left
+and Right, theirs off their middles each way; Pale, faint, linked to
+Bold; and Hid, half scrolled out; Roomy and Roomier, in boxes 18 and 19
+px wider than them; Away, half scrolled out; Over, in its scrolled
+window as GTK says, but not where it's drawn, its padding left out;
+Aside, its icon off its middle; and Pulse, Dark and Faint by turns, its
+row padded further."""
 
 import os
 import signal
@@ -107,17 +111,37 @@ def anchored(app):
         b.update_property([Gtk.AccessibleProperty.LABEL], [label])
         return b
 
-    def row(*children):
-        r = Gtk.Box(spacing=6)
+    def row(*children, spacing=6, css=(), into=box):
+        r = Gtk.Box(spacing=spacing, halign=Gtk.Align.START, css_classes=list(css))
         for c in children:
             r.append(c)
-        box.append(r)
+        if into:
+            into.append(r)
         return r
     snug = Gtk.Box()
     snug.append(icon("window-minimize-symbolic", "dark", "Nested"))
     row(Gtk.Label(label="Plain words"), icon("window-close-symbolic", "faint", "Faint"),
         icon("window-maximize-symbolic", "dark", "Dark"), icon(None, "plain", "Blank"), snug)
-    row(Gtk.Button(label="Padded"), icon("window-minimize-symbolic", "dark", "Beside"))
+    row(Gtk.Button(label="Padded"), icon("window-maximize-symbolic", "dark", "Beside"))
+    row(icon("window-maximize-symbolic", "dark", "Up"), icon("window-close-symbolic", "dark", "Shut"),
+        icon("window-maximize-symbolic", "dark", "Even"), icon("window-maximize-symbolic", "low", "Low"),
+        icon("window-close-symbolic", "aside", "Askew"), css=["room"])
+    row(icon("window-maximize-symbolic", "dark", "Lone"), icon(None, "plain", "Void"),
+        icon(None, "plain", "Empty"), css=["room"])
+    row(icon("window-maximize-symbolic", "left", "Left"),
+        icon("window-maximize-symbolic", "right", "Right"), css=["room"])
+    row(icon("window-close-symbolic", "faint", "Pale"), icon("window-close-symbolic", "dark", "Bold"),
+        spacing=0, css=["room"])
+    box.append(Gtk.ScrolledWindow(
+        child=row(Gtk.Label(label="Scrolled further", width_request=100, xalign=0),
+                  row(icon("window-close-symbolic", "dark", "Hid"), css=["room"], into=None),
+                  into=None),
+        min_content_width=120, max_content_width=120, halign=Gtk.Align.START,
+        vscrollbar_policy=Gtk.PolicyType.NEVER))
+    for width, name in ((54, "Roomy"), (55, "Roomier")):
+        r = Gtk.Box(width_request=width)
+        r.append(icon("window-maximize-symbolic", "dark", name))
+        row(r)
     inner = Gtk.Box(spacing=6)
     inner.append(Gtk.Label(label="Scrolled across"))
     inner.append(icon("window-close-symbolic", "dark", "Away"))
@@ -139,12 +163,16 @@ def anchored(app):
     box.get_last_child().append(far)
     provider = Gtk.CssProvider()
     provider.load_from_string(
-        "box.padded { padding: 14px 9px; border: 3px solid #808080; }"
+        "box.padded { padding: 6px 4px; border: 3px solid #808080; }"
         " button.faint { background: #c0c0c0; color: #b0b0b0; }"
         " button.dark { background: #e0e0e0; color: #101010; }"
         " box.far { padding: 40px; }"
         " box.spill { padding: 0 16px; }"
-        " button.aside { background: none; color: #101010; padding: 0 24px 0 2px; }")
+        " button.aside { background: none; color: #101010; padding: 0 24px 0 2px; }"
+        " box.room { padding: 0 5px; }"
+        " button.low { background: none; color: #101010; padding: 9px 5px 5px; }"
+        " button.left { background: none; color: #101010; padding: 0 8px 0 2px; }"
+        " button.right { background: none; color: #101010; padding: 0 2px 0 8px; }")
     Gtk.StyleContext.add_provider_for_display(w.get_display(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     w.set_child(box)

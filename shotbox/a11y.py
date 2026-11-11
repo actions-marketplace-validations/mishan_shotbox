@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+import statistics
 import sys
 import threading
 import time
@@ -2379,7 +2380,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         return rel[n.path]
 
     areas, fonts, drawings, lays, refused, aparts, doubt, both = {}, {}, {}, {}, {}, {}, {}, {}
-    groups, anchors = {}, {}
+    groups, anchors, votes, sought = {}, {}, {}, set()
 
     def spare(up, child, sizes=True):
         """What `up` adds to how far GTK puts `child`, its child, off: None
@@ -2835,7 +2836,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         icon."""
         got = anchor(n)
         if isinstance(got, str):
-            return got
+            return found_drawn(n)
         (dx, dy), b = got[1], n.bounds
         box = [b[0] + dx, b[1] + dy, b[2], b[3]]
         # A scroll pane is where GTK says or as far as `n` further: in it
@@ -2858,6 +2859,66 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         # edge's to measure, against what's behind them.
         return ([box[0] + 3, box[1] + 3, box[2] - 6, box[3] - 6], (dx, dy), None) if groups[got] \
             else "no control drawn where text near it puts it"
+
+    def places(n):
+        """Where GTK 4's graphic `n`, with no text near it to go by, is
+        drawn as a control is, as moves (dx, dy) from where GTK says, a set,
+        of each place it can be: where GTK says, or further down and right
+        by up to the room its containers have. Else why it isn't looked
+        for, a str: room enough that a neighbor could be found for it, say."""
+        b, r, s = n.bounds, room(n), shown(n)
+        # Cut by what it's in, as a carousel's hidden page is; not by a
+        # pixel, as GTK puts a header bar's container outside what it's in.
+        if not r or not s or any(abs(i - j) > 1 for i, j in zip(s, b)):
+            return "partly out of view"
+        if min(b[2:]) < 10:
+            return "too small to tell where it's drawn"
+        xs = range(r[0] - b[0], r[0] + r[2] - b[0] - b[2] + 1)
+        ys = range(r[1] - b[1], r[1] + r[3] - b[1] - b[3] + 1)
+        if len(xs) > b[2] - 3 or len(ys) > b[3] - 3:
+            return "too much room round it to find it"
+        boxes = {(dx, dy): [b[0] + dx, b[1] + dy, *b[2:]] for dx in xs for dy in ys}
+        # A scroll pane is moved as far as `n` or less: in it either way.
+        panes = [o.bounds for o in nodes if o._role == Atspi.Role.SCROLL_PANE
+                 and within(n.path, o.path) and o.bounds]
+        if any(overlap(o, q) != o or overlap(o, [q[0] + dx, q[1] + dy, *q[2:]]) != o
+               for (dx, dy), o in boxes.items() for q in panes):
+            return "partly out of view"
+        got = set()
+        for d, o in boxes.items():
+            if time.monotonic() > until:
+                return f"not looked for, past the {SEARCH:g} seconds given to looking"
+            if picture.drawn_at(pic, o):
+                got.add(d)
+        return got
+
+    def found_drawn(n):
+        """Where GTK 4's graphic `n` is drawn, by where it's found drawn,
+        as borrowed() has it; else why it can't be told, a str. Its
+        siblings are moved as far as it is, so it's taken at the median of
+        where they're found, if most are found within a pixel of it and it
+        within 3: an icon off its middle is found off it."""
+        up = n.path.rsplit("/", 1)[0]
+        if up not in votes:
+            got = {o.path: places(o) for o in measured if o.path.rsplit("/", 1)[0] == up
+                   and placeable(o) and leaf(o) and o.bounds and isinstance(anchor(o), str)}
+
+            def spread(s):
+                return max(max(p[i] for p in s) - min(p[i] for p in s) for i in (0, 1))
+            centers = [[(min(p[i] for p in m) + max(p[i] for p in m)) / 2 for i in (0, 1)]
+                       for m in got.values() if isinstance(m, set) and m and spread(m) <= 2]
+            mid = [statistics.median(c[i] for c in centers) for i in (0, 1)] if centers else None
+            near = [c for c in centers if max(abs(c[0] - mid[0]), abs(c[1] - mid[1])) <= 1]
+            votes[up] = (2 * len(near) > len(got) and tuple(int(m + 0.5) for m in mid), got)
+        at, got = votes[up]
+        mine = got[n.path]
+        if isinstance(mine, str):
+            return mine
+        if not at or not any(max(abs(p[0] - at[0]), abs(p[1] - at[1])) <= 3 for p in mine):
+            return "not found drawn where it can be"
+        sought.add(n.path)
+        b = n.bounds
+        return [b[0] + at[0] + 3, b[1] + at[1] + 3, b[2] - 6, b[3] - 6], at, None
 
     def covered(n, k):
         """Whether `n` is behind a modal dialog: said apart if so."""
@@ -3025,7 +3086,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if small:
             notes.append((n, f"{k} too small to measure, {got[3]} pixels"))
         elif got is None and lent:
-            wrong(n, k, "nothing drawn where text near it puts it")
+            wrong(n, k, "nothing drawn inside where it's found" if n.path in sought
+                  else "nothing drawn where text near it puts it")
         elif got is None and (k == "text" or n._role in controls):
             # What it draws can be past the screen's edge: right-aligned text.
             if cut:
@@ -3042,7 +3104,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             uncounted.add(id(n))
             taken.append((n, k, least, at, box, None, ""))
         elif got:
-            moved = (f"; moved {seen[1][0]},{seen[1][1]} px, as text found near it was" if lent
+            moved = (f"; moved {seen[1][0]},{seen[1][1]} px, as " + (
+                "found drawn where it can be" if n.path in sought else "text found near it was")
+                     if lent
                      else f"; found {seen[1][0]},{seen[1][1]} px from " + (
                          f"where GTK {gtk4(n)} says its text is" if laid(n)
                          else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
@@ -3051,6 +3115,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     f"GTK {gtk4(n)} reports where its widgets are wrong, so a graphic is "
                     "measured where text found near it was moved to, if nothing between "
                     "them can move it more and something's drawn there; see "
+                    "docs/accessibility.md." if n.path not in sought else
+                    f"GTK {gtk4(n)} reports where its widgets are wrong, so a graphic with no "
+                    "text near it to go by is measured where it and most of its siblings are "
+                    "found drawn, within the room its containers have; see "
                     "docs/accessibility.md.")
                 if why not in whys:
                     whys.append(why)
