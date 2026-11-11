@@ -3047,10 +3047,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                          f"where GTK {gtk4(n)} says its text is" if laid(n)
                          else f"the corner of the box GTK {gtk4(n)} says") if seen else "")
             if lent:
-                why = (f"GTK {gtk4(n)} reports where its widgets are wrong, so a graphic is "
-                       "measured where text found near it was moved to, if nothing between "
-                       "them can move it more and something's drawn there; see "
-                       "docs/accessibility.md.")
+                n["_why"] = why = (
+                    f"GTK {gtk4(n)} reports where its widgets are wrong, so a graphic is "
+                    "measured where text found near it was moved to, if nothing between "
+                    "them can move it more and something's drawn there; see "
+                    "docs/accessibility.md.")
                 if why not in whys:
                     whys.append(why)
             twice = seen and n.path in both

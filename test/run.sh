@@ -1741,7 +1741,8 @@ def near(line, fore, back):
 moved = "; moved 12,17 px, as text found near it was"
 bad = [m for m, ok in [
     ("Faint", near(said.get("Faint"), "#b0b0b0", "#c0c0c0") and said["Faint"].startswith("graphics 1.")
-     and said["Faint"].endswith(moved)),
+     and said["Faint"].endswith(moved) and "where text found near it was moved to" in next(
+         n.get("why", "") for n in got["problems"] if n["name"] == "Faint")),
     ("Dark", near(said.get("Dark"), "#101010", "#e0e0e0") and said["Dark"].startswith("graphics passes")
      and said["Dark"].endswith(moved)),
     ("Nested", near(said.get("Nested"), "#101010", "#e0e0e0")
