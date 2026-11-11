@@ -2455,7 +2455,7 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 attrs, _, end = Atspi.Text.get_attribute_run(n._acc, 0, True)
                 # Where that run ends, for text_shapes to underline only it:
                 # GTK says the runs after it wrong (from 0, none underlined).
-                fonts[n.path] = {**(attrs or {}), "run-end": str(end)}
+                fonts[n.path] = {**attrs, "run-end": str(end)} if attrs else {}
             except Exception:   # no text, or gone since the walk
                 fonts[n.path] = None
         return fonts[n.path]
