@@ -123,7 +123,7 @@ def a11y():
         problems = s.a11y_lint(window="a11y-test", ignore=[r"image\[", "panel with"])
         check([n.problem for n in problems] == [f"{button[0]} with no name"],
               f"a11y: a11y_lint(), ignoring some ({[n.problem for n in problems]})")
-        got = s.contrast(window="a11y-test", passes=True)
+        got = s.contrast(window="a11y-test", passes=True, edges=3)
         check(not got["problems"] and got["notes"] and got["passes"]
               and all("reports where" in n.get("why", "") for n in got["notes"]),
               f"a11y: contrast() on GTK 4, its text found and passing, the rest said why "

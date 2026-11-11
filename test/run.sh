@@ -1391,13 +1391,13 @@ if atspi; then
     '$sb' a11y contrast --passes --json --window a11y-test > '$tmp/contrast.json' && exit \$s" \
     > "$tmp/contrast" 2> "$tmp/err"
   st=$?; set -e
-  [ $st = 1 ] && [ "$(grep -v " not measured: GTK 4 reports its position wrong\|$unfound" "$tmp/contrast" | grep -cv ': text passes at ')" = 1 ] \
+  [ $st = 1 ] && [ "$(grep -v " not measured: GTK 4 reports its position wrong\|$unfound" "$tmp/contrast" | grep -cv ': \(text\|graphics\) passes at ')" = 1 ] \
     && grep -q ': text passes at [0-9]*\.[0-9][0-9]:1, #[0-9a-f]\{6\} on #[0-9a-f]\{6\} (at least 4\.5)' "$tmp/contrast" \
     && python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
 assert [p['problem'][:8] for p in j['problems'] if 'not found' not in p['problem']] == ['text 2.5'], j['problems']
 assert all(p['why'] for p in j['problems'] if 'not found' in p['problem'])
 assert j['notes'] and all(' not measured: ' in n['note'] and n['why'] for n in j['notes'])
-assert j['passes'] and all(p['contrast'].startswith('text passes at ') for p in j['passes'])" "$tmp/contrast.json" \
+assert j['passes'] and all(p['contrast'].startswith(('text passes at ', 'graphics passes at ')) for p in j['passes'])" "$tmp/contrast.json" \
     && grep -q '/label\[[0-9]*\]: text 2\.5[01]:1, #a0a0a0 on #fafaf[ab] (at least 4\.5); found -\?[0-9]*,-\?[0-9]* px from \(where GTK 4\.[0-9.]* says its text is\|the corner of the box GTK 4\.[0-9.]* says\)$' "$tmp/contrast" \
     && grep -q 'button\[[0-9]*\]/label\[0\]: text not measured: GTK 4 reports its position wrong' "$tmp/contrast" \
     && grep -q 'check box\[[0-9]*\]/label\[[0-9]*\]: text passes at .*; found [0-9],[0-9] px from ' "$tmp/contrast" \
@@ -1677,9 +1677,10 @@ CASES
     [ $st = 1 ] && grep -q ': text not found, but nothing where it can be' "$tmp/contrast" \
       && ok "a11y: contrast --strict fails what fails, where nothing else is measured" \
       || { fail "a11y: contrast --strict, lone ($st)"; cat "$tmp/contrast"; }
-    # --strict fails what isn't measured, but rows scrolled out of view
-    # stay notes, as GTK 3 and browsers say nothing of theirs.
-    "$sb" run --a11y -- sh -c "'$app' long down & '$sb' a11y contrast --strict --json --window a11y-test" \
+    # --strict fails what isn't measured (GTK 4's edges), but rows
+    # scrolled out of view stay notes, as GTK 3 and browsers say nothing
+    # of theirs.
+    "$sb" run --a11y -- sh -c "'$app' long down & '$sb' a11y contrast --strict --edges 3 --json --window a11y-test" \
       < /dev/null > "$tmp/contrast.json" 2>/dev/null
     python3 -c "import json, sys; j = json.load(open(sys.argv[1]))
 assert j['problems'] and not any('not shown' in p['problem'] for p in j['problems']), j
@@ -1721,10 +1722,9 @@ assert j['notes'] and all('not shown' in n['note'] for n in j['notes']), j" "$tm
   # A GTK 4 graphic is measured where text found near it was moved to, if
   # no container between them has room (padding, or not) and something's
   # drawn there: its own colors, the CSS's (gtk4_window.py anchored). Not
-  # where a padded button holds the text, where nothing's drawn, or only
-  # an icon off its middle, nor partly scrolled out, as GTK says or as
-  # it's drawn; through a box with no room, as if it weren't there; a
-  # blink, both its colors.
+  # where nothing's drawn, or only an icon off its middle, nor partly
+  # scrolled out, as GTK says or as it's drawn; through a box with no
+  # room, as if it weren't there; a blink, both its colors.
   if [ "$minor" -gt 14 ] || { [ "$minor" = 14 ] && [ "$micro" -ge 6 ]; }; then
     "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' anchored & '$sb' wait window gtk4-anchored >/dev/null &&
       sleep 1 && '$sb' a11y contrast --passes --window gtk4-anchored --json" > "$tmp/anchored" 2>/dev/null || true
@@ -1738,7 +1738,7 @@ def near(line, fore, back):
     c = re.search(r"(#[0-9a-f]{6}) on (#[0-9a-f]{6})", line or "")
     return c and all(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) <= 8
                      for a, b in zip(c.groups(), (fore, back)) for i in (1, 3, 5))
-moved = "; moved 12,17 px, as text found near it was"
+moved = "; moved 7,9 px, as text found near it was"
 bad = [m for m, ok in [
     ("Faint", near(said.get("Faint"), "#b0b0b0", "#c0c0c0") and said["Faint"].startswith("graphics 1.")
      and said["Faint"].endswith(moved) and "where text found near it was moved to" in next(
@@ -1751,13 +1751,48 @@ bad = [m for m, ok in [
      "(partly out of view)"),
     ("Blank", said.get("Blank") == "graphics not measured: GTK 4 reports its position wrong "
      "(nothing drawn where text near it puts it)"),
-    ("Beside", (said.get("Beside") or "").startswith("graphics not measured: GTK 4 reports its "
-     "position wrong (a container between it and the text found near it has room")),
     ("Aside", said.get("Aside") == "graphics not measured: GTK 4 reports its position wrong "
      "(no control drawn where text near it puts it)"),
     ("Away", said.get("Away") == "graphics not measured: GTK 4 reports its position wrong "
      "(partly out of view)"),
     ("Pulse", (said.get("Pulse") or "").startswith("graphics changing:"))] if not ok]
+print(*bad, *[f"{k}: {v}" for k, v in said.items()], sep="\n")
+sys.exit(bool(bad))
+PY
+    # With no text near to go by, where it's found drawn within the room
+    # its containers have, as most of its siblings are: an icon off its
+    # middle where they are, but not one far off it; none where they don't
+    # agree, or most aren't found, so far in that a neighbor could be
+    # found for it, or partly scrolled out.
+    python3 - "$tmp/anchored" <<'PY' && ok "a11y: contrast, GTK 4 graphics where they and their siblings are found drawn" \
+      || { fail "a11y: contrast, GTK 4 graphics found drawn"; cat "$tmp/anchored"; }
+import json, re, sys
+got = json.load(open(sys.argv[1]))
+said = {n["name"]: n.get("problem") or n.get("contrast") or n.get("note")
+        for k in ("problems", "passes", "notes") for n in got[k]}
+def at(name, dx, dy, fore="#101010", back="#e0e0e0", problem=False):
+    line = said.get(name) or ""
+    c = re.search(r"(#[0-9a-f]{6}) on (#[0-9a-f]{6})", line)
+    return (c and all(abs(int(a[i:i + 2], 16) - int(b[i:i + 2], 16)) <= 8
+                      for a, b in zip(c.groups(), (fore, back)) for i in (1, 3, 5))
+            and line.startswith("graphics 1." if problem else "graphics passes")
+            and line.endswith(f"; moved {dx},{dy} px, as found drawn where it can be"))
+def noted(name, why):
+    return said.get(name) == f"graphics not measured: GTK 4 reports its position wrong ({why})"
+bad = [m for m, ok in [
+    ("Beside", at("Beside", 7, 9)),
+    ("Up", at("Up", 12, 9)), ("Shut", at("Shut", 12, 9)), ("Even", at("Even", 12, 9)),
+    ("Low", at("Low", 12, 9, back="#f6f5f4")),
+    ("Askew", noted("Askew", "not found drawn where it can be")),
+    ("Lone", noted("Lone", "not found drawn where it can be")),
+    ("Left", noted("Left", "not found drawn where it can be")),
+    ("Right", noted("Right", "not found drawn where it can be")),
+    ("Pale", at("Pale", 12, 9, "#b0b0b0", "#c0c0c0", problem=True)
+     and "where it and most of its siblings are found drawn" in next(
+         n.get("why", "") for n in got["problems"] if n["name"] == "Pale")),
+    ("Bold", at("Bold", 12, 9)),
+    ("Hid", noted("Hid", "partly out of view")), ("Roomy", at("Roomy", 7, 9)),
+    ("Roomier", noted("Roomier", "too much room round it to find it"))] if not ok]
 print(*bad, *[f"{k}: {v}" for k, v in said.items()], sep="\n")
 sys.exit(bool(bad))
 PY
