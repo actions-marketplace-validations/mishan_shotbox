@@ -2452,7 +2452,10 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
     def font(n):
         if n.path not in fonts:
             try:
-                fonts[n.path] = Atspi.Text.get_attribute_run(n._acc, 0, True)[0] or {}
+                attrs, _, end = Atspi.Text.get_attribute_run(n._acc, 0, True)
+                # Where that run ends, for text_shapes to underline only it:
+                # GTK says the runs after it wrong (from 0, none underlined).
+                fonts[n.path] = {**(attrs or {}), "run-end": str(end)}
             except Exception:   # no text, or gone since the walk
                 fonts[n.path] = None
         return fonts[n.path]
@@ -3464,8 +3467,9 @@ def text_shapes(text, attrs, dy=0):
                 got.set_font_description(font)
                 got.set_text(text, -1)
                 if under:
-                    marks = Pango.AttrList()
-                    marks.insert(Pango.attr_underline_new(under))
+                    marks, line = Pango.AttrList(), Pango.attr_underline_new(under)
+                    line.end_index = len(text[:int(attrs.get("run-end", len(text)))].encode())
+                    marks.insert(line)
                     got.set_attributes(marks)
                 return got
             blank = cairo.Context(cairo.ImageSurface(cairo.FORMAT_A8, 1, 1))

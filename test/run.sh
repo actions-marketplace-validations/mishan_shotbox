@@ -1542,7 +1542,8 @@ for j in runs:
   # as 4.60 and 5.17). A "." and a ",", too few pixels to have a core of
   # their color, at their color too. And a weight CSS gives that Pango
   # doesn't name (450) is looked for, not a crash; underlined text, with
-  # its line. A case a line: the label; what's said.
+  # its line, and only as far as it goes. A case a line: the label; what's
+  # said.
   if [ "$minor" -ge 14 ]; then
     glyphs="Ill|DejaVu Sans|9|400|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff
 lIl|DejaVu Sans|9|400|#b0b0b0|#353535; passes at 5\.65:1, #b0b0b0 on #353535
@@ -1558,7 +1559,8 @@ Settings|Cantarell|9.5|400|#777777|#ffffff|0 1px rgba(0,0,0,0.1); [1-4]\.[0-9]*:
 ,|DejaVu Sans|13|400|#aaaaaa|#ffffff; 2\.32:1, #aaaaaa on #ffffff
 Book|DejaVu Sans|13|450|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff
 <u>Linked</u>|DejaVu Sans|13|400|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff
-<u>Under</u>|DejaVu Sans|13|400|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff"
+<u>Under</u>|DejaVu Sans|13|400|#c8c8c8|#ffffff; 1\.67:1, #c8c8c8 on #ffffff
+<u>Part</u> lined|DejaVu Sans|13|400|#5f5670|#ffffff; passes at 6\.88:1, #5f5670 on #ffffff"
     labels=$(echo "$glyphs" | sed "s/; .*//; s/.*/'&'/" | tr '\n' ' ')
     "$sb" run --a11y -- sh -c "'$here/gtk4_window.py' glyphs $labels & '$sb' wait window gtk4-glyphs \
       >/dev/null && sleep 1 && '$sb' a11y contrast --passes --window gtk4-glyphs" > "$tmp/contrast" || true
