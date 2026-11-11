@@ -757,10 +757,11 @@ node in a web page with its `dom` and `text`, as lint's
 `--strict` fails on what wasn't measured too, for CI that wants every
 node measured or ignored (`--ignore`): those lines are failures, under
 `problems` in `--json`, each with its `why` if it has one. On GTK 4.14
-and later that's every icon, window control and edge, which aren't
-measured, so leave them out with `--ignore` (`graphics not measured`,
-`edge not measured`). What's scrolled out of view, or hidden, isn't a
-failure: GTK 3 and browsers leave such rows out without a word.
+and later that's each icon, window control and edge that can't be
+placed (see below), so leave them out with `--ignore` (`graphics not
+measured`, `edge not measured`). What's scrolled out of view, or
+hidden, isn't a failure: GTK 3 and browsers leave such rows out without
+a word.
 A web page with text, none of it measured (all in fields, say), is a
 note on its document, `text not measured: none of the
 page's text was`, rather than passing without a word.
@@ -1035,7 +1036,36 @@ are; `(partly out of view)`, `(too small to tell where it's drawn)`,
 be)`, for one not found near where most of its siblings are, or none
 with most of them found in one place; `(nothing drawn inside where it's
 found)`, a frame with nothing in it; and `(not looked for, past the 30
-seconds given to looking)`. Before 4.14.6, such controls aren't
+seconds given to looking)`.
+With `--edges`, a button's, entry's, spin button's or combo box's edge
+is measured, from 4.14.6, where it's found framed exactly: a box its
+size, from where GTK says to as far down and right as its containers'
+room lets it, each side unlike what's just outside it along 9 tenths of
+it, corners left out, and all four sides about one lightness, as a
+border or a fill is (separators above and below aren't). Its siblings,
+under the same container, are moved as far as it is, so it's measured at
+the move most of those found framed are found at, if no other move has
+as many, and more than half have it: `edge passes at 9.09:1, #404040 by
+#f0f0f0 (at least 3); moved 7,9 px, as found drawn where it can be`, to
+a pixel. One that can't be placed this way isn't measured, a line each
+saying why: `(its focus ring is drawn on its edge)`, which puts it off
+and is measured against it; `(no edge found drawn where it can be)`: a
+flat button, a row of a boxed list, linked buttons whose fills touch,
+one at the screen's edge, or an edge too faint to find (less than 10 in
+255 of lightness from what's round it), a note, then, failing only with
+`--strict`, where GTK 3's would be a problem; `(found framed in more
+than one place)`; `(its siblings found framed in different places)`;
+`(found framed elsewhere than most of its siblings)`; `(found framed
+where another control can be)`, as a flat button whose room reaches a
+framed one its size would be; `(its own edge is faint, and what it's in
+can't be placed)`, a field whose edge is under the ratio, where what's
+round it may draw one (above), but is put off less than it by its own
+padding; `(partly out of view)`, `(too small to tell where it's drawn)`,
+`(too much room round it to find it)`, for more than 250,000 places to
+look; and `(not looked for, past the 30 seconds given to looking)`. A
+padded widget GTK leaves out of the tree, between a container and some
+of its children, puts those off unlike the rest, which the vote leaves
+as notes. Before 4.14.6, such controls aren't
 measured, nor are images and edges (`--edges`), a line each: nothing
 says where they are. Thin text found is
 measured from how much of each pixel its glyphs cover (as above), at
