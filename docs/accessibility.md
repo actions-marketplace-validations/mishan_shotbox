@@ -800,7 +800,10 @@ window (2.3 s, not 0.5, for a still one) or a Chromium page (about
 1 s); none on a GTK 4 window, which takes longer, but for its text not
 found that changed, looked for again in each picture: 10 to 14 s more
 for a label the first picture caught blinked off, within the 30 s
-contrast looks for text in all.
+contrast looks for text in all. Found there in doubt (matching in two
+places, or where another node's text could be), it's taken as in the
+first picture: only where it fails at every place it matches; else
+what's there bounds it, as it does text not found.
 Chromium's pages opened with the Node package's `accessible` emulate
 `prefers-reduced-motion: reduce`, so a page that honors it holds still
 ([Node](node.md)).

@@ -2720,6 +2720,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         not it."""
         return f'"{t}"' if t == o.name else f'the {o.role} "{o.name}", whose text is "{t}"'
 
+    def settled(n, seen, least):
+        """`seen`, `n`'s find held in doubt, if it fails at every place it
+        was found, the one it fails at best; else None. Told apart from
+        another's text by which nodes could have drawn it, which can't
+        count one left out of the tree, it's taken only to fail, else as
+        if not found."""
+        got = [(picture.text_contrast(pic, overlap(s[0], [0, 0, pic.width, pic.height]),
+                                      s[2]), s) for s in both.get(n.path, [seen])]
+        if not all(g for g, _ in got) or max(g[0] for g, _ in got) >= least:
+            return None
+        return max(got, key=lambda g: g[0][0])[1]
+
     def faint(n, least):
         """For `n`'s text, not found or not taken: the most contrast any text
         where it can be (room) can measure (picture.most_contrast), if
@@ -3163,15 +3175,9 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
         if seen and n.path in doubt:
-            # Told apart from another's text by which nodes could have drawn
-            # it, which can't count one left out of the tree: taken only to
-            # fail, else as if not found.
-            got = [(picture.text_contrast(pic, overlap(s[0], [0, 0, pic.width, pic.height]),
-                                          s[2]), s) for s in both.get(n.path, [seen])]
-            if not all(g for g, _ in got) or max(g[0] for g, _ in got) >= least:
-                seen, refused[n.path] = None, doubt[n.path]
-            else:
-                seen = max(got, key=lambda g: g[0][0])[1]
+            seen = settled(n, seen, least)
+            if not seen:
+                refused[n.path] = doubt[n.path]
         # Only in a window raised: another can be over it, its text faint.
         dim = (window and n.path in found and not seen
                and refused.get(n.path, ("",))[0] != "twin" and faint(n, least))
@@ -3304,11 +3310,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     pic = picture.Picture(first.width, first.height, bytes(lay(
                         bytearray(first.data), first.width, region, rows)))
                     aparts.clear()
+                    for kept in (refused, doubt, both):
+                        kept.pop(n.path, None)
                     try:
                         seen = seek(n, until)
                     except TimeoutError:
                         continue
-                    dim = not seen and faint(n, least)
+                    # Found in doubt and passing somewhere, it isn't taken,
+                    # but what's there bounds it, as for text not found.
+                    unsure = seen and n.path in doubt
+                    seen = settled(n, seen, least) if unsure else seen
+                    dim = not seen and faint(n, math.inf if unsure else least)
                     # Not found, it's measured where it is only where GTK says
                     # that right.
                     if not seen and not dim and gtk4(n) not in GTK4_BOUNDS:
