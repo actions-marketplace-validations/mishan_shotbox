@@ -8,6 +8,10 @@
   the window they'd picked closed before it was raised (a twin with the
   same title closing, say). The node is placed again and clicked in the
   window it's in now.
+- `flicker --save` wrote no sheets where ImageMagick 6 finds none of the
+  fonts it knows by name (a bare Ubuntu, say). Their labels, and the
+  numbers on the MCP server's labeled screenshots, are now written in
+  fontconfig's sans font.
 
 ## 0.12.0 — 2026-11-12
 
