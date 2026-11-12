@@ -991,7 +991,12 @@ note. Text not looked for says why
 on its line too: `(a single letter: GTK gives it no width)`, `(over
 more than one line)`, `(not all ASCII: GTK measures its width short)`;
 and so does text looked for and not taken, with why (the why at the end
-says what that means): `(no match good enough: 0.44 at best)`, `(it
+says what that means): `(no match good enough: 0.44 at best)`, or
+from 4.14.6, where GTK lays it out wider than its name drawn in its
+font at any size it's looked for at, by more than a pixel and a
+fiftieth, `(GTK lays it out 13 px wider than its font draws it:
+letter-spaced, larger or upper case)`: GTK doesn't say letter-spacing
+or upper case, and says a size such as 82% of 13.33 px as 10, `(it
 matches elsewhere too, in "unchecked")`, naming the node whose room
 starts nearest where the other match is, if its text holds this one's
 (else how well it matches there, and no name), `(another node's text

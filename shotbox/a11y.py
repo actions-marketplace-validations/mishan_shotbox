@@ -2500,8 +2500,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if not end:
             return True   # one with no case: see lone
         wide = laid(n) and laid(n)[2]
+        return (bool(wide and drawing(n.name[:end], font(n)))
+                and abs(wider(n, shape)) <= 1 + wide / 50)
+
+    def wider(n, shape):
+        """How many pixels wider GTK lays out `n`'s text than its name drawn
+        as `shape` (find_text's), as far as GTK measures it (see as_wide);
+        0 where it doesn't say."""
+        end = len(n.name) - (gtk4_release(n) >= (4, 22, 3))
+        wide = gtk4_release(n) >= (4, 14, 6) and end and laid(n) and laid(n)[2]
         kinds = wide and drawing(n.name[:end], font(n))
-        return bool(kinds) and abs(kinds[shape[0]][shape[1]][0] - 4 - wide) <= 1 + wide / 50
+        return wide - (kinds[shape[0]][shape[1]][0] - 4) if kinds else 0
 
     def laid(n):
         """Where GTK lays out `n`'s text in its own box, (x, y, width), from
@@ -2582,11 +2591,21 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 r, at = apart(got, again)
                 got, shape = again[:5] + (r, again[6], at), drawn
         if not got or got[0] < MATCH:
-            refused[n.path] = ("unmatched", f"no match good enough: {got[0]:.2f} at best" if got
-                               else "where it can be is too small or too big to look in"
-                               if kinds else "GTK says no font for it" if attrs is None
-                               else "where it can be is off the screen" if not seen_area
-                               else "it can't be drawn to look for")
+            # Laid out wider than its font draws it at any size shapes are
+            # drawn at, it's drawn otherwise than GTK says: what it doesn't
+            # say (letter-spacing, upper case, a size it rounds down) would
+            # be why it isn't found.
+            over = got and min(wider(n, (k, i)) for k, sizes in enumerate(kinds)
+                               for i in range(len(sizes)))
+            refused[n.path] = (
+                ("spaced", f"GTK lays it out {over:.0f} px wider than its font draws it: "
+                           "letter-spaced, larger or upper case")
+                if over and over > 1 + laid(n)[2] / 50 else
+                ("unmatched", f"no match good enough: {got[0]:.2f} at best" if got
+                 else "where it can be is too small or too big to look in"
+                 if kinds else "GTK says no font for it" if attrs is None
+                 else "where it can be is off the screen" if not seen_area
+                 else "it can't be drawn to look for"))
             return None
         if got[5] >= MATCH_ELSEWHERE:
             places = [got[1:3], got[7]]
@@ -3062,6 +3081,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "it well enough: text drawn otherwise than its name and font say (in another "
                "case or size, letter-spaced, cut short) isn't found; see docs/accessibility.md."
                if case == "unmatched" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and GTK lays this out "
+               "wider than that: it doesn't say letter-spacing, upper case or a size it rounds "
+               "down, so text drawn with them isn't found; see docs/accessibility.md."
+               if case == "spaced" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and this matched in two "
                "places where it can be (the same text twice, or inside a longer one), so "
