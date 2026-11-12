@@ -199,6 +199,8 @@ def activate(app):
             pair.append(Gtk.Label(label=text, halign=Gtk.Align.START,
                                   css_classes=["faint"] if text in pale else []))
         box.append(pair)
+        if "blink" in sys.argv:
+            GLib.timeout_add(600, lambda: pair.set_opacity(1 - pair.get_opacity()) or True)
     if "split" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
         whole = Gtk.Label(label="Open File", opacity=0, halign=Gtk.Align.START)
