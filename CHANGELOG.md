@@ -48,6 +48,11 @@
   the reference one hadn't: a new screen with no reference, or one whose
   reference was deleted. It fails on it now, `NAME: no REFDIR/NAME.png`,
   as `--update` already took it; give NAMEs to compare only some.
+- `a11y contrast` said GTK 4 text drawn letter-spaced, upper case or
+  larger than GTK says wasn't found as `(no match good enough: 0.44 at
+  best)`. Where GTK lays it out wider than its font draws it, it says so
+  now: `(GTK lays it out 13 px wider than its font draws it:
+  letter-spaced, larger or upper case)`.
 - `a11y contrast` didn't find underlined GTK 4 text, a link's, from 4.14
   (whose positions are wrong), and noted it not measured: it's looked
   for underlined now.
