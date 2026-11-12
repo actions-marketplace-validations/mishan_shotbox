@@ -579,7 +579,7 @@ VALUE for the rest (each `--ignore` adds a box):
 
 ```
 shotbox compare data/screenshots fresh --fuzz 0.5% --fuzz video=5% \
-  --ignore panel=80x24+1200+0 --diff fresh
+  --ignore panel=80x24+1200+0 --diff fresh/diffs
 ```
 
 ## vision
