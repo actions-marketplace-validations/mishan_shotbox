@@ -31,7 +31,10 @@ and Shifted and Further, flat, each beside a frame its size; Agree,
 Also, Again and Apart, flat beside a frame its size; Wide, an entry;
 Tall and Short, filled, touching; Bevel; Typing, focused, beside Pale
 field, faint; Hover, flat, above a frame its size, which is beside Twin;
-and Hid, half scrolled out."""
+and Hid, half scrolled out. `owned` is a window, gtk4-owned, of rows of
+check boxes: tick and untick; dim and undim, faint; pair, pair and
+unpair; and entries holding Same and Pale, each above a label of it, in
+its room, Pale's faint."""
 
 import os
 import signal
@@ -267,6 +270,43 @@ def edged(app):
     typing.grab_focus()
 
 
+def owned(app):
+    w = Gtk.ApplicationWindow(application=app, title="gtk4-owned")
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=["padded"])
+
+    def row(*children, width=440):
+        r = Gtk.Box(spacing=6, halign=Gtk.Align.START, width_request=width)
+        for c in children:
+            r.append(c)
+        box.append(r)
+
+    def held(text, *css):
+        """An entry holding `text`, and below it, in its room, a label of it."""
+        e = Gtk.Entry(text=text, width_chars=12)
+        e.update_property([Gtk.AccessibleProperty.LABEL], [f"{text} field"])
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, halign=Gtk.Align.START,
+                      height_request=110)
+        col.append(e)
+        col.append(Gtk.Label(label=text, css_classes=list(css), xalign=0))
+        box.append(col)
+    row(Gtk.CheckButton(label="tick", active=True), Gtk.CheckButton(label="untick"))
+    row(Gtk.CheckButton(label="dim", css_classes=["faint"]),
+        Gtk.CheckButton(label="undim", css_classes=["faint"]))
+    row(Gtk.CheckButton(label="pair"), Gtk.CheckButton(label="pair"),
+        Gtk.CheckButton(label="unpair"))
+    held("Same")
+    held("Pale", "faint")
+    provider = Gtk.CssProvider()
+    provider.load_from_string(
+        "window { background: #f0f0f0; } label { color: #101010; }"
+        " box.padded { padding: 6px 4px; border: 3px solid #808080; }"
+        " .faint, .faint label { color: #c8c8c8; }")
+    Gtk.StyleContext.add_provider_for_display(w.get_display(), provider,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    w.set_child(box)
+    w.present()
+
+
 def note(what):
     with open(sys.argv[2], "a") as f:
         f.write(f"{time.time():.3f} {what}\n")
@@ -340,6 +380,6 @@ def fake(app):
 
 app = Gtk.Application(application_id="org.shotbox.Gtk4Old")
 app.connect("activate", {"glyphs": glyphs, "block": block, "fake": fake, "empty": empty,
-                         "anchored": anchored, "edged": edged}.get(
+                         "anchored": anchored, "edged": edged, "owned": owned}.get(
     "".join(sys.argv[1:2]), activate))
 app.run([])

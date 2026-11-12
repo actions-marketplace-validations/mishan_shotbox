@@ -923,7 +923,12 @@ can be over what's laid on that box's top. What isn't in the tree (a
 label with the role presentation), or a container that draws text
 round what's in it, can't be counted, so text told apart like this,
 either way, is taken only if it fails; if it would pass, it's a note,
-as it was.
+as it was. Unless what tells it apart is text found: the other node's,
+this same text, matching 0.98 or more at its place apart (the entry's
+"Neon Doll"), or
+one of the two places mostly inside where another node's text was found
+and taken ("check" in "unchecked"), when it's looked for again at the
+other place just there and, found, taken as any text found once.
 Text drawn by what has no text of its own (a drawing area, a widget
 drawing round its child) can't be, so from 4.14.6 the text GTK lays
 out must also be as wide as the name drawn as found, within a pixel
