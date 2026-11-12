@@ -2,7 +2,7 @@
 display of the `shotbox run` a script is inside, and both are a `Screen`, to
 wait on, drive and take pictures of. See shotbox/screen.py."""
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"
 
 from .mutation import MutationReport, mutate  # noqa: E402
 from .screen import Screen, SessionError, here  # noqa: E402
