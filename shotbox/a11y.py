@@ -31,7 +31,7 @@ from collections import Counter
 from functools import cache
 from pathlib import Path
 
-from . import color, picture, wl, x
+from . import color, picture, wl, x, xtest
 from .screen import Screen, SessionError, hushed, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
@@ -1473,7 +1473,13 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
             if not done:
                 raise SessionError(f"{n.line()} refused its action {json.dumps(n.action)}")
         else:
-            screen.backend.focus(screen.env, at[2])
+            try:
+                screen.backend.focus(screen.env, at[2])
+            except xtest.XError:
+                # Its window gone since it was placed (a twin closing):
+                # placed again.
+                n, point, at = wait_for(what, found, timeout)
+                screen.backend.focus(screen.env, at[2])
             act(screen, *point)
     finally:
         screen.close()

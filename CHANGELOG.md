@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `a11y click` and `scroll` failed with `X error 3 (request 12.0)` when
+  the window they'd picked closed before it was raised (a twin with the
+  same title closing, say). The node is placed again and clicked in the
+  window it's in now.
+
 ## 0.12.0 — 2026-11-12
 
 Contrast measures GTK 4 icons and edges, and more of its text, where GTK
