@@ -1690,6 +1690,7 @@ CASES
           < /dev/null 2>/dev/null || true
       done > "$tmp/contrast"
       [ "$(grep -c '/list item\[0\]/panel\[0\]/panel\[0\]/label\[1\]: text \(passes at \)\?[0-9]' "$tmp/contrast")" = 2 ] \
+        && grep -q '/list item\[0\]/panel\[0\]/panel\[0\]/label\[1\]: text passes at 1[0-9.]*:1, #202020 ' "$tmp/contrast" \
         && [ "$(grep -c '/list item\[0\]/panel\[0\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong (another node with its text is drawn where it is instead)$' "$tmp/contrast")" = 2 ] \
         && [ "$(grep -c 'drawn where it is instead' "$tmp/contrast")" = 2 ] \
         && ok "a11y: contrast, GTK 4: an entry row's title not drawn is said so, its twin measured" \
