@@ -53,6 +53,10 @@
   best)`. Where GTK lays it out wider than its font draws it, it says so
   now: `(GTK lays it out 13 px wider than its font draws it:
   letter-spaced, larger or upper case)`.
+- `a11y contrast` noted a GTK 4 entry row's title label not drawn, of
+  the two it has, as `(no match good enough: 0.38 at best)`, or failed it
+  for what was there where that was faint. It says now `(another node
+  with its text is drawn where it is instead)`, the one drawn measured.
 - `a11y contrast` didn't find underlined GTK 4 text, a link's, from 4.14
   (whose positions are wrong), and noted it not measured: it's looked
   for underlined now.

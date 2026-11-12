@@ -1003,7 +1003,10 @@ starts nearest where the other match is, if its text holds this one's
 matches there too: "Row 10")`, or where that's a node's text, not its
 name, its role and name as the tree has them, `the text "Display name",
 whose text is "Neon Doll"` (an entry's), `(what matches is drawn wider or narrower
-than GTK lays it out)`; and where nothing could be looked for, why:
+than GTK lays it out)`, `(another node with its text is drawn where it is
+instead)`, where a widget has two labels for one text and draws one at a
+time (an entry row's title, over its text or not), and the other is
+found, so this one isn't drawn, nor failed for what's there; and where nothing could be looked for, why:
 `(GTK says no font for it)`. What isn't found: text in more than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
 or at the window's, what's drawn outside where GTK's box can be (a

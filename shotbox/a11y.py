@@ -2837,6 +2837,16 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             found[n.path] = seen
         else:
             refused[n.path], doubt[n.path], both[n.path] = was
+    # A widget can have two labels for one text, drawing one at a time (an
+    # entry row's title, over its text or not): one not found where another
+    # node with its text is found and taken isn't drawn.
+    for n in measured:
+        if n.bounds and refused.get(n.path, ("",))[0] in ("unmatched", "spaced", "wide") and any(
+                found.get(o.path) and o.path not in refused and o.path not in doubt
+                and o.name == n.name
+                and 2 * overlap(o.bounds, n.bounds)[2] * overlap(o.bounds, n.bounds)[3]
+                > n.bounds[2] * n.bounds[3] for o in measured):
+            refused[n.path] = ("twin", "another node with its text is drawn where it is instead")
 
     def anchor(n):
         if n.path not in anchors:
@@ -3101,6 +3111,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "and something nearby draws the name as written; see docs/accessibility.md."
                if case == "wide" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and this wasn't, but "
+               "another node with its text, where it is, was: a widget can have two "
+               "labels for one text and draw one at a time (an entry row's title), so this "
+               "one isn't drawn; see docs/accessibility.md." if case == "twin" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and this wasn't found "
                "there; see docs/accessibility.md." if n._role in texts and k == "text"
                and not unsure(n) else
@@ -3158,7 +3173,8 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             else:
                 seen = max(got, key=lambda g: g[0][0])[1]
         # Only in a window raised: another can be over it, its text faint.
-        dim = window and n.path in found and not seen and faint(n, least)
+        dim = (window and n.path in found and not seen
+               and refused.get(n.path, ("",))[0] != "twin" and faint(n, least))
         if dim:
             uncounted.add(id(n))
             taken.append((n, k, least, at, overlap(room(n), [0, 0, pic.width, pic.height]),

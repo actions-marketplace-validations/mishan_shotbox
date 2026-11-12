@@ -1681,6 +1681,20 @@ CASES
         && [ "$(grep -c '/panel\[7\]/.*: text \(passes\|[0-9]\)' "$tmp/contrast")" = 2 ] \
         && ok "a11y: contrast, GTK 4: text matching where only another node's text can be is found where it's drawn; not a hidden twin, nor where GTK's box is over it" \
         || { fail "a11y: contrast, GTK 4, Twin"; cat "$tmp/contrast"; }
+      # An entry row's two title labels, at one place, one drawn: the
+      # one not drawn is said so, not failed for what's there, nor noted
+      # unmatched. Not said of a label not drawn over another text, nor
+      # apart from its own.
+      for args in titled "titled dark"; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --passes --window a11y-test" \
+          < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      [ "$(grep -c '/list item\[0\]/panel\[0\]/panel\[0\]/label\[1\]: text \(passes at \)\?[0-9]' "$tmp/contrast")" = 2 ] \
+        && grep -q '/list item\[0\]/panel\[0\]/panel\[0\]/label\[1\]: text passes at 1[0-9.]*:1, #202020 ' "$tmp/contrast" \
+        && [ "$(grep -c '/list item\[0\]/panel\[0\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong (another node with its text is drawn where it is instead)$' "$tmp/contrast")" = 2 ] \
+        && [ "$(grep -c 'drawn where it is instead' "$tmp/contrast")" = 2 ] \
+        && ok "a11y: contrast, GTK 4: an entry row's title not drawn is said so, its twin measured" \
+        || { fail "a11y: contrast, GTK 4, entry row titles"; cat "$tmp/contrast"; }
     fi
     # --strict: a window where nothing's measured but what fails, exit 1
     # with the failure, not 2, "nothing measured".
