@@ -562,8 +562,9 @@ each other are one part; ten are said at most.
 ```
 
 **`shotbox compare REFDIR NEWDIR [NAME...]`** does that for each picture in
-REFDIR (or each NAME), against the one of the same name in NEWDIR, a line
-each, and fails if any differs, is missing, or changed size. `--diff DIR`
+either (or each NAME), against the one of the same name in the other, a
+line each, and fails if any differs, is missing from either (a new screen
+with no reference yet, `NAME: no REFDIR/NAME.png`), or changed size. `--diff DIR`
 writes `NAME-diff.png` there for each that fails, beside a copy of each
 side, `NAME-ref.png` and `NAME-new.png`, and `index.html`, a page of the
 failures, each's three side by side and the new one with the reference

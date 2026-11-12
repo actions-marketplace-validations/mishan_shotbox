@@ -40,6 +40,10 @@
 
 ### Fixed
 
+- `compare` with two directories passed where the new one had a picture
+  the reference one hadn't: a new screen with no reference, or one whose
+  reference was deleted. It fails on it now, `NAME: no REFDIR/NAME.png`,
+  as `--update` already took it; give NAMEs to compare only some.
 - `a11y contrast` didn't find underlined GTK 4 text, a link's, from 4.14
   (whose positions are wrong), and noted it not measured: it's looked
   for underlined now.

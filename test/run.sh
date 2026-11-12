@@ -2844,10 +2844,11 @@ set +e; n=$("$sb" compare "$tmp/diff2.png" "$tmp/xdiff.png"); set -e
 mkdir -p "$tmp/ref" "$tmp/new"
 cp "$tmp/a.png" "$tmp/ref/same.png"; cp "$tmp/a.png" "$tmp/new/same.png"
 cp "$tmp/a.png" "$tmp/ref/off.png"; cp "$tmp/d.png" "$tmp/new/off.png"
-cp "$tmp/a.png" "$tmp/ref/gone.png"
+cp "$tmp/a.png" "$tmp/ref/gone.png"; cp "$tmp/a.png" "$tmp/new/extra.png"
 set +e; out=$("$sb" compare "$tmp/ref" "$tmp/new" --diff "$tmp/diffs"); st=$?; set -e
 [ $st = 1 ] && echo "$out" | grep -q "^same: the same" && echo "$out" | grep -q "^off: 1 pixels" \
-  && echo "$out" | grep -q "^gone: no" && [ -s "$tmp/diffs/off-diff.png" ] \
+  && echo "$out" | grep -q "^gone: no $tmp/new/gone.png$" && echo "$out" | grep -q "^extra: no $tmp/ref/extra.png$" \
+  && [ -s "$tmp/diffs/off-diff.png" ] \
   && ok "compare: directories, picture by picture" || fail "compare dirs: $st $out"
 "$sb" compare "$tmp/ref" "$tmp/new" same off --max 0 --max off=1 >/dev/null \
   && ok "compare: NAMEs, and --max for one" || fail "compare NAME=N"

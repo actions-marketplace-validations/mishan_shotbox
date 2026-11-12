@@ -1528,8 +1528,8 @@ def cmd_compare(argv):
                                 description="Count the pixels that differ between two "
                                             "images; fail if more than --max do. Given "
                                             "two directories, compare each picture in "
-                                            "the first (or each NAME) with the one of "
-                                            "the same name in the second.")
+                                            "either (or each NAME) with the one of "
+                                            "the same name in the other.")
     p.add_argument("a", help="an image, or a directory of the pictures as they should be")
     p.add_argument("b", help="an image, or a directory of fresh pictures")
     p.add_argument("names", nargs="*", metavar="NAME",
@@ -1623,9 +1623,9 @@ def cmd_compare(argv):
         return 1
 
     names = [n.removesuffix(".png") for n in a.names] or sorted(
-        {f.stem for d in (a.a, a.b)[:1 + a.update] for f in Path(d).glob("*.png")})
+        {f.stem for d in (a.a, a.b) for f in Path(d).glob("*.png")})
     if not names:
-        sys.stderr.write(f"shotbox: no pictures in {a.a}\n")
+        sys.stderr.write(f"shotbox: no pictures in {a.a} or {a.b}\n")
         return 2
     # A node only some pictures show is left out where it's there; one no
     # picture's tree has is a mistake, said before anything is updated.

@@ -91,7 +91,7 @@ jobs:
           clock: true
       - run: sudo apt-get install -y -qq gnome-calendar
       - run: tools/shoot.sh fresh
-      - run: mkdir -p docs/pictures && shotbox compare docs/pictures fresh --diff fresh
+      - run: mkdir -p docs/pictures && shotbox compare docs/pictures fresh --diff fresh/diffs
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -101,11 +101,11 @@ jobs:
 
 A picture belongs to the machine it was taken on: its fonts, its GTK, its
 theme. Commit the runner's, not your desktop's: the first run fails
-(`no pictures in docs/pictures`), and the `pictures` artifact it uploads
-is what to commit. When a change is meant to change a picture, commit
-the new one from that run's artifact the same way; each failing one has
-`NAME-diff.png` beside it there, which isn't to be committed, or the next
-run fails on it as a picture it didn't take. A picture that differs by a few pixels
+(`NAME: no docs/pictures/NAME.png`, a line each), and the pictures in the
+`pictures` artifact it uploads are what to commit. When a change is meant
+to change a picture, commit the new one from that run's artifact the same
+way; `diffs` in it, each failing one's `NAME-diff.png` and a page of them,
+is to look at, not to commit. A picture that differs by a few pixels
 of dithering or antialiasing every run can be given room by name,
 `--fuzz month=1%` or `--max files=20`, leaving the rest exact.
 
