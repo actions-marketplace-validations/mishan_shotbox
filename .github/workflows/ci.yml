@@ -124,6 +124,13 @@ jobs:
           SHOTBOX_GAMEPAD: required
           SHOTBOX_CLOCK: required
           SHOTBOX_ORCA: required
+          SHOTBOX_TEST_FAILED: ${{ runner.temp }}/failed
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failed-${{ matrix.part }}-${{ matrix.os }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/failed
+          retention-days: 30
 
   # The Action, as another project's job would use it: from a runner with
   # nothing of shotbox's on it, each feature it installs for, sandboxed.

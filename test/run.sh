@@ -37,7 +37,14 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
-fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+# With SHOTBOX_TEST_FAILED=DIR, what the tests left in $tmp as each fails,
+# in a directory of its own there, for CI to keep: a log has only what it
+# printed. What can't be copied (a file gone meanwhile) is left out.
+fail() {
+  echo "FAIL  $1"; fails=$((fails + 1))
+  [ -z "${SHOTBOX_TEST_FAILED-}" ] || (kept=$SHOTBOX_TEST_FAILED/$(date +%s%N) && mkdir -p "$kept" &&
+    { cp -R "$tmp"/. "$kept" 2>/dev/null || :; printf '%s\n' "$1" > "$kept/FAILED"; }) || :
+}
 esc=$(printf '\033')
 audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
