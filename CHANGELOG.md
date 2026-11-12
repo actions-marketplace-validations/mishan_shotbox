@@ -48,7 +48,8 @@
   a later one in doubt (matching in two places, or where another node's
   text could be), at the place it was found, as if it were its own. Now
   it's taken there only where it fails at every place it matches, as in
-  the first picture.
+  the first picture, and else bounded by what's there, as text not found
+  is: passing, it's changing, failing only with `--strict`.
 - `compare` with two directories passed where the new one had a picture
   the reference one hadn't: a new screen with no reference, or one whose
   reference was deleted. It fails on it now, `NAME: no REFDIR/NAME.png`,

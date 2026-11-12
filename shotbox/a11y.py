@@ -3316,9 +3316,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                         seen = seek(n, until)
                     except TimeoutError:
                         continue
-                    if seen and n.path in doubt:
-                        seen = settled(n, seen, least)
-                    dim = not seen and faint(n, least)
+                    # Found in doubt and passing somewhere, it isn't taken,
+                    # but what's there bounds it, as for text not found.
+                    unsure = seen and n.path in doubt
+                    seen = settled(n, seen, least) if unsure else seen
+                    dim = not seen and faint(n, math.inf if unsure else least)
                     # Not found, it's measured where it is only where GTK says
                     # that right.
                     if not seen and not dim and gtk4(n) not in GTK4_BOUNDS:

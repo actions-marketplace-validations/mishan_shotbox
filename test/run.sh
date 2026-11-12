@@ -1655,20 +1655,20 @@ CASES
       # Blinking, and not drawn when first pictured, it's looked for in
       # the pictures after: where it's in doubt it's taken as in the
       # first, only to fail in both places, so it's measured over a faint
-      # "unchecked" (taken: the line ends at its colors) and not over one
-      # that passes. Run till a first picture misses it, as one that
-      # catches it measures it as above.
+      # "unchecked" (taken: the line ends at its colors). Over one that
+      # passes, it isn't, but what's there bounds it, so it's changing,
+      # as found outright, failing only with --strict. Run till a first
+      # picture misses it, as one that catches it measures it as above.
       for args in "nested recheck pale" "nested recheck pale both"; do
         for i in 1 2 3 4 5 6 7 8; do
           "$sb" run --a11y -- sh -c "'$app' $args blink & '$sb' wait window a11y-test >/dev/null &&
             '$sb' a11y contrast --window a11y-test" < /dev/null 2>/dev/null > "$tmp/blink" || true
-          grep -q '/label\[1\]: text \(not found\|.* changing from 1\.0.* (at least 4\.5)$\)' "$tmp/blink" && break
+          grep -q '/label\[1\]: text \(changing: \|.* changing from 1\.0.* (at least 4\.5)$\)' "$tmp/blink" && break
         done
         cat "$tmp/blink"
       done > "$tmp/contrast"
-      [ "$(grep -c '/label\[1\]: text .* changing ' "$tmp/contrast")" = 1 ] \
+      grep -q '/label\[1\]: text changing: 1\.0[0-9]:1 to 1[0-9]\.[0-9]*:1 (at least 4\.5)$' "$tmp/contrast" \
         && grep -q '/label\[1\]: text 2\.[0-9]*:1 at best, changing from 1\.0[0-9]:1, #a0a0a0 on #[0-9a-f]* (at least 4\.5)$' "$tmp/contrast" \
-        && grep -q '/label\[1\]: text not found, but nothing where it can be' "$tmp/contrast" \
         && ok "a11y: contrast, GTK 4: text blinking, matching in two places, is taken in later pictures only to fail in both" \
         || { fail "a11y: contrast, GTK 4, blinking check over unchecked"; cat "$tmp/contrast"; }
       # Under "Recheck", whose room takes in both, "check" names the node
