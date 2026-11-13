@@ -3989,14 +3989,16 @@ def main(argv):
 def listed(window, timeout, bounds, quiet=False):
     """The tree as `a11y tree` has it: each window with its program's pid
     and toolkit, then a node for each program that didn't answer, whose
-    windows aren't there; with `window`, only if `quiet`, as one of those
-    may have been the window."""
+    windows aren't there; with `window`, those the lint counts, so a saved
+    tree has them: one that stopped as it was read, and any, if `quiet` or
+    one may own a window it picks."""
     nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
                         if not n.depth else {}))
              for n in tree(window, timeout, bounds=bounds)]
+    every = quiet or not window or QUIET and quiet_owns(window)
     return nodes + [Node(role="application", name="", description="", states=[],
                          path="application", depth=0, pid=pid, quiet=True, bounds=None)
-                    for pid in sorted(QUIET) if quiet or not window or pid in CUT]
+                    for pid in sorted(QUIET) if every or pid in CUT]
 
 
 def saved(path):

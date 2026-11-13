@@ -1979,6 +1979,7 @@ Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & o
 "$sb" wait window gtk4-other >/dev/null
 timed "$sb" wait gone Save --window 'gtk4-(old|other)' --timeout 2
 timed "$sb" a11y lint --window 'gtk4-(old|other)' --timeout 2
+"$sb" a11y tree --json --window 'gtk4-(old|other)' --timeout 2 > "$out.tree" 2>/dev/null; echo $app > "$out.pid"
 kill $other
 kill -CONT $app; kill $app
 echo end >> "$out"
@@ -1987,12 +1988,16 @@ EOF
   "$sb" run --a11y -- sh "$tmp/hung.sh" "$sb" "$here" "$tmp/hung" >/dev/null 2>&1 || true
   # Its tree says so, and goes on: a listing, not a failure; lint and
   # contrast fail as not all checked, lint with a --window picking its
-  # window and another's too.
+  # window and another's too, whose saved tree has it as one that didn't
+  # answer.
   late=$(awk '/^end$/ { next } $1 > 3000 || ($2 == 0) != / a11y tree --timeout 2: / ||
     / a11y (lint|contrast) (--window gtk4-\(old\|other\) )?--timeout 2: / && $2 != 2 ||
     !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && grep -q " wait change .* after 2s; program " "$tmp/hung" \
+    && python3 -c "import json, sys
+sys.exit(not any(n.get('quiet') and n['pid'] == int(sys.argv[2]) for n in json.load(open(sys.argv[1]))))" \
+      "$tmp/hung.tree" "$(cat "$tmp/hung.pid")" \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
   # One that stops answering partway through a read, as the walk reads its
