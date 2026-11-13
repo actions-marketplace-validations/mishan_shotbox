@@ -272,7 +272,9 @@ elif sys.argv[2:] == ["blinking"]:
     w.add(words)
 elif sys.argv[2:] == ["moving"]:
     # A faint label that flashes dark for half a second every two, and
-    # dark words sliding by, 80 pixels a second, round a 300 wide loop.
+    # dark words sliding by, 80 pixels a second, back and forth between 0
+    # and 240, inside the window: never a jump, which would take them out of
+    # where a read just before it said they are.
     css, start = Gtk.CssProvider(), time.monotonic()
     Gtk.StyleContext.add_provider_for_screen(w.get_screen(), css, 800)
     box, slide = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), Gtk.Fixed()
@@ -286,7 +288,7 @@ elif sys.argv[2:] == ["moving"]:
         css.load_from_data(b"window { background: #ffffff; } label { color: #000000; }"
                            b" box > label { color: %s; }" % (b"#000000" if t % 2 < 0.5
                                                                else b"#a0a0a0"))
-        slide.move(words, int(250 - t * 80 % 300), 0)
+        slide.move(words, int(abs(t * 80 % 480 - 240)), 0)
         return True
     GLib.timeout_add(20, tick)
     w.add(box)
