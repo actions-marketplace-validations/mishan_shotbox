@@ -16,8 +16,9 @@ Inside a session with `--a11y`:
 - **`shotbox a11y diff BEFORE [AFTER] [--window RE]`** prints what
   changed from a tree saved with `a11y tree --json` to another, or to
   the live one: [Reading the tree](#reading-the-tree).
-- **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
-  for what has no name to say: [Lint](#lint).
+- **`shotbox a11y lint [--window RE] [--ignore RE] [--from FILE]`** fails,
+  a line each, for what has no name to say; with `--from`, in a tree
+  saved with `a11y tree --json`, with no session: [Lint](#lint).
 - **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--document] [--window RE]`**
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
@@ -345,6 +346,14 @@ line the regex is found in, or would be in with the node's tree line in
 place of its path (`button "": button with no name`): an unnamed node
 that won't be fixed yet, or a toolkit's own (libadwaita's tab bar
 scroller), so the rest can be held to in CI.
+
+`--from FILE` lints a tree saved with `a11y tree --json` rather than
+the live one, and needs no session, display or PyGObject: the same
+lines, JSON and exit status, 2 for a program the tree says didn't
+answer. The tree saves what the lint reads live ([Reading the
+tree](#reading-the-tree)), so a test can lint one made by hand. One
+saved by an earlier shotbox has none of it: a tab that isn't drawn is
+a problem, and an `--ignore` of where a web node is matches nothing.
 
 ### Web nodes
 

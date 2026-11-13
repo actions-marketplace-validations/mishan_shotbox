@@ -13,6 +13,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -413,7 +414,7 @@ test('Chromium on an --a11y session: its tree, a click by name or by its action,
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, pressed, picked, below, contrast, ignored, behind, field, typedLint, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, pressed, picked, below, contrast, ignored, behind, field, typedLint, typedTree, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -450,6 +451,16 @@ test('Chromium on an --a11y session: its tree, a click by name or by its action,
     /* A field with no name is said by where it is, never by what's typed in it. */
     assert.equal(typedLint.status, 1);
     assert.match(typedLint.out, /^\S.*\/entry\[\d+\]: entry with no name  <- input$/m);
+    /* From its saved tree, outside the session, the same; and ignored by
+       where it is in the page. */
+    const saved = path.join(mkdtempSync(path.join(os.tmpdir(), 'shotbox-test-')), 'tree.json');
+
+    writeFileSync(saved, typedTree);
+    const fromFile = (...args) => spawnSync(shotbox, ['a11y', 'lint', '--from', saved, ...args],
+                                            { encoding: 'utf8', env: { PATH: process.env.PATH } });
+    assert.deepEqual([fromFile().status, fromFile().stdout], [typedLint.status, typedLint.out]);
+    assert.deepEqual([fromFile('--ignore', '<- input$').status, fromFile('--ignore', '<- input$').stdout],
+                     [0, '']);
     /* Each said once, in its list, as this, in every run. */
     const verdicts = (got, name) => ['problems', 'passes', 'notes'].flatMap((list) => got[list]
         .filter((n) => n.name === name).map((n) => [list, n.problem ?? n.contrast ?? n.note]));

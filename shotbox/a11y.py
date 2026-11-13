@@ -4047,6 +4047,9 @@ def read(argv):
                   help="not a problem whose line (PATH: WHAT, or the node's tree line: "
                        "WHAT) this regex is found in (repeatable)")
     lt.add_argument("--ignore", **ignore)
+    lt.add_argument("--from", dest="saved", metavar="FILE",
+                    help="the tree `a11y tree --json` saved to FILE, not the live one: "
+                         "needs no session")
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
@@ -4155,7 +4158,20 @@ def read(argv):
         return 0
     if a.what in ("lint", "contrast"):
         passes, notes, behind, whys, count = [], [], [], [], 1
-        if a.what == "lint":
+        if a.what == "lint" and a.saved:
+            if a.window:
+                lt.error("--from is a tree already read: it takes no --window")
+            try:
+                nodes = saved(a.saved)
+            except SessionError as e:
+                sys.stderr.write(f"shotbox: {e}\n")
+                return 2
+            # A program that didn't answer, there as it is in a live read;
+            # a window's pid and toolkit, which the lint doesn't say.
+            QUIET.update(n.pid for n in nodes if n.get("quiet"))
+            problems = lint([Node({k: v for k, v in n.items() if k not in ("pid", "toolkit")})
+                             for n in nodes if not n.get("quiet")], a.ignore)
+        elif a.what == "lint":
             problems = lint(for_lint(atspi(), tree(a.window, a.timeout, bounds=a.json)), a.ignore)
         else:
             problems, passes, notes, behind, whys, count = contrast(
@@ -4165,9 +4181,10 @@ def read(argv):
         # Under --strict what wasn't measured is among the problems, but
         # a failure isn't nothing.
         nothing = not count and whys and all(isinstance(p, Noted) for p in problems)
-        Atspi = atspi()
-        for n, _ in problems + passes + notes + behind:
-            dom(Atspi, n)
+        if a.what == "contrast":
+            Atspi = atspi()
+            for n, _ in problems + passes + notes + behind:
+                dom(Atspi, n)
         changing = sum("range" in n for n, _ in notes)
         said = " ".join([f"{len(notes) - changing} not measured"
                          + ("." if nothing else ", which doesn't fail.")]
