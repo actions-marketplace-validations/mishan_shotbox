@@ -248,7 +248,12 @@ not to. The bus drops a program that hasn't answered for
 about half a minute, after which it's as one with no accessibility.
 With `--json`, a window has its program's `pid` and `toolkit`
 ("GTK 4.14.5"), and a program that didn't answer is a node with its
-`pid` and `quiet`.
+`pid` and `quiet`. What the lint reads of a node is there too, where
+it isn't the default: `"drawn": false` for one that's showing but has
+no size (GTK 3's notebook tab, with its tabs hidden), or that went as
+it was read, and for a node in
+a web page it could find wrong, its `dom` and `text` ([Web
+nodes](#web-nodes)).
 
 Role names are at-spi2-core's, and change between its releases: a push
 button is `push button` before 2.54 and `button` from it. The lint
@@ -349,8 +354,8 @@ in one also says where it is in the page's DOM, after `  <- `, as
 Chromium and Firefox give it (their `tag`, `id` and `class` object
 attributes): the element's tag, and its id if it has one, then the
 node's text (or its name, an `aria-label`'s), cut at 40 characters (a
-field's name only, never what's typed in it), then, if the element has no id, the nearest element round it that has
-one:
+field's name only, never what's typed in it), then, if the element has
+no id, the nearest element round it that has one:
 
 ```
 PATH: button with no name  <- button#icon

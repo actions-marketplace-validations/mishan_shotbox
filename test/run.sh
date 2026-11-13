@@ -1253,6 +1253,15 @@ print(*[r for r in CONTROLS + CONTAINERS + ('TEXT', 'IMAGE') if hasattr(Atspi.Ro
     && grep -q '^ *text "Name:" \[focusable, focused, editable\]$' "$tmp/lint" \
     && ok "a11y: lint, tree and click, GTK 3: a field named by its label, a bar not revealed left out" \
     || { fail "a11y: lint, GTK 3 fields"; cat "$tmp/lint"; }
+  # A saved tree has what lint reads, only where it isn't the default:
+  # here, that the hidden tab isn't drawn.
+  "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' wait window fields >/dev/null &&
+    '$sb' a11y tree --json --window fields" > "$tmp/fields.json" \
+    && out=$(python3 -c "import json, sys
+print([(n['role'], k, n[k]) for n in json.load(open(sys.argv[1])) for k in ('drawn', 'dom', 'text') if k in n])" \
+      "$tmp/fields.json") && [ "$out" = "[('page tab', 'drawn', False)]" ] \
+    && ok "a11y: tree --json, GTK 3: a tab not drawn says so, and nothing else is added" \
+    || fail "a11y: tree --json, what lint reads: $out"
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y lint --window a11y-test --ignore 'image\[' --ignore 'panel with'" > "$tmp/lint"
   st=$?; set -e
