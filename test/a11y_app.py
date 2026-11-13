@@ -134,7 +134,8 @@ def activate(app):
                          " label.upper { text-transform: uppercase; }"
                          " box.decoy { padding: 4px 4px 40px; } box.twin { padding: 0 0 40px; }"
                          " box.over { padding-top: 40px; } label.tall { min-height: 40px; }"
-                         " box.far { padding-bottom: 100px; }")
+                         " box.far { padding-bottom: 100px; } list.dark label { color: #202020; opacity: 1; }"
+                         " label.ghost { font-family: monospace; }")
     faint.add_css_class("faint")
     thin.add_css_class("thin")
     Gtk.StyleContext.add_provider_for_display(w.get_display(), css,
@@ -198,6 +199,8 @@ def activate(app):
             pair.append(Gtk.Label(label=text, halign=Gtk.Align.START,
                                   css_classes=["faint"] if text in pale else []))
         box.append(pair)
+        if "blink" in sys.argv:
+            GLib.timeout_add(600, lambda: pair.set_opacity(1 - pair.get_opacity()) or True)
     if "split" in sys.argv:
         pair = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["decoy"])
         whole = Gtk.Label(label="Open File", opacity=0, halign=Gtk.Align.START)
@@ -222,6 +225,20 @@ def activate(app):
         pair.insert_child_after(Gtk.Entry(text="Twin", halign=Gtk.Align.START),
                                 None if "under" in sys.argv else twin)
         box.append(pair)
+    if "titled" in sys.argv:
+        # An entry row has two title labels, one drawn at a time: filled,
+        # the small one over its text; dark, it passes.
+        rows = Gtk.ListBox(css_classes=["boxed-list"] + ["dark"] * ("dark" in sys.argv))
+        rows.append(Adw.EntryRow(title="Display name", text="Neon Doll"))
+        box.append(rows)
+        # Not drawn, but neither where another node with its text is: over
+        # "Shown", and under a "Ghost" drawn.
+        shown = Gtk.Overlay(child=Gtk.Label(label="Shown"), halign=Gtk.Align.START)
+        shown.add_overlay(Gtk.Label(label="Ghost", opacity=0, css_classes=["ghost"]))
+        box.append(shown)
+        box.append(Gtk.Label(label="Ghost", halign=Gtk.Align.START))
+        box.append(Gtk.Label(label="Ghost", opacity=0, css_classes=["ghost"],
+                             halign=Gtk.Align.START, margin_top=40))
     if "over" in sys.argv:
         # GTK 4.14.6 and later say what's in the box is 40 px up, over
         # what's laid over its top.

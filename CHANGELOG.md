@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- A lint or contrast line on an editable field in a web page no longer
+  ends with what's typed in it, only its field's name, if it has one:
+  what's typed can be anything.
+
+### Added
+
+- `a11y lint --from FILE` lints a tree saved with `a11y tree --json`, with
+  no session, display or PyGObject: the same lines, JSON and exit status
+  as live. `shotbox.a11y.lint(nodes)` does it in Python. For it, `a11y
+  tree --json` saves what the lint reads live, where it isn't the
+  default: `"drawn": false` for a node showing with no size, a web
+  node's `dom` and `text` where the lint could find it wrong. With
+  `--window`, `a11y tree` (and the Python and MCP tree) lists each
+  program that didn't answer that the lint counts, one that may own a
+  window it picks, as well as one that stopped as it was read.
+- `a11y lint` takes a role by libatspi's name for it, as a saved tree
+  has it, so on an older libatspi it also finds an unnamed switch.
+
+### Fixed
+
+- `wait idle` passed after a single look that listed no window, so a busy
+  program whose window one listing missed (sway's, for an Xwayland window)
+  wasn't waited for. It now looks three rounds in a row, as for a program.
+- `a11y click` and `scroll` failed with `X error 3 (request 12.0)` when
+  the window they'd picked closed before it was raised (a twin with the
+  same title closing, say). The node is placed again and clicked in the
+  window it's in now.
+- `flicker --save` wrote no sheets where ImageMagick 6 finds none of the
+  fonts it knows by name (a bare Ubuntu, say). Their labels, and the
+  numbers on the MCP server's labeled screenshots, are now written in
+  fontconfig's sans font.
+
+## 0.12.0 — 2026-11-12
+
+Contrast measures GTK 4 icons and edges, and more of its text, where GTK
+reports positions wrong, and says why for what it can't. Screenshots can
+black out what shouldn't be published, and terminals get color.
+
+### Changes to check when upgrading
+
+- **`compare` with two directories fails on a picture only in the new
+  one**, `NAME: no REFDIR/NAME.png`: a new screen with no reference, or
+  one whose reference was deleted. It passed before, comparing only the
+  reference directory's pictures; `--update` already took such a
+  picture. Give NAMEs to compare only some.
+
 ### Added
 
 - `a11y contrast` measures a GTK 4 control that draws an icon (from
@@ -28,7 +76,8 @@
   would write from before: a name no node has, a node in GTK 4, whose
   positions are wrong, a program that doesn't answer, or a tree too big
   to read whole. With `--tree`, what's blacked out is blanked in the tree
-  beside it too, and what it's in. `shoot`'s picture of the screen as it fails is then of
+  beside it too, and what it's in. `shoot`'s picture of the screen as it
+  fails is then of
   what it takes, blacked out the same way, or none, and what the program
   said isn't shown. After it, what fails in the session quotes no names
   of what's on the screen, and its picture of the screen is blacked out
@@ -44,10 +93,21 @@
 
 ### Fixed
 
-- `compare` with two directories passed where the new one had a picture
-  the reference one hadn't: a new screen with no reference, or one whose
-  reference was deleted. It fails on it now, `NAME: no REFDIR/NAME.png`,
-  as `--update` already took it; give NAMEs to compare only some.
+- `a11y contrast` measured GTK 4 text the first picture missed, found in
+  a later one in doubt (matching in two places, or where another node's
+  text could be), at the place it was found, as if it were its own. Now
+  it's taken there only where it fails at every place it matches, as in
+  the first picture, and else bounded by what's there, as text not found
+  is: passing, it's changing, failing only with `--strict`.
+- `a11y contrast` said GTK 4 text drawn letter-spaced, upper case or
+  larger than GTK says wasn't found as `(no match good enough: 0.44 at
+  best)`. Where GTK lays it out wider than its font draws it, it says so
+  now: `(GTK lays it out 13 px wider than its font draws it:
+  letter-spaced, larger or upper case)`.
+- `a11y contrast` noted a GTK 4 entry row's title label not drawn, of
+  the two it has, as `(no match good enough: 0.38 at best)`, or failed it
+  for what was there where that was faint. It says now `(another node
+  with its text is drawn where it is instead)`, the one drawn measured.
 - `a11y contrast` didn't find underlined GTK 4 text, a link's, from 4.14
   (whose positions are wrong), and noted it not measured: it's looked
   for underlined now.
@@ -66,7 +126,8 @@
   read of it is left out, and the command ends a few seconds past its
   `--timeout`; `wait gone --window` passes once the display has none of
   the windows the wait first found, if it had each of them, by its
-  program's pid, and the program has no other window. A program busy for over 0.8 s twice running is taken for
+  program's pid, and the program has no other window. A program busy
+  for over 0.8 s twice running is taken for
   one too, so a `wait node` for a node it showed waits on, and `tree`
   leaves out its windows behind the line, where before it left out a
   node unsaid. A program that exited as the windows were listed made

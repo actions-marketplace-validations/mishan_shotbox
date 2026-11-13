@@ -37,7 +37,15 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
-fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+# With SHOTBOX_TEST_FAILED=DIR, what the tests left in $tmp as each fails,
+# and as a run ends failed (the Python suites count their own), in a
+# directory of its own there, for CI to keep: a log has only what it
+# printed. What can't be copied (a file gone meanwhile) is left out.
+keep() {
+  [ -z "${SHOTBOX_TEST_FAILED-}" ] || (kept=$SHOTBOX_TEST_FAILED/$(date +%s%N) && mkdir -p "$kept" &&
+    { cp -R "$tmp"/. "$kept" 2>/dev/null || :; printf '%s\n' "$1" > "$kept/FAILED"; }) || :
+}
+fail() { echo "FAIL  $1"; fails=$((fails + 1)); keep "$1"; }
 esc=$(printf '\033')
 audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
@@ -821,6 +829,12 @@ st=$?; set -e
   && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
   && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
 
+# a11y lint --from, on trees made by hand: no display or bus.
+set +e; python3 "$here/lint_test.py" "$sb" > "$tmp/lint.log" 2>&1; st=$?; set -e
+cat "$tmp/lint.log"
+fails=$((fails + $(grep -c '^FAIL' "$tmp/lint.log" || true)))
+[ $st = 0 ] || grep -q "^FAIL" "$tmp/lint.log" || fail "lint_test.py: status $st"
+
 # shotbox mutate's targets and verdicts.
 set +e; python3 "$here/mutate_test.py" > "$tmp/mutate.log" 2>&1; st=$?; set -e
 cat "$tmp/mutate.log"
@@ -1212,6 +1226,14 @@ if atspi; then
     && grep -q '/panel\[6\]: focusable panel with no name$' "$tmp/lint" \
     && ok "a11y: lint finds the icon button, the image and the drawing area with no name" \
     || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
+  # Lint knows roles by the names libatspi gives them, as a saved tree has
+  # them: each role it lists is named as libatspi names it.
+  out=$(PYTHONPATH="$here/.." python3 -c "import gi; gi.require_version('Atspi', '2.0')
+from gi.repository import Atspi
+from shotbox.a11y import CONTAINERS, CONTROLS, role_names
+print(*[r for r in CONTROLS + CONTAINERS + ('TEXT', 'IMAGE') if hasattr(Atspi.Role, r)
+        and Atspi.role_get_name(getattr(Atspi.Role, r)) not in role_names((r,))])")
+  [ -z "$out" ] && ok "a11y: lint names each role it lists as libatspi does" || fail "a11y: lint's role names: $out"
   "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y lint --window a11y-test" > "$tmp/lintc" || true
   grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lintc" \
     && ok "a11y: lint, at a terminal, dims each node's path" || { fail "a11y: lint's color"; cat -v "$tmp/lintc"; }
@@ -1237,6 +1259,31 @@ if atspi; then
     && grep -q '^ *text "Name:" \[focusable, focused, editable\]$' "$tmp/lint" \
     && ok "a11y: lint, tree and click, GTK 3: a field named by its label, a bar not revealed left out" \
     || { fail "a11y: lint, GTK 3 fields"; cat "$tmp/lint"; }
+  # Lint from the tree saved says what it says live, and ends the same,
+  # in lines and as JSON: the GTK 3 problems, and not the hidden tab, in
+  # two windows titled alike, which can't be placed.
+  "$sb" run --a11y -- sh -c "'$app' & '$here/window.py' fields fields & '$here/window.py' fields fields &
+    '$sb' wait window a11y-test >/dev/null &&
+    '$sb' wait window fields >/dev/null && sleep 1 && '$sb' a11y tree --json > '$tmp/saved.json'
+    '$sb' a11y lint > '$tmp/live'; echo \$? >> '$tmp/live'; '$sb' a11y lint --json > '$tmp/live.json'
+    echo \$? >> '$tmp/live.json'" < /dev/null 2>/dev/null
+  set +e
+  { "$sb" a11y lint --from "$tmp/saved.json"; echo $?; } > "$tmp/fromfile" 2>/dev/null
+  { "$sb" a11y lint --from "$tmp/saved.json" --json; echo $?; } > "$tmp/fromfile.json" 2>/dev/null
+  set -e
+  grep -q 'button with no name$' "$tmp/live" && ! grep -q 'page tab' "$tmp/live" \
+    && cmp -s "$tmp/live" "$tmp/fromfile" && cmp -s "$tmp/live.json" "$tmp/fromfile.json" \
+    && ok "a11y: lint --from a saved tree says what the live lint says, and ends the same" \
+    || { fail "a11y: lint --from, as live"; diff "$tmp/live" "$tmp/fromfile"; diff "$tmp/live.json" "$tmp/fromfile.json"; }
+  # A saved tree has what lint reads, only where it isn't the default:
+  # here, that the hidden tab isn't drawn.
+  "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' wait window fields >/dev/null &&
+    '$sb' a11y tree --json --window fields" > "$tmp/fields.json" \
+    && out=$(python3 -c "import json, sys
+print([(n['role'], k, n[k]) for n in json.load(open(sys.argv[1])) for k in ('drawn', 'dom', 'text') if k in n])" \
+      "$tmp/fields.json") && [ "$out" = "[('page tab', 'drawn', False)]" ] \
+    && ok "a11y: tree --json, GTK 3: a tab not drawn says so, and nothing else is added" \
+    || fail "a11y: tree --json, what lint reads: $out"
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y lint --window a11y-test --ignore 'image\[' --ignore 'panel with'" > "$tmp/lint"
   st=$?; set -e
@@ -1597,7 +1644,12 @@ CASES
   # --strict. A case a line: its color, the options, the exit status,
   # what's said.
   if [ "$minor" -ge 14 ]; then
+    # From 4.14.6, GTK says how wide it lays text out: wider, it's said.
+    spaced='no match good enough: 0\.[0-9]* at best'
+    [ $((minor * 100 + micro)) -lt 1406 ] \
+      || spaced='GTK lays it out [0-9][0-9]* px wider than its font draws it: letter-spaced, larger or upper case'
     while IFS='|' read -r look args status want; do
+      want=$(printf '%s' "$want" | sed "s/SPACED/$spaced/")
       mkdir -p "$tmp/dim/.config/gtk-4.0"
       printf '%s\n' 'window { background-color: #0f0d14; background-image:' \
         '  repeating-linear-gradient(90deg, #1e1929, #1e1929 1px, transparent 1px, transparent 24px),' \
@@ -1613,8 +1665,8 @@ CASES
     done <<'CASES'
 color: #3a3446;||1|1\.6[01]:1, #3a3446 on #0f0d14 (at least 4\.5); found -\?[0-9]*,
 color: #3a3446; letter-spacing: 3px;||1|not found, but nothing where it can be has the contrast it needs: the best anything there reaches is 1\.[0-9]*:1 (at least 4\.5)$
-color: #ebe6f0; letter-spacing: 3px;||0|not measured: GTK 4 reports its position wrong (no match good enough: 0\.[0-9]* at best)$
-color: #ebe6f0; letter-spacing: 3px;|--strict|1|not measured: GTK 4 reports its position wrong (no match good enough: 0\.[0-9]* at best)$
+color: #ebe6f0; letter-spacing: 3px;||0|not measured: GTK 4 reports its position wrong (SPACED)$
+color: #ebe6f0; letter-spacing: 3px;|--strict|1|not measured: GTK 4 reports its position wrong (SPACED)$
 CASES
     # Nor does a carousel's page not shown, its label outside the window.
     "$sb" run --a11y -- sh -c "'$app' carousel & '$sb' wait window a11y-test >/dev/null &&
@@ -1647,6 +1699,26 @@ CASES
         && [ "$(grep -c '/label\[1\]: text not measured: GTK 4 reports its position wrong (it matches elsewhere too, in "unchecked")$' "$tmp/contrast")" = 1 ] \
         && ok "a11y: contrast, GTK 4: text matching in two places fails where it fails in both, else not" \
         || { fail "a11y: contrast, GTK 4, faint check over unchecked"; cat "$tmp/contrast"; }
+      # Blinking, and not drawn when first pictured, it's looked for in
+      # the pictures after: where it's in doubt it's taken as in the
+      # first, only to fail in both places, so it's measured over a faint
+      # "unchecked" (taken: the line ends at its colors). Over one that
+      # passes, it isn't, but what's there bounds it, so it's changing,
+      # as found outright, failing only with --strict. Run till a first
+      # picture misses it, as one that catches it measures it as above,
+      # each a little later, so that they fall all around the blink.
+      for args in "nested recheck pale" "nested recheck pale both"; do
+        for i in 1 2 3 4 5 6 7 8; do
+          "$sb" run --a11y -- sh -c "'$app' $args blink & '$sb' wait window a11y-test >/dev/null &&
+            sleep 0.$i && '$sb' a11y contrast --window a11y-test" < /dev/null 2>/dev/null > "$tmp/blink" || true
+          grep -q '/label\[1\]: text \(changing: \|.* changing from 1\.0.* (at least 4\.5)$\)' "$tmp/blink" && break
+        done
+        cat "$tmp/blink"
+      done > "$tmp/contrast"
+      grep -q '/label\[1\]: text changing: 1\.0[0-9]:1 to 1[0-9]\.[0-9]*:1 (at least 4\.5)$' "$tmp/contrast" \
+        && grep -q '/label\[1\]: text 2\.[0-9]*:1 at best, changing from 1\.0[0-9]:1, #a0a0a0 on #[0-9a-f]* (at least 4\.5)$' "$tmp/contrast" \
+        && ok "a11y: contrast, GTK 4: text blinking, matching in two places, is taken in later pictures only to fail in both" \
+        || { fail "a11y: contrast, GTK 4, blinking check over unchecked"; cat "$tmp/contrast"; }
       # Under "Recheck", whose room takes in both, "check" names the node
       # where its other match is. A hidden "Open File" isn't taken for
       # "Open" and "File" drawn side by side under it: "Open" is drawn
@@ -1676,6 +1748,20 @@ CASES
         && [ "$(grep -c '/panel\[7\]/.*: text \(passes\|[0-9]\)' "$tmp/contrast")" = 2 ] \
         && ok "a11y: contrast, GTK 4: text matching where only another node's text can be is found where it's drawn; not a hidden twin, nor where GTK's box is over it" \
         || { fail "a11y: contrast, GTK 4, Twin"; cat "$tmp/contrast"; }
+      # An entry row's two title labels, at one place, one drawn: the
+      # one not drawn is said so, not failed for what's there, nor noted
+      # unmatched. Not said of a label not drawn over another text, nor
+      # apart from its own.
+      for args in titled "titled dark"; do
+        "$sb" run --a11y -- sh -c "'$app' $args & '$sb' a11y contrast --passes --window a11y-test" \
+          < /dev/null 2>/dev/null || true
+      done > "$tmp/contrast"
+      [ "$(grep -c '/list item\[0\]/panel\[0\]/panel\[0\]/label\[1\]: text \(passes at \)\?[0-9]' "$tmp/contrast")" = 2 ] \
+        && grep -q '/list item\[0\]/panel\[0\]/panel\[0\]/label\[1\]: text passes at 1[0-9.]*:1, #202020 ' "$tmp/contrast" \
+        && [ "$(grep -c '/list item\[0\]/panel\[0\]/panel\[0\]/label\[0\]: text not measured: GTK 4 reports its position wrong (another node with its text is drawn where it is instead)$' "$tmp/contrast")" = 2 ] \
+        && [ "$(grep -c 'drawn where it is instead' "$tmp/contrast")" = 2 ] \
+        && ok "a11y: contrast, GTK 4: an entry row's title not drawn is said so, its twin measured" \
+        || { fail "a11y: contrast, GTK 4, entry row titles"; cat "$tmp/contrast"; }
     fi
     # --strict: a window where nothing's measured but what fails, exit 1
     # with the failure, not 2, "nothing measured".
@@ -1915,6 +2001,7 @@ Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & o
 "$sb" wait window gtk4-other >/dev/null
 timed "$sb" wait gone Save --window 'gtk4-(old|other)' --timeout 2
 timed "$sb" a11y lint --window 'gtk4-(old|other)' --timeout 2
+"$sb" a11y tree --json --window 'gtk4-(old|other)' --timeout 2 > "$out.tree" 2>/dev/null; echo $app > "$out.pid"
 kill $other
 kill -CONT $app; kill $app
 echo end >> "$out"
@@ -1923,12 +2010,18 @@ EOF
   "$sb" run --a11y -- sh "$tmp/hung.sh" "$sb" "$here" "$tmp/hung" >/dev/null 2>&1 || true
   # Its tree says so, and goes on: a listing, not a failure; lint and
   # contrast fail as not all checked, lint with a --window picking its
-  # window and another's too.
+  # window and another's too, whose saved tree has it as one that didn't
+  # answer, so a lint from it is not all checked either.
+  set +e; "$sb" a11y lint --from "$tmp/hung.tree" > /dev/null 2> "$tmp/hung.from"; from=$?; set -e
   late=$(awk '/^end$/ { next } $1 > 3000 || ($2 == 0) != / a11y tree --timeout 2: / ||
     / a11y (lint|contrast) (--window gtk4-\(old\|other\) )?--timeout 2: / && $2 != 2 ||
     !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && grep -q " wait change .* after 2s; program " "$tmp/hung" \
+    && python3 -c "import json, sys
+sys.exit(not any(n.get('quiet') and n['pid'] == int(sys.argv[2]) for n in json.load(open(sys.argv[1]))))" \
+      "$tmp/hung.tree" "$(cat "$tmp/hung.pid")" \
+    && [ $from = 2 ] && grep -q "^shotbox: not all checked: program $(cat "$tmp/hung.pid") didn't answer" "$tmp/hung.from" \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
   # One that stops answering partway through a read, as the walk reads its
@@ -2069,6 +2162,9 @@ if atspi; then
   # of its own: as AccessKit, it can't be told on Wayland, though only its
   # main thread is busy; as GTK, a busy bus thread is waited out on X11,
   # where its ping answers, and on Wayland it's not idle once it's left.
+  # With no window shown, it looks three rounds too, as a listing can miss
+  # one (sway's, for an Xwayland window just shown); given less time, it
+  # says it didn't get them.
   cat > "$tmp/idle.sh" <<'EOF'
 sb=$1; here=$2; out=$3; shift 3
 for c; do
@@ -2145,6 +2241,11 @@ EOF
       || echo "$opts: $(cat "$tmp/idle.no")"
   done)
   [ -z "$said" ] || bad="$bad refusals: $said"
+  took=$("$sb" run -- "$sb" wait idle 2>&1) && [ "$(echo "$took" | awk '{ print ($1 + 0 >= 0.2) }')" = 1 ] \
+    || bad="$bad nothing shown: $took"
+  ! took=$("$sb" run -- "$sb" wait idle --timeout 0.1 2>&1) \
+    && [ "$took" = "shotbox: gave up after 0.1s: there weren't 3 rounds in a row in which every program with a window shown answered" ] \
+    || bad="$bad nothing shown, too short: $took"
   [ -z "$bad" ] \
     && ok "wait idle: a program busy on its main thread waited out, one busy too long named, by ping and the bus" \
     || { fail "wait idle:$bad"; tail -n 20 "$tmp"/idle.*; }
@@ -3649,4 +3750,4 @@ fi
 
 #: end
 echo
-[ $fails = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
+[ $fails = 0 ] && echo "all passed" || { echo "$fails failed"; keep "$fails failed, at the end"; exit 1; }

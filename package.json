@@ -1,6 +1,6 @@
 {
   "name": "shotbox",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Node and Playwright helpers for shotbox: mutated() for shotbox mutate's browser tests, Chromium options for its accessibility checks, and screenshots and recordings that come out the same each run (a sealed browser environment, a static server, frame-by-frame recordings, captions, GIFs, page errors). The shotbox command itself is on PyPI.",
   "keywords": ["screenshots", "playwright", "visual-regression", "testing", "accessibility", "a11y", "wcag", "recording", "gif", "reproducible", "mutation-testing"],
   "type": "module",

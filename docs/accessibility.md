@@ -16,8 +16,9 @@ Inside a session with `--a11y`:
 - **`shotbox a11y diff BEFORE [AFTER] [--window RE]`** prints what
   changed from a tree saved with `a11y tree --json` to another, or to
   the live one: [Reading the tree](#reading-the-tree).
-- **`shotbox a11y lint [--window RE] [--ignore RE]`** fails, a line each,
-  for what has no name to say: [Lint](#lint).
+- **`shotbox a11y lint [--window RE] [--ignore RE] [--from FILE]`** fails,
+  a line each, for what has no name to say; with `--from`, in a tree
+  saved with `a11y tree --json`, with no session: [Lint](#lint).
 - **`shotbox a11y tabwalk [--key Tab] [--max 50] [--reach-all] [--ignore RE] [--document] [--window RE]`**
   presses the key until the focus lands somewhere it has been, printing
   where it lands each time and what it never reached, and fails on a
@@ -248,12 +249,17 @@ not to. The bus drops a program that hasn't answered for
 about half a minute, after which it's as one with no accessibility.
 With `--json`, a window has its program's `pid` and `toolkit`
 ("GTK 4.14.5"), and a program that didn't answer is a node with its
-`pid` and `quiet`.
+`pid` and `quiet`. What the lint reads of a node is there too, where
+it isn't the default: `"drawn": false` for one that's showing but has
+no size (GTK 3's notebook tab, with its tabs hidden), or that went as
+it was read, and for a node in
+a web page it could find wrong, its `dom` and `text` ([Web
+nodes](#web-nodes)).
 
 Role names are at-spi2-core's, and change between its releases: a push
 button is `push button` before 2.54 and `button` from it. The lint
-compares roles by their enum, not their names, so its rules hold either
-way; a committed tree belongs to one at-spi2-core.
+takes either name, so its rules hold either way; a committed tree
+belongs to one at-spi2-core.
 
 `shotbox a11y diff BEFORE.json [AFTER.json]` says what changed from a
 tree saved with `a11y tree --json` to another, or without AFTER, to the
@@ -341,6 +347,14 @@ place of its path (`button "": button with no name`): an unnamed node
 that won't be fixed yet, or a toolkit's own (libadwaita's tab bar
 scroller), so the rest can be held to in CI.
 
+`--from FILE` lints a tree saved with `a11y tree --json` rather than
+the live one, and needs no session, display or PyGObject: the same
+lines, JSON and exit status, 2 for a program the tree says didn't
+answer. The tree saves what the lint reads live ([Reading the
+tree](#reading-the-tree)), so a test can lint one made by hand. One
+saved by an earlier shotbox has none of it: a tab that isn't drawn is
+a problem, and an `--ignore` of where a web node is matches nothing.
+
 ### Web nodes
 
 A path into a web page, `.../document web[3]/section[0]/section[2]/static[0]`,
@@ -348,9 +362,9 @@ is hard to map back to its source, so a lint or contrast line on a node
 in one also says where it is in the page's DOM, after `  <- `, as
 Chromium and Firefox give it (their `tag`, `id` and `class` object
 attributes): the element's tag, and its id if it has one, then the
-node's text (or its name, an `aria-label`'s), cut at 40 characters,
-then, if the element has no id, the nearest element round it that has
-one:
+node's text (or its name, an `aria-label`'s), cut at 40 characters (a
+field's name only, never what's typed in it), then, if the element has
+no id, the nearest element round it that has one:
 
 ```
 PATH: button with no name  <- button#icon
@@ -800,7 +814,10 @@ window (2.3 s, not 0.5, for a still one) or a Chromium page (about
 1 s); none on a GTK 4 window, which takes longer, but for its text not
 found that changed, looked for again in each picture: 10 to 14 s more
 for a label the first picture caught blinked off, within the 30 s
-contrast looks for text in all.
+contrast looks for text in all. Found there in doubt (matching in two
+places, or where another node's text could be), it's taken as in the
+first picture: only where it fails at every place it matches; else
+what's there bounds it, as it does text not found.
 Chromium's pages opened with the Node package's `accessible` emulate
 `prefers-reduced-motion: reduce`, so a page that honors it holds still
 ([Node](node.md)).
@@ -991,14 +1008,22 @@ note. Text not looked for says why
 on its line too: `(a single letter: GTK gives it no width)`, `(over
 more than one line)`, `(not all ASCII: GTK measures its width short)`;
 and so does text looked for and not taken, with why (the why at the end
-says what that means): `(no match good enough: 0.44 at best)`, `(it
+says what that means): `(no match good enough: 0.44 at best)`, or
+from 4.14.6, where GTK lays it out wider than its name drawn in its
+font at any size it's looked for at, by more than a pixel and a
+fiftieth, `(GTK lays it out 13 px wider than its font draws it:
+letter-spaced, larger or upper case)`: GTK doesn't say letter-spacing
+or upper case, and says a size such as 82% of 13.33 px as 10, `(it
 matches elsewhere too, in "unchecked")`, naming the node whose room
 starts nearest where the other match is, if its text holds this one's
 (else how well it matches there, and no name), `(another node's text
 matches there too: "Row 10")`, or where that's a node's text, not its
 name, its role and name as the tree has them, `the text "Display name",
 whose text is "Neon Doll"` (an entry's), `(what matches is drawn wider or narrower
-than GTK lays it out)`; and where nothing could be looked for, why:
+than GTK lays it out)`, `(another node with its text is drawn where it is
+instead)`, where a widget has two labels for one text and draws one at a
+time (an entry row's title, over its text or not), and the other is
+found, so this one isn't drawn, nor failed for what's there; and where nothing could be looked for, why:
 `(GTK says no font for it)`. What isn't found: text in more than one font (a superscript), letter-spaced (which GTK doesn't say), a
 name that isn't what's drawn, text with its own background at its edge
 or at the window's, what's drawn outside where GTK's box can be (a

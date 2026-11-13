@@ -31,7 +31,7 @@ from collections import Counter
 from functools import cache
 from pathlib import Path
 
-from . import color, picture, wl, x
+from . import color, picture, wl, x, xtest
 from .screen import Screen, SessionError, hushed, wait_for, wheel
 from .session import ATSPI, bindings, pango_cairo
 
@@ -42,7 +42,8 @@ STATES = ("focusable", "focused", "selected", "checked", "indeterminate", "press
 
 # Controls with nothing to say for themselves without a name. Atspi.Role
 # names, since the strings change between releases ("push button" is
-# "button" from 2.54); those a release lacks are skipped.
+# "button" from 2.54): role_names() gives both; roles() skips those a
+# release lacks.
 CONTROLS = ("PUSH_BUTTON", "BUTTON", "PUSH_BUTTON_MENU", "TOGGLE_BUTTON", "CHECK_BOX",
             "RADIO_BUTTON", "MENU_ITEM", "CHECK_MENU_ITEM", "RADIO_MENU_ITEM", "LINK",
             "ENTRY", "PASSWORD_TEXT", "SPIN_BUTTON", "SLIDER", "COMBO_BOX", "PAGE_TAB",
@@ -703,10 +704,17 @@ def roles(Atspi, names):
     return {int(getattr(Atspi.Role, r)) for r in names if hasattr(Atspi.Role, r)}
 
 
+def role_names(names):
+    """What libatspi names the Atspi.Role `names`, as a saved tree has them
+    too: lowercase, with spaces, but a push button, "button" from 2.54."""
+    return {r.lower().replace("_", " ") for r in names} | ({"button"} if "PUSH_BUTTON" in names else set())
+
+
 def ignored(ignore, web=False):
     """A test of a problem, (node, what), for the regexes in `ignore`: one
-    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT", and
-    with `web`, in either with the DOM ending its line has (placed())."""
+    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT", or in
+    either with the DOM ending its line has (placed()); with `web`, read
+    live for it (dom())."""
     try:
         found = [re.compile(i) for i in ignore]
     except re.error as e:
@@ -721,15 +729,15 @@ def ignored(ignore, web=False):
     return skip
 
 
-def lint(Atspi, nodes, ignore=()):
+def lint(nodes, ignore=()):
     """(node, what's wrong) for each showing control, image or focusable node
     a screen reader would have no name to say for. An image inside a named
     control is part of it: the control's name is what gets said. Anything
     with a name inside it is said by what's in it, and a container with
-    something focusable inside passes the focus on to it."""
-    skip = ignored(ignore, web=True)
-    controls = roles(Atspi, CONTROLS)
-    containers = roles(Atspi, CONTAINERS)
+    something focusable inside passes the focus on to it. It reads only
+    the nodes, as a saved tree has them: what for_lint() adds is there."""
+    skip = ignored(ignore)
+    controls, containers = role_names(CONTROLS), role_names(CONTAINERS)
     by_path = {n.path: n for n in nodes}
     said_inside, focus_inside = set(), set()
     for n in nodes:
@@ -744,21 +752,21 @@ def lint(Atspi, nodes, ignore=()):
         while "/" in path:
             path = path.rsplit("/", 1)[0]
             up = by_path.get(path)
-            if up and up._role in controls and up.name:
+            if up and up.role in controls and up.name:
                 return True
         return False
 
     problems = []
     for n in nodes:
-        if n.name or undrawn(Atspi, n):
+        if n.name or n.get("drawn") is False:
             continue
-        if n._role in controls or (n._role == Atspi.Role.TEXT and "editable" in n.states):
+        if n.role in controls or (n.role == "text" and "editable" in n.states):
             problems.append((n, f"{n.role} with no name"))
-        elif n._role == Atspi.Role.IMAGE and not in_named_control(n):
+        elif n.role == "image" and not in_named_control(n):
             problems.append((n, "image with no name (a decorative one should be "
                                 "role presentation, which leaves it out)"))
         elif ("focusable" in n.states and n.path not in said_inside
-              and not (n._role in containers and n.path in focus_inside)):
+              and not (n.role in containers and n.path in focus_inside)):
             problems.append((n, f"focusable {n.role} with no name"))
     return [(n, what) for n, what in problems if not skip(n, what)]
 
@@ -779,9 +787,30 @@ def undrawn(Atspi, n):
     showing."""
     try:
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
-    except Exception:   # gone while we looked
-        return True
+    except Exception:
+        # Gone while we looked, or its program stopped answering: then
+        # it's one that didn't answer, not a node left out.
+        try:
+            app = n._acc.get_application()
+        except Exception:
+            return True
+        return not (app is not None and app.get_child_count() < 0 and stalled(app, cut=True))
     return (e.width, e.height) == (-1, -1)
+
+
+def for_lint(Atspi, nodes):
+    """Note on each node lint could find wrong, read live, what it reads of
+    it: "drawn", false where it isn't (undrawn()), and in a web page,
+    where it is in the DOM (dom()). Only of those, as the rest are many
+    in a page, and each a round trip."""
+    controls = role_names(CONTROLS)
+    for n in nodes:
+        if not n.name and (n.role in controls or n.role == "image" or "focusable" in n.states
+                           or n.role == "text" and "editable" in n.states):
+            if undrawn(Atspi, n):
+                n["drawn"] = False
+            dom(Atspi, n)
+    return nodes
 
 
 # The ways out of a text view, which takes Tab for itself: GTK's key
@@ -1444,6 +1473,7 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
         return n, point, origins[n._top]
 
     what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
+    end = time.monotonic() + timeout
     try:
         n, point, at = wait_for(what, found, timeout)
     except SessionError as e:
@@ -1473,7 +1503,13 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
             if not done:
                 raise SessionError(f"{n.line()} refused its action {json.dumps(n.action)}")
         else:
-            screen.backend.focus(screen.env, at[2])
+            try:
+                screen.backend.focus(screen.env, at[2])
+            except xtest.XError:
+                # Its window gone since it was placed (a twin closing):
+                # placed again.
+                n, point, at = wait_for(what, found, max(0, end - time.monotonic()))
+                screen.backend.focus(screen.env, at[2])
             act(screen, *point)
     finally:
         screen.close()
@@ -1821,7 +1857,7 @@ def idle(window=None, timeout=30):
         pinger = None
     wait = pinger.read if pinger else lambda until: time.sleep(max(0, until - time.monotonic()))
     # Each program seen on the bus during the wait, by pid: its bus name.
-    streak, pids, sent, answered, seen = {}, {}, 0, {}, {}
+    streak, pids, sent, answered, seen, calm = {}, {}, 0, {}, {}, 0
 
     def on_bus(k):
         return k in seen and bus.trusted(seen[k]) is not False
@@ -1882,7 +1918,11 @@ def idle(window=None, timeout=30):
                and (k in heard if k in apps and on_bus(k) else pinged[k] or not on_bus(k))}
         answered.update(dict.fromkeys(now, time.monotonic()))
         streak = {k: streak.get(k, 0) + 1 if k in now else 0 for k in programs}
-        if all(n >= ROUNDS for n in streak.values()) and (programs or not window):
+        # Rounds in a row in which every program listed answered, counting a
+        # round that lists none: a listing can miss a window (sway's, an
+        # Xwayland one just shown).
+        calm = calm + 1 if now == set(programs) else 0
+        if calm >= ROUNDS and all(n >= ROUNDS for n in streak.values()) and (programs or not window):
             took = time.monotonic() - began
             sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
             for k, ws in programs.items():
@@ -1902,7 +1942,7 @@ def idle(window=None, timeout=30):
             return took
         if time.monotonic() - began > timeout:
             sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
-            if not programs:
+            if not programs and window:
                 raise SessionError(f"gave up waiting for a {x.matcher(window)[1]} after "
                                    f"{timeout:g}s" + screen.there(window))
             said = []
@@ -1916,7 +1956,10 @@ def idle(window=None, timeout=30):
                                    f" it last answered {time.monotonic() - answered[k]:.1f}s ago"
                                    if k in answered
                                    else f" didn't answer within {timeout:g}s"))
-            raise SessionError("; ".join(said))
+            # All listed now have answered: one since gone didn't, or the
+            # rounds listing none were too few.
+            raise SessionError("; ".join(said) or f"gave up after {timeout:g}s: there weren't {ROUNDS} "
+                               "rounds in a row in which every program with a window shown answered")
 
 
 # How long a node's bounds are to hold before it's taken as still: a few
@@ -2500,8 +2543,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         if not end:
             return True   # one with no case: see lone
         wide = laid(n) and laid(n)[2]
+        return (bool(wide and drawing(n.name[:end], font(n)))
+                and abs(wider(n, shape)) <= 1 + wide / 50)
+
+    def wider(n, shape):
+        """How many pixels wider GTK lays out `n`'s text than its name drawn
+        as `shape` (find_text's), as far as GTK measures it (see as_wide);
+        0 where it doesn't say."""
+        end = len(n.name) - (gtk4_release(n) >= (4, 22, 3))
+        wide = gtk4_release(n) >= (4, 14, 6) and end and laid(n) and laid(n)[2]
         kinds = wide and drawing(n.name[:end], font(n))
-        return bool(kinds) and abs(kinds[shape[0]][shape[1]][0] - 4 - wide) <= 1 + wide / 50
+        return wide - (kinds[shape[0]][shape[1]][0] - 4) if kinds else 0
 
     def laid(n):
         """Where GTK lays out `n`'s text in its own box, (x, y, width), from
@@ -2582,11 +2634,21 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                 r, at = apart(got, again)
                 got, shape = again[:5] + (r, again[6], at), drawn
         if not got or got[0] < MATCH:
-            refused[n.path] = ("unmatched", f"no match good enough: {got[0]:.2f} at best" if got
-                               else "where it can be is too small or too big to look in"
-                               if kinds else "GTK says no font for it" if attrs is None
-                               else "where it can be is off the screen" if not seen_area
-                               else "it can't be drawn to look for")
+            # Laid out wider than its font draws it at any size shapes are
+            # drawn at, it's drawn otherwise than GTK says: what it doesn't
+            # say (letter-spacing, upper case, a size it rounds down) would
+            # be why it isn't found.
+            over = got and min(wider(n, (k, i)) for k, sizes in enumerate(kinds)
+                               for i in range(len(sizes)))
+            refused[n.path] = (
+                ("spaced", f"GTK lays it out {over:.0f} px wider than its font draws it: "
+                           "letter-spaced, larger or upper case")
+                if over and over > 1 + laid(n)[2] / 50 else
+                ("unmatched", f"no match good enough: {got[0]:.2f} at best" if got
+                 else "where it can be is too small or too big to look in"
+                 if kinds else "GTK says no font for it" if attrs is None
+                 else "where it can be is off the screen" if not seen_area
+                 else "it can't be drawn to look for"))
             return None
         if got[5] >= MATCH_ELSEWHERE:
             places = [got[1:3], got[7]]
@@ -2700,6 +2762,18 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         """`o`'s text `t`, as a line says it: by `o`'s name where that's
         not it."""
         return f'"{t}"' if t == o.name else f'the {o.role} "{o.name}", whose text is "{t}"'
+
+    def settled(n, seen, least):
+        """`seen`, `n`'s find held in doubt, if it fails at every place it
+        was found, the one it fails at best; else None. Told apart from
+        another's text by which nodes could have drawn it, which can't
+        count one left out of the tree, it's taken only to fail, else as
+        if not found."""
+        got = [(picture.text_contrast(pic, overlap(s[0], [0, 0, pic.width, pic.height]),
+                                      s[2]), s) for s in both.get(n.path, [seen])]
+        if not all(g for g, _ in got) or max(g[0] for g, _ in got) >= least:
+            return None
+        return max(got, key=lambda g: g[0][0])[1]
 
     def faint(n, least):
         """For `n`'s text, not found or not taken: the most contrast any text
@@ -2818,6 +2892,16 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
             found[n.path] = seen
         else:
             refused[n.path], doubt[n.path], both[n.path] = was
+    # A widget can have two labels for one text, drawing one at a time (an
+    # entry row's title, over its text or not): one not found where another
+    # node with its text is found and taken isn't drawn.
+    for n in measured:
+        if n.bounds and refused.get(n.path, ("",))[0] in ("unmatched", "spaced", "wide") and any(
+                found.get(o.path) and o.path not in refused and o.path not in doubt
+                and o.name == n.name
+                and 2 * overlap(o.bounds, n.bounds)[2] * overlap(o.bounds, n.bounds)[3]
+                > n.bounds[2] * n.bounds[3] for o in measured):
+            refused[n.path] = ("twin", "another node with its text is drawn where it is instead")
 
     def anchor(n):
         if n.path not in anchors:
@@ -3063,6 +3147,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "case or size, letter-spaced, cut short) isn't found; see docs/accessibility.md."
                if case == "unmatched" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and GTK lays this out "
+               "wider than that: it doesn't say letter-spacing, upper case or a size it rounds "
+               "down, so text drawn with them isn't found; see docs/accessibility.md."
+               if case == "spaced" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and this matched in two "
                "places where it can be (the same text twice, or inside a longer one), so "
                "neither is taken unless it fails in both; see docs/accessibility.md."
@@ -3076,6 +3165,11 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                "wide as GTK lays this out, as when it's drawn letter-spaced or in another case "
                "and something nearby draws the name as written; see docs/accessibility.md."
                if case == "wide" else
+               f"GTK {version} reports where its widgets are wrong, so text is measured where "
+               "it's found drawn near there, by its name in its font, and this wasn't, but "
+               "another node with its text, where it is, was: a widget can have two "
+               "labels for one text and draw one at a time (an entry row's title), so this "
+               "one isn't drawn; see docs/accessibility.md." if case == "twin" else
                f"GTK {version} reports where its widgets are wrong, so text is measured where "
                "it's found drawn near there, by its name in its font, and this wasn't found "
                "there; see docs/accessibility.md." if n._role in texts and k == "text"
@@ -3124,17 +3218,12 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
         least = large if big else text if k == "text" else graphics
         at = f"at least {least:g}" + (", large text" if big else "")
         if seen and n.path in doubt:
-            # Told apart from another's text by which nodes could have drawn
-            # it, which can't count one left out of the tree: taken only to
-            # fail, else as if not found.
-            got = [(picture.text_contrast(pic, overlap(s[0], [0, 0, pic.width, pic.height]),
-                                          s[2]), s) for s in both.get(n.path, [seen])]
-            if not all(g for g, _ in got) or max(g[0] for g, _ in got) >= least:
-                seen, refused[n.path] = None, doubt[n.path]
-            else:
-                seen = max(got, key=lambda g: g[0][0])[1]
+            seen = settled(n, seen, least)
+            if not seen:
+                refused[n.path] = doubt[n.path]
         # Only in a window raised: another can be over it, its text faint.
-        dim = window and n.path in found and not seen and faint(n, least)
+        dim = (window and n.path in found and not seen
+               and refused.get(n.path, ("",))[0] != "twin" and faint(n, least))
         if dim:
             uncounted.add(id(n))
             taken.append((n, k, least, at, overlap(room(n), [0, 0, pic.width, pic.height]),
@@ -3264,11 +3353,17 @@ def contrast(window=None, text=4.5, graphics=3.0, edges=None, timeout=10, ignore
                     pic = picture.Picture(first.width, first.height, bytes(lay(
                         bytearray(first.data), first.width, region, rows)))
                     aparts.clear()
+                    for kept in (refused, doubt, both):
+                        kept.pop(n.path, None)
                     try:
                         seen = seek(n, until)
                     except TimeoutError:
                         continue
-                    dim = not seen and faint(n, least)
+                    # Found in doubt and passing somewhere, it isn't taken,
+                    # but what's there bounds it, as for text not found.
+                    unsure = seen and n.path in doubt
+                    seen = settled(n, seen, least) if unsure else seen
+                    dim = not seen and faint(n, math.inf if unsure else least)
                     # Not found, it's measured where it is only where GTK says
                     # that right.
                     if not seen and not dim and gtk4(n) not in GTK4_BOUNDS:
@@ -3625,7 +3720,8 @@ def dom(Atspi, n):
     as Chromium's and Firefox's object attributes say, once: "dom", the
     tag, id and class of the element it is or is in (a text node has
     none), and "in", the same of the nearest one round that with an id,
-    if it has none; and "text", its own, cut at 40 characters."""
+    if it has none; and "text", its own, cut at 40 characters (a field's,
+    only its name)."""
     if "/document web[" not in n.path or "_placed" in n:
         return
     n["_placed"] = True
@@ -3649,7 +3745,10 @@ def dom(Atspi, n):
             acc = up
     except Exception:   # gone while we looked
         pass
-    text = (n.get("_run") or n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
+    # What's typed in a field is never said, nor saved with a tree: it
+    # can be anything.
+    text = ((n.name if "editable" in n.states else n.get("_run") or n.name or contents(Atspi, n))
+            or "").replace("\ufffc", "").strip()
     n.update({**({"dom": el} if el else {}),
               **({"text": text[:40] + "…" * (len(text) > 40)} if text else {})})
 
@@ -3896,14 +3995,20 @@ def main(argv):
 def listed(window, timeout, bounds, quiet=False):
     """The tree as `a11y tree` has it: each window with its program's pid
     and toolkit, then a node for each program that didn't answer, whose
-    windows aren't there; with `window`, only if `quiet`, as one of those
-    may have been the window."""
+    windows aren't there; with `window`, those the lint counts, so a saved
+    tree has them: one that stopped as it was read, and any, if `quiet` or
+    one may own a window it picks."""
     nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
                         if not n.depth else {}))
              for n in tree(window, timeout, bounds=bounds)]
+    # Read before the programs that didn't answer are listed: one can stop
+    # as it's read.
+    if bounds:
+        for_lint(atspi(), nodes)
+    every = quiet or not window or QUIET and quiet_owns(window)
     return nodes + [Node(role="application", name="", description="", states=[],
                          path="application", depth=0, pid=pid, quiet=True, bounds=None)
-                    for pid in sorted(QUIET) if quiet or not window or pid in CUT]
+                    for pid in sorted(QUIET) if every or pid in CUT]
 
 
 def saved(path):
@@ -3923,7 +4028,14 @@ def saved(path):
                 and all(isinstance(n.get(k), str) for k in ("role", "name", "description", "path"))
                 and isinstance(n.get("states"), list) and all(isinstance(s, str) for s in n["states"])
                 and type(n.get("depth")) is int and n["depth"] >= 0
-                and (type(n.get("pid")) is int if n.get("quiet") or "pid" in n else True))
+                and (type(n.get("pid")) is int if n.get("quiet") or "pid" in n else True)
+                and n.get("drawn", False) is False and isinstance(n.get("text", ""), str)
+                and element(n.get("dom", {"tag": ""})))
+
+    def element(el):
+        return (isinstance(el, dict) and isinstance(el.get("tag"), str)
+                and all(isinstance(el.get(k, ""), str) for k in ("id", "class"))
+                and ("in" not in el or element(el["in"])))
     if not (isinstance(t, list) and all(map(node, t)) and (not t or t[0]["depth"] == 0)):
         raise SessionError(f"{path} isn't a tree saved by a11y tree --json")
     return [Node(n) for n in t]
@@ -3945,6 +4057,9 @@ def read(argv):
                   help="not a problem whose line (PATH: WHAT, or the node's tree line: "
                        "WHAT) this regex is found in (repeatable)")
     lt.add_argument("--ignore", **ignore)
+    lt.add_argument("--from", dest="saved", metavar="FILE",
+                    help="the tree `a11y tree --json` saved to FILE, not the live one: "
+                         "needs no session")
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
@@ -4052,8 +4167,21 @@ def read(argv):
         return 0
     if a.what in ("lint", "contrast"):
         passes, notes, behind, whys, count = [], [], [], [], 1
-        if a.what == "lint":
-            problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
+        if a.what == "lint" and a.saved:
+            if a.window:
+                lt.error("--from is a tree already read: it takes no --window")
+            try:
+                nodes = saved(a.saved)
+            except SessionError as e:
+                sys.stderr.write(f"shotbox: {e}\n")
+                return 2
+            # A program that didn't answer, there as it is in a live read;
+            # a window's pid and toolkit, which the lint doesn't say.
+            QUIET.update(n.pid for n in nodes if n.get("quiet"))
+            problems = lint([Node({k: v for k, v in n.items() if k not in ("pid", "toolkit")})
+                             for n in nodes if not n.get("quiet")], a.ignore)
+        elif a.what == "lint":
+            problems = lint(for_lint(atspi(), tree(a.window, a.timeout, bounds=a.json)), a.ignore)
         else:
             problems, passes, notes, behind, whys, count = contrast(
                 a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large, a.strict)
@@ -4062,9 +4190,10 @@ def read(argv):
         # Under --strict what wasn't measured is among the problems, but
         # a failure isn't nothing.
         nothing = not count and whys and all(isinstance(p, Noted) for p in problems)
-        Atspi = atspi()
-        for n, _ in problems + passes + notes + behind:
-            dom(Atspi, n)
+        if a.what == "contrast":
+            Atspi = atspi()
+            for n, _ in problems + passes + notes + behind:
+                dom(Atspi, n)
         changing = sum("range" in n for n, _ in notes)
         said = " ".join([f"{len(notes) - changing} not measured"
                          + ("." if nothing else ", which doesn't fail.")]

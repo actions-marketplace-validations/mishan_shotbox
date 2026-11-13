@@ -898,7 +898,7 @@ class Screen:
                                 "-draw", f"rectangle {left},{top} {right},{bottom}",
                                 "-draw", f"rectangle {left - 1},{top - 1} {right + 1},{bottom + 1}",
                                 "-antialias", "-stroke", "none", "-fill", "white",
-                                "-background", "black", "+size", "-pointsize", "14",
+                                "-background", "black", "+size", *x.font(), "-pointsize", "14",
                                 f"label:{t:.3f}\u2013{till:.3f}s", "-gravity", "center", "-append",
                                 "-bordercolor", "gray50", "-border", "1", str(cells[-1])],
                                input=b"".join(data[(y * width + x0) * 3:(y * width + x1) * 3]
