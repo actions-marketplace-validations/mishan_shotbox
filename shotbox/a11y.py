@@ -1444,6 +1444,7 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
         return n, point, origins[n._top]
 
     what = f"a node named {name!r}{note}" + (f" with role {role!r}{role_note}" if role else "")
+    end = time.monotonic() + timeout
     try:
         n, point, at = wait_for(what, found, timeout)
     except SessionError as e:
@@ -1478,7 +1479,7 @@ def at_node(name, role, window, timeout, act, force=False, action=None):
             except xtest.XError:
                 # Its window gone since it was placed (a twin closing):
                 # placed again.
-                n, point, at = wait_for(what, found, timeout)
+                n, point, at = wait_for(what, found, max(0, end - time.monotonic()))
                 screen.backend.focus(screen.env, at[2])
             act(screen, *point)
     finally:
