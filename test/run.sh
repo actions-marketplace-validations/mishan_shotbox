@@ -1666,11 +1666,12 @@ CASES
       # "unchecked" (taken: the line ends at its colors). Over one that
       # passes, it isn't, but what's there bounds it, so it's changing,
       # as found outright, failing only with --strict. Run till a first
-      # picture misses it, as one that catches it measures it as above.
+      # picture misses it, as one that catches it measures it as above,
+      # each a little later, so that they fall all around the blink.
       for args in "nested recheck pale" "nested recheck pale both"; do
         for i in 1 2 3 4 5 6 7 8; do
           "$sb" run --a11y -- sh -c "'$app' $args blink & '$sb' wait window a11y-test >/dev/null &&
-            '$sb' a11y contrast --window a11y-test" < /dev/null 2>/dev/null > "$tmp/blink" || true
+            sleep 0.$i && '$sb' a11y contrast --window a11y-test" < /dev/null 2>/dev/null > "$tmp/blink" || true
           grep -q '/label\[1\]: text \(changing: \|.* changing from 1\.0.* (at least 4\.5)$\)' "$tmp/blink" && break
         done
         cat "$tmp/blink"
