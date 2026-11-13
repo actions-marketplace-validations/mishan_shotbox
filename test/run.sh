@@ -38,13 +38,14 @@ trap 'rm -rf "$tmp"' EXIT
 fails=0
 ok() { echo "ok    $1"; }
 # With SHOTBOX_TEST_FAILED=DIR, what the tests left in $tmp as each fails,
-# in a directory of its own there, for CI to keep: a log has only what it
+# and as a run ends failed (the Python suites count their own), in a
+# directory of its own there, for CI to keep: a log has only what it
 # printed. What can't be copied (a file gone meanwhile) is left out.
-fail() {
-  echo "FAIL  $1"; fails=$((fails + 1))
+keep() {
   [ -z "${SHOTBOX_TEST_FAILED-}" ] || (kept=$SHOTBOX_TEST_FAILED/$(date +%s%N) && mkdir -p "$kept" &&
     { cp -R "$tmp"/. "$kept" 2>/dev/null || :; printf '%s\n' "$1" > "$kept/FAILED"; }) || :
 }
+fail() { echo "FAIL  $1"; fails=$((fails + 1)); keep "$1"; }
 esc=$(printf '\033')
 audio() { command -v pipewire >/dev/null && command -v wireplumber >/dev/null && command -v pactl >/dev/null; }
 atspi() { python3 -c 'import gi; gi.require_version("Adw", "1"); gi.require_version("Atspi", "2.0")' 2>/dev/null \
@@ -3694,4 +3695,4 @@ fi
 
 #: end
 echo
-[ $fails = 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
+[ $fails = 0 ] && echo "all passed" || { echo "$fails failed"; keep "$fails failed, at the end"; exit 1; }

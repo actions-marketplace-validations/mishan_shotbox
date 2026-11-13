@@ -129,6 +129,7 @@ jobs:
         with:
           name: failed-${{ matrix.part }}-${{ matrix.os }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/failed
+          include-hidden-files: true
           retention-days: 30
 
   # The Action, as another project's job would use it: from a runner with
