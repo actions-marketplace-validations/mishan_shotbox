@@ -3697,7 +3697,8 @@ def dom(Atspi, n):
     as Chromium's and Firefox's object attributes say, once: "dom", the
     tag, id and class of the element it is or is in (a text node has
     none), and "in", the same of the nearest one round that with an id,
-    if it has none; and "text", its own, cut at 40 characters."""
+    if it has none; and "text", its own, cut at 40 characters (a field's,
+    only its name)."""
     if "/document web[" not in n.path or "_placed" in n:
         return
     n["_placed"] = True
@@ -3721,7 +3722,10 @@ def dom(Atspi, n):
             acc = up
     except Exception:   # gone while we looked
         pass
-    text = (n.get("_run") or n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
+    # What's typed in a field is never said, nor saved with a tree: it
+    # can be anything.
+    text = ((n.name if "editable" in n.states else n.get("_run") or n.name or contents(Atspi, n))
+            or "").replace("\ufffc", "").strip()
     n.update({**({"dom": el} if el else {}),
               **({"text": text[:40] + "…" * (len(text) > 40)} if text else {})})
 

@@ -348,8 +348,8 @@ is hard to map back to its source, so a lint or contrast line on a node
 in one also says where it is in the page's DOM, after `  <- `, as
 Chromium and Firefox give it (their `tag`, `id` and `class` object
 attributes): the element's tag, and its id if it has one, then the
-node's text (or its name, an `aria-label`'s), cut at 40 characters,
-then, if the element has no id, the nearest element round it that has
+node's text (or its name, an `aria-label`'s), cut at 40 characters (a
+field's name only, never what's typed in it), then, if the element has no id, the nearest element round it that has
 one:
 
 ```

@@ -413,7 +413,7 @@ test('Chromium on an --a11y session: its tree, a click by name or by its action,
         'run', '--a11y', '--',
         'node', path.join(here, 'a11y_browser.mjs'), shotbox,
     ], { encoding: 'utf8' });
-    const { tree, clicked, pressed, picked, below, contrast, ignored, behind, field, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
+    const { tree, clicked, pressed, picked, below, contrast, ignored, behind, field, typedLint, runs, fading, walk, around, long, further, nearest, ends, said, hint, whole, crash } = JSON.parse(out);
 
     assert.match(tree, /button "Save"/);
     /* Scrolled out of view: not showing, but still in a page's tree. */
@@ -447,6 +447,9 @@ test('Chromium on an --a11y session: its tree, a click by name or by its action,
                       ['Faint', '#bbbbbb'], ['emoji words', '#bbbbbb']].sort());
     assert.equal(field.status, 0);
     assert.match(field.out, /^\S.*document web\[\d+\]: text not measured: none of the page's text was  <- "a11y-typed"$/m);
+    /* A field with no name is said by where it is, never by what's typed in it. */
+    assert.equal(typedLint.status, 1);
+    assert.match(typedLint.out, /^\S.*\/entry\[\d+\]: entry with no name  <- input$/m);
     /* Each said once, in its list, as this, in every run. */
     const verdicts = (got, name) => ['problems', 'passes', 'notes'].flatMap((list) => got[list]
         .filter((n) => n.name === name).map((n) => [list, n.problem ?? n.contrast ?? n.note]));

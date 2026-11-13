@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- A lint or contrast line on an editable field in a web page no longer
+  ends with what's typed in it, only its field's name, if it has one:
+  what's typed can be anything.
+
 ### Fixed
 
 - `wait idle` passed after a single look that listed no window, so a busy
