@@ -42,7 +42,8 @@ STATES = ("focusable", "focused", "selected", "checked", "indeterminate", "press
 
 # Controls with nothing to say for themselves without a name. Atspi.Role
 # names, since the strings change between releases ("push button" is
-# "button" from 2.54); those a release lacks are skipped.
+# "button" from 2.54): role_names() gives both; roles() skips those a
+# release lacks.
 CONTROLS = ("PUSH_BUTTON", "BUTTON", "PUSH_BUTTON_MENU", "TOGGLE_BUTTON", "CHECK_BOX",
             "RADIO_BUTTON", "MENU_ITEM", "CHECK_MENU_ITEM", "RADIO_MENU_ITEM", "LINK",
             "ENTRY", "PASSWORD_TEXT", "SPIN_BUTTON", "SLIDER", "COMBO_BOX", "PAGE_TAB",
@@ -703,10 +704,17 @@ def roles(Atspi, names):
     return {int(getattr(Atspi.Role, r)) for r in names if hasattr(Atspi.Role, r)}
 
 
+def role_names(names):
+    """What libatspi names the Atspi.Role `names`, as a saved tree has them
+    too: lowercase, with spaces, but a push button, "button" from 2.54."""
+    return {r.lower().replace("_", " ") for r in names} | ({"button"} if "PUSH_BUTTON" in names else set())
+
+
 def ignored(ignore, web=False):
     """A test of a problem, (node, what), for the regexes in `ignore`: one
-    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT", and
-    with `web`, in either with the DOM ending its line has (placed())."""
+    found in its "PATH: WHAT" or in its tree line's "LINE: WHAT", or in
+    either with the DOM ending its line has (placed()); with `web`, read
+    live for it (dom())."""
     try:
         found = [re.compile(i) for i in ignore]
     except re.error as e:
@@ -721,15 +729,15 @@ def ignored(ignore, web=False):
     return skip
 
 
-def lint(Atspi, nodes, ignore=()):
+def lint(nodes, ignore=()):
     """(node, what's wrong) for each showing control, image or focusable node
     a screen reader would have no name to say for. An image inside a named
     control is part of it: the control's name is what gets said. Anything
     with a name inside it is said by what's in it, and a container with
-    something focusable inside passes the focus on to it."""
-    skip = ignored(ignore, web=True)
-    controls = roles(Atspi, CONTROLS)
-    containers = roles(Atspi, CONTAINERS)
+    something focusable inside passes the focus on to it. It reads only
+    the nodes, as a saved tree has them: what for_lint() adds is there."""
+    skip = ignored(ignore)
+    controls, containers = role_names(CONTROLS), role_names(CONTAINERS)
     by_path = {n.path: n for n in nodes}
     said_inside, focus_inside = set(), set()
     for n in nodes:
@@ -744,21 +752,21 @@ def lint(Atspi, nodes, ignore=()):
         while "/" in path:
             path = path.rsplit("/", 1)[0]
             up = by_path.get(path)
-            if up and up._role in controls and up.name:
+            if up and up.role in controls and up.name:
                 return True
         return False
 
     problems = []
     for n in nodes:
-        if n.name or undrawn(Atspi, n):
+        if n.name or n.get("drawn") is False:
             continue
-        if n._role in controls or (n._role == Atspi.Role.TEXT and "editable" in n.states):
+        if n.role in controls or (n.role == "text" and "editable" in n.states):
             problems.append((n, f"{n.role} with no name"))
-        elif n._role == Atspi.Role.IMAGE and not in_named_control(n):
+        elif n.role == "image" and not in_named_control(n):
             problems.append((n, "image with no name (a decorative one should be "
                                 "role presentation, which leaves it out)"))
         elif ("focusable" in n.states and n.path not in said_inside
-              and not (n._role in containers and n.path in focus_inside)):
+              and not (n.role in containers and n.path in focus_inside)):
             problems.append((n, f"focusable {n.role} with no name"))
     return [(n, what) for n, what in problems if not skip(n, what)]
 
@@ -779,9 +787,30 @@ def undrawn(Atspi, n):
     showing."""
     try:
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
-    except Exception:   # gone while we looked
-        return True
+    except Exception:
+        # Gone while we looked, or its program stopped answering: then
+        # it's one that didn't answer, not a node left out.
+        try:
+            app = n._acc.get_application()
+        except Exception:
+            return True
+        return not (app is not None and app.get_child_count() < 0 and stalled(app, cut=True))
     return (e.width, e.height) == (-1, -1)
+
+
+def for_lint(Atspi, nodes):
+    """Note on each node lint could find wrong, read live, what it reads of
+    it: "drawn", false where it isn't (undrawn()), and in a web page,
+    where it is in the DOM (dom()). Only of those, as the rest are many
+    in a page, and each a round trip."""
+    controls = role_names(CONTROLS)
+    for n in nodes:
+        if not n.name and (n.role in controls or n.role == "image" or "focusable" in n.states
+                           or n.role == "text" and "editable" in n.states):
+            if undrawn(Atspi, n):
+                n["drawn"] = False
+            dom(Atspi, n)
+    return nodes
 
 
 # The ways out of a text view, which takes Tab for itself: GTK's key
@@ -3691,7 +3720,8 @@ def dom(Atspi, n):
     as Chromium's and Firefox's object attributes say, once: "dom", the
     tag, id and class of the element it is or is in (a text node has
     none), and "in", the same of the nearest one round that with an id,
-    if it has none; and "text", its own, cut at 40 characters."""
+    if it has none; and "text", its own, cut at 40 characters (a field's,
+    only its name)."""
     if "/document web[" not in n.path or "_placed" in n:
         return
     n["_placed"] = True
@@ -3715,7 +3745,10 @@ def dom(Atspi, n):
             acc = up
     except Exception:   # gone while we looked
         pass
-    text = (n.get("_run") or n.name or contents(Atspi, n) or "").replace("\ufffc", "").strip()
+    # What's typed in a field is never said, nor saved with a tree: it
+    # can be anything.
+    text = ((n.name if "editable" in n.states else n.get("_run") or n.name or contents(Atspi, n))
+            or "").replace("\ufffc", "").strip()
     n.update({**({"dom": el} if el else {}),
               **({"text": text[:40] + "…" * (len(text) > 40)} if text else {})})
 
@@ -3962,14 +3995,20 @@ def main(argv):
 def listed(window, timeout, bounds, quiet=False):
     """The tree as `a11y tree` has it: each window with its program's pid
     and toolkit, then a node for each program that didn't answer, whose
-    windows aren't there; with `window`, only if `quiet`, as one of those
-    may have been the window."""
+    windows aren't there; with `window`, those the lint counts, so a saved
+    tree has them: one that stopped as it was read, and any, if `quiet` or
+    one may own a window it picks."""
     nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
                         if not n.depth else {}))
              for n in tree(window, timeout, bounds=bounds)]
+    # Read before the programs that didn't answer are listed: one can stop
+    # as it's read.
+    if bounds:
+        for_lint(atspi(), nodes)
+    every = quiet or not window or QUIET and quiet_owns(window)
     return nodes + [Node(role="application", name="", description="", states=[],
                          path="application", depth=0, pid=pid, quiet=True, bounds=None)
-                    for pid in sorted(QUIET) if quiet or not window or pid in CUT]
+                    for pid in sorted(QUIET) if every or pid in CUT]
 
 
 def saved(path):
@@ -3989,7 +4028,14 @@ def saved(path):
                 and all(isinstance(n.get(k), str) for k in ("role", "name", "description", "path"))
                 and isinstance(n.get("states"), list) and all(isinstance(s, str) for s in n["states"])
                 and type(n.get("depth")) is int and n["depth"] >= 0
-                and (type(n.get("pid")) is int if n.get("quiet") or "pid" in n else True))
+                and (type(n.get("pid")) is int if n.get("quiet") or "pid" in n else True)
+                and n.get("drawn", False) is False and isinstance(n.get("text", ""), str)
+                and element(n.get("dom", {"tag": ""})))
+
+    def element(el):
+        return (isinstance(el, dict) and isinstance(el.get("tag"), str)
+                and all(isinstance(el.get(k, ""), str) for k in ("id", "class"))
+                and ("in" not in el or element(el["in"])))
     if not (isinstance(t, list) and all(map(node, t)) and (not t or t[0]["depth"] == 0)):
         raise SessionError(f"{path} isn't a tree saved by a11y tree --json")
     return [Node(n) for n in t]
@@ -4011,6 +4057,9 @@ def read(argv):
                   help="not a problem whose line (PATH: WHAT, or the node's tree line: "
                        "WHAT) this regex is found in (repeatable)")
     lt.add_argument("--ignore", **ignore)
+    lt.add_argument("--from", dest="saved", metavar="FILE",
+                    help="the tree `a11y tree --json` saved to FILE, not the live one: "
+                         "needs no session")
     w = sub.add_parser("tabwalk", help="press a key until the focus comes back round")
     w.add_argument("--key", default="Tab", metavar="CHORD", help="the key to press (Tab)")
     w.add_argument("--max", type=int, default=50, metavar="N", help="at most this many (50)")
@@ -4118,8 +4167,21 @@ def read(argv):
         return 0
     if a.what in ("lint", "contrast"):
         passes, notes, behind, whys, count = [], [], [], [], 1
-        if a.what == "lint":
-            problems = lint(atspi(), tree(a.window, a.timeout, bounds=a.json), a.ignore)
+        if a.what == "lint" and a.saved:
+            if a.window:
+                lt.error("--from is a tree already read: it takes no --window")
+            try:
+                nodes = saved(a.saved)
+            except SessionError as e:
+                sys.stderr.write(f"shotbox: {e}\n")
+                return 2
+            # A program that didn't answer, there as it is in a live read;
+            # a window's pid and toolkit, which the lint doesn't say.
+            QUIET.update(n.pid for n in nodes if n.get("quiet"))
+            problems = lint([Node({k: v for k, v in n.items() if k not in ("pid", "toolkit")})
+                             for n in nodes if not n.get("quiet")], a.ignore)
+        elif a.what == "lint":
+            problems = lint(for_lint(atspi(), tree(a.window, a.timeout, bounds=a.json)), a.ignore)
         else:
             problems, passes, notes, behind, whys, count = contrast(
                 a.window, a.text, a.graphics, a.edges, a.timeout, a.ignore, a.large, a.strict)
@@ -4128,9 +4190,10 @@ def read(argv):
         # Under --strict what wasn't measured is among the problems, but
         # a failure isn't nothing.
         nothing = not count and whys and all(isinstance(p, Noted) for p in problems)
-        Atspi = atspi()
-        for n, _ in problems + passes + notes + behind:
-            dom(Atspi, n)
+        if a.what == "contrast":
+            Atspi = atspi()
+            for n, _ in problems + passes + notes + behind:
+                dom(Atspi, n)
         changing = sum("range" in n for n, _ in notes)
         said = " ".join([f"{len(notes) - changing} not measured"
                          + ("." if nothing else ", which doesn't fail.")]

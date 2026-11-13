@@ -153,6 +153,9 @@ try
     }
     const field = spawnSync(shotbox, ['a11y', 'contrast', '--window', 'a11y-typed.*'],
                             { encoding: 'utf8' });
+    const typedLint = spawnSync(shotbox, ['a11y', 'lint', '--window', 'a11y-typed.*'],
+                                { encoding: 'utf8' });
+    const typedTree = run('a11y', 'tree', '--json', '--window', 'a11y-typed.*');
     await typed.close();
 
     /* Fading below what text needs throughout, above it, and across it;
@@ -316,6 +319,8 @@ try
         ignored: { status: ignored.status, out: ignored.stdout },
         behind,
         field: { status: field.status, out: field.stdout },
+        typedLint: { status: typedLint.status, out: typedLint.stdout },
+        typedTree,
         runs,
         fading,
         walk,

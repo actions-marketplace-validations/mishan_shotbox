@@ -829,6 +829,12 @@ st=$?; set -e
   && awk '{ exit !($2 >= 100 && $2 < 200) }' "$tmp/out" \
   && ok "latency: a window 100 ms slow to follow the pointer, measured so" || fail "latency: $(cat "$tmp/out")"
 
+# a11y lint --from, on trees made by hand: no display or bus.
+set +e; python3 "$here/lint_test.py" "$sb" > "$tmp/lint.log" 2>&1; st=$?; set -e
+cat "$tmp/lint.log"
+fails=$((fails + $(grep -c '^FAIL' "$tmp/lint.log" || true)))
+[ $st = 0 ] || grep -q "^FAIL" "$tmp/lint.log" || fail "lint_test.py: status $st"
+
 # shotbox mutate's targets and verdicts.
 set +e; python3 "$here/mutate_test.py" > "$tmp/mutate.log" 2>&1; st=$?; set -e
 cat "$tmp/mutate.log"
@@ -1220,6 +1226,14 @@ if atspi; then
     && grep -q '/panel\[6\]: focusable panel with no name$' "$tmp/lint" \
     && ok "a11y: lint finds the icon button, the image and the drawing area with no name" \
     || { fail "a11y: lint ($st)"; cat "$tmp/lint"; }
+  # Lint knows roles by the names libatspi gives them, as a saved tree has
+  # them: each role it lists is named as libatspi names it.
+  out=$(PYTHONPATH="$here/.." python3 -c "import gi; gi.require_version('Atspi', '2.0')
+from gi.repository import Atspi
+from shotbox.a11y import CONTAINERS, CONTROLS, role_names
+print(*[r for r in CONTROLS + CONTAINERS + ('TEXT', 'IMAGE') if hasattr(Atspi.Role, r)
+        and Atspi.role_get_name(getattr(Atspi.Role, r)) not in role_names((r,))])")
+  [ -z "$out" ] && ok "a11y: lint names each role it lists as libatspi does" || fail "a11y: lint's role names: $out"
   "$sb" run --a11y -- sh -c "'$app' & FORCE_COLOR=1 '$sb' a11y lint --window a11y-test" > "$tmp/lintc" || true
   grep -q "^${esc}\[2m.*/image\[5\]${esc}\[0m: image with no name" "$tmp/lintc" \
     && ok "a11y: lint, at a terminal, dims each node's path" || { fail "a11y: lint's color"; cat -v "$tmp/lintc"; }
@@ -1245,6 +1259,31 @@ if atspi; then
     && grep -q '^ *text "Name:" \[focusable, focused, editable\]$' "$tmp/lint" \
     && ok "a11y: lint, tree and click, GTK 3: a field named by its label, a bar not revealed left out" \
     || { fail "a11y: lint, GTK 3 fields"; cat "$tmp/lint"; }
+  # Lint from the tree saved says what it says live, and ends the same,
+  # in lines and as JSON: the GTK 3 problems, and not the hidden tab, in
+  # two windows titled alike, which can't be placed.
+  "$sb" run --a11y -- sh -c "'$app' & '$here/window.py' fields fields & '$here/window.py' fields fields &
+    '$sb' wait window a11y-test >/dev/null &&
+    '$sb' wait window fields >/dev/null && sleep 1 && '$sb' a11y tree --json > '$tmp/saved.json'
+    '$sb' a11y lint > '$tmp/live'; echo \$? >> '$tmp/live'; '$sb' a11y lint --json > '$tmp/live.json'
+    echo \$? >> '$tmp/live.json'" < /dev/null 2>/dev/null
+  set +e
+  { "$sb" a11y lint --from "$tmp/saved.json"; echo $?; } > "$tmp/fromfile" 2>/dev/null
+  { "$sb" a11y lint --from "$tmp/saved.json" --json; echo $?; } > "$tmp/fromfile.json" 2>/dev/null
+  set -e
+  grep -q 'button with no name$' "$tmp/live" && ! grep -q 'page tab' "$tmp/live" \
+    && cmp -s "$tmp/live" "$tmp/fromfile" && cmp -s "$tmp/live.json" "$tmp/fromfile.json" \
+    && ok "a11y: lint --from a saved tree says what the live lint says, and ends the same" \
+    || { fail "a11y: lint --from, as live"; diff "$tmp/live" "$tmp/fromfile"; diff "$tmp/live.json" "$tmp/fromfile.json"; }
+  # A saved tree has what lint reads, only where it isn't the default:
+  # here, that the hidden tab isn't drawn.
+  "$sb" run --a11y -- sh -c "'$here/window.py' fields fields & '$sb' wait window fields >/dev/null &&
+    '$sb' a11y tree --json --window fields" > "$tmp/fields.json" \
+    && out=$(python3 -c "import json, sys
+print([(n['role'], k, n[k]) for n in json.load(open(sys.argv[1])) for k in ('drawn', 'dom', 'text') if k in n])" \
+      "$tmp/fields.json") && [ "$out" = "[('page tab', 'drawn', False)]" ] \
+    && ok "a11y: tree --json, GTK 3: a tab not drawn says so, and nothing else is added" \
+    || fail "a11y: tree --json, what lint reads: $out"
   set +e
   "$sb" run --a11y -- sh -c "'$app' & '$sb' a11y lint --window a11y-test --ignore 'image\[' --ignore 'panel with'" > "$tmp/lint"
   st=$?; set -e
@@ -1962,6 +2001,7 @@ Gtk.init(); Gtk.Window(title="gtk4-other").present(); GLib.MainLoop().run()' & o
 "$sb" wait window gtk4-other >/dev/null
 timed "$sb" wait gone Save --window 'gtk4-(old|other)' --timeout 2
 timed "$sb" a11y lint --window 'gtk4-(old|other)' --timeout 2
+"$sb" a11y tree --json --window 'gtk4-(old|other)' --timeout 2 > "$out.tree" 2>/dev/null; echo $app > "$out.pid"
 kill $other
 kill -CONT $app; kill $app
 echo end >> "$out"
@@ -1970,12 +2010,18 @@ EOF
   "$sb" run --a11y -- sh "$tmp/hung.sh" "$sb" "$here" "$tmp/hung" >/dev/null 2>&1 || true
   # Its tree says so, and goes on: a listing, not a failure; lint and
   # contrast fail as not all checked, lint with a --window picking its
-  # window and another's too.
+  # window and another's too, whose saved tree has it as one that didn't
+  # answer, so a lint from it is not all checked either.
+  set +e; "$sb" a11y lint --from "$tmp/hung.tree" > /dev/null 2> "$tmp/hung.from"; from=$?; set -e
   late=$(awk '/^end$/ { next } $1 > 3000 || ($2 == 0) != / a11y tree --timeout 2: / ||
     / a11y (lint|contrast) (--window gtk4-\(old\|other\) )?--timeout 2: / && $2 != 2 ||
     !index($0, $3 ") didn'"'"'t answer: busy, or hung") && !index($0, $3 " didn'"'"'t answer: busy, or hung")' "$tmp/hung")
   [ "$(tail -1 "$tmp/hung")" = end ] && [ -z "$late" ] \
     && grep -q " wait change .* after 2s; program " "$tmp/hung" \
+    && python3 -c "import json, sys
+sys.exit(not any(n.get('quiet') and n['pid'] == int(sys.argv[2]) for n in json.load(open(sys.argv[1]))))" \
+      "$tmp/hung.tree" "$(cat "$tmp/hung.pid")" \
+    && [ $from = 2 ] && grep -q "^shotbox: not all checked: program $(cat "$tmp/hung.pid") didn't answer" "$tmp/hung.from" \
     && ok "a11y: a program that doesn't answer is said not to, by 1 s past the timeout" \
     || { fail "a11y: a program that doesn't answer"; echo "${late:-nothing ran}"; }
   # One that stops answering partway through a read, as the walk reads its

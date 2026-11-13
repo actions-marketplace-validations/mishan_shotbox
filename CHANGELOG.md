@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Changes to check when upgrading
+
+- A lint or contrast line on an editable field in a web page no longer
+  ends with what's typed in it, only its field's name, if it has one:
+  what's typed can be anything.
+
+### Added
+
+- `a11y lint --from FILE` lints a tree saved with `a11y tree --json`, with
+  no session, display or PyGObject: the same lines, JSON and exit status
+  as live. `shotbox.a11y.lint(nodes)` does it in Python. For it, `a11y
+  tree --json` saves what the lint reads live, where it isn't the
+  default: `"drawn": false` for a node showing with no size, a web
+  node's `dom` and `text` where the lint could find it wrong. With
+  `--window`, `a11y tree` (and the Python and MCP tree) lists each
+  program that didn't answer that the lint counts, one that may own a
+  window it picks, as well as one that stopped as it was read.
+- `a11y lint` takes a role by libatspi's name for it, as a saved tree
+  has it, so on an older libatspi it also finds an unnamed switch.
+
 ### Fixed
 
 - `wait idle` passed after a single look that listed no window, so a busy
