@@ -252,8 +252,8 @@ With `--json`, a window has its program's `pid` and `toolkit`
 
 Role names are at-spi2-core's, and change between its releases: a push
 button is `push button` before 2.54 and `button` from it. The lint
-compares roles by their enum, not their names, so its rules hold either
-way; a committed tree belongs to one at-spi2-core.
+takes either name, so its rules hold either way; a committed tree
+belongs to one at-spi2-core.
 
 `shotbox a11y diff BEFORE.json [AFTER.json]` says what changed from a
 tree saved with `a11y tree --json` to another, or without AFTER, to the

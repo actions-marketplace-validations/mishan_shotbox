@@ -42,7 +42,8 @@ STATES = ("focusable", "focused", "selected", "checked", "indeterminate", "press
 
 # Controls with nothing to say for themselves without a name. Atspi.Role
 # names, since the strings change between releases ("push button" is
-# "button" from 2.54); those a release lacks are skipped.
+# "button" from 2.54): role_names() gives both; roles() skips those a
+# release lacks.
 CONTROLS = ("PUSH_BUTTON", "BUTTON", "PUSH_BUTTON_MENU", "TOGGLE_BUTTON", "CHECK_BOX",
             "RADIO_BUTTON", "MENU_ITEM", "CHECK_MENU_ITEM", "RADIO_MENU_ITEM", "LINK",
             "ENTRY", "PASSWORD_TEXT", "SPIN_BUTTON", "SLIDER", "COMBO_BOX", "PAGE_TAB",
@@ -703,6 +704,12 @@ def roles(Atspi, names):
     return {int(getattr(Atspi.Role, r)) for r in names if hasattr(Atspi.Role, r)}
 
 
+def role_names(names):
+    """What libatspi names the Atspi.Role `names`, as a saved tree has them
+    too: lowercase, with spaces, but a push button, "button" from 2.54."""
+    return {r.lower().replace("_", " ") for r in names} | ({"button"} if "PUSH_BUTTON" in names else set())
+
+
 def ignored(ignore, web=False):
     """A test of a problem, (node, what), for the regexes in `ignore`: one
     found in its "PATH: WHAT" or in its tree line's "LINE: WHAT", and
@@ -728,8 +735,7 @@ def lint(Atspi, nodes, ignore=()):
     with a name inside it is said by what's in it, and a container with
     something focusable inside passes the focus on to it."""
     skip = ignored(ignore, web=True)
-    controls = roles(Atspi, CONTROLS)
-    containers = roles(Atspi, CONTAINERS)
+    controls, containers = role_names(CONTROLS), role_names(CONTAINERS)
     by_path = {n.path: n for n in nodes}
     said_inside, focus_inside = set(), set()
     for n in nodes:
@@ -744,7 +750,7 @@ def lint(Atspi, nodes, ignore=()):
         while "/" in path:
             path = path.rsplit("/", 1)[0]
             up = by_path.get(path)
-            if up and up._role in controls and up.name:
+            if up and up.role in controls and up.name:
                 return True
         return False
 
@@ -752,13 +758,13 @@ def lint(Atspi, nodes, ignore=()):
     for n in nodes:
         if n.name or undrawn(Atspi, n):
             continue
-        if n._role in controls or (n._role == Atspi.Role.TEXT and "editable" in n.states):
+        if n.role in controls or (n.role == "text" and "editable" in n.states):
             problems.append((n, f"{n.role} with no name"))
-        elif n._role == Atspi.Role.IMAGE and not in_named_control(n):
+        elif n.role == "image" and not in_named_control(n):
             problems.append((n, "image with no name (a decorative one should be "
                                 "role presentation, which leaves it out)"))
         elif ("focusable" in n.states and n.path not in said_inside
-              and not (n._role in containers and n.path in focus_inside)):
+              and not (n.role in containers and n.path in focus_inside)):
             problems.append((n, f"focusable {n.role} with no name"))
     return [(n, what) for n, what in problems if not skip(n, what)]
 
