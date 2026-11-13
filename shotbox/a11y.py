@@ -787,8 +787,14 @@ def undrawn(Atspi, n):
     showing."""
     try:
         e = n._acc.get_extents(Atspi.CoordType.WINDOW)
-    except Exception:   # gone while we looked
-        return True
+    except Exception:
+        # Gone while we looked, or its program stopped answering: then
+        # it's one that didn't answer, not a node left out.
+        try:
+            app = n._acc.get_application()
+        except Exception:
+            return True
+        return not (app is not None and app.get_child_count() < 0 and stalled(app, cut=True))
     return (e.width, e.height) == (-1, -1)
 
 
@@ -3995,6 +4001,10 @@ def listed(window, timeout, bounds, quiet=False):
     nodes = [Node(n, **({"pid": n._top.get_process_id(), "toolkit": made_with(n._top)}
                         if not n.depth else {}))
              for n in tree(window, timeout, bounds=bounds)]
+    # Read before the programs that didn't answer are listed: one can stop
+    # as it's read.
+    if bounds:
+        for_lint(atspi(), nodes)
     every = quiet or not window or QUIET and quiet_owns(window)
     return nodes + [Node(role="application", name="", description="", states=[],
                          path="application", depth=0, pid=pid, quiet=True, bounds=None)
@@ -4150,7 +4160,6 @@ def read(argv):
     if a.what == "tree":
         nodes = listed(a.window, a.timeout, a.json)
         if a.json:
-            for_lint(atspi(), nodes)
             print(json.dumps([dict(public(n), depth=n.depth) for n in nodes]))
         else:
             for n in nodes:
