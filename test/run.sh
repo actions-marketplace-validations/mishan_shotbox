@@ -2115,6 +2115,9 @@ if atspi; then
   # of its own: as AccessKit, it can't be told on Wayland, though only its
   # main thread is busy; as GTK, a busy bus thread is waited out on X11,
   # where its ping answers, and on Wayland it's not idle once it's left.
+  # With no window shown, it looks three rounds too, as a listing can miss
+  # one (sway's, for an Xwayland window just shown); given less time, it
+  # says it didn't get them.
   cat > "$tmp/idle.sh" <<'EOF'
 sb=$1; here=$2; out=$3; shift 3
 for c; do
@@ -2191,6 +2194,11 @@ EOF
       || echo "$opts: $(cat "$tmp/idle.no")"
   done)
   [ -z "$said" ] || bad="$bad refusals: $said"
+  took=$("$sb" run -- "$sb" wait idle 2>&1) && [ "$(echo "$took" | awk '{ print ($1 + 0 >= 0.2) }')" = 1 ] \
+    || bad="$bad nothing shown: $took"
+  ! took=$("$sb" run -- "$sb" wait idle --timeout 0.1 2>&1) \
+    && [ "$took" = "shotbox: gave up after 0.1s: there weren't 3 rounds in a row in which every program with a window shown answered" ] \
+    || bad="$bad nothing shown, too short: $took"
   [ -z "$bad" ] \
     && ok "wait idle: a program busy on its main thread waited out, one busy too long named, by ping and the bus" \
     || { fail "wait idle:$bad"; tail -n 20 "$tmp"/idle.*; }

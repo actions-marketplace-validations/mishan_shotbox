@@ -151,7 +151,8 @@ X,Y in it, as openQA's `assert_and_click` does: for a canvas or a game,
 with no tree to click by. `shotbox wait idle
 [--window RE]` waits until each program with a window shown (or the one
 asked for) has answered just now, within 50 ms, three times in a row,
-at least 100 ms apart, which a program busy on its main thread can't. It
+at least 100 ms apart, which a program busy on its main thread can't
+(with none shown, it still looks three times). It
 asks each X window (X11's, or Xwayland's) by `_NET_WM_PING`, and with `--a11y` each
 GTK program on the accessibility bus too: other toolkits answer the bus
 from another thread (AccessKit's, Qt's) or aren't known to, so for them

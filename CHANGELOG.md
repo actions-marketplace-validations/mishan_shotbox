@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- `wait idle` passed after a single look that listed no window, so a busy
+  program whose window one listing missed (sway's, for an Xwayland window)
+  wasn't waited for. It now looks three rounds in a row, as for a program.
 - `a11y click` and `scroll` failed with `X error 3 (request 12.0)` when
   the window they'd picked closed before it was raised (a twin with the
   same title closing, say). The node is placed again and clicked in the

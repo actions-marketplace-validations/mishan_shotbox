@@ -1828,7 +1828,7 @@ def idle(window=None, timeout=30):
         pinger = None
     wait = pinger.read if pinger else lambda until: time.sleep(max(0, until - time.monotonic()))
     # Each program seen on the bus during the wait, by pid: its bus name.
-    streak, pids, sent, answered, seen = {}, {}, 0, {}, {}
+    streak, pids, sent, answered, seen, calm = {}, {}, 0, {}, {}, 0
 
     def on_bus(k):
         return k in seen and bus.trusted(seen[k]) is not False
@@ -1889,7 +1889,11 @@ def idle(window=None, timeout=30):
                and (k in heard if k in apps and on_bus(k) else pinged[k] or not on_bus(k))}
         answered.update(dict.fromkeys(now, time.monotonic()))
         streak = {k: streak.get(k, 0) + 1 if k in now else 0 for k in programs}
-        if all(n >= ROUNDS for n in streak.values()) and (programs or not window):
+        # Rounds in a row in which every program listed answered, counting a
+        # round that lists none: a listing can miss a window (sway's, an
+        # Xwayland one just shown).
+        calm = calm + 1 if now == set(programs) else 0
+        if calm >= ROUNDS and all(n >= ROUNDS for n in streak.values()) and (programs or not window):
             took = time.monotonic() - began
             sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
             for k, ws in programs.items():
@@ -1909,7 +1913,7 @@ def idle(window=None, timeout=30):
             return took
         if time.monotonic() - began > timeout:
             sys.stderr.writelines(f"shotbox: {why}\n" for why in untold.values())
-            if not programs:
+            if not programs and window:
                 raise SessionError(f"gave up waiting for a {x.matcher(window)[1]} after "
                                    f"{timeout:g}s" + screen.there(window))
             said = []
@@ -1923,7 +1927,10 @@ def idle(window=None, timeout=30):
                                    f" it last answered {time.monotonic() - answered[k]:.1f}s ago"
                                    if k in answered
                                    else f" didn't answer within {timeout:g}s"))
-            raise SessionError("; ".join(said))
+            # All listed now have answered: one since gone didn't, or the
+            # rounds listing none were too few.
+            raise SessionError("; ".join(said) or f"gave up after {timeout:g}s: there weren't {ROUNDS} "
+                               "rounds in a row in which every program with a window shown answered")
 
 
 # How long a node's bounds are to hold before it's taken as still: a few
