@@ -53,7 +53,7 @@ from .screen import _CANCEL, SessionError, mark_redacted, wheel
 from .session import Session, a11y_needs
 from .sound import describe
 from .speak import lines as spoken
-from .x import CONVERT, QUIET_PNG, VISION, box_of, ended, recording, sheet, stop
+from .x import CONVERT, QUIET_PNG, VISION, box_of, ended, font, recording, sheet, stop
 from .xtest import XError
 
 # Newest first: a client asking initialize for one of these gets it; any other, the newest.
@@ -601,7 +601,7 @@ class Server:
                   "windows are the same size and title)." if unplaced else "")
         if not legend:
             return unsaid or "No named node to label in it."
-        subprocess.run([*CONVERT, str(png), "-gravity", "NorthWest", "-pointsize", "12",
+        subprocess.run([*CONVERT, str(png), "-gravity", "NorthWest", *font(), "-pointsize", "12",
                         "-undercolor", "magenta", *draw, *QUIET_PNG, str(png)], check=True)
         wrong = sorted({v for n in nodes if not n.depth and (v := n.get("toolkit", ""))
                         .startswith("GTK 4.") and release(v[4:]) >= (4, 14)})

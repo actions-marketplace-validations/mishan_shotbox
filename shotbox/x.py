@@ -6,6 +6,7 @@ convert) rather than a Python X binding, so there's nothing to install.
 
 import ctypes
 import ctypes.util
+import functools
 import hashlib
 import json
 import os
@@ -145,6 +146,16 @@ def port_open(port, host="127.0.0.1", net_pid=None):
 
 # ImageMagick 7's name for what 6 calls convert, which 7 warns about.
 CONVERT = ["magick"] if shutil.which("magick") else ["convert"]
+
+
+@functools.cache
+def font():
+    """ImageMagick's `-font` for text it writes: 6 writes none where none of
+    the fonts its own lists name is installed, as on Ubuntu's runners, and
+    fontconfig has one."""
+    found = shutil.which("fc-match") and subprocess.run(["fc-match", "-f", "%{file}", "sans"],
+                                                         capture_output=True, text=True).stdout
+    return ["-font", found] if found else []
 
 # PNGs that come out the same byte for byte: no metadata, no timestamps.
 QUIET_PNG = ["-strip", "-define", "png:exclude-chunks=date,time"]
